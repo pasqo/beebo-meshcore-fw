@@ -1,0 +1,9 @@
+{
+  "MD013": false,
+  "MD033": {
+    "allowed_elements": ["a", "details", "summary"]
+  },
+  "MD036": false,
+  "MD051": false,
+  "MD060": false
+}
