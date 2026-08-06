@@ -962,6 +962,19 @@ private:
     PREFS_TLV_REPEATER_RXDELAY = 18,   // repeater's own rx_delay_base (offset 80) -- see Beebo.h's com_prefs.rx_delay_base comment
     PREFS_TLV_REPEATER_AIRTIME = 19,   // repeater's own airtime_factor (offset 0) -- see Beebo.h's com_prefs.airtime_factor comment
     PREFS_TLV_REPEATER_DEDUP_WINDOW = 20,  // repeater's own dedup_window_ms -- see BeeboRepeaterPrefs.h
+    // beebo: SETTINGS_TREE_CLEANUP.md Decision A pattern -- repeater's own
+    // independent copy of a field stock upstream only ever gave one shared
+    // NodePrefs-shaped copy of. com_prefs already has these bytes (same
+    // struct as _prefs, see PROTOCOL_AND_SETTINGS_STORAGE.md's "critical
+    // trap" section) -- no new storage, just a repeater-scoped accessor.
+    // Companion's own copy (_prefs.multi_acks/path_hash_mode, sensors.
+    // node_lat/node_lon) stays reachable exactly as before via the stock
+    // CMD_SET_OTHER_PARAMS/CMD_SET_PATH_HASH_MODE/CMD_SET_ADVERT_LATLON
+    // opcodes and stock CommonCLI text keys -- unrelated to these.
+    PREFS_TLV_REPEATER_MULTI_ACKS = 21,
+    PREFS_TLV_REPEATER_PATH_HASH_MODE = 22,
+    PREFS_TLV_REPEATER_LAT = 23,   // fixed-point *1e6 in an int32
+    PREFS_TLV_REPEATER_LON = 24,   // fixed-point *1e6 in an int32
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   struct PrefsTlvField {
@@ -1032,6 +1045,14 @@ private:
   static bool tlvSetRepeaterAirtimeFactor(Beebo* self, uint32_t raw);
   static uint32_t tlvGetRepeaterDedupWindow(Beebo* self);
   static bool tlvSetRepeaterDedupWindow(Beebo* self, uint32_t raw);
+  static uint32_t tlvGetRepeaterMultiAcks(Beebo* self);
+  static bool tlvSetRepeaterMultiAcks(Beebo* self, uint32_t raw);
+  static uint32_t tlvGetRepeaterPathHashMode(Beebo* self);
+  static bool tlvSetRepeaterPathHashMode(Beebo* self, uint32_t raw);
+  static uint32_t tlvGetRepeaterLat(Beebo* self);
+  static bool tlvSetRepeaterLat(Beebo* self, uint32_t raw);
+  static uint32_t tlvGetRepeaterLon(Beebo* self);
+  static bool tlvSetRepeaterLon(Beebo* self, uint32_t raw);
 
   // Encodes every field above into out (caller-sized) as [key][len][value]
   // triplets, returns bytes written. Decodes one triplet from in[pos..],
@@ -1087,6 +1108,20 @@ private:
   void ensureRepeaterStateLoaded();
   bool _repeater_state_loaded = false;
 #endif
+  // beebo: restores stock simple_repeater's own default-scope mechanism
+  // (MyMesh.cpp's begin()/onDefaultRegionChanged(), RegionMap's independent
+  // default_id, distinct from home_id/getHomeRegion()) instead of borrowing
+  // companion's _prefs.default_scope_key, the ad-hoc Phase 3 stand-in used
+  // before this. No cached TransportKey member (unlike stock's own
+  // default_scope field) -- computed fresh from region_map.getDefaultRegion()
+  // each call, only ever needed on a periodic flood-advert timer or an
+  // explicit advert action, not a per-packet hot path, so a live cache
+  // (and the onDefaultRegionChanged() invalidation it would need) isn't
+  // worth the complexity. Declared unconditionally (like region_map/
+  // com_prefs themselves) since sendFloodReply() -- always compiled,
+  // though only ever repeater-reachable at runtime -- calls it; body is
+  // internally #if-guarded, same pattern as the tlvGetRepeater* accessors.
+  void getRepeaterDefaultScope(TransportKey& out);
 
   // beebo: region of the flood packet currently being evaluated by
   // allowPacketForward(), set by filterRecvFloodPacket() just before Mesh's

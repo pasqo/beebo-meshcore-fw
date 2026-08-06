@@ -214,7 +214,11 @@ uint32_t Beebo::getDirectRetransmitDelay(const mesh::Packet *packet) {
 }
 
 uint8_t Beebo::getExtraAckTransmitCount() const {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  return _is_repeater ? com_prefs.multi_acks : _prefs.multi_acks;
+#else
   return _prefs.multi_acks;
+#endif
 }
 
 void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
@@ -696,13 +700,18 @@ void Beebo::logForwardDenyEvent(uint8_t event_type, const mesh::Packet* packet) 
 }
 
 void Beebo::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  uint8_t path_hash_mode = _is_repeater ? com_prefs.path_hash_mode : _prefs.path_hash_mode;
+#else
+  uint8_t path_hash_mode = _prefs.path_hash_mode;
+#endif
   if (scope.isNull()) {
-    sendFlood(pkt, delay_millis, _prefs.path_hash_mode + 1);
+    sendFlood(pkt, delay_millis, path_hash_mode + 1);
   } else {
     uint16_t codes[2];
     codes[0] = scope.calcTransportCode(pkt);
     codes[1] = 0;  // REVISIT: set to 'home' Region, for sender/return region?
-    sendFlood(pkt, codes, delay_millis, _prefs.path_hash_mode + 1);
+    sendFlood(pkt, codes, delay_millis, path_hash_mode + 1);
   }
 }
 
@@ -1884,6 +1893,86 @@ bool Beebo::tlvSetMonringConfig(Beebo* self, uint32_t raw) {
   return true;
 }
 
+// beebo: repeater's own independent multi_acks/path_hash_mode/lat/lon --
+// SETTINGS_TREE_CLEANUP.md Decision A pattern (see Beebo.h's PrefsTlvKey
+// comment). com_prefs already carries these bytes (same struct shape as
+// companion's _prefs, ComPrefs is #define NodePrefs ComPrefs) -- this is
+// "expose bytes the file format already has room for", not new storage.
+// Companion's own copy is untouched by these -- still reachable exactly as
+// before via stock CMD_SET_OTHER_PARAMS/CMD_SET_PATH_HASH_MODE/
+// CMD_SET_ADVERT_LATLON and stock CommonCLI text keys. Clamping mirrors
+// those stock entry points: multi_acks constrained 0/1 (CommonCLI.cpp's own
+// "multi.acks" setter does this too); path_hash_mode rejects >=3; lat/lon
+// reject out-of-range, same bounds as CMD_SET_ADVERT_LATLON.
+uint32_t Beebo::tlvGetRepeaterMultiAcks(Beebo* self) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  return self->com_prefs.multi_acks;
+#else
+  return 0;
+#endif
+}
+bool Beebo::tlvSetRepeaterMultiAcks(Beebo* self, uint32_t raw) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  self->com_prefs.multi_acks = (uint8_t)(raw ? 1 : 0);
+  self->_com_prefs_dirty = true;
+#endif
+  return true;
+}
+
+uint32_t Beebo::tlvGetRepeaterPathHashMode(Beebo* self) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  return self->com_prefs.path_hash_mode;
+#else
+  return 0;
+#endif
+}
+bool Beebo::tlvSetRepeaterPathHashMode(Beebo* self, uint32_t raw) {
+  if (raw >= 3) return false;
+#if BEEBO_ENABLE_REPEATER_ROLE
+  self->com_prefs.path_hash_mode = (uint8_t)raw;
+  self->_com_prefs_dirty = true;
+#endif
+  return true;
+}
+
+uint32_t Beebo::tlvGetRepeaterLat(Beebo* self) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  int32_t lat = (int32_t)(self->com_prefs.node_lat * 1000000.0);
+  uint32_t raw; memcpy(&raw, &lat, 4);
+  return raw;
+#else
+  return 0;
+#endif
+}
+bool Beebo::tlvSetRepeaterLat(Beebo* self, uint32_t raw) {
+  int32_t lat; memcpy(&lat, &raw, 4);
+  if (lat > 90 * 1000000 || lat < -90 * 1000000) return false;
+#if BEEBO_ENABLE_REPEATER_ROLE
+  self->com_prefs.node_lat = ((double)lat) / 1000000.0;
+  self->_com_prefs_dirty = true;
+#endif
+  return true;
+}
+
+uint32_t Beebo::tlvGetRepeaterLon(Beebo* self) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  int32_t lon = (int32_t)(self->com_prefs.node_lon * 1000000.0);
+  uint32_t raw; memcpy(&raw, &lon, 4);
+  return raw;
+#else
+  return 0;
+#endif
+}
+bool Beebo::tlvSetRepeaterLon(Beebo* self, uint32_t raw) {
+  int32_t lon; memcpy(&lon, &raw, 4);
+  if (lon > 180 * 1000000 || lon < -180 * 1000000) return false;
+#if BEEBO_ENABLE_REPEATER_ROLE
+  self->com_prefs.node_lon = ((double)lon) / 1000000.0;
+  self->_com_prefs_dirty = true;
+#endif
+  return true;
+}
+
 void Beebo::handleCmdFrame(size_t len) {
   if (cmd_frame[0] == CMD_DEVICE_QUERY && len >= 2) { // sent when app establishes connection
     app_target_ver = cmd_frame[1];                    // which version of protocol does app understand
@@ -1909,7 +1998,14 @@ void Beebo::handleCmdFrame(size_t len) {
     StrHelper::strzcpy((char *)&out_frame[i], FIRMWARE_VERSION, 20);
     i += 20;
     out_frame[i++] = _prefs.client_repeat;   // v9+
+    // beebo: live-role-aware, same rationale as CMD_APP_START's self-info
+    // reply below (name/adv_type/pubkey) -- this describes whichever role
+    // is live right now, not always the companion persona.
+#if BEEBO_ENABLE_REPEATER_ROLE
+    out_frame[i++] = _is_repeater ? com_prefs.path_hash_mode : _prefs.path_hash_mode;  // v10+
+#else
     out_frame[i++] = _prefs.path_hash_mode;  // v10+
+#endif
     { // v14+ wifi_rssi (int16, little-endian; INT16_MIN sentinel when unavailable)
       int16_t wifi_rssi = INT16_MIN;
 #if defined(ESP32)
@@ -1938,14 +2034,27 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&out_frame[i], self_id.pub_key, PUB_KEY_SIZE);
     i += PUB_KEY_SIZE;
 
+    // beebo: live-role-aware, same rationale as adv_type/pubkey/name above
+    // -- self_info always describes whichever role is live right now.
     int32_t lat, lon;
-    lat = (sensors.node_lat * 1000000.0);
-    lon = (sensors.node_lon * 1000000.0);
+    uint8_t multi_acks;
+#if BEEBO_ENABLE_REPEATER_ROLE
+    if (_is_repeater) {
+      lat = (com_prefs.node_lat * 1000000.0);
+      lon = (com_prefs.node_lon * 1000000.0);
+      multi_acks = com_prefs.multi_acks;
+    } else
+#endif
+    {
+      lat = (sensors.node_lat * 1000000.0);
+      lon = (sensors.node_lon * 1000000.0);
+      multi_acks = _prefs.multi_acks;
+    }
     memcpy(&out_frame[i], &lat, 4);
     i += 4;
     memcpy(&out_frame[i], &lon, 4);
     i += 4;
-    out_frame[i++] = _prefs.multi_acks; // new v7+
+    out_frame[i++] = multi_acks; // new v7+
     out_frame[i++] = _prefs.advert_loc_policy;
     out_frame[i++] = (_prefs.telemetry_mode_env << 4) | (_prefs.telemetry_mode_loc << 2) |
                      (_prefs.telemetry_mode_base); // v5+
@@ -3429,6 +3538,55 @@ void Beebo::handleCmdFrame(size_t len) {
     tlvSetRepeaterAirtimeFactor(this, raw);
     flushDirtyPrefs();
     writeOKFrame();
+  } else if (sub[0] == BEEBO_CMD_GET_REPEATER_MULTI_ACKS) {
+    out_frame[0] = RESP_CODE_OK;
+    uint32_t value = tlvGetRepeaterMultiAcks(this);
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_REPEATER_MULTI_ACKS && sub_len >= 2) {
+    tlvSetRepeaterMultiAcks(this, sub[1]);
+    flushDirtyPrefs();
+    writeOKFrame();
+  } else if (sub[0] == BEEBO_CMD_GET_REPEATER_PATH_HASH_MODE) {
+    out_frame[0] = RESP_CODE_OK;
+    uint32_t value = tlvGetRepeaterPathHashMode(this);
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_REPEATER_PATH_HASH_MODE && sub_len >= 2) {
+    if (!tlvSetRepeaterPathHashMode(this, sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_REPEATER_LAT) {
+    out_frame[0] = RESP_CODE_OK;
+    uint32_t value = tlvGetRepeaterLat(this);
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_REPEATER_LAT && sub_len >= 5) {
+    uint32_t raw;
+    memcpy(&raw, &sub[1], 4);
+    if (!tlvSetRepeaterLat(this, raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_REPEATER_LON) {
+    out_frame[0] = RESP_CODE_OK;
+    uint32_t value = tlvGetRepeaterLon(this);
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_REPEATER_LON && sub_len >= 5) {
+    uint32_t raw;
+    memcpy(&raw, &sub[1], 4);
+    if (!tlvSetRepeaterLon(this, raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
   } else if (sub[0] == BEEBO_CMD_GET_ACK_STATS) {
     // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- "TX reception confirmation".
     // Lifetime counts, RAM-only (BaseChatMesh's own _ack_success_count/
@@ -3733,6 +3891,53 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_NOT_FOUND);
       } else {
         region_map.setHomeRegion(entry);
+        region_map.save(_store->getPrimaryFS(), "/beebo_regions");
+        writeOKFrame();
+      }
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_REGION_DEFAULT) {
+    // beebo: restores stock simple_repeater's own default-scope mechanism
+    // (RegionMap's independent default_id/getDefaultRegion(), distinct from
+    // home_id above) -- see getRepeaterDefaultScope()'s own comment.
+#if BEEBO_ENABLE_REPEATER_ROLE
+    ensureRepeaterStateLoaded();
+#endif
+    out_frame[0] = RESP_CODE_BEEBO;
+    out_frame[1] = BEEBO_RESP_REGION_DEFAULT;
+    RegionEntry* def = region_map.getDefaultRegion();
+    const char* name = def ? def->name : "";
+    if (*name == '#') name++;   // RegionMap.cpp's skip_hash() convention (file-static, reimplemented here)
+    int name_len = strlen(name);
+    if (name_len > 0) memcpy(&out_frame[2], name, name_len);
+    _serial->writeFrame(out_frame, 2 + name_len);
+  } else if (sub[0] == BEEBO_CMD_SET_REGION_DEFAULT) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+    ensureRepeaterStateLoaded();
+#endif
+    if (sub_len <= 1) {
+      // empty payload -- clear the default region, mirroring SET_REGION_HOME's
+      // own empty-payload convention (CommonCLI's text-CLI 'region default'
+      // with no argument is get-only, same asymmetry as 'region home').
+      region_map.setDefaultRegion(NULL);
+      region_map.save(_store->getPrimaryFS(), "/beebo_regions");
+      writeOKFrame();
+    } else {
+      char name[32];
+      size_t name_len = min((size_t)sub_len - 1, sizeof(name) - 1);
+      memcpy(name, &sub[1], name_len);
+      name[name_len] = 0;
+      // beebo: unlike SET_REGION_HOME, auto-creates -- matches CommonCLI.cpp's
+      // real "region default <name>" handler exactly (handleRegionCmd's own
+      // putRegion() fallback), not SET_REGION_HOME's stricter ERR_CODE_NOT_FOUND.
+      RegionEntry* entry = region_map.findByName(name);
+      if (entry == NULL) {
+        entry = region_map.putRegion(name, 0);  // auto-create under wildcard root
+        if (entry) entry->flags = 0;  // allow-flood
+      }
+      if (entry == NULL) {
+        writeErrFrame(ERR_CODE_TABLE_FULL);
+      } else {
+        region_map.setDefaultRegion(entry);
         region_map.save(_store->getPrimaryFS(), "/beebo_regions");
         writeOKFrame();
       }
@@ -5206,15 +5411,20 @@ bool Beebo::hasPendingWork() const {
 }
 
 void Beebo::sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, uint8_t path_hash_size) {
-  // beebo: unlike simple_repeater's sendFloodReply (which preserves the
-  // *request* packet's incoming RF-region scope via recv_pkt_region -- a
-  // tracking mechanism companion doesn't have and this port doesn't add),
-  // this reuses companion's own existing default-scope mechanism, matching
-  // how companion's other flood sends (e.g. sendFloodScoped(ContactInfo&))
-  // already resolve a scope. path_hash_size is unused here: companion's
-  // sendFloodScoped always sizes hashes from _prefs.path_hash_mode.
+  // beebo: only ever called from repeater-role admin-request/ACL code
+  // (BeeboRepeater.cpp, Beebo.cpp's onPeerDataRecv() inside its
+  // `if (_is_repeater)` block) -- restored to repeater's own RegionMap
+  // default region (getRepeaterDefaultScope()), matching stock
+  // simple_repeater's own default_scope more closely than the earlier
+  // borrow-companion's-field stand-in did. Unlike stock's sendFloodReply,
+  // still doesn't preserve the *request* packet's incoming RF-region scope
+  // via recv_pkt_region -- a tracking mechanism this port doesn't add.
+  // path_hash_size is unused here: the TransportKey overload of
+  // sendFloodScoped always sizes hashes from the live role's own
+  // path_hash_mode (com_prefs's for repeater, _prefs's for companion --
+  // see its own definition).
   TransportKey default_scope;
-  memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+  getRepeaterDefaultScope(default_scope);
   auto scope = send_scope.isNull() ? &default_scope : &send_scope;
   sendFloodScoped(*scope, packet, delay_millis);
 }
@@ -5464,7 +5674,14 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     mesh::Packet* pkt = createSelfAdvertPacket();
     if (pkt) {
       TransportKey default_scope;
-      memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+#if BEEBO_ENABLE_REPEATER_ROLE
+      if (_is_repeater) {
+        getRepeaterDefaultScope(default_scope);
+      } else
+#endif
+      {
+        memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+      }
       sendFloodScoped(default_scope, pkt, 1500);  // longer delay, give CLI response time to be sent first (matches CommonCLI)
       strcpy(reply, "OK - Advert sent");
     } else {
@@ -5529,9 +5746,19 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %s", StrHelper::ftoa(_prefs.airtime_factor));
 #endif
     } else if (memcmp(key, "multi.acks", 10) == 0) {
+      // beebo: SETTINGS_TREE_CLEANUP.md Decision A -- repeater's own
+      // independent value, same pattern as "af"/"rxdelay" above.
+#if BEEBO_ENABLE_REPEATER_ROLE
+      sprintf(reply, "> %d", (uint32_t)(_is_repeater ? com_prefs.multi_acks : _prefs.multi_acks));
+#else
       sprintf(reply, "> %d", (uint32_t)_prefs.multi_acks);
+#endif
     } else if (memcmp(key, "path.hash.mode", 14) == 0) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+      sprintf(reply, "> %d", (uint32_t)(_is_repeater ? com_prefs.path_hash_mode : _prefs.path_hash_mode));
+#else
       sprintf(reply, "> %d", (uint32_t)_prefs.path_hash_mode);
+#endif
     } else if (memcmp(key, "public.key", 10) == 0) {
       strcpy(reply, "> ");
       mesh::Utils::toHex(&reply[2], self_id.pub_key, PUB_KEY_SIZE);
@@ -5554,9 +5781,17 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "freq", 4) == 0) {
       sprintf(reply, "> %s", StrHelper::ftoa(_prefs.freq));
     } else if (memcmp(key, "lat", 3) == 0) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lat : sensors.node_lat));
+#else
       sprintf(reply, "> %s", StrHelper::ftoa(sensors.node_lat));
+#endif
     } else if (memcmp(key, "lon", 3) == 0) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lon : sensors.node_lon));
+#else
       sprintf(reply, "> %s", StrHelper::ftoa(sensors.node_lon));
+#endif
     } else if (memcmp(key, "wifi.ssid", 9) == 0) {
       sprintf(reply, "> %s", _beebo_companion.wifi_ssid);
     } else if (memcmp(key, "wifi.pwd", 8) == 0) {
@@ -5779,15 +6014,62 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       }
       strcpy(reply, "OK");
     } else if (memcmp(key, "multi.acks ", 11) == 0) {
-      _prefs.multi_acks = (uint8_t)constrain(atoi(&key[11]), 0, 1);
-      savePrefs();
+      // beebo: SETTINGS_TREE_CLEANUP.md Decision A -- repeater's own
+      // independent value, mirroring "af"/"rxdelay"'s get-side branch above.
+      uint8_t v = (uint8_t)constrain(atoi(&key[11]), 0, 1);
+#if BEEBO_ENABLE_REPEATER_ROLE
+      if (_is_repeater) { com_prefs.multi_acks = v; _com_prefs_dirty = true; flushDirtyPrefs(); }
+      else
+#endif
+      { _prefs.multi_acks = v; savePrefs(); }
+#if BEEBO_ENABLE_REPEATER_ROLE
+      sprintf(reply, "> %d", (uint32_t)(_is_repeater ? com_prefs.multi_acks : _prefs.multi_acks));
+#else
       sprintf(reply, "> %d", (uint32_t)_prefs.multi_acks);
+#endif
     } else if (memcmp(key, "path.hash.mode ", 15) == 0) {
       int v = atoi(&key[15]);
       if (v < 0 || v > 2) { strcpy(reply, "ERR: must be 0, 1, or 2"); return; }
-      _prefs.path_hash_mode = (uint8_t)v;
-      savePrefs();
+#if BEEBO_ENABLE_REPEATER_ROLE
+      if (_is_repeater) { com_prefs.path_hash_mode = (uint8_t)v; _com_prefs_dirty = true; flushDirtyPrefs(); }
+      else
+#endif
+      { _prefs.path_hash_mode = (uint8_t)v; savePrefs(); }
+#if BEEBO_ENABLE_REPEATER_ROLE
+      sprintf(reply, "> %d", (uint32_t)(_is_repeater ? com_prefs.path_hash_mode : _prefs.path_hash_mode));
+#else
       sprintf(reply, "> %d", (uint32_t)_prefs.path_hash_mode);
+#endif
+    } else if (memcmp(key, "lat ", 4) == 0) {
+      // beebo: fixes the "set lat has no interceptor" gap flagged in
+      // kbase/PROTOCOL_AND_SETTINGS_STORAGE.md's "critical trap" section --
+      // without this, "set lat" fell through to real cli.handleCommand()
+      // (repeater sessions only), writing com_prefs.node_lat while every
+      // read path (including "get lat" above) reads sensors.node_lat,
+      // silently diverging. Now symmetric with the get-side branch above.
+      double v = atof(&key[4]);
+#if BEEBO_ENABLE_REPEATER_ROLE
+      if (_is_repeater) { com_prefs.node_lat = v; _com_prefs_dirty = true; flushDirtyPrefs(); }
+      else
+#endif
+      { sensors.node_lat = v; savePrefs(); }
+#if BEEBO_ENABLE_REPEATER_ROLE
+      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lat : sensors.node_lat));
+#else
+      sprintf(reply, "> %s", StrHelper::ftoa(sensors.node_lat));
+#endif
+    } else if (memcmp(key, "lon ", 4) == 0) {
+      double v = atof(&key[4]);
+#if BEEBO_ENABLE_REPEATER_ROLE
+      if (_is_repeater) { com_prefs.node_lon = v; _com_prefs_dirty = true; flushDirtyPrefs(); }
+      else
+#endif
+      { sensors.node_lon = v; savePrefs(); }
+#if BEEBO_ENABLE_REPEATER_ROLE
+      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lon : sensors.node_lon));
+#else
+      sprintf(reply, "> %s", StrHelper::ftoa(sensors.node_lon));
+#endif
     } else if (memcmp(key, "wifi.ssid ", 10) == 0) {
       StrHelper::strncpy(_beebo_companion.wifi_ssid, &key[10], sizeof(_beebo_companion.wifi_ssid));
       savePrefs();

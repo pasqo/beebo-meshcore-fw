@@ -44,7 +44,7 @@ void Beebo::loopRepeater(bool skip_radio) {
     mesh::Packet* pkt = createSelfAdvertPacket();
     if (pkt) {
       TransportKey default_scope;
-      memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+      getRepeaterDefaultScope(default_scope);
       sendFloodScoped(default_scope, pkt, 0);
     }
     updateFloodAdvertTimer(); // schedule next flood advert
@@ -102,6 +102,29 @@ void Beebo::ensureRepeaterStateLoaded() {
       region_map.save(fs, "/beebo_regions");
     }
   }
+  // beebo: restores stock simple_repeater's own default-scope seeding
+  // (MyMesh.cpp's begin(), verbatim logic) -- multi_role's repeater role
+  // never ran this, leaving RegionMap's own default_id/getDefaultRegion()
+  // persisted-but-never-consumed (the field CommonCLI's real "region
+  // default"/SET_REGION_DEFAULT already write) while flood-scoping instead
+  // borrowed companion's _prefs.default_scope_key as an ad-hoc stand-in.
+  // Auto-creates DEFAULT_FLOOD_SCOPE_NAME (same macro companion's own
+  // Beebo::begin() seeding already uses) only if no default region exists
+  // yet at all -- an operator who already set one via 'region default'/
+  // repeater.region.default keeps it untouched.
+  if (region_map.getDefaultRegion() == NULL) {
+#ifdef DEFAULT_FLOOD_SCOPE_NAME
+    RegionEntry* r = region_map.findByName(DEFAULT_FLOOD_SCOPE_NAME);
+    if (r == NULL) {
+      r = region_map.putRegion(DEFAULT_FLOOD_SCOPE_NAME, 0);  // auto-create the default scope region
+      if (r) { r->flags = 0; }   // Allow-flood
+    }
+    if (r) {
+      region_map.setDefaultRegion(r);
+      region_map.save(_store->getPrimaryFS(), "/beebo_regions");
+    }
+#endif
+  }
   // beebo: SETTINGS_ISOLATION -- ComPrefs now folds into /beebo_repeater
   // (raw blob, see DataStore::loadBeeboRepeaterPrefs) instead of living in
   // its own /com_prefs, shared with stock simple_repeater. Only a true
@@ -135,7 +158,25 @@ void Beebo::ensureRepeaterStateLoaded() {
   updateFloodAdvertTimer();
   _repeater_state_loaded = true;
 }
+
 #endif // BEEBO_ENABLE_REPEATER_ROLE
+
+// beebo: mirrors stock simple_repeater's begin()/onDefaultRegionChanged()
+// combined -- compute fresh each call instead of caching, see Beebo.h's
+// own comment on this method for why. Declared/defined unconditionally
+// (region_map itself always exists, like com_prefs) since sendFloodReply()
+// (Beebo.cpp, always compiled) calls it even though it's only ever
+// reachable at runtime from repeater-role code.
+void Beebo::getRepeaterDefaultScope(TransportKey& out) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  RegionEntry* r = region_map.getDefaultRegion();
+  if (r) {
+    region_map.getTransportKeysFor(*r, &out, 1);
+    return;
+  }
+#endif
+  memset(out.key, 0, sizeof(out.key));
+}
 
 // beebo: found in the multi_role event-loop review -- entirely absent
 // before. Ported from simple_repeater's own updateAdvertTimer()/
@@ -509,6 +550,10 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_REPEATER_RXDELAY,       TLV_FLOAT,  tlvGetRepeaterRxDelayBase,   tlvSetRepeaterRxDelayBase,   nullptr, nullptr },
   { PREFS_TLV_REPEATER_AIRTIME,       TLV_FLOAT,  tlvGetRepeaterAirtimeFactor, tlvSetRepeaterAirtimeFactor, nullptr, nullptr },
   { PREFS_TLV_REPEATER_DEDUP_WINDOW,  TLV_U32,    tlvGetRepeaterDedupWindow,   tlvSetRepeaterDedupWindow,   nullptr, nullptr },
+  { PREFS_TLV_REPEATER_MULTI_ACKS,     TLV_U32,    tlvGetRepeaterMultiAcks,     tlvSetRepeaterMultiAcks,     nullptr, nullptr },
+  { PREFS_TLV_REPEATER_PATH_HASH_MODE, TLV_U32,    tlvGetRepeaterPathHashMode,  tlvSetRepeaterPathHashMode,  nullptr, nullptr },
+  { PREFS_TLV_REPEATER_LAT,            TLV_U32,    tlvGetRepeaterLat,           tlvSetRepeaterLat,           nullptr, nullptr },
+  { PREFS_TLV_REPEATER_LON,            TLV_U32,    tlvGetRepeaterLon,           tlvSetRepeaterLon,           nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 
@@ -608,17 +653,17 @@ void Beebo::saveIdentity(const mesh::LocalIdentity& new_id) {
   }
 }
 
-// beebo: matches CommonCLI.cpp's own bare "advert" (flood, via the shared
-// default_scope key) / zero-hop semantics exactly -- see the "advert"/
-// "advert.zerohop" text handlers in Beebo.cpp's handleCommand(), which this
-// callback is otherwise unreachable behind (both keys are handled in that
-// chain before ever falling through to cli.handleCommand()).
+// beebo: matches CommonCLI.cpp's own bare "advert" (flood, via repeater's
+// own RegionMap default region) / zero-hop semantics exactly -- see the
+// "advert"/"advert.zerohop" text handlers in Beebo.cpp's handleCommand(),
+// which this callback is otherwise unreachable behind (both keys are
+// handled in that chain before ever falling through to cli.handleCommand()).
 void Beebo::sendSelfAdvertisement(int delay_millis, bool flood) {
   mesh::Packet* pkt = createSelfAdvertPacket();
   if (!pkt) return;
   if (flood) {
     TransportKey default_scope;
-    memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+    getRepeaterDefaultScope(default_scope);
     sendFloodScoped(default_scope, pkt, delay_millis);
   } else {
     sendZeroHop(pkt, delay_millis);
