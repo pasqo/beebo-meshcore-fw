@@ -1053,6 +1053,8 @@ private:
   static bool tlvSetRepeaterLat(Beebo* self, uint32_t raw);
   static uint32_t tlvGetRepeaterLon(Beebo* self);
   static bool tlvSetRepeaterLon(Beebo* self, uint32_t raw);
+  static uint32_t tlvGetRepeaterAdvLocPolicy(Beebo* self);
+  static bool tlvSetRepeaterAdvLocPolicy(Beebo* self, uint32_t raw);
 
   // Encodes every field above into out (caller-sized) as [key][len][value]
   // triplets, returns bytes written. Decodes one triplet from in[pos..],

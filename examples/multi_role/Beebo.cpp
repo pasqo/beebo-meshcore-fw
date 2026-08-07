@@ -1973,6 +1973,30 @@ bool Beebo::tlvSetRepeaterLon(Beebo* self, uint32_t raw) {
   return true;
 }
 
+// beebo: repeater's own independent advert_loc_policy -- same
+// SETTINGS_TREE_CLEANUP.md Decision A pattern as multi_acks/path_hash_mode
+// above (com_prefs already carries this byte, same struct shape as
+// companion's _prefs). Companion's own copy is untouched -- still reachable
+// via stock CMD_SET_OTHER_PARAMS. Clamping mirrors CommonCLI.cpp's own
+// "gps advert" setter (0-2), which is compiled out on beebo since
+// ENV_INCLUDE_GPS=0 -- this opcode is the repeater role's only reachable
+// way to view/change it.
+uint32_t Beebo::tlvGetRepeaterAdvLocPolicy(Beebo* self) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  return self->com_prefs.advert_loc_policy;
+#else
+  return 0;
+#endif
+}
+bool Beebo::tlvSetRepeaterAdvLocPolicy(Beebo* self, uint32_t raw) {
+  if (raw >= 3) return false;
+#if BEEBO_ENABLE_REPEATER_ROLE
+  self->com_prefs.advert_loc_policy = (uint8_t)raw;
+  self->_com_prefs_dirty = true;
+#endif
+  return true;
+}
+
 void Beebo::handleCmdFrame(size_t len) {
   if (cmd_frame[0] == CMD_DEVICE_QUERY && len >= 2) { // sent when app establishes connection
     app_target_ver = cmd_frame[1];                    // which version of protocol does app understand
@@ -2037,25 +2061,27 @@ void Beebo::handleCmdFrame(size_t len) {
     // beebo: live-role-aware, same rationale as adv_type/pubkey/name above
     // -- self_info always describes whichever role is live right now.
     int32_t lat, lon;
-    uint8_t multi_acks;
+    uint8_t multi_acks, advert_loc_policy;
 #if BEEBO_ENABLE_REPEATER_ROLE
     if (_is_repeater) {
       lat = (com_prefs.node_lat * 1000000.0);
       lon = (com_prefs.node_lon * 1000000.0);
       multi_acks = com_prefs.multi_acks;
+      advert_loc_policy = com_prefs.advert_loc_policy;
     } else
 #endif
     {
       lat = (sensors.node_lat * 1000000.0);
       lon = (sensors.node_lon * 1000000.0);
       multi_acks = _prefs.multi_acks;
+      advert_loc_policy = _prefs.advert_loc_policy;
     }
     memcpy(&out_frame[i], &lat, 4);
     i += 4;
     memcpy(&out_frame[i], &lon, 4);
     i += 4;
     out_frame[i++] = multi_acks; // new v7+
-    out_frame[i++] = _prefs.advert_loc_policy;
+    out_frame[i++] = advert_loc_policy;
     out_frame[i++] = (_prefs.telemetry_mode_env << 4) | (_prefs.telemetry_mode_loc << 2) |
                      (_prefs.telemetry_mode_base); // v5+
     out_frame[i++] = _prefs.manual_add_contacts;
@@ -2280,12 +2306,13 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
   } else if (cmd_frame[0] == CMD_SEND_SELF_ADVERT) {
-    mesh::Packet* pkt;
-    if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
-      pkt = createSelfAdvert(_prefs.node_name);
-    } else {
-      pkt = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
-    }
+    // beebo: unlike CMD_EXPORT_CONTACT/etc above, this opcode was never in
+    // the repeater-refusal list, so it's reachable while repeater is live
+    // -- but it built a companion-identity advert (_prefs.node_name/
+    // sensors.node_lat/lon) unconditionally, same bug createSelfAdvertPacket()
+    // had before its own role-aware fix. Reuse that (now-correct) helper
+    // instead of re-duplicating the role branch here.
+    mesh::Packet* pkt = createSelfAdvertPacket();
     if (pkt) {
       if (len >= 2 && cmd_frame[1] == 1) { // optional param (1 = flood, 0 = zero hop)
         unsigned long delay_millis = 0;
@@ -3587,6 +3614,18 @@ void Beebo::handleCmdFrame(size_t len) {
       flushDirtyPrefs();
       writeOKFrame();
     }
+  } else if (sub[0] == BEEBO_CMD_GET_REPEATER_ADV_LOC_POLICY) {
+    out_frame[0] = RESP_CODE_OK;
+    uint32_t value = tlvGetRepeaterAdvLocPolicy(this);
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_REPEATER_ADV_LOC_POLICY && sub_len >= 2) {
+    if (!tlvSetRepeaterAdvLocPolicy(this, sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
   } else if (sub[0] == BEEBO_CMD_GET_COMPANION_MULTI_ACKS) {
     // beebo: GET-side counterpart to CMD_SET_OTHER_PARAMS -- that SET
     // always writes _prefs.multi_acks unconditionally, but the only GET
@@ -3617,6 +3656,13 @@ void Beebo::handleCmdFrame(size_t len) {
     // beebo: see BEEBO_CMD_GET_COMPANION_LAT above.
     out_frame[0] = RESP_CODE_OK;
     int32_t value = (int32_t)(sensors.node_lon * 1000000.0);
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_GET_COMPANION_ADV_LOC_POLICY) {
+    // beebo: see BEEBO_CMD_GET_COMPANION_MULTI_ACKS above -- same gap,
+    // GET-side counterpart to CMD_SET_OTHER_PARAMS's advert_loc_policy byte.
+    out_frame[0] = RESP_CODE_OK;
+    uint32_t value = _prefs.advert_loc_policy;
     memcpy(&out_frame[1], &value, 4);
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_GET_ACK_STATS) {
@@ -5384,12 +5430,18 @@ mesh::Packet* Beebo::createSelfAdvertPacket() {
 #if BEEBO_ENABLE_REPEATER_ROLE
   bool use_repeater_type = (_beebo_companion.node_role == NODE_ROLE_REPEATER);
   const char* name = use_repeater_type ? getRepeaterName() : _prefs.node_name;
-  if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
+  // beebo: role-aware, same rationale as the self_info reply above -- each
+  // role's own advert_loc_policy/coords, not the shared companion _prefs
+  // ones bleeding into a live repeater's own advert.
+  uint8_t loc_policy = use_repeater_type ? com_prefs.advert_loc_policy : _prefs.advert_loc_policy;
+  double lat = use_repeater_type ? com_prefs.node_lat : sensors.node_lat;
+  double lon = use_repeater_type ? com_prefs.node_lon : sensors.node_lon;
+  if (loc_policy == ADVERT_LOC_NONE) {
     return use_repeater_type ? createRepeaterSelfAdvert(name)
                               : createSelfAdvert(name);
   }
-  return use_repeater_type ? createRepeaterSelfAdvert(name, sensors.node_lat, sensors.node_lon)
-                            : createSelfAdvert(name, sensors.node_lat, sensors.node_lon);
+  return use_repeater_type ? createRepeaterSelfAdvert(name, lat, lon)
+                            : createSelfAdvert(name, lat, lon);
 #else
   // beebo: STATIC_ROLE_BUILDS -- no repeater-type advert without repeater
   // support; _beebo_companion.node_role can never be NODE_ROLE_REPEATER here (see
