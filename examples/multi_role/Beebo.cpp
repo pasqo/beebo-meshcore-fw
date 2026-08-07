@@ -3587,6 +3587,38 @@ void Beebo::handleCmdFrame(size_t len) {
       flushDirtyPrefs();
       writeOKFrame();
     }
+  } else if (sub[0] == BEEBO_CMD_GET_COMPANION_MULTI_ACKS) {
+    // beebo: GET-side counterpart to CMD_SET_OTHER_PARAMS -- that SET
+    // always writes _prefs.multi_acks unconditionally, but the only GET
+    // was RESP_CODE_SELF_INFO's own multi_acks field, which swaps to
+    // com_prefs.multi_acks whenever repeater is live (see CMD_APP_START's
+    // self-info reply above). companion.multi_acks (prefs.py) needs an
+    // always-companion GET the same way companion.name needed GET_ROLE_NAME.
+    out_frame[0] = RESP_CODE_OK;
+    uint32_t value = _prefs.multi_acks;
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_GET_COMPANION_PATH_HASH_MODE) {
+    // beebo: see BEEBO_CMD_GET_COMPANION_MULTI_ACKS above -- same gap,
+    // GET-side counterpart to CMD_SET_PATH_HASH_MODE.
+    out_frame[0] = RESP_CODE_OK;
+    uint32_t value = _prefs.path_hash_mode;
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_GET_COMPANION_LAT) {
+    // beebo: see BEEBO_CMD_GET_COMPANION_MULTI_ACKS above -- GET-side
+    // counterpart to CMD_SET_ADVERT_LATLON's lat half. Same degrees*1e6
+    // fixed-point int32 encoding as BEEBO_CMD_GET_REPEATER_LAT.
+    out_frame[0] = RESP_CODE_OK;
+    int32_t value = (int32_t)(sensors.node_lat * 1000000.0);
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_GET_COMPANION_LON) {
+    // beebo: see BEEBO_CMD_GET_COMPANION_LAT above.
+    out_frame[0] = RESP_CODE_OK;
+    int32_t value = (int32_t)(sensors.node_lon * 1000000.0);
+    memcpy(&out_frame[1], &value, 4);
+    _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_GET_ACK_STATS) {
     // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- "TX reception confirmation".
     // Lifetime counts, RAM-only (BaseChatMesh's own _ack_success_count/
