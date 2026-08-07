@@ -2060,6 +2060,11 @@ void Beebo::handleCmdFrame(size_t len) {
 
     // beebo: live-role-aware, same rationale as adv_type/pubkey/name above
     // -- self_info always describes whichever role is live right now.
+    // beebo: lat/lon here is the role's own PREFS-mode coordinate (what
+    // CMD_SET_ADVERT_LATLON/"set lat"/"lon" write, what companion.coords/
+    // repeater.coords report), not the shared SHARE-mode sensors.node_lat/
+    // lon -- matches CMD_SET_ADVERT_LATLON's own field now (see that
+    // handler's comment).
     int32_t lat, lon;
     uint8_t multi_acks, advert_loc_policy;
 #if BEEBO_ENABLE_REPEATER_ROLE
@@ -2071,8 +2076,8 @@ void Beebo::handleCmdFrame(size_t len) {
     } else
 #endif
     {
-      lat = (sensors.node_lat * 1000000.0);
-      lon = (sensors.node_lon * 1000000.0);
+      lat = (_beebo_companion.node_lat * 1000000.0);
+      lon = (_beebo_companion.node_lon * 1000000.0);
       multi_acks = _prefs.multi_acks;
       advert_loc_policy = _prefs.advert_loc_policy;
     }
@@ -2275,6 +2280,13 @@ void Beebo::handleCmdFrame(size_t len) {
     savePrefs();
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_SET_ADVERT_LATLON && len >= 9) {
+    // beebo: writes _beebo_companion.node_lat/lon (companion's own PREFS-mode
+    // coordinate), not the shared sensors.node_lat/lon SHARE register --
+    // same "always the companion role's own value, regardless of which
+    // role is currently live" contract as CMD_SET_OTHER_PARAMS/
+    // CMD_SET_PATH_HASH_MODE above. sensors.node_lat/lon is reserved for a
+    // real live GPS reading (SHARE mode); this stock opcode is how apps
+    // set a fixed/preferred location (PREFS mode) in its absence.
     int32_t lat, lon, alt = 0;
     memcpy(&lat, &cmd_frame[1], 4);
     memcpy(&lon, &cmd_frame[5], 4);
@@ -2282,8 +2294,8 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&alt, &cmd_frame[9], 4); // for FUTURE support
     }
     if (lat <= 90 * 1E6 && lat >= -90 * 1E6 && lon <= 180 * 1E6 && lon >= -180 * 1E6) {
-      sensors.node_lat = ((double)lat) / 1000000.0;
-      sensors.node_lon = ((double)lon) / 1000000.0;
+      _beebo_companion.node_lat = ((double)lat) / 1000000.0;
+      _beebo_companion.node_lon = ((double)lon) / 1000000.0;
       savePrefs();
       writeOKFrame();
     } else {
@@ -2390,13 +2402,11 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (cmd_frame[0] == CMD_EXPORT_CONTACT) {
     if (len < 1 + PUB_KEY_SIZE) {
-      // export SELF
-      mesh::Packet* pkt;
-      if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
-        pkt = createSelfAdvert(_prefs.node_name);
-      } else {
-        pkt = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
-      }
+      // export SELF -- companion-only reachable (CMD_EXPORT_CONTACT is in
+      // the repeater-refusal list above), so createSelfAdvertPacket()'s
+      // companion branch is always what runs here; reused instead of
+      // duplicating its NONE/SHARE/PREFS branch inline.
+      mesh::Packet* pkt = createSelfAdvertPacket();
       if (pkt) {
         pkt->header |= ROUTE_TYPE_FLOOD; // would normally be sent in this mode
 
@@ -3646,16 +3656,18 @@ void Beebo::handleCmdFrame(size_t len) {
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_GET_COMPANION_LAT) {
     // beebo: see BEEBO_CMD_GET_COMPANION_MULTI_ACKS above -- GET-side
-    // counterpart to CMD_SET_ADVERT_LATLON's lat half. Same degrees*1e6
-    // fixed-point int32 encoding as BEEBO_CMD_GET_REPEATER_LAT.
+    // counterpart to CMD_SET_ADVERT_LATLON's lat half (_beebo_companion.node_lat,
+    // companion's own PREFS-mode coordinate, not the shared
+    // sensors.node_lat SHARE register -- see that handler's comment). Same
+    // degrees*1e6 fixed-point int32 encoding as BEEBO_CMD_GET_REPEATER_LAT.
     out_frame[0] = RESP_CODE_OK;
-    int32_t value = (int32_t)(sensors.node_lat * 1000000.0);
+    int32_t value = (int32_t)(_beebo_companion.node_lat * 1000000.0);
     memcpy(&out_frame[1], &value, 4);
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_GET_COMPANION_LON) {
     // beebo: see BEEBO_CMD_GET_COMPANION_LAT above.
     out_frame[0] = RESP_CODE_OK;
-    int32_t value = (int32_t)(sensors.node_lon * 1000000.0);
+    int32_t value = (int32_t)(_beebo_companion.node_lon * 1000000.0);
     memcpy(&out_frame[1], &value, 4);
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_GET_COMPANION_ADV_LOC_POLICY) {
@@ -5432,25 +5444,41 @@ mesh::Packet* Beebo::createSelfAdvertPacket() {
   const char* name = use_repeater_type ? getRepeaterName() : _prefs.node_name;
   // beebo: role-aware, same rationale as the self_info reply above -- each
   // role's own advert_loc_policy/coords, not the shared companion _prefs
-  // ones bleeding into a live repeater's own advert.
+  // ones bleeding into a live repeater's own advert. A real 3-way branch
+  // now, matching upstream simple_repeater's CommonCLI::buildAdvertData()
+  // (NONE/SHARE/PREFS are genuinely different sources there, unlike
+  // companion_radio's own advert() which only ever checked NONE): SHARE
+  // reads the single shared/live sensors.node_lat/lon register (no GPS
+  // compiled into beebo -- ENV_INCLUDE_GPS=0 -- so this stays exactly
+  // 0,0 until a real GPS driver exists; deliberately NOT seeded from
+  // either role's own PREFS value, so a bare "share" without GPS is
+  // obviously wrong rather than silently acting like "prefs"), PREFS
+  // reads the live role's own persisted coordinate (com_prefs.node_lat/lon
+  // for repeater, _beebo_companion.node_lat/lon for companion -- the same field
+  // CMD_SET_ADVERT_LATLON/BEEBO_CMD_SET_COMPANION_LAT/LON now write).
   uint8_t loc_policy = use_repeater_type ? com_prefs.advert_loc_policy : _prefs.advert_loc_policy;
-  double lat = use_repeater_type ? com_prefs.node_lat : sensors.node_lat;
-  double lon = use_repeater_type ? com_prefs.node_lon : sensors.node_lon;
   if (loc_policy == ADVERT_LOC_NONE) {
     return use_repeater_type ? createRepeaterSelfAdvert(name)
                               : createSelfAdvert(name);
+  } else if (loc_policy == ADVERT_LOC_SHARE) {
+    return use_repeater_type ? createRepeaterSelfAdvert(name, sensors.node_lat, sensors.node_lon)
+                              : createSelfAdvert(name, sensors.node_lat, sensors.node_lon);
   }
+  double lat = use_repeater_type ? com_prefs.node_lat : _beebo_companion.node_lat;
+  double lon = use_repeater_type ? com_prefs.node_lon : _beebo_companion.node_lon;
   return use_repeater_type ? createRepeaterSelfAdvert(name, lat, lon)
                             : createSelfAdvert(name, lat, lon);
 #else
   // beebo: STATIC_ROLE_BUILDS -- no repeater-type advert without repeater
   // support; _beebo_companion.node_role can never be NODE_ROLE_REPEATER here (see
-  // isNodeRoleBuiltIn()).
+  // isNodeRoleBuiltIn()). Same NONE/SHARE/PREFS 3-way as above, companion-only.
   const char* name = _prefs.node_name;
   if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
     return createSelfAdvert(name);
+  } else if (_prefs.advert_loc_policy == ADVERT_LOC_SHARE) {
+    return createSelfAdvert(name, sensors.node_lat, sensors.node_lon);
   }
-  return createSelfAdvert(name, sensors.node_lat, sensors.node_lon);
+  return createSelfAdvert(name, _beebo_companion.node_lat, _beebo_companion.node_lon);
 #endif
 }
 
@@ -5865,16 +5893,20 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "freq", 4) == 0) {
       sprintf(reply, "> %s", StrHelper::ftoa(_prefs.freq));
     } else if (memcmp(key, "lat", 3) == 0) {
+      // beebo: role's own PREFS-mode coordinate (_beebo_companion.node_lat for
+      // companion, com_prefs.node_lat for repeater), not the shared
+      // sensors.node_lat SHARE register -- see CMD_SET_ADVERT_LATLON's
+      // comment.
 #if BEEBO_ENABLE_REPEATER_ROLE
-      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lat : sensors.node_lat));
+      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lat : _beebo_companion.node_lat));
 #else
-      sprintf(reply, "> %s", StrHelper::ftoa(sensors.node_lat));
+      sprintf(reply, "> %s", StrHelper::ftoa(_beebo_companion.node_lat));
 #endif
     } else if (memcmp(key, "lon", 3) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lon : sensors.node_lon));
+      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lon : _beebo_companion.node_lon));
 #else
-      sprintf(reply, "> %s", StrHelper::ftoa(sensors.node_lon));
+      sprintf(reply, "> %s", StrHelper::ftoa(_beebo_companion.node_lon));
 #endif
     } else if (memcmp(key, "wifi.ssid", 9) == 0) {
       sprintf(reply, "> %s", _beebo_companion.wifi_ssid);
@@ -6129,18 +6161,21 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       // kbase/PROTOCOL_AND_SETTINGS_STORAGE.md's "critical trap" section --
       // without this, "set lat" fell through to real cli.handleCommand()
       // (repeater sessions only), writing com_prefs.node_lat while every
-      // read path (including "get lat" above) reads sensors.node_lat,
+      // read path (including "get lat" above) reads _beebo_companion.node_lat,
       // silently diverging. Now symmetric with the get-side branch above.
+      // Writes the role's own PREFS-mode coordinate, not the shared
+      // sensors.node_lat SHARE register -- see CMD_SET_ADVERT_LATLON's
+      // comment.
       double v = atof(&key[4]);
 #if BEEBO_ENABLE_REPEATER_ROLE
       if (_is_repeater) { com_prefs.node_lat = v; _com_prefs_dirty = true; flushDirtyPrefs(); }
       else
 #endif
-      { sensors.node_lat = v; savePrefs(); }
+      { _beebo_companion.node_lat = v; savePrefs(); }
 #if BEEBO_ENABLE_REPEATER_ROLE
-      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lat : sensors.node_lat));
+      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lat : _beebo_companion.node_lat));
 #else
-      sprintf(reply, "> %s", StrHelper::ftoa(sensors.node_lat));
+      sprintf(reply, "> %s", StrHelper::ftoa(_beebo_companion.node_lat));
 #endif
     } else if (memcmp(key, "lon ", 4) == 0) {
       double v = atof(&key[4]);
@@ -6148,11 +6183,11 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       if (_is_repeater) { com_prefs.node_lon = v; _com_prefs_dirty = true; flushDirtyPrefs(); }
       else
 #endif
-      { sensors.node_lon = v; savePrefs(); }
+      { _beebo_companion.node_lon = v; savePrefs(); }
 #if BEEBO_ENABLE_REPEATER_ROLE
-      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lon : sensors.node_lon));
+      sprintf(reply, "> %s", StrHelper::ftoa(_is_repeater ? com_prefs.node_lon : _beebo_companion.node_lon));
 #else
-      sprintf(reply, "> %s", StrHelper::ftoa(sensors.node_lon));
+      sprintf(reply, "> %s", StrHelper::ftoa(_beebo_companion.node_lon));
 #endif
     } else if (memcmp(key, "wifi.ssid ", 10) == 0) {
       StrHelper::strncpy(_beebo_companion.wifi_ssid, &key[10], sizeof(_beebo_companion.wifi_ssid));

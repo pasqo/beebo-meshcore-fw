@@ -212,6 +212,18 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboCompanionPrefs& _prefs, NodePrefs& 
         // ends right after owner_password, with no board_name blob at all.
         if (file.available() >= (int)sizeof(_prefs.board_name)) {
           file.read((uint8_t *)_prefs.board_name, sizeof(_prefs.board_name));
+          // next: node_lat/node_lon folded in from here -- same tail-hazard
+          // as owner_password/board_name above: a file saved before these
+          // fields existed ends right after board_name, with no coords
+          // blob at all. Companion's own PREFS-mode advert_loc_policy
+          // coordinate (see BeeboCompanionPrefs.h's own comment) -- distinct
+          // from the node_lat/node_lon pair read earlier in this same
+          // function (that one is the SHARE-mode sensors.node_lat/lon
+          // register, an unrelated field).
+          if (file.available() >= (int)(sizeof(_prefs.node_lat) + sizeof(_prefs.node_lon))) {
+            file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
+            file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
+          }
         }
       }
     }
@@ -270,6 +282,8 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboCompanionPrefs& _prefs, const
     file.write((uint8_t *)node.default_scope_key, sizeof(node.default_scope_key));
     file.write((uint8_t *)_prefs.owner_password, sizeof(_prefs.owner_password));
     file.write((uint8_t *)_prefs.board_name, sizeof(_prefs.board_name));
+    file.write((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
+    file.write((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
 
     file.close();
   }
