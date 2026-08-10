@@ -1197,6 +1197,18 @@ private:
   static bool tlvSetRepeaterLon(Beebo* self, uint32_t raw);
   static uint32_t tlvGetRepeaterAdvLocPolicy(Beebo* self);
   static bool tlvSetRepeaterAdvLocPolicy(Beebo* self, uint32_t raw);
+  // beebo: companion's own write-side counterparts, closing the mirror-
+  // image gap documented in BUGS.md ('companion.* write gap') -- see
+  // their definitions (Beebo.cpp, just above handleCmdFrame()) for the
+  // full rationale.
+  static bool tlvSetCompanionName(Beebo* self, const uint8_t* in, size_t len);
+  static bool tlvSetCompanionLat(Beebo* self, uint32_t raw);
+  static bool tlvSetCompanionLon(Beebo* self, uint32_t raw);
+  static bool tlvSetCompanionMultiAcks(Beebo* self, uint32_t raw);
+  static bool tlvSetCompanionPathHashMode(Beebo* self, uint32_t raw);
+  static bool tlvSetCompanionAdvLocPolicy(Beebo* self, uint32_t raw);
+  static bool tlvSetCompanionManualAddContacts(Beebo* self, uint32_t raw);
+  static bool tlvSetCompanionAutoaddConfig(Beebo* self, uint32_t raw);
 
   // Encodes every field above into out (caller-sized) as [key][len][value]
   // triplets, returns bytes written. Decodes one triplet from in[pos..],

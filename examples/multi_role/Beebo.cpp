@@ -2269,6 +2269,78 @@ bool Beebo::tlvSetRepeaterAdvLocPolicy(Beebo* self, uint32_t raw) {
   return true;
 }
 
+// beebo: companion's own write-side counterparts to tlvGetRepeater*/
+// BEEBO_CMD_GET_COMPANION_* above -- fixes the mirror-image write gap
+// documented in BUGS.md ('companion.* writes issued while repeater is the
+// live role corrupt repeater's own slot'). CMD_SET_OTHER_PARAMS/
+// CMD_SET_PATH_HASH_MODE/CMD_SET_ADVERT_LATLON/CMD_SET_DEVICE_NAME keep
+// their existing always-live-role-targeting semantics (real legacy-app
+// compatibility requirement -- see CLAUDE.md's Backward compatibility
+// section); these new opcodes are the role-explicit alternative
+// companion.* (prefs.py) now calls instead. Same clamping as the stock
+// entry points they mirror. Unlike the repeater tlvSet* above, companion's
+// BeeboCompanionPrefs is compiled into every build (role-agnostic struct,
+// same as owner_password/board_name) -- no BEEBO_ENABLE_COMPANION_ROLE
+// guard needed, only the runtime isNodeRoleBuiltIn() check callers already
+// apply (Cluster G audit, same as BEEBO_CMD_GET_COMPANION_* handlers).
+bool Beebo::tlvSetCompanionName(Beebo* self, const uint8_t* in, size_t len) {
+  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+  size_t nlen = len;
+  if (nlen > sizeof(slot.prefs.node_name) - 1) nlen = sizeof(slot.prefs.node_name) - 1;
+  memcpy(slot.prefs.node_name, in, nlen);
+  slot.prefs.node_name[nlen] = 0;
+  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  return true;
+}
+bool Beebo::tlvSetCompanionLat(Beebo* self, uint32_t raw) {
+  int32_t lat; memcpy(&lat, &raw, 4);
+  if (lat > 90 * 1000000 || lat < -90 * 1000000) return false;
+  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+  slot.prefs.node_lat = ((double)lat) / 1000000.0;
+  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  return true;
+}
+bool Beebo::tlvSetCompanionLon(Beebo* self, uint32_t raw) {
+  int32_t lon; memcpy(&lon, &raw, 4);
+  if (lon > 180 * 1000000 || lon < -180 * 1000000) return false;
+  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+  slot.prefs.node_lon = ((double)lon) / 1000000.0;
+  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  return true;
+}
+bool Beebo::tlvSetCompanionMultiAcks(Beebo* self, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+  slot.prefs.multi_acks = (uint8_t)(raw ? 1 : 0);
+  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  return true;
+}
+bool Beebo::tlvSetCompanionPathHashMode(Beebo* self, uint32_t raw) {
+  if (raw >= 3) return false;
+  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+  slot.prefs.path_hash_mode = (uint8_t)raw;
+  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  return true;
+}
+bool Beebo::tlvSetCompanionAdvLocPolicy(Beebo* self, uint32_t raw) {
+  if (raw >= 3) return false;
+  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+  slot.prefs.advert_loc_policy = (uint8_t)raw;
+  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  return true;
+}
+bool Beebo::tlvSetCompanionManualAddContacts(Beebo* self, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+  slot.prefs.manual_add_contacts = (uint8_t)(raw ? 1 : 0);
+  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  return true;
+}
+bool Beebo::tlvSetCompanionAutoaddConfig(Beebo* self, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+  slot.prefs.autoadd_config = (uint8_t)raw;
+  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  return true;
+}
+
 void Beebo::handleCmdFrame(size_t len) {
   if (cmd_frame[0] == CMD_DEVICE_QUERY && len >= 2) { // sent when app establishes connection
     app_target_ver = cmd_frame[1];                    // which version of protocol does app understand
@@ -4073,6 +4145,70 @@ void Beebo::handleCmdFrame(size_t len) {
       uint32_t value = role_state_store[NODE_ROLE_COMPANION].prefs.advert_loc_policy;
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_NAME && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) ||
+        !tlvSetCompanionName(this, &sub[1], (size_t)sub_len - 1)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_LAT && sub_len >= 5) {
+    uint32_t raw; memcpy(&raw, &sub[1], 4);
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetCompanionLat(this, raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_LON && sub_len >= 5) {
+    uint32_t raw; memcpy(&raw, &sub[1], 4);
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetCompanionLon(this, raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_MULTI_ACKS && sub_len >= 5) {
+    uint32_t raw; memcpy(&raw, &sub[1], 4);
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetCompanionMultiAcks(this, raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_PATH_HASH_MODE && sub_len >= 5) {
+    uint32_t raw; memcpy(&raw, &sub[1], 4);
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetCompanionPathHashMode(this, raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_ADV_LOC_POLICY && sub_len >= 5) {
+    uint32_t raw; memcpy(&raw, &sub[1], 4);
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetCompanionAdvLocPolicy(this, raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_MANUAL_ADD_CONTACTS && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) ||
+        !tlvSetCompanionManualAddContacts(this, sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_AUTOADD_CONFIG && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) ||
+        !tlvSetCompanionAutoaddConfig(this, sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
     }
   } else if (sub[0] == BEEBO_CMD_GET_ACK_STATS) {
     // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- "TX reception confirmation".
