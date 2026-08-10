@@ -298,9 +298,9 @@
 #define MAX_SIGN_DATA_LEN               (8 * 1024) // 8K
 
 // Auto-add config bitmask
-// Bit 0: If set, overwrite oldest non-favourite contact when contacts file is full
+// Bit 0: If set, overwrite oldest non-favorite contact when contacts file is full
 // Bits 1-4: these indicate which contact types to auto-add when manual_contact_mode = 0x01
-#define AUTO_ADD_OVERWRITE_OLDEST (1 << 0)  // 0x01 - overwrite oldest non-favourite when full
+#define AUTO_ADD_OVERWRITE_OLDEST (1 << 0)  // 0x01 - overwrite oldest non-favorite when full
 #define AUTO_ADD_CHAT             (1 << 1)  // 0x02 - auto-add Chat (Companion) (ADV_TYPE_CHAT)
 #define AUTO_ADD_REPEATER         (1 << 2)  // 0x04 - auto-add Repeater (ADV_TYPE_REPEATER)
 #define AUTO_ADD_ROOM_SERVER      (1 << 3)  // 0x08 - auto-add Room Server (ADV_TYPE_ROOM)
@@ -778,7 +778,7 @@ private:
   // hysteresis assumes deltas measured over that period, not over however
   // often the app happens to poll.
   uint16_t updateBattTrend(bool force_read = false);
-  void clampRadioPrefs();  // beebo: sanitise radio-affecting prefs (shared by begin/reloadPrefs)
+  void clampRadioPrefs();  // beebo: sanitize radio-affecting prefs (shared by begin/reloadPrefs)
   void applyRadioPrefs();  // beebo: push radio-affecting prefs into radio driver + board FEM
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);
@@ -989,32 +989,18 @@ private:
   // as simple_repeater's (max 4 every 3 minutes).
   RateLimiter anon_limiter{4, 180};
 #endif
-  // beebo: repeater-role's own persisted name, distinct from the companion
-  // name -- ComPrefs.node_name (/com_prefs), loaded/saved via
-  // cli.loadPrefs()/cli.savePrefs() like every other ComPrefs field. Empty
-  // (all-zero, e.g. a device that never set it) just means "not
-  // customized" -- no fallback to the companion name (removed: with each
-  // role now eagerly resident in its own role_state_store[] slot, a
-  // fallback here just adds ambiguity nothing needs -- callers that want
-  // "the companion name" already have _role_state->prefs.node_name for
-  // that).
-  //
-  // beebo: bug fix -- must read role_state_store[NODE_ROLE_REPEATER]
-  // directly, NOT _role_state (the *currently live* role's slot). Before
-  // the per-role-slot refactor there was only one shared node_name field,
-  // so reading _role_state here coincidentally always meant "repeater's
-  // own name" (repeater was always live wherever this ran). Now that each
-  // role has its own resident slot, this silently returned whichever
-  // role's slot happened to be live -- e.g. GET_ROLE_NAME(REPEATER),
-  // called while companion is live, returned companion's own name instead
-  // of repeater's, even though GET_ROLE_NAME's entire point is to be
-  // live-role-independent (see BEEBO_CMD_GET_ROLE_NAME's own comment).
-  const char* getRepeaterName() const {
-#if BEEBO_ENABLE_REPEATER_ROLE
-    return role_state_store[NODE_ROLE_REPEATER].prefs.node_name;
-#else
-    return "";
-#endif
+  // beebo: a given role's own persisted name, regardless of which role is
+  // currently live -- reads role_state_store[role].prefs.node_name
+  // directly, never _role_state (the *live* role's slot). BeeboPrefs is
+  // always resident for both NODE_ROLE_COMPANION/NODE_ROLE_REPEATER slots
+  // (BeeboRoleState.h; only acl/key_store/region_map are gated behind
+  // BEEBO_ENABLE_REPEATER_ROLE), so this needs no such guard either.
+  // companion.name/repeater.name settings leaves, GET_ROLE_NAME, and the
+  // role-aware self_info/advert branches all read a target role's name
+  // through here instead of _role_state, so the result doesn't depend on
+  // which role happened to be live when they ran.
+  const char* getRoleName(uint8_t role) const {
+    return role_state_store[role].prefs.node_name;
   }
   void writeDirtyPrefs();   // write every dirty store now, ignoring policy (see savePrefs)
 

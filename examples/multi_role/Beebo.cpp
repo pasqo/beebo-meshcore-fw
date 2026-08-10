@@ -2449,7 +2449,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // the dedicated GET_ROLE_NAME opcode instead -- self_info is only ever
     // meant to describe "whichever role is live right now", matching its
     // type/pubkey fields.
-    const char* name = _is_repeater ? getRepeaterName() : _role_state->prefs.node_name;
+    const char* name = _is_repeater ? getRoleName(NODE_ROLE_REPEATER) : _role_state->prefs.node_name;
     int tlen = strlen(name); // revisit: UTF_8 ??
     memcpy(&out_frame[i], name, tlen);
     i += tlen;
@@ -5312,12 +5312,11 @@ void Beebo::handleCmdFrame(size_t len) {
     if (role != NODE_ROLE_COMPANION && role != NODE_ROLE_REPEATER) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
-      // beebo: bug fix -- read that role's own resident slot directly,
-      // never _role_state (the *live* role's slot) or getRepeaterName()
-      // (same live-slot bug, see its own comment in Beebo.h) -- this
-      // opcode's entire purpose is to be correct regardless of which role
-      // is live, matching GET_ROLE_PUBLIC_KEY's pattern just above.
-      const char* name = role_state_store[role].prefs.node_name;
+      // beebo: this opcode's entire purpose is to be correct regardless of
+      // which role is live, matching GET_ROLE_PUBLIC_KEY's pattern just
+      // above -- so it reads through getRoleName(role), never _role_state
+      // (the *live* role's slot).
+      const char* name = getRoleName(role);
       out_frame[0] = RESP_CODE_BEEBO;
       out_frame[1] = BEEBO_RESP_ROLE_NAME;
       int nlen = strlen(name);
@@ -6069,7 +6068,7 @@ void Beebo::loopTransports() {
 mesh::Packet* Beebo::createSelfAdvertPacket() {
 #if BEEBO_ENABLE_REPEATER_ROLE
   bool use_repeater_type = (_board.role == NODE_ROLE_REPEATER);
-  const char* name = use_repeater_type ? getRepeaterName() : _role_state->prefs.node_name;
+  const char* name = use_repeater_type ? getRoleName(NODE_ROLE_REPEATER) : _role_state->prefs.node_name;
   // beebo: role-aware, same rationale as the self_info reply above -- each
   // role's own advert_loc_policy/coords, not the shared companion _role_state->prefs
   // ones bleeding into a live repeater's own advert. A real 3-way branch
@@ -6458,7 +6457,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     if (memcmp(key, "name", 4) == 0) {  // meshcli's own flat name, kept as-is for real back-compat
       sprintf(reply, "> %s", _role_state->prefs.node_name);
     } else if (memcmp(key, "repeater.name", 13) == 0) {
-      sprintf(reply, "> %s", getRepeaterName());
+      sprintf(reply, "> %s", getRoleName(NODE_ROLE_REPEATER));
     } else if (memcmp(key, "node.role", 9) == 0) {
       sprintf(reply, "> %s", _is_repeater ? "repeater" : "companion");
     } else if (memcmp(key, "role", 4) == 0) {  // meshcli's own read-only key, same value as node.role
@@ -6666,11 +6665,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       if (isValidName(&key[5])) {
         StrHelper::strncpy(_role_state->prefs.node_name, &key[5], sizeof(_role_state->prefs.node_name));
         // beebo: SETTINGS_REFACTOR.md Cluster B pattern -- node_name is the
-        // live role's own persisted name (getRepeaterName() falls back to
-        // this same field), reachable via this role-agnostic text-CLI
-        // entry point while repeater is live -- distinct from
+        // live role's own persisted name, reachable via this role-agnostic
+        // text-CLI entry point while repeater is live -- distinct from
         // "repeater.name " below, which always targets repeater
-        // explicitly regardless of which role is live.
+        // explicitly regardless of which role is live (see getRoleName()).
         savePrefs();
         strcpy(reply, "OK");
       } else {
