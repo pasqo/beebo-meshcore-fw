@@ -4274,13 +4274,16 @@ void Beebo::handleCmdFrame(size_t len) {
     // repeater's own role_state_store[] slot has actually been loaded from
     // /beebo_repeater even if this device booted straight into companion
     // role and never switched into repeater this session -- this is a
-    // direct write into that resident slot, not a write-then-later-loaded
-    // race, so there's no clobbering hazard the way there used to be under
-    // the old lazy-load model.
-    size_t pw_len = min((size_t)sub_len - 1, sizeof(_role_state->prefs.password) - 1);
-    memcpy(_role_state->prefs.password, &sub[1], pw_len);
-    _role_state->prefs.password[pw_len] = 0;
-    _role_state->prefs.dirty = true;
+    // direct write into that resident slot (role_state_store[NODE_ROLE_
+    // REPEATER], NOT _role_state -- fixed 2026-08-10, see this file's
+    // BeeboRepeater.cpp comment on the same bug class), not a
+    // write-then-later-loaded race, so there's no clobbering hazard the
+    // way there used to be under the old lazy-load model.
+    BeeboRoleState& pw_slot = role_state_store[NODE_ROLE_REPEATER];
+    size_t pw_len = min((size_t)sub_len - 1, sizeof(pw_slot.prefs.password) - 1);
+    memcpy(pw_slot.prefs.password, &sub[1], pw_len);
+    pw_slot.prefs.password[pw_len] = 0;
+    persistRoleSlot(this, NODE_ROLE_REPEATER, pw_slot);
     flushDirtyPrefs();
     writeOKFrame();
 #else
@@ -4288,10 +4291,11 @@ void Beebo::handleCmdFrame(size_t len) {
 #endif
   } else if (sub[0] == BEEBO_CMD_SET_GUEST_PASSWORD) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-    size_t pw_len = min((size_t)sub_len - 1, sizeof(_role_state->prefs.guest_password) - 1);
-    memcpy(_role_state->prefs.guest_password, &sub[1], pw_len);
-    _role_state->prefs.guest_password[pw_len] = 0;
-    _role_state->prefs.dirty = true;
+    BeeboRoleState& gp_slot = role_state_store[NODE_ROLE_REPEATER];
+    size_t pw_len = min((size_t)sub_len - 1, sizeof(gp_slot.prefs.guest_password) - 1);
+    memcpy(gp_slot.prefs.guest_password, &sub[1], pw_len);
+    gp_slot.prefs.guest_password[pw_len] = 0;
+    persistRoleSlot(this, NODE_ROLE_REPEATER, gp_slot);
     flushDirtyPrefs();
     writeOKFrame();
 #else
@@ -4300,7 +4304,7 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_GET_REPEATER_PASSWORD_SET) {
 #if BEEBO_ENABLE_REPEATER_ROLE
     out_frame[0] = RESP_CODE_OK;
-    uint32_t value = strcmp(_role_state->prefs.password, ADMIN_PASSWORD) != 0 ? 1 : 0;
+    uint32_t value = strcmp(role_state_store[NODE_ROLE_REPEATER].prefs.password, ADMIN_PASSWORD) != 0 ? 1 : 0;
     memcpy(&out_frame[1], &value, 4);
     _serial->writeFrame(out_frame, 5);
 #else
@@ -5246,16 +5250,24 @@ void Beebo::handleCmdFrame(size_t len) {
       out_frame[0] = RESP_CODE_BEEBO;
       out_frame[1] = BEEBO_RESP_ROLE_SECRETS;
 #if BEEBO_ENABLE_REPEATER_ROLE
-      size_t gp_len = strlen(_role_state->prefs.guest_password);
-      memcpy(&out_frame[j], _role_state->prefs.guest_password, gp_len); j += gp_len;
+      // beebo: repeater's own guest_password/password always come from its
+      // own resident slot (role_state_store[NODE_ROLE_REPEATER]), NOT
+      // _role_state (whichever role is currently live) -- fixed
+      // 2026-08-10, same bug class as the SET_REPEATER_PASSWORD/
+      // SET_GUEST_PASSWORD handlers above. wifi_pwd below is intentionally
+      // still _role_state->prefs -- it's a companion-shared NodePrefs
+      // field, not repeater-specific.
+      const BeeboRoleState& rp_slot = role_state_store[NODE_ROLE_REPEATER];
+      size_t gp_len = strlen(rp_slot.prefs.guest_password);
+      memcpy(&out_frame[j], rp_slot.prefs.guest_password, gp_len); j += gp_len;
 #endif
       out_frame[j++] = 0;
       size_t wp_len = strlen(_role_state->prefs.wifi_pwd);
       memcpy(&out_frame[j], _role_state->prefs.wifi_pwd, wp_len); j += wp_len;
       out_frame[j++] = 0;
 #if BEEBO_ENABLE_REPEATER_ROLE
-      size_t rp_len = strlen(_role_state->prefs.password);
-      memcpy(&out_frame[j], _role_state->prefs.password, rp_len); j += rp_len;
+      size_t rp_len = strlen(rp_slot.prefs.password);
+      memcpy(&out_frame[j], rp_slot.prefs.password, rp_len); j += rp_len;
 #endif
       _serial->writeFrame(out_frame, j);
     }
