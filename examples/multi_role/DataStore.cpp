@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include "Beebo.h"
 #include "DataStore.h"
 
 DataStore::DataStore(FILESYSTEM& fs, mesh::RTCClock& clock)
@@ -79,7 +80,7 @@ bool DataStore::migrateLegacyIdentity(uint8_t role, mesh::LocalIdentity &identit
 // unlike upstream's own /node_prefs -> /new_prefs migration (which does
 // both), this is a one-time read into beebo's own /beebo_companion, and
 // stock's files must survive a future reflash back to stock untouched.
-void DataStore::loadLegacyNodePrefs(NodePrefs& prefs, double& node_lat, double& node_lon) {
+void DataStore::loadLegacyNodePrefs(BeeboPrefs& prefs, double& node_lat, double& node_lon) {
   if (_fs->exists("/new_prefs")) {
     loadPrefsInt("/new_prefs", prefs, node_lat, node_lon);
   } else if (_fs->exists("/node_prefs")) {
@@ -87,7 +88,7 @@ void DataStore::loadLegacyNodePrefs(NodePrefs& prefs, double& node_lat, double& 
   }
 }
 
-void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& node_lat, double& node_lon) {
+void DataStore::loadPrefsInt(const char *filename, BeeboPrefs& _prefs, double& node_lat, double& node_lon) {
   File file = openRead(_fs, filename);
   if (file) {
     uint8_t pad[8];
@@ -146,7 +147,7 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
 // gatto's WiFi in a past migration attempt (COMMONCLI_TEXT_DISPATCH.md).
 // file.available() after the known old-format fields is what actually
 // distinguishes old-format from new-format, with no version byte needed.
-bool DataStore::loadBeeboCompanionPrefs(BeeboCompanionPrefs& _prefs, NodePrefs& node, double& node_lat, double& node_lon) {
+bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _board, double& node_lat, double& node_lon) {
   bool has_node_prefs = false;
   File file = openRead(_fs, "/beebo_companion");
   if (file) {
@@ -164,62 +165,63 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboCompanionPrefs& _prefs, NodePrefs& 
     file.read((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs)); // 141
     file.read((uint8_t *)&_prefs.batt_charged_mv, sizeof(_prefs.batt_charged_mv));                 // 143
     file.read((uint8_t *)&_prefs.idle_margin_ms, sizeof(_prefs.idle_margin_ms));                   // 145
-    file.read((uint8_t *)&_prefs.node_role, sizeof(_prefs.node_role));                             // 147
+    file.read((uint8_t *)&_board.role, sizeof(_board.role));                                       // 147 -- was node_role
     file.read((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));                 // 148
-    // next: 152 -- NodePrefs folded in from here, own layout independent
-    // of both stock's /new_prefs byte layout and CommonCLI.h's repeater
-    // NodePrefs -- only this function and saveBeeboCompanionPrefs() below
-    // need to agree on it. Only present in a post-fold-in file -- an
-    // old-format /beebo_companion ends right here.
+    // next: 152 -- NodePrefs (now BeeboPrefs's 14 SharedPrefs + 11 distilled
+    // fields) folded in from here, own layout independent of both stock's
+    // /new_prefs byte layout and CommonCLI.h's repeater NodePrefs -- only
+    // this function and saveBeeboCompanionPrefs() below need to agree on
+    // it. Only present in a post-fold-in file -- an old-format
+    // /beebo_companion ends right here.
     has_node_prefs = file.available() > 0;
     if (has_node_prefs) {
-      file.read((uint8_t *)&node.airtime_factor, sizeof(node.airtime_factor));
-      file.read((uint8_t *)node.node_name, sizeof(node.node_name));
+      file.read((uint8_t *)&_prefs.airtime_factor, sizeof(_prefs.airtime_factor));
+      file.read((uint8_t *)_prefs.node_name, sizeof(_prefs.node_name));
       file.read((uint8_t *)&node_lat, sizeof(node_lat));
       file.read((uint8_t *)&node_lon, sizeof(node_lon));
-      file.read((uint8_t *)&node.freq, sizeof(node.freq));
-      file.read((uint8_t *)&node.sf, sizeof(node.sf));
-      file.read((uint8_t *)&node.cr, sizeof(node.cr));
-      file.read((uint8_t *)&node.multi_acks, sizeof(node.multi_acks));
-      file.read((uint8_t *)&node.manual_add_contacts, sizeof(node.manual_add_contacts));
-      file.read((uint8_t *)&node.bw, sizeof(node.bw));
-      file.read((uint8_t *)&node.tx_power_dbm, sizeof(node.tx_power_dbm));
-      file.read((uint8_t *)&node.telemetry_mode_base, sizeof(node.telemetry_mode_base));
-      file.read((uint8_t *)&node.telemetry_mode_loc, sizeof(node.telemetry_mode_loc));
-      file.read((uint8_t *)&node.telemetry_mode_env, sizeof(node.telemetry_mode_env));
-      file.read((uint8_t *)&node.rx_delay_base, sizeof(node.rx_delay_base));
-      file.read((uint8_t *)&node.ble_pin, sizeof(node.ble_pin));
-      file.read((uint8_t *)&node.advert_loc_policy, sizeof(node.advert_loc_policy));
-      file.read((uint8_t *)&node.buzzer_quiet, sizeof(node.buzzer_quiet));
-      file.read((uint8_t *)&node.gps_enabled, sizeof(node.gps_enabled));
-      file.read((uint8_t *)&node.gps_interval, sizeof(node.gps_interval));
-      file.read((uint8_t *)&node.autoadd_config, sizeof(node.autoadd_config));
-      file.read((uint8_t *)&node.rx_boosted_gain, sizeof(node.rx_boosted_gain));
-      file.read((uint8_t *)&node.client_repeat, sizeof(node.client_repeat));
-      file.read((uint8_t *)&node.path_hash_mode, sizeof(node.path_hash_mode));
-      file.read((uint8_t *)&node.autoadd_max_hops, sizeof(node.autoadd_max_hops));
-      file.read((uint8_t *)node.default_scope_name, sizeof(node.default_scope_name));
-      file.read((uint8_t *)node.default_scope_key, sizeof(node.default_scope_key));
-      // next: owner_password folded in from here -- only present in a
-      // post-owner-password-field file (SETTINGS_ISOLATION follow-up), same
-      // has_node_prefs-style hazard as the NodePrefs fold-in above: an
-      // already-migrated file from before this field existed ends right
-      // after default_scope_key, with no owner_password blob at all.
-      if (file.available() >= (int)sizeof(_prefs.owner_password)) {
-        file.read((uint8_t *)_prefs.owner_password, sizeof(_prefs.owner_password));
+      file.read((uint8_t *)&_prefs.freq, sizeof(_prefs.freq));
+      file.read((uint8_t *)&_prefs.sf, sizeof(_prefs.sf));
+      file.read((uint8_t *)&_prefs.cr, sizeof(_prefs.cr));
+      file.read((uint8_t *)&_prefs.multi_acks, sizeof(_prefs.multi_acks));
+      file.read((uint8_t *)&_prefs.manual_add_contacts, sizeof(_prefs.manual_add_contacts));
+      file.read((uint8_t *)&_prefs.bw, sizeof(_prefs.bw));
+      file.read((uint8_t *)&_prefs.tx_power_dbm, sizeof(_prefs.tx_power_dbm));
+      file.read((uint8_t *)&_prefs.telemetry_mode_base, sizeof(_prefs.telemetry_mode_base));
+      file.read((uint8_t *)&_prefs.telemetry_mode_loc, sizeof(_prefs.telemetry_mode_loc));
+      file.read((uint8_t *)&_prefs.telemetry_mode_env, sizeof(_prefs.telemetry_mode_env));
+      file.read((uint8_t *)&_prefs.rx_delay_base, sizeof(_prefs.rx_delay_base));
+      file.read((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));
+      file.read((uint8_t *)&_prefs.advert_loc_policy, sizeof(_prefs.advert_loc_policy));
+      file.read((uint8_t *)&_prefs.buzzer_quiet, sizeof(_prefs.buzzer_quiet));
+      file.read((uint8_t *)&_prefs.gps_enabled, sizeof(_prefs.gps_enabled));
+      file.read((uint8_t *)&_prefs.gps_interval, sizeof(_prefs.gps_interval));
+      file.read((uint8_t *)&_prefs.autoadd_config, sizeof(_prefs.autoadd_config));
+      file.read((uint8_t *)&_prefs.rx_boosted_gain, sizeof(_prefs.rx_boosted_gain));
+      file.read((uint8_t *)&_prefs.client_repeat, sizeof(_prefs.client_repeat));
+      file.read((uint8_t *)&_prefs.path_hash_mode, sizeof(_prefs.path_hash_mode));
+      file.read((uint8_t *)&_prefs.autoadd_max_hops, sizeof(_prefs.autoadd_max_hops));
+      file.read((uint8_t *)_prefs.default_scope_name, sizeof(_prefs.default_scope_name));
+      file.read((uint8_t *)_prefs.default_scope_key, sizeof(_prefs.default_scope_key));
+      // next: board_password folded in from here (was owner_password) --
+      // only present in a post-owner-password-field file (SETTINGS_ISOLATION
+      // follow-up), same has_node_prefs-style hazard as the NodePrefs
+      // fold-in above: an already-migrated file from before this field
+      // existed ends right after default_scope_key, with no
+      // board_password blob at all.
+      if (file.available() >= (int)sizeof(_board.board_password)) {
+        file.read((uint8_t *)_board.board_password, sizeof(_board.board_password));
         // next: board_name folded in from here -- same tail-hazard as
-        // owner_password above: a file saved before this field existed
-        // ends right after owner_password, with no board_name blob at all.
-        if (file.available() >= (int)sizeof(_prefs.board_name)) {
-          file.read((uint8_t *)_prefs.board_name, sizeof(_prefs.board_name));
-          // next: node_lat/node_lon folded in from here -- same tail-hazard
-          // as owner_password/board_name above: a file saved before these
-          // fields existed ends right after board_name, with no coords
-          // blob at all. Companion's own PREFS-mode advert_loc_policy
-          // coordinate (see BeeboCompanionPrefs.h's own comment) -- distinct
-          // from the node_lat/node_lon pair read earlier in this same
-          // function (that one is the SHARE-mode sensors.node_lat/lon
-          // register, an unrelated field).
+        // board_password above: a file saved before this field existed
+        // ends right after board_password, with no board_name blob at all.
+        if (file.available() >= (int)sizeof(_board.board_name)) {
+          file.read((uint8_t *)_board.board_name, sizeof(_board.board_name));
+          // next: node_lat/node_lon (BeeboBasePrefs's PREFS-mode
+          // advert_loc_policy coordinate) folded in from here -- same
+          // tail-hazard as board_password/board_name above: a file saved
+          // before these fields existed ends right after board_name, with
+          // no coords blob at all. Distinct from the node_lat/node_lon
+          // out-params read earlier in this same function (those are the
+          // SHARE-mode sensors.node_lat/lon register, an unrelated field).
           if (file.available() >= (int)(sizeof(_prefs.node_lat) + sizeof(_prefs.node_lon))) {
             file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
             file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
@@ -233,7 +235,7 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboCompanionPrefs& _prefs, NodePrefs& 
   return has_node_prefs;
 }
 
-void DataStore::saveBeeboCompanionPrefs(const BeeboCompanionPrefs& _prefs, const NodePrefs& node, double node_lat, double node_lon) {
+void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoardPrefs& _board, double node_lat, double node_lon) {
   File file = openWrite(_fs, "/beebo_companion");
   if (file) {
     file.write((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));               // 0
@@ -250,41 +252,70 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboCompanionPrefs& _prefs, const
     file.write((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs)); // 141
     file.write((uint8_t *)&_prefs.batt_charged_mv, sizeof(_prefs.batt_charged_mv));                 // 143
     file.write((uint8_t *)&_prefs.idle_margin_ms, sizeof(_prefs.idle_margin_ms));                   // 145
-    file.write((uint8_t *)&_prefs.node_role, sizeof(_prefs.node_role));                             // 147
+    file.write((uint8_t *)&_board.role, sizeof(_board.role));                                       // 147 -- was node_role
     file.write((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));                 // 148
     // next: 152 -- NodePrefs folded in from here, see loadBeeboCompanionPrefs()
-    file.write((uint8_t *)&node.airtime_factor, sizeof(node.airtime_factor));
-    file.write((uint8_t *)node.node_name, sizeof(node.node_name));
+    file.write((uint8_t *)&_prefs.airtime_factor, sizeof(_prefs.airtime_factor));
+    file.write((uint8_t *)_prefs.node_name, sizeof(_prefs.node_name));
     file.write((uint8_t *)&node_lat, sizeof(node_lat));
     file.write((uint8_t *)&node_lon, sizeof(node_lon));
-    file.write((uint8_t *)&node.freq, sizeof(node.freq));
-    file.write((uint8_t *)&node.sf, sizeof(node.sf));
-    file.write((uint8_t *)&node.cr, sizeof(node.cr));
-    file.write((uint8_t *)&node.multi_acks, sizeof(node.multi_acks));
-    file.write((uint8_t *)&node.manual_add_contacts, sizeof(node.manual_add_contacts));
-    file.write((uint8_t *)&node.bw, sizeof(node.bw));
-    file.write((uint8_t *)&node.tx_power_dbm, sizeof(node.tx_power_dbm));
-    file.write((uint8_t *)&node.telemetry_mode_base, sizeof(node.telemetry_mode_base));
-    file.write((uint8_t *)&node.telemetry_mode_loc, sizeof(node.telemetry_mode_loc));
-    file.write((uint8_t *)&node.telemetry_mode_env, sizeof(node.telemetry_mode_env));
-    file.write((uint8_t *)&node.rx_delay_base, sizeof(node.rx_delay_base));
-    file.write((uint8_t *)&node.ble_pin, sizeof(node.ble_pin));
-    file.write((uint8_t *)&node.advert_loc_policy, sizeof(node.advert_loc_policy));
-    file.write((uint8_t *)&node.buzzer_quiet, sizeof(node.buzzer_quiet));
-    file.write((uint8_t *)&node.gps_enabled, sizeof(node.gps_enabled));
-    file.write((uint8_t *)&node.gps_interval, sizeof(node.gps_interval));
-    file.write((uint8_t *)&node.autoadd_config, sizeof(node.autoadd_config));
-    file.write((uint8_t *)&node.rx_boosted_gain, sizeof(node.rx_boosted_gain));
-    file.write((uint8_t *)&node.client_repeat, sizeof(node.client_repeat));
-    file.write((uint8_t *)&node.path_hash_mode, sizeof(node.path_hash_mode));
-    file.write((uint8_t *)&node.autoadd_max_hops, sizeof(node.autoadd_max_hops));
-    file.write((uint8_t *)node.default_scope_name, sizeof(node.default_scope_name));
-    file.write((uint8_t *)node.default_scope_key, sizeof(node.default_scope_key));
-    file.write((uint8_t *)_prefs.owner_password, sizeof(_prefs.owner_password));
-    file.write((uint8_t *)_prefs.board_name, sizeof(_prefs.board_name));
+    file.write((uint8_t *)&_prefs.freq, sizeof(_prefs.freq));
+    file.write((uint8_t *)&_prefs.sf, sizeof(_prefs.sf));
+    file.write((uint8_t *)&_prefs.cr, sizeof(_prefs.cr));
+    file.write((uint8_t *)&_prefs.multi_acks, sizeof(_prefs.multi_acks));
+    file.write((uint8_t *)&_prefs.manual_add_contacts, sizeof(_prefs.manual_add_contacts));
+    file.write((uint8_t *)&_prefs.bw, sizeof(_prefs.bw));
+    file.write((uint8_t *)&_prefs.tx_power_dbm, sizeof(_prefs.tx_power_dbm));
+    file.write((uint8_t *)&_prefs.telemetry_mode_base, sizeof(_prefs.telemetry_mode_base));
+    file.write((uint8_t *)&_prefs.telemetry_mode_loc, sizeof(_prefs.telemetry_mode_loc));
+    file.write((uint8_t *)&_prefs.telemetry_mode_env, sizeof(_prefs.telemetry_mode_env));
+    file.write((uint8_t *)&_prefs.rx_delay_base, sizeof(_prefs.rx_delay_base));
+    file.write((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));
+    file.write((uint8_t *)&_prefs.advert_loc_policy, sizeof(_prefs.advert_loc_policy));
+    file.write((uint8_t *)&_prefs.buzzer_quiet, sizeof(_prefs.buzzer_quiet));
+    file.write((uint8_t *)&_prefs.gps_enabled, sizeof(_prefs.gps_enabled));
+    file.write((uint8_t *)&_prefs.gps_interval, sizeof(_prefs.gps_interval));
+    file.write((uint8_t *)&_prefs.autoadd_config, sizeof(_prefs.autoadd_config));
+    file.write((uint8_t *)&_prefs.rx_boosted_gain, sizeof(_prefs.rx_boosted_gain));
+    file.write((uint8_t *)&_prefs.client_repeat, sizeof(_prefs.client_repeat));
+    file.write((uint8_t *)&_prefs.path_hash_mode, sizeof(_prefs.path_hash_mode));
+    file.write((uint8_t *)&_prefs.autoadd_max_hops, sizeof(_prefs.autoadd_max_hops));
+    file.write((uint8_t *)_prefs.default_scope_name, sizeof(_prefs.default_scope_name));
+    file.write((uint8_t *)_prefs.default_scope_key, sizeof(_prefs.default_scope_key));
+    file.write((uint8_t *)_board.board_password, sizeof(_board.board_password));
+    file.write((uint8_t *)_board.board_name, sizeof(_board.board_name));
     file.write((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
     file.write((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
 
+    file.close();
+  }
+}
+
+// beebo: BeeboPrefs unification Part 1 -- BeeboBoardPrefs's own file
+// (role, board_password, board_name), genuinely untouched by the
+// role-switch park/load handoff. Loaded first at boot, before either
+// role's own file -- see Beebo::begin(). Plain existence IS enough here
+// (unlike loadBeeboCompanionPrefs/loadBeeboRepeaterPrefs's tail-hazard
+// checks): this file is new as of this refactor, so there's no older,
+// shorter on-disk format to distinguish from a fully-migrated one.
+bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
+  File file = openRead(_fs, "/beebo_board");
+  if (!file) return false;
+  file.read((uint8_t *)&_prefs.role, sizeof(_prefs.role));                     // 0
+  file.read((uint8_t *)_prefs.board_password, sizeof(_prefs.board_password));  // 1
+  file.read((uint8_t *)_prefs.board_name, sizeof(_prefs.board_name));          // 17
+  // next: 49
+  file.close();
+  return true;
+}
+
+void DataStore::saveBeeboBoardPrefs(const BeeboBoardPrefs& _prefs) {
+  File file = openWrite(_fs, "/beebo_board");
+  if (file) {
+    file.write((uint8_t *)&_prefs.role, sizeof(_prefs.role));                     // 0
+    file.write((uint8_t *)_prefs.board_password, sizeof(_prefs.board_password));  // 1
+    file.write((uint8_t *)_prefs.board_name, sizeof(_prefs.board_name));          // 17
+    // next: 49
     file.close();
   }
 }
@@ -296,7 +327,7 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboCompanionPrefs& _prefs, const
 // with no ComPrefs blob at all. Detect via file.available(), not plain
 // existence, or the com_prefs blob silently never gets populated from the
 // file (com_prefs keeps whatever the ctor/previous-boot RAM state was).
-bool DataStore::loadBeeboRepeaterPrefs(BeeboRepeaterPrefs& _prefs, void* com_prefs, size_t com_prefs_len) {
+bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, void* com_prefs, size_t com_prefs_len) {
   bool has_com_prefs = false;
   File file = openRead(_fs, "/beebo_repeater");
   if (file) {
@@ -306,6 +337,31 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboRepeaterPrefs& _prefs, void* com_pre
     has_com_prefs = (size_t)file.available() >= com_prefs_len;
     if (has_com_prefs) {
       file.read((uint8_t *)com_prefs, com_prefs_len);                                // 4, raw ComPrefs blob
+      // next: BeeboBasePrefs's remaining fields folded in from here --
+      // repeater's own independent copy of every BeeboBasePrefs field
+      // (SETTINGS_REFACTOR.md Part 1; before this refactor only
+      // dedup_window_ms had a repeater-side value at all). Tail-guarded,
+      // same has_com_prefs-style hazard as above: a file saved before
+      // this fold-in ends right after the ComPrefs blob, with none of
+      // these fields present.
+      if (file.available() > 0) {
+        file.read((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));
+        file.read((uint8_t *)&_prefs.adc_multiplier, sizeof(_prefs.adc_multiplier));
+        file.read((uint8_t *)&_prefs.adc_resolution_bits, sizeof(_prefs.adc_resolution_bits));
+        file.read((uint8_t *)&_prefs.batt_present, sizeof(_prefs.batt_present));
+        file.read((uint8_t *)&_prefs.batt_sample_period_secs, sizeof(_prefs.batt_sample_period_secs));
+        file.read((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs));
+        file.read((uint8_t *)&_prefs.batt_charged_mv, sizeof(_prefs.batt_charged_mv));
+        file.read((uint8_t *)&_prefs.idle_margin_ms, sizeof(_prefs.idle_margin_ms));
+        file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
+        file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
+        file.read((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));
+        file.read((uint8_t *)_prefs.wifi_pwd, sizeof(_prefs.wifi_pwd));
+        file.read((uint8_t *)&_prefs.ble_enabled, sizeof(_prefs.ble_enabled));
+        file.read((uint8_t *)&_prefs.tcp_enabled, sizeof(_prefs.tcp_enabled));
+        file.read((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));
+        file.read((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));
+      }
     }
 
     file.close();
@@ -313,12 +369,29 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboRepeaterPrefs& _prefs, void* com_pre
   return has_com_prefs;
 }
 
-void DataStore::saveBeeboRepeaterPrefs(const BeeboRepeaterPrefs& _prefs, const void* com_prefs, size_t com_prefs_len) {
+void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const void* com_prefs, size_t com_prefs_len) {
   File file = openWrite(_fs, "/beebo_repeater");
   if (file) {
     file.write((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));   // 0
     file.write((const uint8_t *)com_prefs, com_prefs_len);                            // 4, raw ComPrefs blob
-    // next: 4 + com_prefs_len
+    // next: BeeboBasePrefs's remaining fields, see loadBeeboRepeaterPrefs()
+    file.write((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));
+    file.write((uint8_t *)&_prefs.adc_multiplier, sizeof(_prefs.adc_multiplier));
+    file.write((uint8_t *)&_prefs.adc_resolution_bits, sizeof(_prefs.adc_resolution_bits));
+    file.write((uint8_t *)&_prefs.batt_present, sizeof(_prefs.batt_present));
+    file.write((uint8_t *)&_prefs.batt_sample_period_secs, sizeof(_prefs.batt_sample_period_secs));
+    file.write((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs));
+    file.write((uint8_t *)&_prefs.batt_charged_mv, sizeof(_prefs.batt_charged_mv));
+    file.write((uint8_t *)&_prefs.idle_margin_ms, sizeof(_prefs.idle_margin_ms));
+    file.write((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
+    file.write((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
+    file.write((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));
+    file.write((uint8_t *)_prefs.wifi_pwd, sizeof(_prefs.wifi_pwd));
+    file.write((uint8_t *)&_prefs.ble_enabled, sizeof(_prefs.ble_enabled));
+    file.write((uint8_t *)&_prefs.tcp_enabled, sizeof(_prefs.tcp_enabled));
+    file.write((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));
+    file.write((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));
+    // next: 4 + com_prefs_len + BeeboBasePrefs's remaining-field bytes
 
     file.close();
   }

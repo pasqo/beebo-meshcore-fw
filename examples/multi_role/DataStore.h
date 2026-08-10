@@ -3,9 +3,16 @@
 #include <helpers/IdentityStore.h>
 #include <helpers/ContactInfo.h>
 #include <helpers/ChannelDetails.h>
-#include "../companion_radio/NodePrefs.h"
-#include "BeeboCompanionPrefs.h"
-#include "BeeboRepeaterPrefs.h"
+#include "BeeboBoardPrefs.h"
+
+// beebo: BeeboPrefs unification (SETTINGS_REFACTOR.md Part 1) -- forward
+// declared only. DataStore.h takes it exclusively by reference/pointer, and
+// BeeboPrefs.h can only be included after Beebo.h's ComPrefs alias trick
+// (#define NodePrefs ComPrefs / #include <helpers/CommonCLI.h> / #undef
+// NodePrefs), which happens after DataStore.h's own #include in Beebo.h.
+// DataStore.cpp includes "Beebo.h" (not just this header) to see the full
+// definition.
+struct BeeboPrefs;
 
 class DataStoreHost {
 public:
@@ -21,7 +28,7 @@ class DataStore {
   mesh::RTCClock* _clock;
   IdentityStore identity_store;
 
-  void loadPrefsInt(const char *filename, NodePrefs& prefs, double& node_lat, double& node_lon);
+  void loadPrefsInt(const char *filename, BeeboPrefs& prefs, double& node_lat, double& node_lon);
 
 public:
   DataStore(FILESYSTEM& fs, mesh::RTCClock& clock);
@@ -51,31 +58,56 @@ public:
   // own copy must survive a future reflash untouched. Only meant to be
   // called once, at the true first boot before /beebo_companion exists;
   // see Beebo::begin().
-  void loadLegacyNodePrefs(NodePrefs& prefs, double& node_lat, double& node_lon);
-  // beebo: NodePrefs (companion's radio/node settings) is now persisted
-  // folded into /beebo_companion alongside BeeboCompanionPrefs, instead of
-  // its own /new_prefs file shared with stock companion_radio -- see
-  // beebo/plans/SETTINGS_ISOLATION.md. loadBeeboCompanionPrefs() returns
-  // true if /beebo_companion already held a fully migrated NodePrefs copy
-  // -- NOT simply whether the file existed, since /beebo_companion
-  // predates this fold-in and a real device's existing file is
-  // old-format (no NodePrefs tail at all). False means the caller should
-  // seed via loadLegacyNodePrefs().
-  bool loadBeeboCompanionPrefs(BeeboCompanionPrefs& prefs, NodePrefs& node, double& node_lat, double& node_lon);
-  void saveBeeboCompanionPrefs(const BeeboCompanionPrefs& prefs, const NodePrefs& node, double node_lat, double node_lon);
+  void loadLegacyNodePrefs(BeeboPrefs& prefs, double& node_lat, double& node_lon);
+  // beebo: NodePrefs (companion's radio/node settings, now folded into
+  // BeeboPrefs -- see BeeboPrefs.h) is persisted folded into
+  // /beebo_companion alongside the rest of BeeboPrefs's companion-relevant
+  // bases, instead of its own /new_prefs file shared with stock
+  // companion_radio -- see beebo/plans/SETTINGS_ISOLATION.md.
+  // loadBeeboCompanionPrefs() returns true if /beebo_companion already
+  // held a fully migrated NodePrefs copy -- NOT simply whether the file
+  // existed, since /beebo_companion predates this fold-in and a real
+  // device's existing file is old-format (no NodePrefs tail at all). False
+  // means the caller should seed via loadLegacyNodePrefs().
+  // beebo: SETTINGS_REFACTOR.md Part 3 -- `board` is the legacy tail-read/
+  // write of role/board_password/board_name still folded into the END of
+  // /beebo_companion's on-disk layout (unchanged wire format, see this
+  // repo's plan doc's "What does NOT change" section) purely as a
+  // one-time migration seed for a pre-/beebo_board device -- these three
+  // fields live in BeeboBoardPrefs now (Beebo.h's `_board`), not
+  // BeeboPrefs, so this function needs its own reference to populate/
+  // persist them at the same byte offsets as before.
+  bool loadBeeboCompanionPrefs(BeeboPrefs& prefs, BeeboBoardPrefs& board, double& node_lat, double& node_lon);
+  void saveBeeboCompanionPrefs(const BeeboPrefs& prefs, const BeeboBoardPrefs& board, double node_lat, double node_lon);
+  // beebo: BeeboPrefs unification Part 1 -- BeeboBoardPrefs's own file
+  // (role, board_password, board_name), genuinely untouched by the
+  // role-switch park/load handoff, distinct from /beebo_companion and
+  // /beebo_repeater. Loaded first at boot (Beebo::begin()), before either
+  // role's own file, so the role to activate is known up front. Returns
+  // true if /beebo_board already existed -- false means these three
+  // fields predate this file (they used to be persisted as a tail fold-in
+  // of /beebo_companion) and the caller should treat whatever
+  // loadBeeboCompanionPrefs's own legacy tail-read left in prefs.role/
+  // board_password/board_name as the one-time migration seed, then call
+  // saveBeeboBoardPrefs() once to create the file going forward.
+  bool loadBeeboBoardPrefs(BeeboBoardPrefs& prefs);
+  void saveBeeboBoardPrefs(const BeeboBoardPrefs& prefs);
   // beebo: SETTINGS_ISOLATION -- ComPrefs (CommonCLI.h's own struct,
-  // aliased in Beebo.h) folds into /beebo_repeater alongside
-  // BeeboRepeaterPrefs's own fields, but as a raw sizeof-blob rather than
-  // field-by-field -- DataStore.cpp never needs to know ComPrefs's field
-  // layout at all, so CommonCLI.h stays the single source of truth for
-  // that struct's shape and CommonCLI.cpp never needs touching. Returns
-  // true if /beebo_repeater already existed (so the caller knows whether a
+  // aliased in Beebo.h, inherited by BeeboPrefs only when
+  // BEEBO_ENABLE_REPEATER_ROLE is set) folds into /beebo_repeater alongside
+  // BeeboPrefs's own dedup_window_ms (BeeboBasePrefs), but as a raw
+  // sizeof-blob rather than field-by-field -- DataStore.cpp never needs to
+  // know ComPrefs's field layout at all, so CommonCLI.h stays the single
+  // source of truth for that struct's shape and CommonCLI.cpp never needs
+  // touching. Caller passes static_cast<[const] ComPrefs*>(&prefs) and
+  // sizeof(ComPrefs) for com_prefs/com_prefs_len. Returns true if
+  // /beebo_repeater already existed (so the caller knows whether a
   // one-time seed from /com_prefs, via CommonCLI's own loadPrefs(), is
   // needed). Same "existence isn't enough" caveat as
   // loadBeeboCompanionPrefs() -- /beebo_repeater predates the ComPrefs
   // fold-in too.
-  bool loadBeeboRepeaterPrefs(BeeboRepeaterPrefs& prefs, void* com_prefs, size_t com_prefs_len);
-  void saveBeeboRepeaterPrefs(const BeeboRepeaterPrefs& prefs, const void* com_prefs, size_t com_prefs_len);
+  bool loadBeeboRepeaterPrefs(BeeboPrefs& prefs, void* com_prefs, size_t com_prefs_len);
+  void saveBeeboRepeaterPrefs(const BeeboPrefs& prefs, const void* com_prefs, size_t com_prefs_len);
   void loadContacts(DataStoreHost* host);
   void saveContacts(DataStoreHost* host, bool (*filter)(const ContactInfo& c) = NULL);
   void loadChannels(DataStoreHost* host);

@@ -61,7 +61,6 @@ struct NodePrefs { // persisted to file
   float adc_multiplier;
   char owner_info[120];
   uint8_t rx_boosted_gain; // power settings
-  uint8_t radio_fem_rxgain; // LoRa FEM RX gain setting
   uint8_t path_hash_mode;   // which path mode to use when sending
   uint8_t loop_detect;
 };
@@ -137,6 +136,14 @@ class CommonCLI {
 public:
   CommonCLI(mesh::MainBoard& board, mesh::RTCClock& rtc, SensorManager& sensors, RegionMap& region_map, ClientACL& acl, NodePrefs* prefs, CommonCLICallbacks* callbacks)
       : _board(&board), _rtc(&rtc), _sensors(&sensors), _region_map(&region_map), _acl(&acl), _prefs(prefs), _callbacks(callbacks) { }
+
+  // beebo: rebind the NodePrefs this instance reads/writes -- added for
+  // multi_role's per-role resident-state design (SETTINGS_REFACTOR.md Part
+  // 3), where the owning app can switch which role's storage is "live" at
+  // runtime without reconstructing this object. Pure addition: any target
+  // that never calls it (every non-multi_role example/board) sees no
+  // behavior change at all.
+  void setPrefs(NodePrefs* prefs) { _prefs = prefs; }
 
   void loadPrefs(FILESYSTEM* _fs);
   void savePrefs(FILESYSTEM* _fs);

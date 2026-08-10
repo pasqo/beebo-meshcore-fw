@@ -26,11 +26,12 @@ class DualModeSerialInterface : public BaseSerialInterface {
   uint16_t rx_len;
   uint32_t _last_byte_at;
   Stream* _serial;
-  // beebo: sized for raw-binary OTA chunks (OTA_CHUNK_SIZE), same as
-  // SerialWifiInterface's getMaxRecvFrameSize() override below -- USB is at
-  // least as fast as WiFi, no reason OTA-over-serial should be stuck at
-  // MAX_FRAME_SIZE chunks while WiFi gets 23x fewer round trips.
-  uint8_t rx_buf[OTA_CHUNK_SIZE];
+  // beebo: sized for raw-binary OTA frames (OTA_FRAME_SIZE = OTA_CHUNK_SIZE +
+  // 2-byte header), same as SerialWifiInterface's getMaxRecvFrameSize()
+  // override below -- USB is at least as fast as WiFi, no reason
+  // OTA-over-serial should be stuck at MAX_FRAME_SIZE chunks while WiFi gets
+  // 23x fewer round trips.
+  uint8_t rx_buf[OTA_FRAME_SIZE];
 
   // beebo: a stray leading byte (port-open noise, a reset artifact) can
   // latch a partial command with no rest of it ever arriving, swallowing
@@ -62,6 +63,6 @@ public:
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[], size_t max_len) override;
-  size_t getMaxRecvFrameSize() const override { return OTA_CHUNK_SIZE; }
+  size_t getMaxRecvFrameSize() const override { return OTA_FRAME_SIZE; }
   bool lastRecvWasText() const override { return _lastWasText; }
 };

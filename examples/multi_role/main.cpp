@@ -19,7 +19,24 @@ void halt() {
 }
 
 void setup() {
-  Serial.begin(115200);
+  // beebo: raising the baud rate alone (115200 -> 921600, matching esptool's
+  // own flashing speed) turned out not to be the real USB OTA bottleneck --
+  // measured no change. This board's ARDUINO_USB_MODE=1 build uses the
+  // ESP32-S3's USB-Serial-JTAG hardware peripheral (HWCDC), the same one
+  // esptool's ROM bootloader uses to flash quickly over this exact port --
+  // so the limit isn't the port/peripheral itself. HWCDC's default RX ring
+  // buffer is small (a few hundred bytes); raw host-side writes measured
+  // blocking for ~500ms once it fills and loop() hasn't drained it in time,
+  // which a small buffer makes far more likely under real mesh/radio load
+  // sharing the loop. Widen it to comfortably hold a full OTA frame so a
+  // burst of chunk data has somewhere to land between loop() iterations.
+  // Confirmed by measurement: widening RX alone took USB OTA from ~14kB/s to
+  // ~45kB/s. 2x headroom in case loop() jitter still occasionally exceeds
+  // one frame's worth of slack. No setTxBufferSize on this core's USBCDC
+  // class (ARDUINO_USB_MODE=1's Serial is USBCDC, not HWCDC) -- OK/ERR
+  // replies are tiny (a few bytes) anyway, unlikely to be TX-bound.
+  Serial.setRxBufferSize(OTA_FRAME_SIZE * 2);
+  Serial.begin(921600);
 
   board.begin();
 

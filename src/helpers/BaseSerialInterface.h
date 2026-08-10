@@ -3,7 +3,35 @@
 #include <Arduino.h>
 
 #define MAX_FRAME_SIZE  176   // +4 for transport codes (region scoping)
-#define OTA_CHUNK_SIZE  4096   // max OTA chunk for high-bandwidth transports (WiFi, USB)
+
+// beebo: OTA_CHUNK_SIZE is the BEEBO_CMD_OTA_WRITE payload target for
+// high-bandwidth transports (WiFi, USB) -- a multiple of the ESP32 flash
+// sector size (4096) so esp_ota_write() calls land cleanly on sector
+// boundaries instead of straddling two sectors on every chunk. First tried
+// at 8192 before SerialWifiInterface::checkRecvFrame() accumulated frame
+// bodies incrementally -- that all-or-nothing read strategy silently
+// depended on the frame fitting inside ESP32 lwIP's default TCP socket
+// receive buffer (true at 4098 bytes, false at 8194), deadlocking TCP OTA
+// on the very first chunk. Now that it accumulates across calls (see that
+// file's own comment), a bigger chunk here is safe to retry.
+//
+// 8192 measured 60kB/s -> 85kB/s over TCP with the fixed accumulation path
+// (USB unaffected either way -- different class, its own ~47kB/s ceiling).
+// 16384 was tried next and doesn't fit: these buffers (this file's
+// callers' rx_buf/cmd_frame/_recv_body_buf, plus main.cpp's
+// setRxBufferSize()) are static internal-DRAM allocations, not PSRAM --
+// PlatformIO's build-time "RAM: 2097152 bytes" figure is misleading here,
+// it's not the real internal-DRAM budget these live in. 16384 overflowed
+// dram0_0_seg by ~9KB at link time. 8192 is the practical ceiling for this
+// buffering approach without moving these buffers to PSRAM explicitly.
+//
+// The actual wire frame carries a 2-byte [CMD_BEEBO][BEEBO_CMD_OTA_WRITE]
+// header ahead of that payload, so buffers/getMaxRecvFrameSize() must size
+// for OTA_FRAME_SIZE, not OTA_CHUNK_SIZE -- the firmware then negotiates
+// back chunk_size = getMaxRecvFrameSize() - 2, recovering the clean
+// OTA_CHUNK_SIZE.
+#define OTA_CHUNK_SIZE  8192
+#define OTA_FRAME_SIZE  (OTA_CHUNK_SIZE + 2)
 
 // beebo: BULK_XFER (opt-in via -D BULK_XFER) lets high-bandwidth transports
 // (WiFi/USB) send larger response frames and stream bulk drains (e.g. the RX

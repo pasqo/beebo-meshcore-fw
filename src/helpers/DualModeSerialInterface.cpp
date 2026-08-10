@@ -70,9 +70,54 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
     _state = MODE_IDLE;
   }
 
-  while (_serial->available()) {
+  // beebo: MODE_FRAMED_BODY bulk-reads the payload instead of consuming it
+  // through the byte-at-a-time loop below. A ~4KB OTA_WRITE chunk read one
+  // byte per _serial->read() call (each a locked ring-buffer pop on the
+  // ESP32-S3's native USB CDC) measured ~4x slower than TCP's single bulk
+  // client.readBytes() for the same size -- the frame length is already
+  // known once we're in this state, so there's no reason to pay that
+  // per-byte overhead the way the length-less text-mode path still has to.
+  // Checked at the top of every outer-loop iteration (not just once before
+  // it) so the LEN2->FRAMED_BODY transition below falls straight into bulk
+  // reading within the same call instead of consuming one more body byte
+  // through the single-byte path first.
+  while (true) {
+    if (_state == MODE_FRAMED_BODY) {
+      // Only ever reads bytes _serial->available() already reports ready,
+      // never more -- readBytes() blocks (up to its stream timeout) if
+      // asked for more than is buffered, which would stall loop()'s other
+      // work.
+      while (rx_len < _frame_len) {
+        int avail = _serial->available();
+        if (avail <= 0) break;
+        size_t remaining = _frame_len - rx_len;
+        size_t room = rx_len < max_len ? max_len - rx_len : 0;
+        size_t want = remaining < room ? remaining : room;
+        if ((size_t)avail < want) want = (size_t)avail;
+        if (want == 0) {
+          // over max_len -- drain and discard the rest, one byte at a time
+          // (rare: only when a caller's max_len is smaller than the frame).
+          int c = _serial->read();
+          if (c < 0) break;
+          rx_len++;
+          _last_byte_at = millis();
+          continue;
+        }
+        int got = _serial->readBytes(&rx_buf[rx_len], want);
+        if (got <= 0) break;
+        rx_len += got;
+        _last_byte_at = millis();
+      }
+      if (rx_len < _frame_len) return 0;   // still waiting on more bytes
+      size_t out_len = _frame_len > max_len ? max_len : _frame_len;
+      memcpy(dest, rx_buf, out_len);
+      _state = MODE_IDLE;
+      return out_len;
+    }
+
+    if (!_serial->available()) return 0;
     int c = _serial->read();
-    if (c < 0) break;
+    if (c < 0) return 0;
     _last_byte_at = millis();
 
     switch (_state) {
@@ -102,18 +147,7 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
         _state = _frame_len > 0 ? MODE_FRAMED_BODY : MODE_IDLE;
         break;
       case MODE_FRAMED_BODY:
-        if (rx_len < max_len) {
-          rx_buf[rx_len] = (uint8_t)c;   // rest of frame will be discarded if > max_len
-        }
-        rx_len++;
-        if (rx_len >= _frame_len) {  // received a complete frame?
-          if (_frame_len > max_len) _frame_len = max_len;    // truncate
-          memcpy(dest, rx_buf, _frame_len);
-          _state = MODE_IDLE;  // reset state, for next command
-          return _frame_len;
-        }
-        break;
+        break;   // unreachable -- handled at the top of this loop
     }
   }
-  return 0;
 }

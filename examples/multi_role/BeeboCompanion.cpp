@@ -32,11 +32,11 @@ void Beebo::loopCompanion(bool skip_radio) {
 #endif // BEEBO_ENABLE_COMPANION_ROLE
 
 bool Beebo::isAutoAddEnabled() const {
-  return (_prefs.manual_add_contacts & 1) == 0;
+  return (_role_state->prefs.manual_add_contacts & 1) == 0;
 }
 
 bool Beebo::shouldAutoAddContactType(uint8_t contact_type) const {
-  if ((_prefs.manual_add_contacts & 1) == 0) {
+  if ((_role_state->prefs.manual_add_contacts & 1) == 0) {
     return true;
   }
 
@@ -58,15 +58,15 @@ bool Beebo::shouldAutoAddContactType(uint8_t contact_type) const {
       return false;  // Unknown type, don't auto-add
   }
 
-  return (_prefs.autoadd_config & type_bit) != 0;
+  return (_role_state->prefs.autoadd_config & type_bit) != 0;
 }
 
 bool Beebo::shouldOverwriteWhenFull() const {
-  return (_prefs.autoadd_config & AUTO_ADD_OVERWRITE_OLDEST) != 0;
+  return (_role_state->prefs.autoadd_config & AUTO_ADD_OVERWRITE_OLDEST) != 0;
 }
 
 uint8_t Beebo::getAutoAddMaxHops() const {
-  return _prefs.autoadd_max_hops;
+  return _role_state->prefs.autoadd_max_hops;
 }
 
 void Beebo::onContactOverwrite(const uint8_t* pub_key) {
@@ -216,10 +216,10 @@ void Beebo::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packet
 void Beebo::sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis) {
   // TODO: dynamic send_scope, depending on recipient and current 'home' Region
   if (send_unscoped) {
-    sendFlood(pkt, delay_millis, _prefs.path_hash_mode + 1);  // app has explicitly requested un-scoped
+    sendFlood(pkt, delay_millis, _role_state->prefs.path_hash_mode + 1);  // app has explicitly requested un-scoped
   } else {
     TransportKey default_scope;
-    memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+    memcpy(&default_scope.key, _role_state->prefs.default_scope_key, sizeof(default_scope.key));
 
     auto scope = send_scope.isNull() ? &default_scope : &send_scope;
     sendFloodScoped(*scope, pkt, delay_millis);
@@ -228,10 +228,10 @@ void Beebo::sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uin
 void Beebo::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis) {
   // TODO: have per-channel send_scope
   if (send_unscoped) {
-    sendFlood(pkt, delay_millis, _prefs.path_hash_mode + 1);  // app has explicitly requested un-scoped
+    sendFlood(pkt, delay_millis, _role_state->prefs.path_hash_mode + 1);  // app has explicitly requested un-scoped
   } else {
     TransportKey default_scope;
-    memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+    memcpy(&default_scope.key, _role_state->prefs.default_scope_key, sizeof(default_scope.key));
 
     auto scope = send_scope.isNull() ? &default_scope : &send_scope;
     sendFloodScoped(*scope, pkt, delay_millis);
@@ -340,21 +340,21 @@ uint8_t Beebo::onContactRequest(const ContactInfo &contact, uint32_t sender_time
     uint8_t permissions = 0;
     uint8_t cp = contact.flags >> 1; // LSB used as 'favourite' bit (so only use upper bits)
 
-    if (_prefs.telemetry_mode_base == TELEM_MODE_ALLOW_ALL) {
+    if (_role_state->prefs.telemetry_mode_base == TELEM_MODE_ALLOW_ALL) {
       permissions = TELEM_PERM_BASE;
-    } else if (_prefs.telemetry_mode_base == TELEM_MODE_ALLOW_FLAGS) {
+    } else if (_role_state->prefs.telemetry_mode_base == TELEM_MODE_ALLOW_FLAGS) {
       permissions = cp & TELEM_PERM_BASE;
     }
 
-    if (_prefs.telemetry_mode_loc == TELEM_MODE_ALLOW_ALL) {
+    if (_role_state->prefs.telemetry_mode_loc == TELEM_MODE_ALLOW_ALL) {
       permissions |= TELEM_PERM_LOCATION;
-    } else if (_prefs.telemetry_mode_loc == TELEM_MODE_ALLOW_FLAGS) {
+    } else if (_role_state->prefs.telemetry_mode_loc == TELEM_MODE_ALLOW_FLAGS) {
       permissions |= cp & TELEM_PERM_LOCATION;
     }
 
-    if (_prefs.telemetry_mode_env == TELEM_MODE_ALLOW_ALL) {
+    if (_role_state->prefs.telemetry_mode_env == TELEM_MODE_ALLOW_ALL) {
       permissions |= TELEM_PERM_ENVIRONMENT;
-    } else if (_prefs.telemetry_mode_env == TELEM_MODE_ALLOW_FLAGS) {
+    } else if (_role_state->prefs.telemetry_mode_env == TELEM_MODE_ALLOW_FLAGS) {
       permissions |= cp & TELEM_PERM_ENVIRONMENT;
     }
 

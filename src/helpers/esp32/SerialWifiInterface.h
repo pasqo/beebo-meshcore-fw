@@ -33,6 +33,18 @@ class SerialWifiInterface : public BaseSerialInterface {
 
   FrameHeader received_frame_header;
 
+  // beebo: accumulates a frame body across multiple checkRecvFrame() calls
+  // instead of requiring the whole thing to already be sitting in
+  // client.available() before touching any of it -- the old all-or-nothing
+  // read silently depended on frame_length fitting inside ESP32 lwIP's
+  // default TCP socket receive buffer (true at the old 4098-byte OTA frame
+  // size, false once OTA_CHUNK_SIZE was tried at 8192: available() plateaus
+  // below frame_length, the frame is never read, the TCP window closes, and
+  // the transfer deadlocks). Sized OTA_FRAME_SIZE, the largest frame this
+  // class ever advertises via getMaxRecvFrameSize().
+  uint8_t _recv_body_buf[OTA_FRAME_SIZE];
+  size_t _recv_body_len = 0;
+
   #define FRAME_QUEUE_SIZE  4
   int recv_queue_len;
   Frame recv_queue[FRAME_QUEUE_SIZE];
@@ -41,7 +53,7 @@ class SerialWifiInterface : public BaseSerialInterface {
   int _send_off;   // bytes of the head send frame (3-byte header + body) already written
   uint32_t _send_queue_full_count = 0;
 
-  void clearBuffers() { recv_queue_len = 0; send_queue_len = 0; _send_off = 0; }
+  void clearBuffers() { recv_queue_len = 0; send_queue_len = 0; _send_off = 0; _recv_body_len = 0; }
 
 protected:
 
@@ -67,7 +79,7 @@ public:
   bool isConnected() const override;
   bool isWriteBusy() const override;
 
-  size_t getMaxRecvFrameSize() const override { return OTA_CHUNK_SIZE; }
+  size_t getMaxRecvFrameSize() const override { return OTA_FRAME_SIZE; }
   size_t getMaxSendFrameSize() const override { return MAX_SEND_FRAME_SIZE; }
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[], size_t max_len) override;
