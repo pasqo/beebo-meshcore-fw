@@ -972,10 +972,23 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
 // mirror out lets this run for a role that ISN'T currently live (eager
 // per-role boot loading, loadRoleState() below) without clobbering self_id
 // mid-load.
+//
+// beebo: bug fix -- migrateLegacyIdentity() must only be offered to the
+// role the node was already operating as before the split (DataStore.h's
+// own doc comment on migrateLegacyIdentity: "the other role must always
+// start from a fresh identity"), because it doesn't delete "_main" after
+// copying it, so it stays available to every future caller. This used to
+// be implicit under the old lazy-load-on-first-switch model (only the
+// live role's load ever ran migration); the eager per-role boot load
+// above (both roles loaded every boot, regardless of which is live) needs
+// an explicit gate here or both roles' first load silently migrate the
+// same "_main" and end up with IDENTICAL keys instead of one migrated +
+// one fresh. _board.role (the resolved default/live role) is already
+// settled by the time begin() calls loadRoleState() for either role.
 void Beebo::loadIdentityForRole(uint8_t role) {
   mesh::LocalIdentity& id = role_state_store[role].identity;
   if (_store->loadRoleIdentity(role, id)) return;
-  if (_store->migrateLegacyIdentity(role, id)) return;
+  if (role == _board.role && _store->migrateLegacyIdentity(role, id)) return;
   id = radio_new_identity(); // create new random identity
   int count = 0;
   while (count < 10 && (id.pub_key[0] == 0x00 || id.pub_key[0] == 0xFF)) { // reserved id hashes
@@ -5159,7 +5172,12 @@ void Beebo::handleCmdFrame(size_t len) {
     if (role != NODE_ROLE_COMPANION && role != NODE_ROLE_REPEATER) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
-      const char* name = (role == NODE_ROLE_REPEATER) ? getRepeaterName() : _role_state->prefs.node_name;
+      // beebo: bug fix -- read that role's own resident slot directly,
+      // never _role_state (the *live* role's slot) or getRepeaterName()
+      // (same live-slot bug, see its own comment in Beebo.h) -- this
+      // opcode's entire purpose is to be correct regardless of which role
+      // is live, matching GET_ROLE_PUBLIC_KEY's pattern just above.
+      const char* name = role_state_store[role].prefs.node_name;
       out_frame[0] = RESP_CODE_BEEBO;
       out_frame[1] = BEEBO_RESP_ROLE_NAME;
       int nlen = strlen(name);

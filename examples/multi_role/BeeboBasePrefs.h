@@ -47,5 +47,5 @@ struct BeeboBasePrefs {
   uint8_t tcp_enabled = 0;       // value, single declaration -- same pattern as
   uint8_t usb_enabled = 1;       // radio_fem_rxgain/dedup_window_ms above.
   uint32_t monring_config = 0;   // MonRing itself is one shared ring, but its config
-                                  // (capture policy, etc.) can still differ per role.
+                                 // (capture policy, etc.) can still differ per role.
 };

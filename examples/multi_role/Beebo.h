@@ -990,16 +990,31 @@ private:
   RateLimiter anon_limiter{4, 180};
 #endif
   // beebo: repeater-role's own persisted name, distinct from the companion
-  // name (NodePrefs.node_name) -- now the real _role_state->prefs.node_name field
-  // (ComPrefs, /com_prefs), loaded/saved via cli.loadPrefs()/cli.savePrefs()
-  // like every other ComPrefs field. Empty (all-zero, e.g. a device that
-  // never set it) means "not customized" -- getRepeaterName() falls back to
-  // the companion name in that case.
+  // name -- ComPrefs.node_name (/com_prefs), loaded/saved via
+  // cli.loadPrefs()/cli.savePrefs() like every other ComPrefs field. Empty
+  // (all-zero, e.g. a device that never set it) just means "not
+  // customized" -- no fallback to the companion name (removed: with each
+  // role now eagerly resident in its own role_state_store[] slot, a
+  // fallback here just adds ambiguity nothing needs -- callers that want
+  // "the companion name" already have _role_state->prefs.node_name for
+  // that).
+  //
+  // beebo: bug fix -- must read role_state_store[NODE_ROLE_REPEATER]
+  // directly, NOT _role_state (the *currently live* role's slot). Before
+  // the per-role-slot refactor there was only one shared node_name field,
+  // so reading _role_state here coincidentally always meant "repeater's
+  // own name" (repeater was always live wherever this ran). Now that each
+  // role has its own resident slot, this silently returned whichever
+  // role's slot happened to be live -- e.g. GET_ROLE_NAME(REPEATER),
+  // called while companion is live, returned companion's own name instead
+  // of repeater's, even though GET_ROLE_NAME's entire point is to be
+  // live-role-independent (see BEEBO_CMD_GET_ROLE_NAME's own comment).
   const char* getRepeaterName() const {
 #if BEEBO_ENABLE_REPEATER_ROLE
-    if (_role_state->prefs.node_name[0]) return _role_state->prefs.node_name;
+    return role_state_store[NODE_ROLE_REPEATER].prefs.node_name;
+#else
+    return "";
 #endif
-    return _role_state->prefs.node_name;
   }
   void writeDirtyPrefs();   // write every dirty store now, ignoring policy (see savePrefs)
 

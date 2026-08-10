@@ -441,9 +441,10 @@ bool Beebo::tlvSetOwnerInfo(Beebo* self, const uint8_t* in, size_t len) {
 
 int Beebo::tlvGetRepeaterName(Beebo* self, uint8_t* out, size_t max_len) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  // beebo: getRepeaterName() falls back to the companion name when
-  // _role_state->prefs.node_name is unset (see Beebo.h) -- matches GET_REPEATER_NAME
-  // exactly, unlike a raw _role_state->prefs.node_name read.
+  // beebo: getRepeaterName() always reads repeater's own resident slot
+  // directly (role_state_store[NODE_ROLE_REPEATER] -- see its own comment
+  // in Beebo.h), regardless of which role is currently live; empty if
+  // the repeater persona's name was never set, no fallback.
   const char* name = self->getRepeaterName();
   size_t n = strlen(name);
   if (n > max_len) n = max_len;
