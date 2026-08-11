@@ -1120,7 +1120,6 @@ private:
   static bool tlvGetWifiPwdSet(Beebo* self, uint8_t role);
   static int tlvGetWifiPwdSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
   static bool tlvSetWifiPwd(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
-  static bool tlvSetWifiCreds(Beebo* self, uint8_t role, const uint8_t* p, const uint8_t* end);
   static uint32_t tlvGetBlePin(Beebo* self, uint8_t role);
   static bool tlvSetBlePin(Beebo* self, uint8_t role, uint32_t pin);
   static uint32_t tlvGetMonringConfig(Beebo* self, uint8_t role);
