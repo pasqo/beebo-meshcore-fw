@@ -18,7 +18,7 @@
 #define BEEBO_CMD_SET_TX_OPTIMIZE           137  // PA optimization. payload: [on:1]; 1=paOptTable(default), 0=fixed/monotonic
 #define BEEBO_CMD_GET_NEIGHBORS             138  // stream the direct (zero-hop) neighbour table
 #define BEEBO_CMD_GET_MONRING               139  // read monitor ring. payload: [after_seq:4 LE] (optional) [after_ts:4 LE] (optional, capture-time epoch of the record at after_seq as the client last recorded it -- lets the firmware detect a reboot/clear/wraparound since then and override to a full read, since after_seq alone can alias across MonRing::_next_seq resetting to 0; see the reply's reset flag)
-#define BEEBO_CMD_SET_MONRING               140  // control RX capture. payload: [op:1] 0=pause 1=resume 2=clear 3=set config (byte2, persisted)
+#define BEEBO_CMD_SET_MONRING               140  // control RX capture. payload: [op:1] 0=pause 1=resume 2=clear; setting the capture config itself is SET_PREFS_TLV(KEY_MONRING_CONFIG)'s job, not this opcode's
 #define BEEBO_CMD_SET_XFER_CAPS             141  // (BULK_XFER): negotiate bulk-transfer caps. payload: [max_rx_frame:2 LE][flags:1]; flags bit0=accept streamed reads
 #define BEEBO_CMD_APP_DISCONNECT            146  // disconnect the companion session
 #define BEEBO_CMD_SEND_POKE                 152  // originate a 'poke' to a contact. payload: [pub_key:PUB_KEY_SIZE]

@@ -4407,8 +4407,10 @@ void Beebo::handleCmdFrame(size_t len) {
     monring.resumeAfterRead();
     _serial->writeFrame(out_frame, i);
   } else if (sub[0] == BEEBO_CMD_SET_MONRING && sub_len >= 2) {
-    // beebo: control capture. op 0=pause, 1=resume, 2=clear, 3=set capture config
-    // (persisted). pause/resume also persist (bit7 of monring_config).
+    // beebo: control capture. op 0=pause, 1=resume, 2=clear (pause/resume
+    // also persist, bit7 of monring_config). Setting the capture config
+    // itself is SET_PREFS_TLV(KEY_MONRING_CONFIG)'s job now (this opcode's
+    // old op=3 duplicated that exact same tlvSetMonringConfig call).
     switch (sub[1]) {
       case 0:
         _role_state->prefs.monring_config &= ~MON_CAP_ENABLED;
@@ -4426,10 +4428,6 @@ void Beebo::handleCmdFrame(size_t len) {
         // beebo: not radioIsIdle()-verified -- see initMonRing()'s comment.
         resetBattTrendRef(_batt_state, _cached_batt_mv, _role_state->prefs.batt_present);
         monring.clear((uint32_t)getRTCClock()->getCurrentTime(), buildRadioRecord(), buildEnvRecord());
-        break;
-      case 3:
-        if (sub_len < 3) { writeErrFrame(ERR_CODE_ILLEGAL_ARG); return; }
-        tlvSetMonringConfig(this, this->_board.role, sub[2]);
         break;
       default: writeErrFrame(ERR_CODE_ILLEGAL_ARG); return;
     }
