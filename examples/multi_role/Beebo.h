@@ -904,6 +904,14 @@ private:
 #endif
     return role == NODE_ROLE_COMPANION || role == NODE_ROLE_REPEATER;
   }
+  // Resolves a wire role byte, mapping the NODE_ROLE_LIVE sentinel to
+  // _board.role -- every GET/SET_<ITEM>(role) handler below runs its
+  // requested role byte through this before validating/using it, so a
+  // caller that just wants its own current role's data can pass
+  // NODE_ROLE_LIVE instead of doing a separate GET_NODE_ROLE round trip.
+  uint8_t resolveRoleByte(uint8_t requested) const {
+    return requested == NODE_ROLE_LIVE ? _board.role : requested;
+  }
   // beebo: called right after
   // DataStore::loadPrefs() writes _board.role directly from persisted
   // storage (begin() and reloadPrefs()), which bypasses setNodeRole()'s

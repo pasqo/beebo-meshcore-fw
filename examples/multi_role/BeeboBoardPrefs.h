@@ -4,6 +4,11 @@
 #define NODE_ROLE_COMPANION   0
 #define NODE_ROLE_REPEATER    1
 #define NODE_ROLE_COUNT       2
+// Sentinel role byte for any wire opcode taking an explicit role: means
+// "whichever role is currently live" -- lets a caller that just wants its
+// own current role's data skip a separate GET_NODE_ROLE round trip. Never a
+// valid role_state_store[] index itself; resolved to _board.role before use.
+#define NODE_ROLE_LIVE         0xFF
 
 // beebo: compile-time default boot role, companion-first -- a build with
 // both roles compiled in (heltec_v4_3_multi_role) defaults to companion; a
