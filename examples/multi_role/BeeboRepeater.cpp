@@ -153,18 +153,18 @@ void Beebo::updateFloodAdvertTimer() {
 // pair above: a `beebo settings repeater.*` write issued while companion was
 // the live role used to silently land in companion's own NodePrefs slot
 // instead (see BUGS.md, kbase/SETTINGS_REFACTOR.md's Known gaps).
-uint32_t Beebo::tlvGetRepeatMode(Beebo* self) {
+uint32_t Beebo::tlvGetRepeatMode(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return self->role_state_store[NODE_ROLE_REPEATER].prefs.disable_fwd ? 0 : 1;
+  return self->role_state_store[role].prefs.disable_fwd ? 0 : 1;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetRepeatMode(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetRepeatMode(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.disable_fwd = raw ? 0 : 1;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
@@ -172,36 +172,36 @@ bool Beebo::tlvSetRepeatMode(Beebo* self, uint32_t raw) {
 static uint32_t _floatBits(float v) { uint32_t b; memcpy(&b, &v, 4); return b; }
 static float _bitsFloat(uint32_t b) { float v; memcpy(&v, &b, 4); return v; }
 
-uint32_t Beebo::tlvGetAgcResetInterval(Beebo* self) {
+uint32_t Beebo::tlvGetAgcResetInterval(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return ((uint32_t)self->role_state_store[NODE_ROLE_REPEATER].prefs.agc_reset_interval) * 4;
+  return ((uint32_t)self->role_state_store[role].prefs.agc_reset_interval) * 4;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetAgcResetInterval(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetAgcResetInterval(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.agc_reset_interval = (uint8_t)(raw / 4);
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
 
-uint32_t Beebo::tlvGetAdvertInterval(Beebo* self) {
+uint32_t Beebo::tlvGetAdvertInterval(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return ((uint32_t)self->role_state_store[NODE_ROLE_REPEATER].prefs.advert_interval) * 2;
+  return ((uint32_t)self->role_state_store[role].prefs.advert_interval) * 2;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetAdvertInterval(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: stores raw sub[1] directly, NOT raw/2 -- see the individual
   // SET_ADVERT_INTERVAL handler's comment (a prior double-division bug).
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.advert_interval = (uint8_t)raw;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
   // beebo: updateAdvertTimer() reads _role_state->prefs (the LIVE role) --
   // a genuine re-arm when repeater is live, a harmless no-op re-apply of
   // the live (non-repeater) role's own unrelated advert_interval otherwise,
@@ -212,83 +212,83 @@ bool Beebo::tlvSetAdvertInterval(Beebo* self, uint32_t raw) {
   return true;
 }
 
-uint32_t Beebo::tlvGetTxDelayFactor(Beebo* self) {
+uint32_t Beebo::tlvGetTxDelayFactor(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return _floatBits(self->role_state_store[NODE_ROLE_REPEATER].prefs.tx_delay_factor);
+  return _floatBits(self->role_state_store[role].prefs.tx_delay_factor);
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetTxDelayFactor(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.tx_delay_factor = _bitsFloat(raw);
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
 
-uint32_t Beebo::tlvGetDirectTxDelayFactor(Beebo* self) {
+uint32_t Beebo::tlvGetDirectTxDelayFactor(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return _floatBits(self->role_state_store[NODE_ROLE_REPEATER].prefs.direct_tx_delay_factor);
+  return _floatBits(self->role_state_store[role].prefs.direct_tx_delay_factor);
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetDirectTxDelayFactor(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetDirectTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.direct_tx_delay_factor = _bitsFloat(raw);
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
 
-uint32_t Beebo::tlvGetAllowReadOnly(Beebo* self) {
+uint32_t Beebo::tlvGetAllowReadOnly(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return self->role_state_store[NODE_ROLE_REPEATER].prefs.allow_read_only;
+  return self->role_state_store[role].prefs.allow_read_only;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetAllowReadOnly(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetAllowReadOnly(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.allow_read_only = raw ? 1 : 0;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
 
-uint32_t Beebo::tlvGetLoopDetect(Beebo* self) {
+uint32_t Beebo::tlvGetLoopDetect(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return self->role_state_store[NODE_ROLE_REPEATER].prefs.loop_detect;
+  return self->role_state_store[role].prefs.loop_detect;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetLoopDetect(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetLoopDetect(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > 3) return false;
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.loop_detect = (uint8_t)raw;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
 
-uint32_t Beebo::tlvGetFloodAdvertInterval(Beebo* self) {
+uint32_t Beebo::tlvGetFloodAdvertInterval(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return self->role_state_store[NODE_ROLE_REPEATER].prefs.flood_advert_interval;
+  return self->role_state_store[role].prefs.flood_advert_interval;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetFloodAdvertInterval(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetFloodAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.flood_advert_interval = (uint8_t)raw;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
   // beebo: see tlvSetAdvertInterval's comment above -- same live-vs-target
   // reasoning applies to this timer rearm.
   self->updateFloodAdvertTimer();
@@ -296,50 +296,50 @@ bool Beebo::tlvSetFloodAdvertInterval(Beebo* self, uint32_t raw) {
   return true;
 }
 
-uint32_t Beebo::tlvGetInterferenceThreshold(Beebo* self) {
+uint32_t Beebo::tlvGetInterferenceThreshold(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return self->role_state_store[NODE_ROLE_REPEATER].prefs.interference_threshold;
+  return self->role_state_store[role].prefs.interference_threshold;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetInterferenceThreshold(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetInterferenceThreshold(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.interference_threshold = (uint8_t)(raw > 9 ? 9 : raw);
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
 
-uint32_t Beebo::tlvGetFloodMax(Beebo* self) {
+uint32_t Beebo::tlvGetFloodMax(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return self->role_state_store[NODE_ROLE_REPEATER].prefs.flood_max;
+  return self->role_state_store[role].prefs.flood_max;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetFloodMax(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetFloodMax(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.flood_max = (uint8_t)raw;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
 
-uint32_t Beebo::tlvGetFloodMaxUnscoped(Beebo* self) {
+uint32_t Beebo::tlvGetFloodMaxUnscoped(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return self->role_state_store[NODE_ROLE_REPEATER].prefs.flood_max_unscoped;
+  return self->role_state_store[role].prefs.flood_max_unscoped;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetFloodMaxUnscoped(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetFloodMaxUnscoped(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.flood_max_unscoped = (uint8_t)raw;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
@@ -356,34 +356,34 @@ bool Beebo::tlvSetFloodMaxUnscoped(Beebo* self, uint32_t raw) {
 // beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- targets repeater's own
 // slot explicitly (see persistRoleSlot()'s comment, Beebo.cpp), NOT
 // self->_role_state->prefs (whichever role is currently live).
-uint32_t Beebo::tlvGetRepeaterRxDelayBase(Beebo* self) {
+uint32_t Beebo::tlvGetRepeaterRxDelayBase(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return _floatBits(self->role_state_store[NODE_ROLE_REPEATER].prefs.rx_delay_base);
+  return _floatBits(self->role_state_store[role].prefs.rx_delay_base);
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetRepeaterRxDelayBase(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetRepeaterRxDelayBase(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.rx_delay_base = _bitsFloat(raw);
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
 
-uint32_t Beebo::tlvGetRepeaterAirtimeFactor(Beebo* self) {
+uint32_t Beebo::tlvGetRepeaterAirtimeFactor(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return _floatBits(self->role_state_store[NODE_ROLE_REPEATER].prefs.airtime_factor);
+  return _floatBits(self->role_state_store[role].prefs.airtime_factor);
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetRepeaterAirtimeFactor(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetRepeaterAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.airtime_factor = _bitsFloat(raw);
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
@@ -401,14 +401,14 @@ bool Beebo::tlvSetRepeaterAirtimeFactor(Beebo* self, uint32_t raw) {
 // unconditionally, so it's a harmless no-op re-apply of the live role's
 // already-current value when this write targets a non-live repeater slot,
 // and a genuine re-apply when repeater is the one that's live.
-uint32_t Beebo::tlvGetRepeaterDedupWindow(Beebo* self) {
+uint32_t Beebo::tlvGetRepeaterDedupWindow(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return self->role_state_store[NODE_ROLE_REPEATER].prefs.dedup_window_ms;
+  return self->role_state_store[role].prefs.dedup_window_ms;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetRepeaterDedupWindow(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetRepeaterDedupWindow(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > DEDUP_WINDOW_MAX_MS) return false;
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: MON_SETTING, reusing this field's own PrefsTlvKey (20) as the
@@ -416,28 +416,28 @@ bool Beebo::tlvSetRepeaterDedupWindow(Beebo* self, uint32_t raw) {
   // tlv setter) rather than the command handler so it fires from every
   // entry point uniformly, same as node_role's own appendSettingChangedEvent
   // call living inside setNodeRole() rather than each of its callers.
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   self->appendSettingChangedEvent(PREFS_TLV_REPEATER_DEDUP_WINDOW,
                                    slot.prefs.dedup_window_ms, raw, EVENT_SOURCE_BINARY);
   slot.prefs.dedup_window_ms = raw;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
   self->pushActiveDedupWindow();
 #endif
   return true;
 }
 
-uint32_t Beebo::tlvGetFloodMaxAdvert(Beebo* self) {
+uint32_t Beebo::tlvGetFloodMaxAdvert(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  return self->role_state_store[NODE_ROLE_REPEATER].prefs.flood_max_advert;
+  return self->role_state_store[role].prefs.flood_max_advert;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetFloodMaxAdvert(Beebo* self, uint32_t raw) {
+bool Beebo::tlvSetFloodMaxAdvert(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.flood_max_advert = (uint8_t)raw;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
@@ -449,10 +449,10 @@ bool Beebo::tlvSetFloodMaxAdvert(Beebo* self, uint32_t raw) {
 // own slot explicitly, regardless of which role is currently live -- fixed
 // 2026-08-10 (previously used self->_role_state->prefs, see this file's own
 // top-of-block comment).
-int Beebo::tlvGetOwnerInfo(Beebo* self, uint8_t* out, size_t max_len) {
+int Beebo::tlvGetOwnerInfo(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  const char* info = self->role_state_store[NODE_ROLE_REPEATER].prefs.owner_info;
-  size_t n = strnlen(info, sizeof(self->role_state_store[NODE_ROLE_REPEATER].prefs.owner_info) - 1);
+  const char* info = self->role_state_store[role].prefs.owner_info;
+  size_t n = strnlen(info, sizeof(self->role_state_store[role].prefs.owner_info) - 1);
   if (n > max_len) n = max_len;
   memcpy(out, info, n);
   return (int)n;
@@ -460,44 +460,43 @@ int Beebo::tlvGetOwnerInfo(Beebo* self, uint8_t* out, size_t max_len) {
   return 0;
 #endif
 }
-bool Beebo::tlvSetOwnerInfo(Beebo* self, const uint8_t* in, size_t len) {
+bool Beebo::tlvSetOwnerInfo(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: silently truncates (never rejects) an overlong value, matching
   // the individual SET_OWNER_INFO handler's own min(len, sizeof-1) clamp.
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  BeeboRoleState& slot = self->role_state_store[role];
   if (len > sizeof(slot.prefs.owner_info) - 1) len = sizeof(slot.prefs.owner_info) - 1;
   memcpy(slot.prefs.owner_info, in, len);
   slot.prefs.owner_info[len] = 0;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
+  persistRoleSlot(self, role, slot);
 #endif
   return true;
 }
 
-int Beebo::tlvGetRepeaterName(Beebo* self, uint8_t* out, size_t max_len) {
-#if BEEBO_ENABLE_REPEATER_ROLE
-  // beebo: getRoleName(NODE_ROLE_REPEATER) always reads repeater's own
-  // resident slot directly (role_state_store[NODE_ROLE_REPEATER] -- see
-  // its own comment in Beebo.h), regardless of which role is currently
-  // live; empty if the repeater persona's name was never set, no fallback.
-  const char* name = self->getRoleName(NODE_ROLE_REPEATER);
+// beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- not gated by
+// `#if BEEBO_ENABLE_REPEATER_ROLE` (see tlvGetRepeaterMultiAcks's comment
+// in Beebo.cpp for why): also called with NODE_ROLE_COMPANION now (the
+// former tlvSetCompanionName call site, retired below).
+int Beebo::tlvGetRepeaterName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+  // beebo: getRoleName(role) always reads that role's own resident slot
+  // directly (role_state_store[role] -- see its own comment in Beebo.h),
+  // regardless of which role is currently live; empty if that role's name
+  // was never set, no fallback.
+  const char* name = self->getRoleName(role);
   size_t n = strlen(name);
   if (n > max_len) n = max_len;
   memcpy(out, name, n);
   return (int)n;
-#else
-  return 0;
-#endif
 }
-bool Beebo::tlvSetRepeaterName(Beebo* self, const uint8_t* in, size_t len) {
-#if BEEBO_ENABLE_REPEATER_ROLE
+bool Beebo::tlvSetRepeaterName(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
   // beebo: silently truncates (never rejects) an overlong value, matching
-  // the individual SET_REPEATER_NAME handler's own min(len, sizeof-1) clamp.
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_REPEATER];
+  // the individual SET_REPEATER_NAME/SET_COMPANION_NAME handlers' own
+  // min(len, sizeof-1) clamp.
+  BeeboRoleState& slot = self->role_state_store[role];
   if (len > sizeof(slot.prefs.node_name) - 1) len = sizeof(slot.prefs.node_name) - 1;
   memcpy(slot.prefs.node_name, in, len);
   slot.prefs.node_name[len] = 0;
-  persistRoleSlot(self, NODE_ROLE_REPEATER, slot);
-#endif
+  persistRoleSlot(self, role, slot);
   return true;
 }
 
@@ -517,7 +516,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_OWNER_INFO,             TLV_STRING, nullptr, nullptr, tlvGetOwnerInfo,    tlvSetOwnerInfo },
   { PREFS_TLV_REPEATER_NAME,          TLV_STRING, nullptr, nullptr, tlvGetRepeaterName, tlvSetRepeaterName },
   { PREFS_TLV_WIFI_SSID,              TLV_STRING, nullptr, nullptr, tlvGetWifiSsid,     tlvSetWifiSsid },
-  { PREFS_TLV_TRANSPORT_CONFIG,       TLV_U32,    tlvGetTransportConfig, tlvSetTransportConfig, nullptr, nullptr },
+  { PREFS_TLV_TRANSPORT_CONFIG,       TLV_U32,    tlvGetRoleTransportConfig, tlvSetRoleTransportConfig, nullptr, nullptr },
   { PREFS_TLV_MONRING_CONFIG,         TLV_U32,    tlvGetMonringConfig,   tlvSetMonringConfig,   nullptr, nullptr },
   { PREFS_TLV_REPEATER_RXDELAY,       TLV_FLOAT,  tlvGetRepeaterRxDelayBase,   tlvSetRepeaterRxDelayBase,   nullptr, nullptr },
   { PREFS_TLV_REPEATER_AIRTIME,       TLV_FLOAT,  tlvGetRepeaterAirtimeFactor, tlvSetRepeaterAirtimeFactor, nullptr, nullptr },
@@ -526,6 +525,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_REPEATER_PATH_HASH_MODE, TLV_U32,    tlvGetRepeaterPathHashMode,  tlvSetRepeaterPathHashMode,  nullptr, nullptr },
   { PREFS_TLV_REPEATER_LAT,            TLV_U32,    tlvGetRepeaterLat,           tlvSetRepeaterLat,           nullptr, nullptr },
   { PREFS_TLV_REPEATER_LON,            TLV_U32,    tlvGetRepeaterLon,           tlvSetRepeaterLon,           nullptr, nullptr },
+  { PREFS_TLV_ADV_LOC_POLICY,          TLV_U32,    tlvGetRepeaterAdvLocPolicy,  tlvSetRepeaterAdvLocPolicy,  nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 
@@ -536,13 +536,13 @@ const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PR
 // remaining space is silently skipped (caller sees fewer triplets than
 // PREFS_TLV_FIELD_COUNT; none of these fields currently come close to
 // overflowing MAX_FRAME_SIZE, so this is a safety margin, not a real limit).
-int Beebo::encodePrefsTlv(uint8_t* out, size_t max_len) {
+int Beebo::encodePrefsTlv(uint8_t role, uint8_t* out, size_t max_len) {
   int pos = 0;
   for (size_t i = 0; i < PREFS_TLV_FIELD_COUNT; i++) {
     const PrefsTlvField& f = PREFS_TLV_FIELDS[i];
     if (f.type == TLV_STRING) {
       uint8_t buf[128];
-      int n = f.get_str(this, buf, sizeof(buf));
+      int n = f.get_str(this, role, buf, sizeof(buf));
       if (n < 0 || (size_t)(pos + 2 + n) > max_len) continue;
       out[pos++] = f.key;
       out[pos++] = (uint8_t)n;
@@ -550,7 +550,7 @@ int Beebo::encodePrefsTlv(uint8_t* out, size_t max_len) {
       pos += n;
     } else {
       if ((size_t)(pos + 6) > max_len) continue;
-      uint32_t raw = f.get_raw(this);
+      uint32_t raw = f.get_raw(this, role);
       out[pos++] = f.key;
       out[pos++] = 4;
       memcpy(&out[pos], &raw, 4);
@@ -569,7 +569,7 @@ int Beebo::encodePrefsTlv(uint8_t* out, size_t max_len) {
 // or -- for a TLV_U32/TLV_FLOAT field -- a length other than 4) forces
 // `pos` to `len` since there's no safe way to resync mid-stream. Either way
 // returns false so the caller can report the failure.
-bool Beebo::applyPrefsTlvTriplet(const uint8_t* in, size_t len, size_t& pos) {
+bool Beebo::applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, size_t& pos) {
   if (pos + 2 > len) { pos = len; return false; }
   uint8_t key = in[pos];
   uint8_t vlen = in[pos + 1];
@@ -583,7 +583,7 @@ bool Beebo::applyPrefsTlvTriplet(const uint8_t* in, size_t len, size_t& pos) {
   if (f == nullptr) { pos += vlen; return false; }
 
   if (f->type == TLV_STRING) {
-    bool ok = f->set_str(this, &in[pos], vlen);
+    bool ok = f->set_str(this, role, &in[pos], vlen);
     pos += vlen;
     return ok;
   }
@@ -591,7 +591,7 @@ bool Beebo::applyPrefsTlvTriplet(const uint8_t* in, size_t len, size_t& pos) {
   uint32_t raw;
   memcpy(&raw, &in[pos], 4);
   pos += 4;
-  return f->set_raw(this, raw);
+  return f->set_raw(this, role, raw);
 }
 
 // beebo: multi_role Phase 4 -- mirrors BaseChatMesh::createSelfAdvert

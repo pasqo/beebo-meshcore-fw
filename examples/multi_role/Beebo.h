@@ -1076,15 +1076,26 @@ private:
     PREFS_TLV_REPEATER_PATH_HASH_MODE = 22,
     PREFS_TLV_REPEATER_LAT = 23,   // fixed-point *1e6 in an int32
     PREFS_TLV_REPEATER_LON = 24,   // fixed-point *1e6 in an int32
+    // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- folded in once its
+    // accessor became role-generic; "REPEATER_" in the key/function names
+    // above is now a historical misnomer (every one of these targets
+    // whichever role the call's own leading role byte names, companion
+    // included), not a rename this phase -- see the plan doc.
+    PREFS_TLV_ADV_LOC_POLICY = 25,
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
+  // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 1 -- every accessor takes an
+  // explicit role, scoping the whole GET_PREFS_TLV/SET_PREFS_TLV call to one
+  // role (see the wire format note on PREFS_TLV_FIELDS below), instead of
+  // each field addressing whichever role its own implementation happened to
+  // hardcode.
   struct PrefsTlvField {
     uint8_t key;      // PrefsTlvKey
     uint8_t type;      // PrefsTlvType
-    uint32_t (*get_raw)(Beebo* self);                            // TLV_U32/TLV_FLOAT (float bit-cast into the u32)
-    bool (*set_raw)(Beebo* self, uint32_t raw);                   // TLV_U32/TLV_FLOAT
-    int (*get_str)(Beebo* self, uint8_t* out, size_t max_len);     // TLV_STRING: returns length written
-    bool (*set_str)(Beebo* self, const uint8_t* in, size_t len);   // TLV_STRING
+    uint32_t (*get_raw)(Beebo* self, uint8_t role);                            // TLV_U32/TLV_FLOAT (float bit-cast into the u32)
+    bool (*set_raw)(Beebo* self, uint8_t role, uint32_t raw);                   // TLV_U32/TLV_FLOAT
+    int (*get_str)(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);     // TLV_STRING: returns length written
+    bool (*set_str)(Beebo* self, uint8_t role, const uint8_t* in, size_t len);   // TLV_STRING
   };
   static const PrefsTlvField PREFS_TLV_FIELDS[];
   static const size_t PREFS_TLV_FIELD_COUNT;
@@ -1101,43 +1112,43 @@ private:
   // ADVERT_INTERVAL). No setter writes flash itself: the ComPrefs-backed ones
   // touch _com_prefs_cache (via _writeComPrefsCacheOnly, not
   // writeComPrefsField) and the NodePrefs-backed ones (WIFI_SSID/
-  // TRANSPORT_CONFIG/MONRING_CONFIG) mutate _role_state->prefs and call savePrefs() --
+  // TRANSPORT_CONFIG/MONRING_CONFIG) mutate role_state_store[role].prefs
+  // directly, calling savePrefs() when role is also the live role or
+  // persistRoleSlot() otherwise (PREFS_TLV_ROLE_UNIFICATION.md Phase 1/2) --
   // both of which just mark their store dirty. The flush comes from the
   // caller: deferred to the batch end for a SET_PREFS_TLV payload, immediate
   // for a single individual SET_* call (see BeeboRepeater.cpp's definitions
   // for the exact per-field logic).
-  static uint32_t tlvGetRepeatMode(Beebo* self);
-  static bool tlvSetRepeatMode(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetTxDelayFactor(Beebo* self);
-  static bool tlvSetTxDelayFactor(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetDirectTxDelayFactor(Beebo* self);
-  static bool tlvSetDirectTxDelayFactor(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetAllowReadOnly(Beebo* self);
-  static bool tlvSetAllowReadOnly(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetAgcResetInterval(Beebo* self);
-  static bool tlvSetAgcResetInterval(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetLoopDetect(Beebo* self);
-  static bool tlvSetLoopDetect(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetFloodAdvertInterval(Beebo* self);
-  static bool tlvSetFloodAdvertInterval(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetInterferenceThreshold(Beebo* self);
-  static bool tlvSetInterferenceThreshold(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetAdvertInterval(Beebo* self);
-  static bool tlvSetAdvertInterval(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetFloodMax(Beebo* self);
-  static bool tlvSetFloodMax(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetFloodMaxUnscoped(Beebo* self);
-  static bool tlvSetFloodMaxUnscoped(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetFloodMaxAdvert(Beebo* self);
-  static bool tlvSetFloodMaxAdvert(Beebo* self, uint32_t raw);
-  static int tlvGetOwnerInfo(Beebo* self, uint8_t* out, size_t max_len);
-  static bool tlvSetOwnerInfo(Beebo* self, const uint8_t* in, size_t len);
-  static int tlvGetRepeaterName(Beebo* self, uint8_t* out, size_t max_len);
-  static bool tlvSetRepeaterName(Beebo* self, const uint8_t* in, size_t len);
-  static int tlvGetWifiSsid(Beebo* self, uint8_t* out, size_t max_len);
-  static bool tlvSetWifiSsid(Beebo* self, const uint8_t* in, size_t len);
-  static uint32_t tlvGetTransportConfig(Beebo* self);
-  static bool tlvSetTransportConfig(Beebo* self, uint32_t raw);
+  static uint32_t tlvGetRepeatMode(Beebo* self, uint8_t role);
+  static bool tlvSetRepeatMode(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetTxDelayFactor(Beebo* self, uint8_t role);
+  static bool tlvSetTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetDirectTxDelayFactor(Beebo* self, uint8_t role);
+  static bool tlvSetDirectTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetAllowReadOnly(Beebo* self, uint8_t role);
+  static bool tlvSetAllowReadOnly(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetAgcResetInterval(Beebo* self, uint8_t role);
+  static bool tlvSetAgcResetInterval(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetLoopDetect(Beebo* self, uint8_t role);
+  static bool tlvSetLoopDetect(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetFloodAdvertInterval(Beebo* self, uint8_t role);
+  static bool tlvSetFloodAdvertInterval(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetInterferenceThreshold(Beebo* self, uint8_t role);
+  static bool tlvSetInterferenceThreshold(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetAdvertInterval(Beebo* self, uint8_t role);
+  static bool tlvSetAdvertInterval(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetFloodMax(Beebo* self, uint8_t role);
+  static bool tlvSetFloodMax(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetFloodMaxUnscoped(Beebo* self, uint8_t role);
+  static bool tlvSetFloodMaxUnscoped(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetFloodMaxAdvert(Beebo* self, uint8_t role);
+  static bool tlvSetFloodMaxAdvert(Beebo* self, uint8_t role, uint32_t raw);
+  static int tlvGetOwnerInfo(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetOwnerInfo(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
+  static int tlvGetRepeaterName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetRepeaterName(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
+  static int tlvGetWifiSsid(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetWifiSsid(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   // beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- role-targeted variants
   // of the four accessors just above, for node.transport.*/node.wifi.*/
   // node.ble.pin's companion.*/repeater.* binary-protocol access (see
@@ -1149,8 +1160,8 @@ private:
   static bool tlvSetRoleWifiCreds(Beebo* self, uint8_t role, const uint8_t* p, const uint8_t* end);
   static uint32_t tlvGetRoleBlePin(Beebo* self, uint8_t role);
   static bool tlvSetRoleBlePin(Beebo* self, uint8_t role, uint32_t pin);
-  static uint32_t tlvGetMonringConfig(Beebo* self);
-  static bool tlvSetMonringConfig(Beebo* self, uint32_t raw);
+  static uint32_t tlvGetMonringConfig(Beebo* self, uint8_t role);
+  static bool tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw);
   // beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- the tlvGetRepeater*/
   // tlvSetRepeater* accessors below (and the role-targeted node.wifi.*/
   // node.transport.*/node.ble.* accessors further down) are beebo's
@@ -1167,32 +1178,31 @@ private:
   // non-live role's slot needs an immediate direct save instead of just
   // setting .dirty.
   static void persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot);
-  static uint32_t tlvGetRepeaterRxDelayBase(Beebo* self);
-  static bool tlvSetRepeaterRxDelayBase(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetRepeaterAirtimeFactor(Beebo* self);
-  static bool tlvSetRepeaterAirtimeFactor(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetRepeaterDedupWindow(Beebo* self);
-  static bool tlvSetRepeaterDedupWindow(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetRepeaterMultiAcks(Beebo* self);
-  static bool tlvSetRepeaterMultiAcks(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetRepeaterPathHashMode(Beebo* self);
-  static bool tlvSetRepeaterPathHashMode(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetRepeaterLat(Beebo* self);
-  static bool tlvSetRepeaterLat(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetRepeaterLon(Beebo* self);
-  static bool tlvSetRepeaterLon(Beebo* self, uint32_t raw);
-  static uint32_t tlvGetRepeaterAdvLocPolicy(Beebo* self);
-  static bool tlvSetRepeaterAdvLocPolicy(Beebo* self, uint32_t raw);
+  static uint32_t tlvGetRepeaterRxDelayBase(Beebo* self, uint8_t role);
+  static bool tlvSetRepeaterRxDelayBase(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRepeaterAirtimeFactor(Beebo* self, uint8_t role);
+  static bool tlvSetRepeaterAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRepeaterDedupWindow(Beebo* self, uint8_t role);
+  static bool tlvSetRepeaterDedupWindow(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRepeaterMultiAcks(Beebo* self, uint8_t role);
+  static bool tlvSetRepeaterMultiAcks(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRepeaterPathHashMode(Beebo* self, uint8_t role);
+  static bool tlvSetRepeaterPathHashMode(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRepeaterLat(Beebo* self, uint8_t role);
+  static bool tlvSetRepeaterLat(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRepeaterLon(Beebo* self, uint8_t role);
+  static bool tlvSetRepeaterLon(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRepeaterAdvLocPolicy(Beebo* self, uint8_t role);
+  static bool tlvSetRepeaterAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw);
   // beebo: companion's own write-side counterparts, closing the mirror-
   // image gap documented in BUGS.md ('companion.* write gap') -- see
   // their definitions (Beebo.cpp, just above handleCmdFrame()) for the
-  // full rationale.
-  static bool tlvSetCompanionName(Beebo* self, const uint8_t* in, size_t len);
-  static bool tlvSetCompanionLat(Beebo* self, uint32_t raw);
-  static bool tlvSetCompanionLon(Beebo* self, uint32_t raw);
-  static bool tlvSetCompanionMultiAcks(Beebo* self, uint32_t raw);
-  static bool tlvSetCompanionPathHashMode(Beebo* self, uint32_t raw);
-  static bool tlvSetCompanionAdvLocPolicy(Beebo* self, uint32_t raw);
+  // full rationale. Name/Lat/Lon/MultiAcks/PathHashMode/AdvLocPolicy retired
+  // (PREFS_TLV_ROLE_UNIFICATION.md Phase 3) -- tlvSetRepeaterX above is now
+  // role-generic (and unguarded -- see its own comment in Beebo.cpp) and
+  // used directly with NODE_ROLE_COMPANION instead. ManualAddContacts/
+  // AutoaddConfig stay -- genuinely companion-only concepts with no
+  // repeater-side twin to fold into.
   static bool tlvSetCompanionManualAddContacts(Beebo* self, uint32_t raw);
   static bool tlvSetCompanionAutoaddConfig(Beebo* self, uint32_t raw);
 
@@ -1205,8 +1215,8 @@ private:
   // SET_PREFS_TLV dispatch, Beebo.cpp) flushes it to flash ONCE after every
   // triplet in the payload has been applied, however many fields changed --
   // one flash write, not one per field.
-  int encodePrefsTlv(uint8_t* out, size_t max_len);
-  bool applyPrefsTlvTriplet(const uint8_t* in, size_t len, size_t& pos);
+  int encodePrefsTlv(uint8_t role, uint8_t* out, size_t max_len);
+  bool applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, size_t& pos);
 
   // beebo: CommonCLI fallback's 'tempradio <freq> <bw> <sf> <cr> <mins>' --
   // ported from simple_repeater's own MyMesh.h/.cpp (same field names,
