@@ -1068,6 +1068,15 @@ private:
     PREFS_TLV_BATT_SAMPLE_WINDOW = 34, // secs
     PREFS_TLV_BATT_CHARGED_MV = 35,
     PREFS_TLV_IDLE_MARGIN = 36,        // ms
+    // beebo: companion-only NodePrefs fields (see BUGS.md's write-gap
+    // note) -- always meaningful only via role=NODE_ROLE_COMPANION, same
+    // as the individual SET_COMPANION_* opcodes they replace. Registering
+    // them here also gives these two fields a real GET for the first
+    // time (the old SET-only opcodes had none; the CLI's own get() for
+    // these settings deliberately keeps reading self_info instead, per
+    // its own comment, unrelated to this).
+    PREFS_TLV_MANUAL_ADD_CONTACTS = 37,
+    PREFS_TLV_AUTOADD_CONFIG = 38,
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1176,7 +1185,9 @@ private:
   static bool tlvSetBattChargedMv(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetIdleMargin(Beebo* self, uint8_t role);
   static bool tlvSetIdleMargin(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetManualAddContacts(Beebo* self, uint8_t role);
   static bool tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetAutoaddConfig(Beebo* self, uint8_t role);
   static bool tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw);
 
   // Encodes every field above into out (caller-sized) as [key][len][value]

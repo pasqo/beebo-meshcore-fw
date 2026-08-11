@@ -2348,11 +2348,17 @@ bool Beebo::tlvSetIdleMargin(Beebo* self, uint8_t role, uint32_t raw) {
 // BEEBO_ENABLE_COMPANION_ROLE guard needed, only the runtime
 // isNodeRoleBuiltIn() check callers already apply (same reasoning as
 // BEEBO_CMD_GET_COMPANION_* handlers).
+uint32_t Beebo::tlvGetManualAddContacts(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.manual_add_contacts;
+}
 bool Beebo::tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw) {
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.manual_add_contacts = (uint8_t)(raw ? 1 : 0);
   persistRoleSlot(self, role, slot);
   return true;
+}
+uint32_t Beebo::tlvGetAutoaddConfig(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.autoadd_config;
 }
 bool Beebo::tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw) {
   BeeboRoleState& slot = self->role_state_store[role];
@@ -3797,22 +3803,6 @@ void Beebo::handleCmdFrame(size_t len) {
   // a scalar GET, RESP_CODE_BEEBO+sub+bytes for a string GET, OK/ERR frame
   // for a SET) still lives here, matching the plain BEEBO_CMD_GET/SET_*
   // convention every other field in this file uses.
-  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_MANUAL_ADD_CONTACTS && sub_len >= 2) {
-    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) ||
-        !tlvSetManualAddContacts(this, NODE_ROLE_COMPANION, sub[1])) {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else {
-      flushDirtyPrefs();
-      writeOKFrame();
-    }
-  } else if (sub[0] == BEEBO_CMD_SET_COMPANION_AUTOADD_CONFIG && sub_len >= 2) {
-    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) ||
-        !tlvSetAutoaddConfig(this, NODE_ROLE_COMPANION, sub[1])) {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else {
-      flushDirtyPrefs();
-      writeOKFrame();
-    }
   } else if (sub[0] == BEEBO_CMD_GET_ACK_STATS) {
     // beebo: "TX reception confirmation".
     // Lifetime counts, RAM-only (BaseChatMesh's own _ack_success_count/
@@ -3824,8 +3814,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // 4-byte payload (the stock meshcore library's generic OK-frame parser
     // only ever reads bytes[1:5] into "value", silently dropping anything
     // after) -- needs its own RESP_CODE_BEEBO sub-id and a custom reader
-    // patch client-side, same as GET_FULL_VERSION/GET_OWNER_INFO/
-    // GET_REPEATER_NAME above.
+    // patch client-side, same as GET_FULL_VERSION/GET_ROLE_NAME above.
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_ACK_STATS;
     uint32_t success = getAckSuccessCount();
@@ -3881,15 +3870,6 @@ void Beebo::handleCmdFrame(size_t len) {
     _role_state->prefs.dedup_window_ms = value;
     pushActiveDedupWindow();  // no-op on the live table unless companion is the active role
     savePrefs();
-    writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_OWNER_INFO) {
-    out_frame[0] = RESP_CODE_BEEBO;
-    out_frame[1] = BEEBO_RESP_OWNER_INFO;
-    int owner_len = tlvGetOwnerInfo(this, NODE_ROLE_REPEATER, &out_frame[2], MAX_FRAME_SIZE - 2);
-    _serial->writeFrame(out_frame, 2 + owner_len);
-  } else if (sub[0] == BEEBO_CMD_SET_OWNER_INFO) {
-    tlvSetOwnerInfo(this, NODE_ROLE_REPEATER, &sub[1], (size_t)sub_len - 1);
-    flushDirtyPrefs();
     writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_SET_OWNER_PASSWORD) {
     // beebo: SETTINGS_ISOLATION follow-up -- role-agnostic backup/recovery

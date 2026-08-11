@@ -460,8 +460,7 @@ int Beebo::tlvGetOwnerInfo(Beebo* self, uint8_t role, uint8_t* out, size_t max_l
 }
 bool Beebo::tlvSetOwnerInfo(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  // beebo: silently truncates (never rejects) an overlong value, matching
-  // the individual SET_OWNER_INFO handler's own min(len, sizeof-1) clamp.
+  // beebo: silently truncates (never rejects) an overlong value.
   BeeboRoleState& slot = self->role_state_store[role];
   if (len > sizeof(slot.prefs.owner_info) - 1) len = sizeof(slot.prefs.owner_info) - 1;
   memcpy(slot.prefs.owner_info, in, len);
@@ -534,6 +533,8 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_BATT_SAMPLE_WINDOW,  TLV_U32, tlvGetBattSampleWindow,  tlvSetBattSampleWindow,  nullptr, nullptr },
   { PREFS_TLV_BATT_CHARGED_MV,     TLV_U32, tlvGetBattChargedMv,     tlvSetBattChargedMv,     nullptr, nullptr },
   { PREFS_TLV_IDLE_MARGIN,         TLV_U32, tlvGetIdleMargin,        tlvSetIdleMargin,        nullptr, nullptr },
+  { PREFS_TLV_MANUAL_ADD_CONTACTS, TLV_U32, tlvGetManualAddContacts, tlvSetManualAddContacts, nullptr, nullptr },
+  { PREFS_TLV_AUTOADD_CONFIG,      TLV_U32, tlvGetAutoaddConfig,     tlvSetAutoaddConfig,     nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 
