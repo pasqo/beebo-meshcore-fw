@@ -1107,10 +1107,6 @@ private:
   static bool tlvSetName(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   static int tlvGetWifiSsid(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
   static bool tlvSetWifiSsid(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
-  // beebo: the role-targeted path -- role-targeted variants
-  // of the four accessors just above, for node.transport.*/node.wifi.*/
-  // node.ble.pin's companion.*/repeater.* binary-protocol access (see
-  // persistRoleSlot()'s comment for why these exist).
   static uint32_t tlvGetTransportConfig(Beebo* self, uint8_t role);
   static bool tlvSetTransportConfig(Beebo* self, uint8_t role, uint32_t raw);
   static bool tlvGetWifiPwdSet(Beebo* self, uint8_t role);
@@ -1121,22 +1117,6 @@ private:
   static bool tlvSetBlePin(Beebo* self, uint8_t role, uint32_t pin);
   static uint32_t tlvGetMonringConfig(Beebo* self, uint8_t role);
   static bool tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw);
-  // beebo: the role-targeted path -- the role-parameterized
-  // accessors below (and the role-targeted node.wifi.*/
-  // node.transport.*/node.ble.* accessors further down) are beebo's
-  // binary-protocol namespaced equivalents of a role's own text-CLI
-  // settings (multi.acks, path.hash.mode, ...), meant to address that
-  // role's own resident slot unconditionally regardless of which role is
-  // currently live (same companion.*/repeater.*-addresses-its-own-data-
-  // regardless-of-live-role convention as every other beebo binary opcode,
-  // see CLAUDE.md's "Backward compatibility" section) -- NOT
-  // self->_role_state->prefs (whichever role happens to be live).
-  // persistRoleSlot() is the shared save step every setter needs:
-  // flushDirtyPrefs() (called by every opcode handler right after) only
-  // ever flushes the live role's slot, so a write into a currently-
-  // non-live role's slot needs an immediate direct save instead of just
-  // setting .dirty.
-  static void persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot);
   static uint32_t tlvGetRxDelayBase(Beebo* self, uint8_t role);
   static bool tlvSetRxDelayBase(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAirtimeFactor(Beebo* self, uint8_t role);
@@ -1153,10 +1133,6 @@ private:
   static bool tlvSetLon(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAdvLocPolicy(Beebo* self, uint8_t role);
   static bool tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw);
-  // beebo: closes the mirror-image write gap documented in BUGS.md
-  // ('companion.* write gap') -- see their definitions (Beebo.cpp, just
-  // above handleCmdFrame()) for the full rationale. Genuinely companion-only
-  // concepts with no repeater-side twin.
   static bool tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw);
   static bool tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw);
 
@@ -1171,6 +1147,7 @@ private:
   // one flash write, not one per field.
   int encodePrefsTlv(uint8_t role, uint8_t* out, size_t max_len);
   bool applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, size_t& pos);
+  static void persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot);
 
   // beebo: CommonCLI fallback's 'tempradio <freq> <bw> <sf> <cr> <mins>' --
   // a two-stage set-then-revert timer, ticked from loopRepeater() since
