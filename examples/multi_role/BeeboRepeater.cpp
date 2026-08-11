@@ -550,20 +550,22 @@ const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PR
 // remaining space is silently skipped (caller sees fewer triplets than
 // PREFS_TLV_FIELD_COUNT; none of these fields currently come close to
 // overflowing MAX_FRAME_SIZE, so this is a safety margin, not a real limit).
-int Beebo::encodePrefsTlv(uint8_t role, uint8_t* out, size_t max_len) {
+int Beebo::encodePrefsTlv(uint8_t role, size_t start_index, uint8_t* out, size_t max_len, size_t* next_index) {
   int pos = 0;
-  for (size_t i = 0; i < PREFS_TLV_FIELD_COUNT; i++) {
+  size_t i = start_index;
+  for (; i < PREFS_TLV_FIELD_COUNT; i++) {
     const PrefsTlvField& f = PREFS_TLV_FIELDS[i];
     if (f.type == TLV_STRING) {
       uint8_t buf[128];
       int n = f.get_str(this, role, buf, sizeof(buf));
-      if (n < 0 || (size_t)(pos + 2 + n) > max_len) continue;
+      if (n < 0) continue;  // field genuinely unsupported in this build/state -- skip, doesn't affect pagination
+      if ((size_t)(pos + 2 + n) > max_len) break;  // stop, not skip: resume here on the next page
       out[pos++] = f.key;
       out[pos++] = (uint8_t)n;
       memcpy(&out[pos], buf, n);
       pos += n;
     } else {
-      if ((size_t)(pos + 6) > max_len) continue;
+      if ((size_t)(pos + 6) > max_len) break;
       uint32_t raw = f.get_raw(this, role);
       out[pos++] = f.key;
       out[pos++] = 4;
@@ -571,6 +573,7 @@ int Beebo::encodePrefsTlv(uint8_t role, uint8_t* out, size_t max_len) {
       pos += 4;
     }
   }
+  *next_index = i;
   return pos;
 }
 

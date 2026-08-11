@@ -1229,7 +1229,16 @@ private:
   // SET_PREFS_TLV dispatch, Beebo.cpp) flushes it to flash ONCE after every
   // triplet in the payload has been applied, however many fields changed --
   // one flash write, not one per field.
-  int encodePrefsTlv(uint8_t role, uint8_t* out, size_t max_len);
+  // beebo: paginated -- starts at PREFS_TLV_FIELDS[start_index], stops (not
+  // skips) at the first field that wouldn't fit in max_len, and reports
+  // where the next page should resume via *next_index (== PREFS_TLV_FIELD_COUNT
+  // when this page reached the end of the table). Needed because the table
+  // has grown past what a single 176-byte BLE-capped frame can hold; WiFi/
+  // USB's larger getMaxSendFrameSize() (MAX_SEND_FRAME_SIZE, BULK_XFER) means
+  // they still get the whole table in one page in practice. See
+  // BEEBO_CMD_GET_PREFS_TLV's dispatch in Beebo.cpp for the request/reply
+  // framing (leading start_index byte in, leading next_index byte out).
+  int encodePrefsTlv(uint8_t role, size_t start_index, uint8_t* out, size_t max_len, size_t* next_index);
   bool applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, size_t& pos);
   static void persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot);
 

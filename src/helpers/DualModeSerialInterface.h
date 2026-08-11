@@ -64,5 +64,13 @@ public:
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[], size_t max_len) override;
   size_t getMaxRecvFrameSize() const override { return OTA_FRAME_SIZE; }
+  // beebo: USB is at least as fast as WiFi (see rx_buf's own comment on the
+  // recv side) -- no reason its outbound cap should stay stuck at the BLE
+  // MTU floor while SerialWifiInterface::getMaxSendFrameSize() already
+  // advertises MAX_SEND_FRAME_SIZE. Matters for GET_PREFS_TLV's paginated
+  // dump (Beebo.cpp/BeeboRepeater.cpp's encodePrefsTlv): without this
+  // override the whole table's worth of fields needed several USB round
+  // trips it didn't actually need, unlike WiFi's single-page dump.
+  size_t getMaxSendFrameSize() const override { return MAX_SEND_FRAME_SIZE; }
   bool lastRecvWasText() const override { return _lastWasText; }
 };

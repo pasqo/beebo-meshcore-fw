@@ -48,8 +48,10 @@ size_t DualModeSerialInterface::writeFrame(const uint8_t src[], size_t len) {
     return len;
   }
 
-  if (len > MAX_FRAME_SIZE) {
-    // frame is too big!
+  if (len > MAX_SEND_FRAME_SIZE) {
+    // frame is too big! (see getMaxSendFrameSize()'s override -- this check
+    // must stay in lockstep with what that advertises, same as
+    // SerialWifiInterface::writeFrame()'s own MAX_SEND_FRAME_SIZE check)
     return 0;
   }
 

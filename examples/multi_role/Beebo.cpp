@@ -4198,11 +4198,23 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_GET_PREFS_TLV && sub_len >= 2) {
     // beebo: sub[1] is a leading role byte (NODE_ROLE_COMPANION/
     // NODE_ROLE_REPEATER/NODE_ROLE_LIVE), scoping the whole triplet stream
-    // to one role per call.
+    // to one role per call. sub[2] (optional, defaults to 0) is the
+    // PREFS_TLV_FIELDS start index to resume from -- the table has grown
+    // past what a single BLE-capped (176B) frame can hold, so the reply is
+    // paginated: out_frame[2] carries next_index (== PREFS_TLV_FIELD_COUNT
+    // when this page reached the end) for the caller to request the next
+    // page with, same "keep calling until done" shape as GET_MONRING/
+    // GET_NEIGHBORS. WiFi/USB's larger getMaxSendFrameSize() (BULK_XFER)
+    // means they get the whole table in one page in practice.
+    uint8_t start_index = (sub_len >= 3) ? sub[2] : 0;
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_PREFS_TLV;
-    int n = encodePrefsTlv(resolveRoleByte(sub[1]), &out_frame[2], MAX_FRAME_SIZE - 2);
-    _serial->writeFrame(out_frame, 2 + n);
+    size_t next_index = 0;
+    size_t page_cap = _serial->getMaxSendFrameSize();
+    if (page_cap > MAX_SEND_FRAME_SIZE) page_cap = MAX_SEND_FRAME_SIZE;  // out_frame is only sized for this much
+    int n = encodePrefsTlv(resolveRoleByte(sub[1]), start_index, &out_frame[3], page_cap - 3, &next_index);
+    out_frame[2] = (next_index >= PREFS_TLV_FIELD_COUNT) ? 0xFF : (uint8_t)next_index;
+    _serial->writeFrame(out_frame, 3 + n);
   } else if (sub[0] == BEEBO_CMD_SET_PREFS_TLV && sub_len >= 3) {
     // beebo: apply every triplet to its own store's RAM cache, then flush at
     // the batch end -- at most one write per store, however many fields the
