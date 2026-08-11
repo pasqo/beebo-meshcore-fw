@@ -2635,14 +2635,7 @@ void Beebo::handleCmdFrame(size_t len) {
       if (len >= 2 && cmd_frame[1] == 1) { // optional param (1 = flood, 0 = zero hop)
         unsigned long delay_millis = 0;
         TransportKey default_scope;
-#if BEEBO_ENABLE_REPEATER_ROLE
-        if (_is_repeater) {
-          getRepeaterDefaultScope(default_scope);
-        } else
-#endif
-        {
-          memcpy(&default_scope.key, _role_state->prefs.default_scope_key, sizeof(default_scope.key));
-        }
+        getDefaultScope(this->_board.role, default_scope);
         sendFloodScoped(default_scope, pkt, delay_millis);
       } else {
         sendZeroHop(pkt);
@@ -6362,14 +6355,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     mesh::Packet* pkt = createSelfAdvertPacket();
     if (pkt) {
       TransportKey default_scope;
-#if BEEBO_ENABLE_REPEATER_ROLE
-      if (_is_repeater) {
-        getRepeaterDefaultScope(default_scope);
-      } else
-#endif
-      {
-        memcpy(&default_scope.key, _role_state->prefs.default_scope_key, sizeof(default_scope.key));
-      }
+      getDefaultScope(this->_board.role, default_scope);
       sendFloodScoped(default_scope, pkt, 1500);  // longer delay, give CLI response time to be sent first (matches CommonCLI)
       strcpy(reply, "OK - Advert sent");
     } else {

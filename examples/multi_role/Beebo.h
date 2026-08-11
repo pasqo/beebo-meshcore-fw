@@ -1281,6 +1281,24 @@ private:
   // the PREFS_TLV_FIELDS accessors, which are role-generic and unguarded).
   void getRepeaterDefaultScope(TransportKey& out);
 
+  // beebo: `role`'s own default scope -- repeater's RegionMap-backed one
+  // (getRepeaterDefaultScope()) for NODE_ROLE_REPEATER, that role's own
+  // stored default_scope_key (role_state_store[role].prefs) otherwise.
+  // Explicit-role, not implicit-live-role, same convention as every
+  // tlvGet*/tlvSet* accessor (PREFS_TLV_ROLE_UNIFICATION.md) -- repeater's
+  // half isn't truly per-role storage (RegionMap is a single
+  // repeater-only instance, not role_state_store[]-addressable), but
+  // `role == NODE_ROLE_REPEATER` is still the right selector for it.
+  // Collapses the `if (_is_repeater) getRepeaterDefaultScope(out); else
+  // memcpy(...)` branch duplicated at each call site (CMD_SEND_SELF_ADVERT,
+  // handleCommand()'s bare "advert") into one call, callers passing
+  // `_board.role` explicitly for "whichever role is live" instead of the
+  // function baking that in itself.
+  // NOT a substitute for getRepeaterDefaultScope() itself -- sendFloodReply()
+  // and loopRepeater() deliberately always want repeater's own default
+  // region regardless of which role is live.
+  void getDefaultScope(uint8_t role, TransportKey& out);
+
   // beebo: region of the flood packet currently being evaluated by
   // allowPacketForward(), set by filterRecvFloodPacket() just before Mesh's
   // base-class routing calls it -- ported from simple_repeater's own

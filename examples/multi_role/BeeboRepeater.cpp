@@ -100,6 +100,19 @@ void Beebo::getRepeaterDefaultScope(TransportKey& out) {
   memset(out.key, 0, sizeof(out.key));
 }
 
+// beebo: see this function's own declaration in Beebo.h -- collapses the
+// if-repeater-else-companion branch that used to be duplicated at each
+// call site.
+void Beebo::getDefaultScope(uint8_t role, TransportKey& out) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  if (role == NODE_ROLE_REPEATER) {
+    getRepeaterDefaultScope(out);
+    return;
+  }
+#endif
+  memcpy(out.key, role_state_store[role].prefs.default_scope_key, sizeof(out.key));
+}
+
 // beebo: found in the multi_role event-loop review -- entirely absent
 // before. Ported from simple_repeater's own updateAdvertTimer()/
 // updateFloodAdvertTimer() -- unlike allowPacketForward()'s per-packet
