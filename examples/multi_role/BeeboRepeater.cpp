@@ -163,9 +163,7 @@ uint32_t Beebo::tlvGetRepeatMode(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetRepeatMode(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.disable_fwd = raw ? 0 : 1;
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.disable_fwd, raw ? 0 : 1);
 #endif
   return true;
 }
@@ -182,9 +180,7 @@ uint32_t Beebo::tlvGetAgcResetInterval(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetAgcResetInterval(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.agc_reset_interval = (uint8_t)(raw / 4);
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.agc_reset_interval, raw / 4);
 #endif
   return true;
 }
@@ -222,9 +218,7 @@ uint32_t Beebo::tlvGetTxDelayFactor(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.tx_delay_factor = _bitsFloat(raw);
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.tx_delay_factor, _bitsFloat(raw));
 #endif
   return true;
 }
@@ -238,9 +232,7 @@ uint32_t Beebo::tlvGetDirectTxDelayFactor(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetDirectTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.direct_tx_delay_factor = _bitsFloat(raw);
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.direct_tx_delay_factor, _bitsFloat(raw));
 #endif
   return true;
 }
@@ -254,9 +246,7 @@ uint32_t Beebo::tlvGetAllowReadOnly(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetAllowReadOnly(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.allow_read_only = raw ? 1 : 0;
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.allow_read_only, raw ? 1 : 0);
 #endif
   return true;
 }
@@ -271,9 +261,7 @@ uint32_t Beebo::tlvGetLoopDetect(Beebo* self, uint8_t role) {
 bool Beebo::tlvSetLoopDetect(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > 3) return false;
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.loop_detect = (uint8_t)raw;
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.loop_detect, raw);
 #endif
   return true;
 }
@@ -306,9 +294,7 @@ uint32_t Beebo::tlvGetInterferenceThreshold(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetInterferenceThreshold(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.interference_threshold = (uint8_t)(raw > 9 ? 9 : raw);
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.interference_threshold, raw > 9 ? 9 : raw);
 #endif
   return true;
 }
@@ -322,9 +308,7 @@ uint32_t Beebo::tlvGetFloodMax(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetFloodMax(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.flood_max = (uint8_t)raw;
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.flood_max, raw);
 #endif
   return true;
 }
@@ -338,9 +322,7 @@ uint32_t Beebo::tlvGetFloodMaxUnscoped(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetFloodMaxUnscoped(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.flood_max_unscoped = (uint8_t)raw;
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.flood_max_unscoped, raw);
 #endif
   return true;
 }
@@ -365,9 +347,7 @@ uint32_t Beebo::tlvGetRxDelayBase(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetRxDelayBase(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.rx_delay_base = _bitsFloat(raw);
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.rx_delay_base, _bitsFloat(raw));
 #endif
   return true;
 }
@@ -381,9 +361,7 @@ uint32_t Beebo::tlvGetAirtimeFactor(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.airtime_factor = _bitsFloat(raw);
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.airtime_factor, _bitsFloat(raw));
 #endif
   return true;
 }
@@ -433,9 +411,7 @@ uint32_t Beebo::tlvGetFloodMaxAdvert(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetFloodMaxAdvert(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.flood_max_advert = (uint8_t)raw;
-  persistRoleSlot(self, role, slot);
+  return persistScalarField(self, role, self->role_state_store[role].prefs.flood_max_advert, raw);
 #endif
   return true;
 }

@@ -2253,10 +2253,7 @@ uint32_t Beebo::tlvGetMultiAcks(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.multi_acks;
 }
 bool Beebo::tlvSetMultiAcks(Beebo* self, uint8_t role, uint32_t raw) {
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.multi_acks = (uint8_t)(raw ? 1 : 0);
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.multi_acks, raw ? 1 : 0);
 }
 
 uint32_t Beebo::tlvGetPathHashMode(Beebo* self, uint8_t role) {
@@ -2264,10 +2261,7 @@ uint32_t Beebo::tlvGetPathHashMode(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetPathHashMode(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw >= 3) return false;
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.path_hash_mode = (uint8_t)raw;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.path_hash_mode, raw);
 }
 
 uint32_t Beebo::tlvGetLat(Beebo* self, uint8_t role) {
@@ -2278,10 +2272,7 @@ uint32_t Beebo::tlvGetLat(Beebo* self, uint8_t role) {
 bool Beebo::tlvSetLat(Beebo* self, uint8_t role, uint32_t raw) {
   int32_t lat; memcpy(&lat, &raw, 4);
   if (lat > 90 * 1000000 || lat < -90 * 1000000) return false;
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.node_lat = ((double)lat) / 1000000.0;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.node_lat, ((double)lat) / 1000000.0);
 }
 
 uint32_t Beebo::tlvGetLon(Beebo* self, uint8_t role) {
@@ -2292,10 +2283,7 @@ uint32_t Beebo::tlvGetLon(Beebo* self, uint8_t role) {
 bool Beebo::tlvSetLon(Beebo* self, uint8_t role, uint32_t raw) {
   int32_t lon; memcpy(&lon, &raw, 4);
   if (lon > 180 * 1000000 || lon < -180 * 1000000) return false;
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.node_lon = ((double)lon) / 1000000.0;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.node_lon, ((double)lon) / 1000000.0);
 }
 
 // beebo: repeater's own independent advert_loc_policy, same pattern as
@@ -2309,10 +2297,7 @@ uint32_t Beebo::tlvGetAdvLocPolicy(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw >= 3) return false;
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.advert_loc_policy = (uint8_t)raw;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.advert_loc_policy, raw);
 }
 
 // beebo: board/battery BeeboBasePrefs fields (see Beebo.h's PrefsTlvKey
@@ -2382,50 +2367,35 @@ uint32_t Beebo::tlvGetBattPresent(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetBattPresent(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > (uint32_t)BATT_PRESENT_YES) return false;
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.batt_present = (uint8_t)raw;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.batt_present, raw);
 }
 
 uint32_t Beebo::tlvGetBattSamplePeriod(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.batt_sample_period_secs;
 }
 bool Beebo::tlvSetBattSamplePeriod(Beebo* self, uint8_t role, uint32_t raw) {
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.batt_sample_period_secs = (uint16_t)raw;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.batt_sample_period_secs, raw);
 }
 
 uint32_t Beebo::tlvGetBattSampleWindow(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.batt_sample_window_secs;
 }
 bool Beebo::tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw) {
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.batt_sample_window_secs = (uint16_t)raw;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.batt_sample_window_secs, raw);
 }
 
 uint32_t Beebo::tlvGetBattChargedMv(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.batt_charged_mv;
 }
 bool Beebo::tlvSetBattChargedMv(Beebo* self, uint8_t role, uint32_t raw) {
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.batt_charged_mv = (uint16_t)raw;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.batt_charged_mv, raw);
 }
 
 uint32_t Beebo::tlvGetIdleMargin(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.idle_margin_ms;
 }
 bool Beebo::tlvSetIdleMargin(Beebo* self, uint8_t role, uint32_t raw) {
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.idle_margin_ms = (uint16_t)raw;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.idle_margin_ms, raw);
 }
 
 // beebo: companion's own write-side counterparts to the role-generic
@@ -2447,19 +2417,13 @@ uint32_t Beebo::tlvGetManualAddContacts(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.manual_add_contacts;
 }
 bool Beebo::tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw) {
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.manual_add_contacts = (uint8_t)(raw ? 1 : 0);
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.manual_add_contacts, raw ? 1 : 0);
 }
 uint32_t Beebo::tlvGetAutoaddConfig(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.autoadd_config;
 }
 bool Beebo::tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw) {
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.autoadd_config = (uint8_t)raw;
-  persistRoleSlot(self, role, slot);
-  return true;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.autoadd_config, raw);
 }
 
 void Beebo::handleCmdFrame(size_t len) {

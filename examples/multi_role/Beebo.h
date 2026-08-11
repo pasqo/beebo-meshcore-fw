@@ -1241,6 +1241,17 @@ private:
   int encodePrefsTlv(uint8_t role, size_t start_index, uint8_t* out, size_t max_len, size_t* next_index);
   bool applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, size_t& pos);
   static void persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot);
+  // beebo: shared core of every PREFS_TLV_FIELDS scalar setter -- store,
+  // persist the owning role's slot, report success. Individual setters
+  // still exist for their own transform/validation/timer-rearm logic (see
+  // the PREFS_TLV_FIELDS comment above); this only collapses the
+  // store+persist tail every one of them repeats.
+  template <typename T, typename V>
+  static inline bool persistScalarField(Beebo* self, uint8_t role, T& field, V value) {
+    field = static_cast<T>(value);
+    persistRoleSlot(self, role, self->role_state_store[role]);
+    return true;
+  }
 
   // beebo: CommonCLI fallback's 'tempradio <freq> <bw> <sf> <cr> <mins>' --
   // a two-stage set-then-revert timer, ticked from loopRepeater() since
