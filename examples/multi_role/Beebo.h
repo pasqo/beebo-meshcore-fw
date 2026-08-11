@@ -1077,6 +1077,15 @@ private:
     // its own comment, unrelated to this).
     PREFS_TLV_MANUAL_ADD_CONTACTS = 37,
     PREFS_TLV_AUTOADD_CONFIG = 38,
+    // beebo: repeater-only ComPrefs password fields -- always
+    // role=NODE_ROLE_REPEATER, same write-only shape as PREFS_TLV_WIFI_PWD
+    // (get_str returns a 1-byte "is it set" flag, set_str writes plaintext;
+    // never round-trips the password itself). GET_REPEATER_PASSWORD_SET (a
+    // separate, still-live opcode) compares against the compiled-in
+    // ADMIN_PASSWORD default rather than a plain non-empty check, so it
+    // stays a distinct opcode rather than folding into this generic flag.
+    PREFS_TLV_REPEATER_PASSWORD = 39,   // string, write-only
+    PREFS_TLV_GUEST_PASSWORD = 40,      // string, write-only
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1147,6 +1156,10 @@ private:
   static bool tlvGetWifiPwdSet(Beebo* self, uint8_t role);
   static int tlvGetWifiPwdSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
   static bool tlvSetWifiPwd(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
+  static int tlvGetRepeaterPasswordSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetRepeaterPassword(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
+  static int tlvGetGuestPasswordSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetGuestPassword(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   static uint32_t tlvGetBlePin(Beebo* self, uint8_t role);
   static bool tlvSetBlePin(Beebo* self, uint8_t role, uint32_t pin);
   static uint32_t tlvGetMonringConfig(Beebo* self, uint8_t role);

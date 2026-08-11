@@ -535,6 +535,8 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_IDLE_MARGIN,         TLV_U32, tlvGetIdleMargin,        tlvSetIdleMargin,        nullptr, nullptr },
   { PREFS_TLV_MANUAL_ADD_CONTACTS, TLV_U32, tlvGetManualAddContacts, tlvSetManualAddContacts, nullptr, nullptr },
   { PREFS_TLV_AUTOADD_CONFIG,      TLV_U32, tlvGetAutoaddConfig,     tlvSetAutoaddConfig,     nullptr, nullptr },
+  { PREFS_TLV_REPEATER_PASSWORD, TLV_STRING, nullptr, nullptr, tlvGetRepeaterPasswordSetStr, tlvSetRepeaterPassword },
+  { PREFS_TLV_GUEST_PASSWORD,    TLV_STRING, nullptr, nullptr, tlvGetGuestPasswordSetStr,    tlvSetGuestPassword },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 

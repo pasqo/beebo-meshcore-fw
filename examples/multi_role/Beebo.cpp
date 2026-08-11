@@ -2076,6 +2076,48 @@ bool Beebo::tlvSetWifiPwd(Beebo* self, uint8_t role, const uint8_t* in, size_t l
   }
   return true;
 }
+// beebo: same write-only shape as tlvSetWifiPwd -- get_str never returns
+// the plaintext, only a 1-byte "is it set" flag (non-default for
+// password, non-empty for guest_password, which has no compiled-in
+// default). Always role=NODE_ROLE_REPEATER in practice (ComPrefs only
+// exists there); guarded by BEEBO_ENABLE_REPEATER_ROLE since these fields
+// don't exist at all in a companion-only static build.
+int Beebo::tlvGetRepeaterPasswordSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  out[0] = strcmp(self->role_state_store[role].prefs.password, ADMIN_PASSWORD) != 0 ? 1 : 0;
+#else
+  out[0] = 0;
+#endif
+  return 1;
+}
+bool Beebo::tlvSetRepeaterPassword(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  BeeboRoleState& slot = self->role_state_store[role];
+  if (len > sizeof(slot.prefs.password) - 1) len = sizeof(slot.prefs.password) - 1;
+  memcpy(slot.prefs.password, in, len);
+  slot.prefs.password[len] = '\0';
+  persistRoleSlot(self, role, slot);
+#endif
+  return true;
+}
+int Beebo::tlvGetGuestPasswordSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  out[0] = self->role_state_store[role].prefs.guest_password[0] != 0 ? 1 : 0;
+#else
+  out[0] = 0;
+#endif
+  return 1;
+}
+bool Beebo::tlvSetGuestPassword(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  BeeboRoleState& slot = self->role_state_store[role];
+  if (len > sizeof(slot.prefs.guest_password) - 1) len = sizeof(slot.prefs.guest_password) - 1;
+  memcpy(slot.prefs.guest_password, in, len);
+  slot.prefs.guest_password[len] = '\0';
+  persistRoleSlot(self, role, slot);
+#endif
+  return true;
+}
 uint32_t Beebo::tlvGetBlePin(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.ble_pin;
 }
@@ -3889,40 +3931,6 @@ void Beebo::handleCmdFrame(size_t len) {
     uint32_t value = _board.board_password[0] != 0 ? 1 : 0;
     memcpy(&out_frame[1], &value, 4);
     _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_REPEATER_PASSWORD) {
-#if BEEBO_ENABLE_REPEATER_ROLE
-    // beebo: loadRoleState() (called from begin() for every compiled-in
-    // role, unconditionally, regardless of which is live) guarantees
-    // repeater's own role_state_store[] slot has actually been loaded from
-    // /beebo_repeater even if this device booted straight into companion
-    // role and never switched into repeater this session -- this is a
-    // direct write into that resident slot (role_state_store[NODE_ROLE_
-    // REPEATER], NOT _role_state -- fixed 2026-08-10, see this file's
-    // BeeboRepeater.cpp comment on the same bug class), not a
-    // write-then-later-loaded race, so there's no clobbering hazard the
-    // way there used to be under the old lazy-load model.
-    BeeboRoleState& pw_slot = role_state_store[NODE_ROLE_REPEATER];
-    size_t pw_len = min((size_t)sub_len - 1, sizeof(pw_slot.prefs.password) - 1);
-    memcpy(pw_slot.prefs.password, &sub[1], pw_len);
-    pw_slot.prefs.password[pw_len] = 0;
-    persistRoleSlot(this, NODE_ROLE_REPEATER, pw_slot);
-    flushDirtyPrefs();
-    writeOKFrame();
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
-#endif
-  } else if (sub[0] == BEEBO_CMD_SET_GUEST_PASSWORD) {
-#if BEEBO_ENABLE_REPEATER_ROLE
-    BeeboRoleState& gp_slot = role_state_store[NODE_ROLE_REPEATER];
-    size_t pw_len = min((size_t)sub_len - 1, sizeof(gp_slot.prefs.guest_password) - 1);
-    memcpy(gp_slot.prefs.guest_password, &sub[1], pw_len);
-    gp_slot.prefs.guest_password[pw_len] = 0;
-    persistRoleSlot(this, NODE_ROLE_REPEATER, gp_slot);
-    flushDirtyPrefs();
-    writeOKFrame();
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
-#endif
   } else if (sub[0] == BEEBO_CMD_GET_REPEATER_PASSWORD_SET) {
 #if BEEBO_ENABLE_REPEATER_ROLE
     out_frame[0] = RESP_CODE_OK;
