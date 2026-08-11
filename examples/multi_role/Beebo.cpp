@@ -3915,7 +3915,7 @@ void Beebo::handleCmdFrame(size_t len) {
     writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_SET_OWNER_PASSWORD) {
     // beebo: SETTINGS_ISOLATION follow-up -- role-agnostic backup/recovery
-    // credential, BeeboCompanionPrefs.owner_password, always compiled in
+    // credential, BeeboBoardPrefs.board_password, always compiled in
     // (unlike ComPrefs.password/repeater.password, gone entirely on a
     // static companion build) -- no repeater-state-loaded gate needed here
     // since it's not a _role_state->prefs field at all (_board.board_password,
