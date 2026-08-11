@@ -5245,6 +5245,191 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&out_frame[2], name, nlen);
       _serial->writeFrame(out_frame, 2 + nlen);
     }
+  } else if (sub[0] == BEEBO_CMD_GET_ROLE_MULTI_ACKS && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      out_frame[0] = RESP_CODE_OK;
+      uint32_t value = tlvGetMultiAcks(this, sub[1]);
+      memcpy(&out_frame[1], &value, 4);
+      _serial->writeFrame(out_frame, 5);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_MULTI_ACKS && sub_len >= 6) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      uint32_t raw;
+      memcpy(&raw, &sub[2], 4);
+      tlvSetMultiAcks(this, sub[1], raw);
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_ROLE_PATH_HASH_MODE && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      out_frame[0] = RESP_CODE_OK;
+      uint32_t value = tlvGetPathHashMode(this, sub[1]);
+      memcpy(&out_frame[1], &value, 4);
+      _serial->writeFrame(out_frame, 5);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_PATH_HASH_MODE && sub_len >= 6) {
+    uint32_t raw;
+    memcpy(&raw, &sub[2], 4);
+    if (!isNodeRoleBuiltIn(sub[1]) || !tlvSetPathHashMode(this, sub[1], raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_ROLE_LAT && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      out_frame[0] = RESP_CODE_OK;
+      uint32_t value = tlvGetLat(this, sub[1]);
+      memcpy(&out_frame[1], &value, 4);
+      _serial->writeFrame(out_frame, 5);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_LAT && sub_len >= 6) {
+    uint32_t raw;
+    memcpy(&raw, &sub[2], 4);
+    if (!isNodeRoleBuiltIn(sub[1]) || !tlvSetLat(this, sub[1], raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_ROLE_LON && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      out_frame[0] = RESP_CODE_OK;
+      uint32_t value = tlvGetLon(this, sub[1]);
+      memcpy(&out_frame[1], &value, 4);
+      _serial->writeFrame(out_frame, 5);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_LON && sub_len >= 6) {
+    uint32_t raw;
+    memcpy(&raw, &sub[2], 4);
+    if (!isNodeRoleBuiltIn(sub[1]) || !tlvSetLon(this, sub[1], raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_ROLE_ADV_LOC_POLICY && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      out_frame[0] = RESP_CODE_OK;
+      uint32_t value = tlvGetAdvLocPolicy(this, sub[1]);
+      memcpy(&out_frame[1], &value, 4);
+      _serial->writeFrame(out_frame, 5);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_ADV_LOC_POLICY && sub_len >= 6) {
+    uint32_t raw;
+    memcpy(&raw, &sub[2], 4);
+    if (!isNodeRoleBuiltIn(sub[1]) || !tlvSetAdvLocPolicy(this, sub[1], raw)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_NAME && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1]) ||
+        !tlvSetName(this, sub[1], &sub[2], (size_t)sub_len - 2)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      flushDirtyPrefs();
+      writeOKFrame();
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_ROLE_TRANSPORT_CONFIG && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      out_frame[0] = RESP_CODE_OK;
+      uint32_t value = tlvGetTransportConfig(this, sub[1]);
+      memcpy(&out_frame[1], &value, 4);
+      _serial->writeFrame(out_frame, 5);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_TRANSPORT_CONFIG && sub_len >= 5) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      uint32_t raw = (uint32_t)sub[2] | ((uint32_t)sub[3] << 8) | ((uint32_t)sub[4] << 16);
+      tlvSetTransportConfig(this, sub[1], raw);
+      writeOKFrame();
+      if (sub[1] == _board.role) {
+        _transport_config_pending = true;
+      }
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_ROLE_WIFI_SSID && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      out_frame[0] = RESP_CODE_BEEBO;
+      out_frame[1] = BEEBO_RESP_WIFI_SSID;
+      int ssid_len = tlvGetWifiSsid(this, sub[1], &out_frame[2], MAX_FRAME_SIZE - 2);
+      _serial->writeFrame(out_frame, 2 + ssid_len);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_WIFI_SSID && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      tlvSetWifiSsid(this, sub[1], &sub[2], (size_t)sub_len - 2);
+      writeOKFrame();
+      if (sub[1] == _board.role) {
+        _wifi_creds_pending = true;
+      }
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_ROLE_WIFI_PWD_SET && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      out_frame[0] = RESP_CODE_OK;
+      uint32_t value = tlvGetWifiPwdSet(this, sub[1]) ? 1 : 0;
+      memcpy(&out_frame[1], &value, 4);
+      _serial->writeFrame(out_frame, 5);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_WIFI_PWD && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      tlvSetWifiPwd(this, sub[1], &sub[2], (size_t)sub_len - 2);
+      writeOKFrame();
+      if (sub[1] == _board.role) {
+        _wifi_creds_pending = true;
+      }
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_WIFI_CREDS && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else if (!tlvSetWifiCreds(this, sub[1], &sub[2], &sub[sub_len])) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+    } else {
+      writeOKFrame();
+      if (sub[1] == _board.role) {
+        _wifi_creds_pending = true;
+      }
+    }
+  } else if (sub[0] == BEEBO_CMD_GET_ROLE_BLE_PIN && sub_len >= 2) {
+    if (!isNodeRoleBuiltIn(sub[1])) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      out_frame[0] = RESP_CODE_OK;
+      uint32_t value = tlvGetBlePin(this, sub[1]);
+      memcpy(&out_frame[1], &value, 4);
+      _serial->writeFrame(out_frame, 5);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_ROLE_BLE_PIN && sub_len >= 6) {
+    uint32_t pin;
+    memcpy(&pin, &sub[2], 4);
+    if (!isNodeRoleBuiltIn(sub[1]) || !tlvSetBlePin(this, sub[1], pin)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      writeOKFrame();
+    }
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
     // beebo: factory eFuse base MAC -- hardware-burned, stable across
     // reflashes/identity changes/role switches, unrelated to node.public_key
