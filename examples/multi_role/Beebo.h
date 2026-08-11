@@ -1024,29 +1024,30 @@ private:
     PREFS_TLV_FLOOD_MAX_UNSCOPED = 11,
     PREFS_TLV_FLOOD_MAX_ADVERT = 12,
     PREFS_TLV_OWNER_INFO = 13,        // string
-    PREFS_TLV_REPEATER_NAME = 14,     // string
+    PREFS_TLV_NAME = 14,     // string
     PREFS_TLV_WIFI_SSID = 15,         // string
     PREFS_TLV_TRANSPORT_CONFIG = 16,  // packed byte0=ble byte1=tcp byte2=usb, never reboots
     PREFS_TLV_MONRING_CONFIG = 17,
-    PREFS_TLV_REPEATER_RXDELAY = 18,   // repeater's own rx_delay_base (offset 80) -- see Beebo.h's _role_state->prefs.rx_delay_base comment
-    PREFS_TLV_REPEATER_AIRTIME = 19,   // repeater's own airtime_factor (offset 0) -- see Beebo.h's _role_state->prefs.airtime_factor comment
-    PREFS_TLV_REPEATER_DEDUP_WINDOW = 20,  // repeater's own dedup_window_ms -- see BeeboRepeaterPrefs.h
-    // beebo: repeater keeps its own independent copy -- repeater's own
-    // independent copy of a field stock upstream only ever gave one shared
-    // NodePrefs-shaped copy of. _role_state->prefs already has these bytes (same
-    // struct as _role_state->prefs, see PROTOCOL_AND_SETTINGS_STORAGE.md's "critical
-    // trap" section) -- no new storage, just a repeater-scoped accessor.
-    // Companion's own copy (_role_state->prefs.multi_acks/path_hash_mode, sensors.
-    // node_lat/node_lon) stays reachable exactly as before via the stock
-    // CMD_SET_OTHER_PARAMS/CMD_SET_PATH_HASH_MODE/CMD_SET_ADVERT_LATLON
-    // opcodes and stock CommonCLI text keys -- unrelated to these.
-    PREFS_TLV_REPEATER_MULTI_ACKS = 21,
-    PREFS_TLV_REPEATER_PATH_HASH_MODE = 22,
-    PREFS_TLV_REPEATER_LAT = 23,   // fixed-point *1e6 in an int32
-    PREFS_TLV_REPEATER_LON = 24,   // fixed-point *1e6 in an int32
-    // beebo: the "REPEATER_" key-name prefix above is a historical misnomer
-    // -- renumbering these wire-level enum values would be a real
-    // protocol.yaml-style compat concern, not just a local identifier.
+    // beebo: keys 18-24 are role-generic on the wire (selected by
+    // GET_PREFS_TLV/SET_PREFS_TLV's own role byte, resolveRoleByte() when
+    // NODE_ROLE_LIVE is passed) -- each is role_state_store[role]'s own
+    // independent copy of a field stock upstream only ever gave one
+    // shared NodePrefs-shaped copy of. _role_state->prefs already has these
+    // bytes (same struct as role_state_store[role].prefs, see
+    // PROTOCOL_AND_SETTINGS_STORAGE.md's "critical trap" section) -- no new
+    // storage, just a role-explicit accessor. GET/SET_DEDUP_WINDOW (a
+    // separate, still-live opcode) also reaches this same storage when its
+    // implicit live role matches, but logs its own distinct
+    // SETTING_DEDUP_WINDOW MonRing audit key (103) rather than this one
+    // (20) -- kept as a separate opcode specifically to preserve that
+    // audit-log distinction, not because the storage differs.
+    PREFS_TLV_RXDELAY = 18,   // rx_delay_base (offset 80) -- see Beebo.h's _role_state->prefs.rx_delay_base comment
+    PREFS_TLV_AIRTIME = 19,   // airtime_factor (offset 0) -- see Beebo.h's _role_state->prefs.airtime_factor comment
+    PREFS_TLV_DEDUP_WINDOW = 20,  // dedup_window_ms -- see BeeboRepeaterPrefs.h
+    PREFS_TLV_MULTI_ACKS = 21,
+    PREFS_TLV_PATH_HASH_MODE = 22,
+    PREFS_TLV_LAT = 23,   // fixed-point *1e6 in an int32
+    PREFS_TLV_LON = 24,   // fixed-point *1e6 in an int32
     PREFS_TLV_ADV_LOC_POLICY = 25,
     PREFS_TLV_BLE_PIN = 26,
     PREFS_TLV_WIFI_PWD = 27,   // string; set writes the password, get returns a 1-byte "is it set" flag, never the plaintext

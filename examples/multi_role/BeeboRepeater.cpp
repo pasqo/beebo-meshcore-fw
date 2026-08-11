@@ -415,7 +415,7 @@ bool Beebo::tlvSetDedupWindow(Beebo* self, uint8_t role, uint32_t raw) {
   // entry point uniformly, same as node_role's own appendSettingChangedEvent
   // call living inside setNodeRole() rather than each of its callers.
   BeeboRoleState& slot = self->role_state_store[role];
-  self->appendSettingChangedEvent(PREFS_TLV_REPEATER_DEDUP_WINDOW,
+  self->appendSettingChangedEvent(PREFS_TLV_DEDUP_WINDOW,
                                    slot.prefs.dedup_window_ms, raw, EVENT_SOURCE_BINARY);
   slot.prefs.dedup_window_ms = raw;
   persistRoleSlot(self, role, slot);
@@ -511,17 +511,17 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_FLOOD_MAX_UNSCOPED,     TLV_U32,    tlvGetFloodMaxUnscoped,      tlvSetFloodMaxUnscoped,      nullptr, nullptr },
   { PREFS_TLV_FLOOD_MAX_ADVERT,       TLV_U32,    tlvGetFloodMaxAdvert,        tlvSetFloodMaxAdvert,        nullptr, nullptr },
   { PREFS_TLV_OWNER_INFO,             TLV_STRING, nullptr, nullptr, tlvGetOwnerInfo,    tlvSetOwnerInfo },
-  { PREFS_TLV_REPEATER_NAME,          TLV_STRING, nullptr, nullptr, tlvGetName, tlvSetName },
+  { PREFS_TLV_NAME,          TLV_STRING, nullptr, nullptr, tlvGetName, tlvSetName },
   { PREFS_TLV_WIFI_SSID,              TLV_STRING, nullptr, nullptr, tlvGetWifiSsid,     tlvSetWifiSsid },
   { PREFS_TLV_TRANSPORT_CONFIG,       TLV_U32,    tlvGetTransportConfig, tlvSetTransportConfig, nullptr, nullptr },
   { PREFS_TLV_MONRING_CONFIG,         TLV_U32,    tlvGetMonringConfig,   tlvSetMonringConfig,   nullptr, nullptr },
-  { PREFS_TLV_REPEATER_RXDELAY,       TLV_FLOAT,  tlvGetRxDelayBase,   tlvSetRxDelayBase,   nullptr, nullptr },
-  { PREFS_TLV_REPEATER_AIRTIME,       TLV_FLOAT,  tlvGetAirtimeFactor, tlvSetAirtimeFactor, nullptr, nullptr },
-  { PREFS_TLV_REPEATER_DEDUP_WINDOW,  TLV_U32,    tlvGetDedupWindow,   tlvSetDedupWindow,   nullptr, nullptr },
-  { PREFS_TLV_REPEATER_MULTI_ACKS,     TLV_U32,    tlvGetMultiAcks,     tlvSetMultiAcks,     nullptr, nullptr },
-  { PREFS_TLV_REPEATER_PATH_HASH_MODE, TLV_U32,    tlvGetPathHashMode,  tlvSetPathHashMode,  nullptr, nullptr },
-  { PREFS_TLV_REPEATER_LAT,            TLV_U32,    tlvGetLat,           tlvSetLat,           nullptr, nullptr },
-  { PREFS_TLV_REPEATER_LON,            TLV_U32,    tlvGetLon,           tlvSetLon,           nullptr, nullptr },
+  { PREFS_TLV_RXDELAY,       TLV_FLOAT,  tlvGetRxDelayBase,   tlvSetRxDelayBase,   nullptr, nullptr },
+  { PREFS_TLV_AIRTIME,       TLV_FLOAT,  tlvGetAirtimeFactor, tlvSetAirtimeFactor, nullptr, nullptr },
+  { PREFS_TLV_DEDUP_WINDOW,  TLV_U32,    tlvGetDedupWindow,   tlvSetDedupWindow,   nullptr, nullptr },
+  { PREFS_TLV_MULTI_ACKS,     TLV_U32,    tlvGetMultiAcks,     tlvSetMultiAcks,     nullptr, nullptr },
+  { PREFS_TLV_PATH_HASH_MODE, TLV_U32,    tlvGetPathHashMode,  tlvSetPathHashMode,  nullptr, nullptr },
+  { PREFS_TLV_LAT,            TLV_U32,    tlvGetLat,           tlvSetLat,           nullptr, nullptr },
+  { PREFS_TLV_LON,            TLV_U32,    tlvGetLon,           tlvSetLon,           nullptr, nullptr },
   { PREFS_TLV_ADV_LOC_POLICY,          TLV_U32,    tlvGetAdvLocPolicy,  tlvSetAdvLocPolicy,  nullptr, nullptr },
   { PREFS_TLV_BLE_PIN,                 TLV_U32,    tlvGetBlePin,        tlvSetBlePin,        nullptr, nullptr },
   { PREFS_TLV_WIFI_PWD,                TLV_STRING, nullptr, nullptr, tlvGetWifiPwdSetStr, tlvSetWifiPwd },
