@@ -524,6 +524,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_REPEATER_LON,            TLV_U32,    tlvGetLon,           tlvSetLon,           nullptr, nullptr },
   { PREFS_TLV_ADV_LOC_POLICY,          TLV_U32,    tlvGetAdvLocPolicy,  tlvSetAdvLocPolicy,  nullptr, nullptr },
   { PREFS_TLV_BLE_PIN,                 TLV_U32,    tlvGetBlePin,        tlvSetBlePin,        nullptr, nullptr },
+  { PREFS_TLV_WIFI_PWD,                TLV_STRING, nullptr, nullptr, tlvGetWifiPwdSetStr, tlvSetWifiPwd },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 

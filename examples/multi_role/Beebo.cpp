@@ -2046,6 +2046,33 @@ bool Beebo::tlvSetTransportConfig(Beebo* self, uint8_t role, uint32_t raw) {
 bool Beebo::tlvGetWifiPwdSet(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.wifi_pwd[0] != '\0';
 }
+// TLV_STRING get_str for PREFS_TLV_WIFI_PWD: never returns the plaintext
+// password (matches GET_WIFI_PWD_SET/GET_*_WIFI_PWD_SET, which only ever
+// hand back "is it set"), just the same boolean packed as a 1-byte string
+// so the field can share PREFS_TLV_WIFI_PWD's key with its (real,
+// plaintext) set_str counterpart below.
+int Beebo::tlvGetWifiPwdSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+  out[0] = tlvGetWifiPwdSet(self, role) ? 1 : 0;
+  return 1;
+}
+// Password-only counterpart to tlvSetWifiSsid -- writes wifi_pwd without
+// touching wifi_ssid, so PREFS_TLV_WIFI_SSID/PREFS_TLV_WIFI_PWD can be set
+// independently in the same batch or separately. Unlike
+// BEEBO_CMD_SET_WIFI_CREDS's combined ssid\0pwd\0 payload, an empty value
+// here clears the password rather than leaving it unchanged -- with
+// separate keys, the caller simply omits the key it doesn't want to touch.
+bool Beebo::tlvSetWifiPwd(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
+  BeeboRoleState& slot = self->role_state_store[role];
+  if (len > sizeof(slot.prefs.wifi_pwd) - 1) len = sizeof(slot.prefs.wifi_pwd) - 1;
+  memcpy(slot.prefs.wifi_pwd, in, len);
+  slot.prefs.wifi_pwd[len] = '\0';
+  if (role == self->_board.role) {
+    self->savePrefs();
+  } else {
+    persistRoleSlot(self, role, slot);
+  }
+  return true;
+}
 // beebo: mirrors BEEBO_CMD_SET_WIFI_CREDS's own parsing exactly (ssid\0pwd\0,
 // empty segment = leave unchanged) -- see that handler's comment.
 bool Beebo::tlvSetWifiCreds(Beebo* self, uint8_t role, const uint8_t* p, const uint8_t* end) {

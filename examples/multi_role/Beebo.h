@@ -1041,6 +1041,7 @@ private:
     // protocol.yaml-style compat concern, not just a local identifier.
     PREFS_TLV_ADV_LOC_POLICY = 25,
     PREFS_TLV_BLE_PIN = 26,
+    PREFS_TLV_WIFI_PWD = 27,   // string; set writes the password, get returns a 1-byte "is it set" flag, never the plaintext
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1113,6 +1114,8 @@ private:
   static uint32_t tlvGetTransportConfig(Beebo* self, uint8_t role);
   static bool tlvSetTransportConfig(Beebo* self, uint8_t role, uint32_t raw);
   static bool tlvGetWifiPwdSet(Beebo* self, uint8_t role);
+  static int tlvGetWifiPwdSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetWifiPwd(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   static bool tlvSetWifiCreds(Beebo* self, uint8_t role, const uint8_t* p, const uint8_t* end);
   static uint32_t tlvGetBlePin(Beebo* self, uint8_t role);
   static bool tlvSetBlePin(Beebo* self, uint8_t role, uint32_t pin);
