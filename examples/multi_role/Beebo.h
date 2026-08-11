@@ -1076,21 +1076,16 @@ private:
     PREFS_TLV_REPEATER_PATH_HASH_MODE = 22,
     PREFS_TLV_REPEATER_LAT = 23,   // fixed-point *1e6 in an int32
     PREFS_TLV_REPEATER_LON = 24,   // fixed-point *1e6 in an int32
-    // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- folded in once its
-    // accessor became role-generic; the "REPEATER_" key-name prefix above
-    // is a historical misnomer left as-is (unlike the C++ function names,
-    // which were renamed -- see the plan doc; renumbering/renaming these
-    // wire-level enum values would be a real protocol.yaml-style
-    // compat concern, not just a local identifier).
+    // beebo: the "REPEATER_" key-name prefix above is a historical misnomer
+    // -- renumbering these wire-level enum values would be a real
+    // protocol.yaml-style compat concern, not just a local identifier.
     PREFS_TLV_ADV_LOC_POLICY = 25,
     PREFS_TLV_BLE_PIN = 26,
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
-  // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 1 -- every accessor takes an
-  // explicit role, scoping the whole GET_PREFS_TLV/SET_PREFS_TLV call to one
-  // role (see the wire format note on PREFS_TLV_FIELDS below), instead of
-  // each field addressing whichever role its own implementation happened to
-  // hardcode.
+  // beebo: every accessor takes an explicit role, scoping the whole
+  // GET_PREFS_TLV/SET_PREFS_TLV call to one role (see the wire format note
+  // below).
   struct PrefsTlvField {
     uint8_t key;      // PrefsTlvKey
     uint8_t type;      // PrefsTlvType
@@ -1116,8 +1111,8 @@ private:
   // writeComPrefsField) and the NodePrefs-backed ones (WIFI_SSID/
   // TRANSPORT_CONFIG/MONRING_CONFIG) mutate role_state_store[role].prefs
   // directly, calling savePrefs() when role is also the live role or
-  // persistRoleSlot() otherwise (PREFS_TLV_ROLE_UNIFICATION.md Phase 1/2) --
-  // both of which just mark their store dirty. The flush comes from the
+  // persistRoleSlot() otherwise -- both of which just mark their store
+  // dirty. The flush comes from the
   // caller: deferred to the batch end for a SET_PREFS_TLV payload, immediate
   // for a single individual SET_* call (see BeeboRepeater.cpp's definitions
   // for the exact per-field logic).
@@ -1164,10 +1159,7 @@ private:
   static uint32_t tlvGetMonringConfig(Beebo* self, uint8_t role);
   static bool tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw);
   // beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- the role-parameterized
-  // accessors below (renamed off "Repeater"/"Companion" per
-  // PREFS_TLV_ROLE_UNIFICATION.md -- one tlv{Get|Set}<Field>(self, role, ...)
-  // shape regardless of how many roles a field applies to) (and the
-  // role-targeted node.wifi.*/
+  // accessors below (and the role-targeted node.wifi.*/
   // node.transport.*/node.ble.* accessors further down) are beebo's
   // binary-protocol namespaced equivalents of a role's own text-CLI
   // settings (multi.acks, path.hash.mode, ...), meant to address that
@@ -1200,14 +1192,8 @@ private:
   static bool tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw);
   // beebo: closes the mirror-image write gap documented in BUGS.md
   // ('companion.* write gap') -- see their definitions (Beebo.cpp, just
-  // above handleCmdFrame()) for the full rationale. Name/Lat/Lon/MultiAcks/
-  // PathHashMode/AdvLocPolicy folded into the role-generic accessors above
-  // (unguarded -- see their own comment in Beebo.cpp) and called directly
-  // with NODE_ROLE_COMPANION instead of a separate implementation.
-  // ManualAddContacts/AutoaddConfig below are genuinely companion-only
-  // concepts with no repeater-side twin, but still role-parameterized and
-  // named without "Companion" for API uniformity
-  // (PREFS_TLV_ROLE_UNIFICATION.md).
+  // above handleCmdFrame()) for the full rationale. Genuinely companion-only
+  // concepts with no repeater-side twin.
   static bool tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw);
   static bool tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw);
 
@@ -1268,36 +1254,14 @@ private:
   // stock simple_repeater's own default-scope mechanism (MyMesh.cpp's
   // begin()/onDefaultRegionChanged(), RegionMap's independent default_id,
   // distinct from home_id/getHomeRegion()); for any other role, that
-  // role's own stored default_scope_key (role_state_store[role].prefs).
-  // Explicit-role, not implicit-live-role, same convention as every
-  // tlvGet*/tlvSet* accessor (PREFS_TLV_ROLE_UNIFICATION.md) -- repeater's
-  // half isn't truly per-role storage (RegionMap is a single repeater-only
-  // instance, not role_state_store[]-addressable), but
-  // `role == NODE_ROLE_REPEATER` is still the right selector for it. One
-  // function, not a role-generic wrapper around a separate repeater-only
-  // one -- there used to be a getRepeaterDefaultScope() this called
-  // internally; folded directly in here instead.
-  // No cached TransportKey member (unlike stock's own default_scope
-  // field) -- computed fresh from region_map.getDefaultRegion() each call,
-  // only ever needed on a periodic flood-advert timer or an explicit
-  // advert action, not a per-packet hot path, so a live cache (and the
-  // onDefaultRegionChanged() invalidation it would need) isn't worth the
-  // complexity. Declared/defined unconditionally (region_map/
-  // role_state_store[] both always exist) since sendFloodReply() --
-  // always compiled -- calls it with NODE_ROLE_REPEATER even though
-  // that's only ever reachable at runtime from repeater-role code; the
-  // NODE_ROLE_REPEATER branch is internally #if-guarded, same pattern
-  // updateAdvertTimer()/updateFloodAdvertTimer() use (genuinely
-  // repeater-only logic, unlike the PREFS_TLV_FIELDS accessors, which are
-  // role-generic and unguarded).
-  // Collapses the `if (_is_repeater) getRepeaterDefaultScope(out); else
-  // memcpy(...)` branch that used to be duplicated at each call site
-  // (CMD_SEND_SELF_ADVERT, handleCommand()'s bare "advert") into one call,
-  // callers passing `_board.role` explicitly for "whichever role is live"
-  // instead of the function baking that in itself. sendFloodReply()/
-  // loopRepeater() pass NODE_ROLE_REPEATER explicitly instead -- they
-  // deliberately always want repeater's own default region regardless of
-  // which role is live.
+  // role's own stored default_scope_key. No cached TransportKey member
+  // (unlike stock's own default_scope field) -- computed fresh from
+  // region_map.getDefaultRegion() each call, only ever needed on a
+  // periodic flood-advert timer or an explicit advert action, not a
+  // per-packet hot path. Callers wanting "whichever role is live" pass
+  // `_board.role` explicitly; sendFloodReply()/loopRepeater() pass
+  // NODE_ROLE_REPEATER explicitly since they always want repeater's own
+  // default region regardless of which role is live.
   void getDefaultScope(uint8_t role, TransportKey& out);
 
   // beebo: region of the flood packet currently being evaluated by

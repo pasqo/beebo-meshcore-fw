@@ -1994,12 +1994,11 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
 // individual handlers do that themselves right after calling it, since
 // "signal main.cpp to apply this live" is specific to how each of those two
 // handlers is invoked, not a property of the stored value.
-// beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 1/2 -- role-parameterized in
-// place (was implicit-live-role via self->_role_state->prefs). Live-apply
-// side effects (marking the RIGHT role's NodePrefs dirty) only make sense
-// when `role` is also the currently-live one; a write targeting a non-live
-// role's slot persists immediately via persistRoleSlot() instead, same
-// convention as every other role-targeted setter in this file.
+// beebo: live-apply side effects (marking the RIGHT role's NodePrefs
+// dirty) only make sense when `role` is also the currently-live one; a
+// write targeting a non-live role's slot persists immediately via
+// persistRoleSlot() instead, same convention as every other role-targeted
+// setter in this file.
 int Beebo::tlvGetWifiSsid(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
   const char* ssid = self->role_state_store[role].prefs.wifi_ssid;
   size_t n = strlen(ssid);
@@ -2034,12 +2033,6 @@ bool Beebo::tlvSetWifiSsid(Beebo* self, uint8_t role, const uint8_t* in, size_t 
 // actually becomes live, same convention as every other role-targeted
 // setter (tlvSetMultiAcks etc. above).
 //
-// beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 1/2 -- tlvGetTransportConfig/
-// tlvSetTransportConfig (the old implicit-live-role pair) are retired;
-// this pair is a strict superset (role == live role reproduces the old
-// behavior exactly), so PREFS_TLV_FIELDS and the legacy GET/SET_
-// TRANSPORT_CONFIG opcode now call these directly instead of keeping a
-// second implementation.
 uint32_t Beebo::tlvGetTransportConfig(Beebo* self, uint8_t role) {
   BeeboPrefs& p = self->role_state_store[role].prefs;
   return (uint32_t)p.ble_enabled | ((uint32_t)p.tcp_enabled << 8) | ((uint32_t)p.usb_enabled << 16);
@@ -2059,12 +2052,6 @@ bool Beebo::tlvSetTransportConfig(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-// beebo: PREFS_TLV_ROLE_UNIFICATION.md -- tlvGetRoleWifiSsid retired, it had
-// become byte-for-byte identical to tlvGetWifiSsid above once that got
-// role-parameterized in Phase 1/2 (both just read
-// role_state_store[role].prefs.wifi_ssid). The node.wifi.* opcode below now
-// calls tlvGetWifiSsid directly instead of keeping two copies of the same
-// function.
 bool Beebo::tlvGetWifiPwdSet(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.wifi_pwd[0] != '\0';
 }
@@ -2110,12 +2097,11 @@ bool Beebo::tlvSetBlePin(Beebo* self, uint8_t role, uint32_t pin) {
   return true;
 }
 
-// beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 1/2 -- role-parameterized in
-// place, same pattern as tlvSetWifiSsid above. monring.setConfig() is a
-// live hardware-facing side effect (the running MonRing instance's active
-// config), so it only fires when `role` is also the currently-live role --
-// writing a non-live role's slot just persists, taking effect the next
-// time that role becomes live (initMonRing() reads it back in then).
+// beebo: monring.setConfig() is a live hardware-facing side effect (the
+// running MonRing instance's active config), so it only fires when `role`
+// is also the currently-live role -- writing a non-live role's slot just
+// persists, taking effect the next time that role becomes live
+// (initMonRing() reads it back in then).
 uint32_t Beebo::tlvGetMonringConfig(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.monring_config;
 }
@@ -2165,18 +2151,13 @@ void Beebo::persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot) {
 // explicitly -- NOT self->_role_state->prefs (whichever role is currently
 // live).
 //
-// beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- deliberately NOT gated by
-// `#if BEEBO_ENABLE_REPEATER_ROLE` (unlike some of this file's other
-// genuinely repeater-only functions): these five are called with either
-// role (the former tlvSetCompanionLat/Lon/MultiAcks/PathHashMode/
-// AdvLocPolicy call sites, retired in favor of these -- also renamed off
-// "Repeater" per the API-uniformity goal in the plan doc). role_state_store[]
-// always exists
-// for both roles on every build and persistRoleSlot() already branches
-// safely per role internally, so gating the whole body on
-// BEEBO_ENABLE_REPEATER_ROLE would silently no-op the companion path too
-// on a companion-only static build -- exactly the regression this comment
-// exists to prevent reintroducing.
+// beebo: deliberately NOT gated by `#if BEEBO_ENABLE_REPEATER_ROLE` (unlike
+// some of this file's other genuinely repeater-only functions): these five
+// are called with either role. role_state_store[] always exists for both
+// roles on every build and persistRoleSlot() already branches safely per
+// role internally, so gating the whole body on BEEBO_ENABLE_REPEATER_ROLE
+// would silently no-op the companion path too on a companion-only static
+// build.
 uint32_t Beebo::tlvGetMultiAcks(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.multi_acks;
 }
@@ -2258,21 +2239,6 @@ bool Beebo::tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw) {
 // BEEBO_ENABLE_COMPANION_ROLE guard needed, only the runtime
 // isNodeRoleBuiltIn() check callers already apply (Cluster G audit, same as
 // BEEBO_CMD_GET_COMPANION_* handlers).
-//
-// beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- tlvSetCompanionName
-// retired; tlvSetName (BeeboRepeater.cpp, now role-generic and
-// unguarded) is an exact superset, so SET_COMPANION_NAME calls that
-// directly with NODE_ROLE_COMPANION instead of keeping a duplicate.
-// beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- tlvSetCompanionLat/Lon/
-// MultiAcks/PathHashMode/AdvLocPolicy retired; tlvSetLat/Lon/
-// MultiAcks/PathHashMode/AdvLocPolicy (now role-generic, Phase 1/2) are an
-// exact superset, so the SET_COMPANION_* opcodes below call those directly
-// with NODE_ROLE_COMPANION instead of keeping a byte-for-byte duplicate.
-// beebo: PREFS_TLV_ROLE_UNIFICATION.md -- API-uniformity pass: role-
-// parameterized and renamed off "Companion" even though only ever called
-// with NODE_ROLE_COMPANION today (no repeater-side concept exists for
-// either field) -- unifying means one tlv{Get|Set}<Field>(self, role, ...)
-// shape everywhere, not just for fields two roles happen to share.
 bool Beebo::tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw) {
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.manual_add_contacts = (uint8_t)(raw ? 1 : 0);
@@ -4648,9 +4614,9 @@ void Beebo::handleCmdFrame(size_t len) {
     profile_log.clear();
     writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_PREFS_TLV && sub_len >= 2) {
-    // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 1 -- sub[1] is now a
-    // leading role byte (NODE_ROLE_COMPANION/NODE_ROLE_REPEATER), scoping
-    // the whole triplet stream to one role per call.
+    // beebo: sub[1] is a leading role byte (NODE_ROLE_COMPANION/
+    // NODE_ROLE_REPEATER), scoping the whole triplet stream to one role
+    // per call.
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_PREFS_TLV;
     int n = encodePrefsTlv(sub[1], &out_frame[2], MAX_FRAME_SIZE - 2);
@@ -4661,8 +4627,8 @@ void Beebo::handleCmdFrame(size_t len) {
     // payload changed, and correct for a payload mixing the two stores (a
     // NodePrefs-backed field like wifi_ssid used to fall through the
     // ComPrefs-only flush that stood here and never reach flash at all).
-    // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 1 -- sub[1] is the leading
-    // role byte, same as GET_PREFS_TLV above; triplets start at sub[2].
+    // beebo: sub[1] is the leading role byte, same as GET_PREFS_TLV above;
+    // triplets start at sub[2].
     uint8_t role = sub[1];
     beginPrefsBatch();
     size_t pos = 2;
@@ -6500,15 +6466,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
 #endif
     } else if (memcmp(key, "repeat", 6) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-      // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 4 -- was _role_state->prefs
-      // (whichever role is currently live), a real bug: this text-CLI entry
-      // point is reachable regardless of live role (see this function's own
-      // top comment), so a companion-live session used to read/write
-      // companion's own NodePrefs field under these repeater-only keys.
-      // Now goes through the same tlvGet*/tlvSet* functions the binary
-      // GET/SET_PREFS_TLV path uses, explicitly targeting repeater's own
-      // slot, so this can't drift from that path the way AGC_RESET_INTERVAL
-      // once did (see this file's own historical comment on that bug).
+      // beebo: explicitly NODE_ROLE_REPEATER, not _role_state (whichever
+      // role is live) -- this text-CLI entry point is reachable regardless
+      // of live role (see this function's own top comment), so these
+      // repeater-only keys must always target repeater's own slot.
       sprintf(reply, "> %s", tlvGetRepeatMode(this, NODE_ROLE_REPEATER) ? "on" : "off");
 #else
       strcpy(reply, "ERR: not supported");

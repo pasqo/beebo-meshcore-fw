@@ -89,8 +89,7 @@ void Beebo::beginRepeater() {
 // unconditionally (region_map itself always exists, like _role_state->prefs)
 // since sendFloodReply() (Beebo.cpp, always compiled) calls it even though
 // the NODE_ROLE_REPEATER branch is only ever reachable at runtime from
-// repeater-role code. See Beebo.h's declaration for the collapsed
-// if-repeater-else-companion branch this used to require at each call site.
+// repeater-role code.
 void Beebo::getDefaultScope(uint8_t role, TransportKey& out) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (role == NODE_ROLE_REPEATER) {
@@ -479,10 +478,9 @@ bool Beebo::tlvSetOwnerInfo(Beebo* self, uint8_t role, const uint8_t* in, size_t
   return true;
 }
 
-// beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- not gated by
-// `#if BEEBO_ENABLE_REPEATER_ROLE` (see tlvGetMultiAcks's comment
-// in Beebo.cpp for why): also called with NODE_ROLE_COMPANION now (the
-// former tlvSetCompanionName call site, retired below).
+// beebo: not gated by `#if BEEBO_ENABLE_REPEATER_ROLE` (see
+// tlvGetMultiAcks's comment in Beebo.cpp for why): also called with
+// NODE_ROLE_COMPANION.
 int Beebo::tlvGetName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
   // beebo: getRoleName(role) always reads that role's own resident slot
   // directly (role_state_store[role] -- see its own comment in Beebo.h),
