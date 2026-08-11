@@ -1,10 +1,8 @@
-// beebo: repeater-role begin()/loop() path, split out of Beebo.cpp in the
-// event-loop review's file-split fix (see Beebo.h's beginRepeater()/
-// loopRepeater() declarations for the full rationale). A companion boot
-// never touches this file's code at all --
-// that's the point: companion_radio's own begin()/loop() never had any of
-// this, and having it run unconditionally regardless of role was pushing
-// companion boots past Dispatcher::begin()'s 8-second RX-timeout budget.
+// beebo: repeater-role begin()/loop() path, split out of Beebo.cpp so a
+// companion boot never touches this file's code at all -- companion_radio's
+// own begin()/loop() never had any of this, and running it unconditionally
+// regardless of role would push companion boots past Dispatcher::begin()'s
+// 8-second RX-timeout budget.
 
 #include "Beebo.h"
 
@@ -12,13 +10,13 @@
 #include <Mesh.h>
 #include <helpers/ProfileLog.h>
 
-// beebo: found in the multi_role event-loop review -- entirely absent
+// beebo: entirely absent
 // before, for either role. simple_repeater's own periodic local/flood
 // self-advert scheduling, gated to repeater role only in Beebo::loop()'s
 // dispatch -- companion has no periodic self-advert concept at all (its
 // "advert" is app/CLI-triggered only), so this file's code never runs when
 // node.role is companion. The flood branch reuses companion's own
-// default_scope/sendFloodScoped infra (Phase 3's flood-scoping reuse), same
+// default_scope/sendFloodScoped infra (shared with the flood-scoping path), same
 // as every other flood-send path in Beebo.cpp.
 //
 // skip_radio: Beebo::loop()'s OTA-priority/bench-quiet gate on whether to run
@@ -66,7 +64,7 @@ void Beebo::loopRepeater(bool skip_radio) {
   }
 }
 
-// beebo: SETTINGS_REFACTOR.md Part 3 -- repeater's full persisted state
+// beebo: the per-role state store -- repeater's full persisted state
 // (ACL, region map, /beebo_repeater prefs) is loaded eagerly at boot now,
 // for every compiled-in role regardless of which is live (Beebo::begin()'s
 // loadRoleState(NODE_ROLE_REPEATER) call, Beebo.cpp), replacing the old
@@ -105,9 +103,7 @@ void Beebo::getDefaultScope(uint8_t role, TransportKey& out) {
   memcpy(out.key, role_state_store[role].prefs.default_scope_key, sizeof(out.key));
 }
 
-// beebo: found in the multi_role event-loop review -- entirely absent
-// before. Ported from simple_repeater's own updateAdvertTimer()/
-// updateFloodAdvertTimer() -- unlike allowPacketForward()'s per-packet
+// beebo: unlike allowPacketForward()'s per-packet
 // fields, these are only consulted here (loop()'s once-per-interval check,
 // minutes/hours apart), so reading straight off _role_state->prefs is fine. Not
 // themselves gated: PREFS_TLV_FIELDS' tlvSetAdvertInterval/
@@ -149,7 +145,7 @@ void Beebo::updateFloodAdvertTimer() {
 // SET_PREFS_TLV payload is applied, or once immediately for a single
 // individual SET_* call, same batching contract _role_state->prefs's own dirty bit
 // already has everywhere else.
-// beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- ALL of the ComPrefs-backed
+// beebo: the role-targeted path -- ALL of the ComPrefs-backed
 // getters/setters below target repeater's own slot explicitly
 // (role_state_store[NODE_ROLE_REPEATER] + persistRoleSlot(), see that
 // function's comment in Beebo.cpp), NOT self->_role_state->prefs (whichever
@@ -349,17 +345,16 @@ bool Beebo::tlvSetFloodMaxUnscoped(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-// beebo: SETTINGS_TREE_CLEANUP.md Decision A -- repeater's own independent
-// rx_delay_base/airtime_factor (seeded from companion's shared value only
-// for a genuinely brand-new /com_prefs, see loadRoleState()'s repeater
-// branch in Beebo.cpp).
-// Deliberately separate opcodes from CMD_GET/SET_TUNING_PARAMS (the stock
-// upstream companion pair, which stays byte-for-byte unchanged and keeps
-// reading/writing the shared companion _role_state->prefs.rx_delay_base/
-// _role_state->prefs.airtime_factor) -- these are only reachable via `beebo settings
-// repeater.routing.*`/BEEBO_CMD_*, never the standard MeshCore app protocol.
-// beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- targets repeater's own
-// slot explicitly (see persistRoleSlot()'s comment, Beebo.cpp), NOT
+// beebo: repeater keeps its own independent copy of rx_delay_base/
+// airtime_factor (seeded from companion's shared value only for a
+// genuinely brand-new /com_prefs, see loadRoleState()'s repeater branch
+// in Beebo.cpp). Deliberately separate opcodes from CMD_GET/SET_TUNING_PARAMS
+// (the stock upstream companion pair, which stays byte-for-byte unchanged
+// and keeps reading/writing the shared companion
+// _role_state->prefs.rx_delay_base/airtime_factor) -- these are only
+// reachable via `beebo settings repeater.routing.*`/BEEBO_CMD_*, never the
+// standard MeshCore app protocol. Targets the given role's own slot
+// explicitly (see persistRoleSlot()'s comment, Beebo.cpp), NOT
 // self->_role_state->prefs (whichever role is currently live).
 uint32_t Beebo::tlvGetRxDelayBase(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
@@ -393,15 +388,13 @@ bool Beebo::tlvSetAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-// beebo: DoS/QoS audit follow-up -- repeater's own independent dedup
-// live-eviction window, ms, own file (see BeeboRepeaterPrefs.h). 0 is a
-// real, literal value -- disables live-eviction counting
-// entirely (SimpleMeshTables::hasSeen()) -- not a "reset to default"
-// sentinel; valid range is [0, DEDUP_WINDOW_MAX_MS], rejected (false,
-// caller writes ERR) outside that.
-// beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- targets repeater's own
-// slot explicitly (see persistRoleSlot()'s comment, Beebo.cpp), NOT
-// self->_role_state->prefs (whichever role is currently live).
+// beebo: repeater's own independent dedup live-eviction window, ms, own
+// file (see BeeboRepeaterPrefs.h). 0 is a real, literal value -- disables
+// live-eviction counting entirely (SimpleMeshTables::hasSeen()) -- not a
+// "reset to default" sentinel; valid range is [0, DEDUP_WINDOW_MAX_MS],
+// rejected (false, caller writes ERR) outside that. Targets the given
+// role's own slot explicitly (see persistRoleSlot()'s comment, Beebo.cpp),
+// NOT self->_role_state->prefs (whichever role is currently live).
 // pushActiveDedupWindow() still reads _role_state->prefs (the live role)
 // unconditionally, so it's a harmless no-op re-apply of the live role's
 // already-current value when this write targets a non-live repeater slot,
@@ -599,7 +592,7 @@ bool Beebo::applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, si
   return f->set_raw(this, role, raw);
 }
 
-// beebo: multi_role Phase 4 -- mirrors BaseChatMesh::createSelfAdvert
+// beebo: mirrors BaseChatMesh::createSelfAdvert
 // (src/helpers/BaseChatMesh.cpp:19-39) exactly, but ADV_TYPE_REPEATER
 // instead of the hardcoded ADV_TYPE_CHAT. That helper is shared library
 // code used by other targets too, so it's not edited in place -- this is
@@ -647,9 +640,8 @@ void Beebo::sendSelfAdvertisement(int delay_millis, bool flood) {
   }
 }
 
-// beebo: adapted from simple_repeater's own formatNeighborsReply() to this
-// board's NeighbourInfo shape (pubkey/pubkey_len prefix, not a fixed
-// mesh::Identity) -- same "hex:secs_ago:snr" line-per-neighbour format,
+// beebo: this board's NeighbourInfo shape (pubkey/pubkey_len prefix, not a
+// fixed mesh::Identity) -- "hex:secs_ago:snr" line-per-neighbour format,
 // newest first, bounded well inside the 160-byte reply buffer.
 void Beebo::formatNeighborsReply(char* reply) {
   char* dp = reply;
@@ -678,10 +670,9 @@ void Beebo::formatNeighborsReply(char* reply) {
 }
 
 // beebo: CommonCLI fallback's 'tempradio <freq> <bw> <sf> <cr> <mins>' --
-// ported from simple_repeater's own applyTempRadioParams()/loop() pair (same
 // two-stage timer: apply after a short delay so the CLI reply has time to
 // go out first, then revert to the persisted companion radio prefs once
-// timeout_mins elapses). Ticked from loopRepeater() below, since this
+// timeout_mins elapses. Ticked from loopRepeater() below, since this
 // command is only reachable via the repeater-only CommonCLI fallback.
 // beebo: maps onto the same clear the binary BEEBO_CMD_CLEAR_PROFILE opcode
 // already does (Beebo.cpp) -- one implementation for both entry points.
@@ -722,15 +713,13 @@ mesh::Packet* Beebo::createRepeaterSelfAdvert(const char* name, double lat, doub
 #endif // BEEBO_ENABLE_REPEATER_ROLE
 
 /* ------------------------------------------------------------------------
- * beebo: multi_role Phase 3 item 2 -- repeater-role inbound login/ACL
- * request handler (MULTI_ROLE_FW.md). Ported from
- * examples/simple_repeater/MyMesh.cpp, reusing companion's own existing
- * stats/telemetry/neighbour-table code wherever it already covers the same
- * ground (RepeaterStats' fields, telemetry gathering, GET_NEIGHBOURS
- * adapted to companion's own richer NeighbourInfo table -- see
- * "What companion already has of repeater's job" in the plan). The
- * TXT_TYPE_CLI_DATA / handleCommand() path is deliberately excluded --
- * that's Phase 5/6, once multi_role has a text dispatcher at all.
+ * beebo: repeater-role inbound login/ACL request handler, reusing
+ * companion's own existing stats/telemetry/neighbour-table code wherever
+ * it already covers the same ground (RepeaterStats' fields, telemetry
+ * gathering, GET_NEIGHBOURS adapted to companion's own richer
+ * NeighbourInfo table). The TXT_TYPE_CLI_DATA / handleCommand() path is
+ * deliberately excluded -- deferred until multi_role has a text
+ * dispatcher at all.
  * ------------------------------------------------------------------------ */
 
 #if BEEBO_ENABLE_REPEATER_ROLE
@@ -950,10 +939,8 @@ int Beebo::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t 
   if (payload[0] == REQ_TYPE_GET_NEIGHBOURS) {
     uint8_t request_version = payload[1];
     if (request_version == 0) {
-      // beebo: adapted to companion's own neighbours[MAX_NEIGHBOURS] table
-      // (variable-length pubkey prefix) instead of porting simple_repeater's
-      // separate NeighbourInfo array -- see "What companion already has of
-      // repeater's job" in MULTI_ROLE_FW.md; nothing to duplicate here.
+      // beebo: uses companion's own neighbours[MAX_NEIGHBOURS] table
+      // (variable-length pubkey prefix); repeater role has no separate one.
       int reply_offset = 4;
 
       uint8_t count = payload[2];

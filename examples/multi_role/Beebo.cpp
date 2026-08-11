@@ -151,7 +151,7 @@ int Beebo::getFromOfflineQueue(uint8_t frame[]) {
 
 // beebo: airtime_factor is one of the 14 SharedPrefs fields (see
 // NodePrefs.h) -- one physical storage slot in _role_state->prefs regardless of
-// role, so no role branch is needed (BeeboPrefs unification, Clusters A/B
+// role, so no role branch is needed (companion and repeater share this field
 // cleanup).
 float Beebo::getAirtimeBudgetFactor() const {
   return _role_state->prefs.airtime_factor;
@@ -161,7 +161,7 @@ int Beebo::getInterferenceThreshold() const {
   return 0; // disabled for now, until currentRSSI() problem is resolved
 }
 
-// beebo: found in the multi_role event-loop review -- Dispatcher's default
+// beebo: Dispatcher's default
 // (0, disabled) was never overridden here at all. Repeater role uses the
 // RAM-cached _role_state->prefs.agc_reset_interval (see loadRepeaterFwdPrefs()); companion
 // keeps the prior implicit default.
@@ -173,14 +173,14 @@ int Beebo::getAGCResetInterval() const {
 }
 
 // beebo: rx_delay_base is one of the 14 SharedPrefs fields (see
-// NodePrefs.h) -- no role branch needed (Clusters A/B cleanup).
+// NodePrefs.h) -- no role branch needed since both roles share the field.
 int Beebo::calcRxDelay(float score, uint32_t air_time) const {
   float rx_delay_base = _role_state->prefs.rx_delay_base;
   if (rx_delay_base <= 0.0f) return 0;
   return (int)((pow(rx_delay_base, 0.85f - score) - 1.0) * air_time);
 }
 
-// beebo: found in the multi_role event-loop review -- these two hardcoded
+// beebo: these two hardcoded
 // companion_radio's own constants (0.5f/0.2f) unconditionally, so
 // repeater.txdelay/repeater.direct.txdelay round-tripped through the CLI
 // but had zero effect on real retransmit timing. Repeater role now uses the
@@ -207,7 +207,7 @@ uint32_t Beebo::getDirectRetransmitDelay(const mesh::Packet *packet) {
 }
 
 // beebo: multi_acks is one of the 14 SharedPrefs fields (see NodePrefs.h)
-// -- no role branch needed (Clusters A/B cleanup).
+// -- no role branch needed since both roles share the field.
 uint8_t Beebo::getExtraAckTransmitCount() const {
   return _role_state->prefs.multi_acks;
 }
@@ -434,7 +434,7 @@ void Beebo::logTxFail(mesh::Packet* pkt, int len) {
   }
 }
 
-// beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- see MonRing.h's
+// beebo: see MonRing.h's
 // EVENT_ACK_SUCCESS/EVENT_ACK_TIMEOUT comment for the data[] layout. SUCCESS/
 // TIMEOUT only -- see emitAckOverflowEvent() for the resource-exhaustion case.
 void Beebo::emitAckResultEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_ms) {
@@ -567,13 +567,11 @@ int Beebo::getRecentlyHeard(AdvertPath dest[], int max_num) {
 }
 
 bool Beebo::filterRecvFloodPacket(mesh::Packet* packet) {
-  // beebo: ported from simple_repeater's own filterRecvFloodPacket
-  // (Beebo.cpp:818-833) -- stash the packet's region match for
-  // allowPacketForward() to consult right after (repeater role only; see
-  // that function). Reuses companion's own existing region_map instance
-  // rather than a second copy, per MULTI_ROLE_FW.md Phase 3's flood-scoping
-  // analysis. Run unconditionally regardless of role, same as
-  // simple_repeater always does -- companion role just never reads the
+  // beebo: stash the packet's region match for allowPacketForward() to
+  // consult right after (repeater role only; see that function). Reuses
+  // companion's own existing region_map instance rather than a second
+  // copy. Run unconditionally regardless of role -- companion role just
+  // never reads the
   // result, and this keeps recv_pkt_region live across a hot role switch
   // instead of stale from whenever it was last set.
 #if BEEBO_ENABLE_REPEATER_ROLE
@@ -597,8 +595,8 @@ bool Beebo::filterRecvFloodPacket(mesh::Packet* packet) {
   return false;
 }
 
-// beebo: same loop-detection maximums as simple_repeater's own
-// (Beebo.cpp:432-434) -- indexed by path-hash size (1/2/3 bytes).
+// beebo: same loop-detection maximums as simple_repeater's own --
+// indexed by path-hash size (1/2/3 bytes).
 static uint8_t max_loop_minimal[] =  { 0, /* 1-byte */  4, /* 2-byte */  2, /* 3-byte */  1 };
 static uint8_t max_loop_moderate[] = { 0, /* 1-byte */  2, /* 2-byte */  1, /* 3-byte */  1 };
 static uint8_t max_loop_strict[] =   { 0, /* 1-byte */  1, /* 2-byte */  1, /* 3-byte */  1 };
@@ -619,20 +617,17 @@ bool Beebo::isLooped(const mesh::Packet* packet, const uint8_t max_counters[]) {
 bool Beebo::allowPacketForward(const mesh::Packet* packet) {
   // beebo: role-branched -- companion keeps its pre-existing behaviour
   // unchanged (client_repeat, a companion-only "also relay while acting as
-  // someone's client" toggle); repeater role gets simple_repeater's full
-  // allowPacketForward logic (Beebo.cpp:462-488) ported across, reading
+  // someone's client" toggle); repeater role reads
   // the RAM-cached /com_prefs fields loadRepeaterFwdPrefs() populates
-  // instead of simple_repeater's own _role_state->prefs.* (this function runs on every
+  // instead of _role_state->prefs.* directly (this function runs on every
   // received flood packet, so it can't afford readComPrefsField()'s
   // per-call file open -- see the _fwd_* field comments in Beebo.h).
   //
-  // This was previously `return _role_state->prefs.client_repeat != 0;` unconditionally
-  // -- i.e. repeater role's forwarding was gated by a companion-only pref
-  // that defaults off, so a freshly-role-switched repeater silently
-  // forwarded nothing at all regardless of repeater.repeat/node.role, with
-  // none of simple_repeater's hop-limit/loop-detection/region-scoping logic
-  // applied either. Found via live testing (no TX activity from a
-  // repeater-role node despite repeater.repeat=on and steady RX flood).
+  // Must not fall back to `return _role_state->prefs.client_repeat != 0;`
+  // unconditionally -- that's a companion-only pref that defaults off, so a
+  // freshly-role-switched repeater would silently forward nothing at all
+  // regardless of repeater.repeat/node.role, with none of simple_repeater's
+  // hop-limit/loop-detection/region-scoping logic applied either.
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (_is_repeater) {
     if (_role_state->prefs.disable_fwd) return false;
@@ -692,7 +687,7 @@ void Beebo::logForwardDenyEvent(uint8_t event_type, const mesh::Packet* packet) 
 
 void Beebo::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis) {
   // beebo: path_hash_mode is one of the 14 SharedPrefs fields (see
-  // NodePrefs.h) -- no role branch needed (Clusters A/B cleanup).
+  // NodePrefs.h) -- no role branch needed since both roles share the field.
   uint8_t path_hash_mode = _role_state->prefs.path_hash_mode;
   if (scope.isNull()) {
     sendFlood(pkt, delay_millis, path_hash_mode + 1);
@@ -722,11 +717,9 @@ void Beebo::onControlDataRecv(mesh::Packet *packet) {
     }
   }
 
-  // beebo: found in the multi_role event-loop review -- "node discover"
-  // protocol, entirely absent before (only the passive overhear-a-response
-  // neighbour logging above existed, ported already). Ported from
-  // simple_repeater's own onControlDataRecv (MyMesh.cpp:1042-1096), then
-  // generalized: neither answering nor sending is role-gated here -- a
+  // beebo: "node discover" protocol, generalized from simple_repeater's
+  // own onControlDataRecv: neither answering nor sending is role-gated
+  // here -- a
   // companion node answers truthfully as ADV_TYPE_CHAT, a repeater as
   // ADV_TYPE_REPEATER, whichever the filter asked for (simple_repeater's
   // original only ever answered as a repeater, since that's the only role
@@ -932,7 +925,7 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   // that header).
   _role_state->prefs.monring_config = (MON_CAP_ALL & ~MON_CAP_ENV & ~MON_CAP_TUNE) | MON_CAP_ENABLED;
 #if BEEBO_ENABLE_REPEATER_ROLE
-  // beebo: multi_role Phase 3 -- repeater-role _role_state->prefs (CommonCLI's real
+  // beebo: repeater-role _role_state->prefs (CommonCLI's real
   // NodePrefs, /com_prefs) defaults. These ctor values are only the fallback
   // for a device with no /com_prefs at all (never ran simple_repeater) --
   // cli.loadPrefs() (loadRoleState()'s repeater branch, Beebo.cpp)
@@ -956,7 +949,7 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   _role_state->prefs.flood_max_advert = 8;
   _role_state->prefs.tx_delay_factor = 0.5f;
   _role_state->prefs.direct_tx_delay_factor = 0.3f;
-  _role_state->prefs.airtime_factor = 1.0f;   // SETTINGS_TREE_CLEANUP.md Decision A -- repeater's own independent copy
+  _role_state->prefs.airtime_factor = 1.0f;   // repeater's own independent copy
 #endif
 }
 
@@ -965,7 +958,7 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
 // BeeboRepeater.cpp in the event-loop-review file split -- see Beebo.h's
 // declarations for the full rationale.
 
-// beebo: SETTINGS_REFACTOR.md Part 3 -- loads/migrates/generates role's
+// beebo: the per-role state store -- loads/migrates/generates role's
 // identity into its own resident role_state_store[role].identity slot.
 // Does NOT touch self_id -- callers mirror self_id explicitly once the
 // role becomes (or stays) live (begin(), setNodeRole()). Splitting the
@@ -973,18 +966,16 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
 // per-role boot loading, loadRoleState() below) without clobbering self_id
 // mid-load.
 //
-// beebo: bug fix -- migrateLegacyIdentity() must only be offered to the
-// role the node was already operating as before the split (DataStore.h's
-// own doc comment on migrateLegacyIdentity: "the other role must always
-// start from a fresh identity"), because it doesn't delete "_main" after
-// copying it, so it stays available to every future caller. This used to
-// be implicit under the old lazy-load-on-first-switch model (only the
-// live role's load ever ran migration); the eager per-role boot load
-// above (both roles loaded every boot, regardless of which is live) needs
-// an explicit gate here or both roles' first load silently migrate the
-// same "_main" and end up with IDENTICAL keys instead of one migrated +
-// one fresh. _board.role (the resolved default/live role) is already
-// settled by the time begin() calls loadRoleState() for either role.
+// beebo: migrateLegacyIdentity() must only be offered to the role the node
+// was already operating as before the split (DataStore.h's own doc comment
+// on migrateLegacyIdentity: "the other role must always start from a fresh
+// identity"), because it doesn't delete "_main" after copying it, so it
+// stays available to every future caller. Since both roles are loaded
+// every boot regardless of which is live, an explicit gate here is
+// required or both roles' first load would silently migrate the same
+// "_main" and end up with IDENTICAL keys instead of one migrated + one
+// fresh. _board.role (the resolved default/live role) is already settled
+// by the time begin() calls loadRoleState() for either role.
 void Beebo::loadIdentityForRole(uint8_t role) {
   mesh::LocalIdentity& id = role_state_store[role].identity;
   if (_store->loadRoleIdentity(role, id)) return;
@@ -998,7 +989,7 @@ void Beebo::loadIdentityForRole(uint8_t role) {
   _store->saveRoleIdentity(role, id);
 }
 
-// beebo: SETTINGS_REFACTOR.md Part 3 -- loads a compiled-in role's full
+// beebo: the per-role state store -- loads a compiled-in role's full
 // persisted state (identity, prefs, and for repeater: ACL/RegionMap) into
 // its own resident role_state_store[] slot, independent of which role is
 // currently live. Called once per compiled-in role from begin() (eager
@@ -1053,7 +1044,7 @@ void Beebo::loadRoleState(uint8_t role) {
   }
 #if BEEBO_ENABLE_REPEATER_ROLE
   else if (role == NODE_ROLE_REPEATER) {
-    // beebo: multi_role Phase 3 -- load the repeater-role admin login
+    // beebo: load the repeater-role admin login
     // table. Separate file (/s_contacts, ClientACL.cpp), no interaction
     // with /new_prefs's OTA-continuity story. Keyed on this role's own
     // identity explicitly (not self_id, which may currently hold a
@@ -1124,7 +1115,7 @@ void Beebo::loadRoleState(uint8_t role) {
 void Beebo::begin() {
   Mesh::begin();
 
-  // beebo: BeeboPrefs unification Part 1 -- BeeboBoardPrefs's own file
+  // beebo: BeeboBoardPrefs's own file
   // (role/board_password/board_name), loaded right after companion's so
   // its values win when present. Before this file existed, these three
   // fields were persisted as a tail fold-in of /beebo_companion (still
@@ -1169,7 +1160,7 @@ void Beebo::begin() {
     _store->saveBeeboBoardPrefs(_board);
   }
 
-  // beebo: SETTINGS_REFACTOR.md Part 3 -- eager per-role boot load. Every
+  // beebo: the per-role state store -- eager per-role boot load. Every
   // compiled-in role gets its own resident role_state_store[] slot loaded
   // now (identity, prefs, and for repeater ACL/RegionMap -- see
   // loadRoleState()'s own comment), regardless of which is actually live.
@@ -1199,7 +1190,7 @@ void Beebo::begin() {
   cli.setPrefs(&_role_state->prefs);
 #endif
 
-  // beebo: found in the multi_role event-loop review -- begin() is split
+  // beebo: begin() is split
   // by role (BeeboCompanion.cpp/BeeboRepeater.cpp) so a companion boot
   // does exactly what companion_radio's own begin() does, no more.
   // beebo: _is_companion/_is_repeater are mutually exclusive (see
@@ -1432,7 +1423,7 @@ void Beebo::initMonRing() {
     MESH_DEBUG_PRINTLN("MonRing: PSRAM unavailable (%u KB free), capture disabled",
                        (unsigned)(free_ps / 1024));
   }
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- wire the flood-echo side's
+  // beebo: wire the flood-echo side's
   // EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT emission to this now-(maybe-)allocated ring.
   // Unconditional even if allocation failed above: monring's own
   // enabled()/allocated() checks already make appendEvent() a safe no-op,
@@ -1514,7 +1505,7 @@ EnvRecord Beebo::buildEnvRecord() {
 // implementation, so a live-applied tuning change can't drift from what a
 // human explicitly setting that same value would produce. TUNE_RX_DELAY_BASE/
 // TUNE_AIRTIME_FACTOR now write the repeater's own independent copy
-// (SETTINGS_TREE_CLEANUP.md Decision A) via tlvSetRxDelayBase/
+// via tlvSetRxDelayBase/
 // tlvSetAirtimeFactor instead of the shared companion _role_state->prefs fields
 // -- the tuning optimizer only ever runs on a repeater (see loop()'s
 // `_is_repeater && _tune_enabled` gate), so this is never reached for a
@@ -1696,7 +1687,7 @@ void Beebo::appendTextCommandRunEvent(const char* label) {
 // successful write (a failed /com_prefs open stays dirty and retries at the
 // next flush rather than silently losing the change).
 void Beebo::writeDirtyPrefs() {
-  // beebo: SETTINGS_REFACTOR.md root-cause fix -- _role_state->prefs is
+  // beebo: _role_state->prefs is
   // self-contained (knows its own role and its own dirty state), so this
   // is the single place that decides which file a dirty write lands in,
   // by reading _board.role -- every call site just marks
@@ -1725,7 +1716,7 @@ void Beebo::writeDirtyPrefs() {
   }
 }
 
-// beebo: SETTINGS_REFACTOR.md Part 3 -- the role-switch repoint handoff,
+// beebo: the per-role state store -- the role-switch repoint handoff,
 // called from setNodeRole() right after repointing _role_state at the
 // incoming role's already-resident slot (see that function's own comment
 // for why no disk round trip is needed anymore -- this replaces the old
@@ -1753,7 +1744,7 @@ void Beebo::applyRoleSwitchPrefs() {
 // Drops both stores' RAM state: NodePrefs is re-read here, and the /com_prefs
 // cache is invalidated so the next read reloads it from flash.
 void Beebo::reloadPrefs() {
-  // beebo: SETTINGS_REFACTOR.md Part 3 -- re-read only the live role's own
+  // beebo: the per-role state store -- re-read only the live role's own
   // file, into its own resident slot -- each role has its own physically
   // separate storage now, so there's no other slot to accidentally touch
   // (the old version unconditionally reloaded companion's file into the
@@ -1875,7 +1866,7 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   memcpy(&out[i], &mesh_rx_queue_full, 4); i += 4;
   memcpy(&out[i], &link_tx_queue_full, 4); i += 4;
   memcpy(&out[i], &link_rx_queue_full, 4); i += 4;
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 10 -- QoS (delivery quality, what
+  // beebo: QoS (delivery quality, what
   // the tuning optimizer maximizes) and SoH (is this node's own
   // infrastructure intact) computed fresh from the same lifetime counters
   // above, every header request -- not gated by tuning being enabled or
@@ -2019,7 +2010,7 @@ bool Beebo::tlvSetWifiSsid(Beebo* self, uint8_t role, const uint8_t* in, size_t 
   return true;
 }
 
-// beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- role-targeted binary
+// beebo: the role-targeted path -- role-targeted binary
 // access to node.transport.*/node.wifi.*/node.ble.pin, needed because
 // SET_WIFI_CREDS/CMD_SET_DEVICE_PIN above are live-role-scoped by design
 // (same as their text-CLI equivalents) with no way to reach the non-live
@@ -2117,7 +2108,7 @@ bool Beebo::tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-// beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- writes into a specific
+// beebo: the role-targeted path -- writes into a specific
 // role's own resident slot (role_state_store[role]), which
 // may not be the currently-live role. flushDirtyPrefs() (called by every
 // opcode handler right after one of these setters) only ever flushes
@@ -2139,9 +2130,9 @@ void Beebo::persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot) {
 #endif
 }
 
-// beebo: repeater's own independent multi_acks/path_hash_mode/lat/lon --
-// SETTINGS_TREE_CLEANUP.md Decision A pattern (see Beebo.h's PrefsTlvKey
-// comment). BeeboPrefs already carries these bytes (same struct shape as
+// beebo: repeater's own independent multi_acks/path_hash_mode/lat/lon
+// (see Beebo.h's PrefsTlvKey comment). BeeboPrefs already carries these
+// bytes (same struct shape as
 // companion's, ComPrefs is #define NodePrefs ComPrefs) -- this is
 // "expose bytes the file format already has room for", not new storage.
 // Clamping mirrors those stock entry points: multi_acks constrained 0/1
@@ -2207,9 +2198,9 @@ bool Beebo::tlvSetLon(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-// beebo: repeater's own independent advert_loc_policy -- same
-// SETTINGS_TREE_CLEANUP.md Decision A pattern as multi_acks/path_hash_mode
-// above. Companion's own copy is untouched -- still reachable via stock
+// beebo: repeater's own independent advert_loc_policy, same pattern as
+// multi_acks/path_hash_mode above. Companion's own copy is untouched --
+// still reachable via stock
 // CMD_SET_OTHER_PARAMS. Clamping mirrors CommonCLI.cpp's own "gps advert"
 // setter (0-2), which is compiled out on beebo since ENV_INCLUDE_GPS=0 --
 // this opcode is the repeater role's only reachable way to view/change it.
@@ -2237,7 +2228,7 @@ bool Beebo::tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw) {
 // state, companion's BeeboCompanionPrefs is compiled into every build
 // (role-agnostic struct, same as owner_password/board_name) -- no
 // BEEBO_ENABLE_COMPANION_ROLE guard needed, only the runtime
-// isNodeRoleBuiltIn() check callers already apply (Cluster G audit, same as
+// isNodeRoleBuiltIn() check callers already apply (same reasoning as
 // BEEBO_CMD_GET_COMPANION_* handlers).
 bool Beebo::tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw) {
   BeeboRoleState& slot = self->role_state_store[role];
@@ -2278,7 +2269,7 @@ void Beebo::handleCmdFrame(size_t len) {
     i += 20;
     out_frame[i++] = _role_state->prefs.client_repeat;   // v9+
     // beebo: path_hash_mode is one of the 14 SharedPrefs fields (see
-    // NodePrefs.h) -- no role branch needed (Clusters A/B cleanup).
+    // NodePrefs.h) -- no role branch needed since both roles share the field.
     out_frame[i++] = _role_state->prefs.path_hash_mode;  // v10+
     { // v14+ wifi_rssi (int16, little-endian; INT16_MIN sentinel when unavailable)
       int16_t wifi_rssi = INT16_MIN;
@@ -2299,7 +2290,7 @@ void Beebo::handleCmdFrame(size_t len) {
     _iter_started = false; // stop any left-over ContactsIterator
     int i = 0;
     out_frame[i++] = RESP_CODE_SELF_INFO;
-    // beebo: multi_role Phase 4 -- the app-facing transport (BLE/WiFi/USB)
+    // beebo: the app-facing transport (BLE/WiFi/USB)
     // is unrelated to node.role, so an app can connect to a repeater-role
     // node and needs to be told the truth here, not hardcoded ADV_TYPE_CHAT.
     out_frame[i++] = _is_repeater ? ADV_TYPE_REPEATER : ADV_TYPE_CHAT;
@@ -2379,10 +2370,10 @@ void Beebo::handleCmdFrame(size_t len) {
     // commands (BaseChatMesh's contract); a node currently running as
     // repeater must refuse them rather than silently acting as a companion
     // over whatever transport (BLE/WiFi/USB) the app happens to be connected
-    // through -- MULTI_ROLE_FW.md Phase 3's "companion command reachable in
-    // repeater mode" risk, previously left unaddressed for this legacy
+    // through -- a companion command reachable in
+    // repeater mode risk was previously left unaddressed for this legacy
     // command set (only CMD_APP_START's self-info reply was role-branched).
-    // CMD_SET/GET_DEFAULT_FLOOD_SCOPE added here per SETTINGS_REFACTOR.md's
+    // CMD_SET/GET_DEFAULT_FLOOD_SCOPE added here for the same reason as the other per-role dirty-routed fields:
     // "reverted" note: default_scope_name/key is companion's own mechanism
     // (never given independent repeater-side storage, see
     // saveBeeboRepeaterPrefs()/loadBeeboRepeaterPrefs()); repeater has its
@@ -2419,7 +2410,7 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_TABLE_FULL);
       } else {
         if (expected_ack) {
-          // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- if the slot we're
+          // beebo: if the slot we're
           // about to reuse still has ack != 0, an earlier send hasn't been
           // resolved success or failure yet (checkAckTableTimeouts() hasn't
           // caught it) -- the table wrapped faster than EXPECTED_ACK_TABLE_SIZE
@@ -2534,7 +2525,7 @@ void Beebo::handleCmdFrame(size_t len) {
     if (nlen > sizeof(_role_state->prefs.node_name) - 1) nlen = sizeof(_role_state->prefs.node_name) - 1; // max len
     memcpy(_role_state->prefs.node_name, &cmd_frame[1], nlen);
     _role_state->prefs.node_name[nlen] = 0; // null terminator
-    // beebo: SETTINGS_REFACTOR.md Cluster B pattern -- node_name is the
+    // beebo: the per-role dirty-routing pattern -- node_name is the
     // live role's own persisted name (see the text-CLI "set name "
     // handler's own comment above), and this legacy binary opcode is
     // reachable while repeater is live, same as CMD_SET_TUNING_PARAMS/etc.
@@ -2546,10 +2537,10 @@ void Beebo::handleCmdFrame(size_t len) {
     // register. sensors.node_lat/lon is reserved for a real live GPS
     // reading (SHARE mode); this stock opcode is how apps set a
     // fixed/preferred location (PREFS mode) in its absence.
-    // beebo: SETTINGS_REFACTOR.md correction -- a prior version of this
+    // beebo: a prior version of this
     // comment claimed an "always companion regardless of live role"
     // contract, mirroring CMD_SET_OTHER_PARAMS/CMD_SET_PATH_HASH_MODE --
-    // but those two turned out to be bugs (Cluster B), not a deliberate
+    // but those two turned out to be bugs, not a deliberate
     // design. node_lat/node_lon is a single, unified, park/load-swapped
     // RAM field (confirmed by BEEBO_CMD_SET_REPEATER_LAT/LON at
     // Beebo.cpp:~2030-2057 mutating this exact same field) -- there was
@@ -2738,11 +2729,11 @@ void Beebo::handleCmdFrame(size_t len) {
       _role_state->prefs.freq = (float)freq / 1000.0;
       _role_state->prefs.bw = (float)bw / 1000.0;
       _role_state->prefs.client_repeat = repeat;
-      // beebo: SETTINGS_REFACTOR.md Cluster A -- freq/sf/cr/bw are per-role
+      // beebo: the per-role dirty-routing pattern -- freq/sf/cr/bw are per-role
       // BeeboBasePrefs fields (settings.yaml, scope: role), reachable via
       // this legacy binary opcode while repeater is live, same
-      // dirty-routing rationale as Cluster B. The plan's Progress notes
-      // claiming Cluster A already fixed by Part 1 covered the read side
+      // dirty-routing rationale as the other per-role fields. An earlier pass
+      // incorrectly assumed the read side was already covered, but it wasn't
       // only (consumers now read the unified, role-aware _role_state->prefs);
       // this write-side gap was never actually closed until now.
       savePrefs();
@@ -2763,7 +2754,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       _role_state->prefs.tx_power_dbm = power;
-      // beebo: SETTINGS_REFACTOR.md Cluster A -- same dirty-routing
+      // beebo: the per-role dirty-routing pattern -- same dirty-routing
       // rationale as CMD_SET_RADIO_PARAMS above.
       savePrefs();
       radio_driver.setTxPower(_role_state->prefs.tx_power_dbm);
@@ -2778,7 +2769,7 @@ void Beebo::handleCmdFrame(size_t len) {
     i += 4;
     _role_state->prefs.rx_delay_base = ((float)rx) / 1000.0f;
     _role_state->prefs.airtime_factor = ((float)af) / 1000.0f;
-    // beebo: SETTINGS_REFACTOR.md Cluster B -- legacy binary opcode, reachable
+    // beebo: the per-role dirty-routing pattern -- legacy binary opcode, reachable
     // while repeater role is live (same connection, hot-switchable role); must
     // route the dirty-write to whichever role's file is actually active, same
     // as the text-CLI "rxdelay"/"af" equivalents, or it would persist the
@@ -2806,7 +2797,7 @@ void Beebo::handleCmdFrame(size_t len) {
         }
       }
     }
-    // beebo: SETTINGS_REFACTOR.md Cluster B -- same dirty-routing rationale
+    // beebo: the per-role dirty-routing pattern -- same dirty-routing rationale
     // as CMD_SET_TUNING_PARAMS above; manual_add_contacts/telemetry_mode_*/
     // advert_loc_policy/multi_acks are all per-role persisted fields.
     savePrefs();
@@ -2816,7 +2807,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       _role_state->prefs.path_hash_mode = cmd_frame[2];
-      // beebo: SETTINGS_REFACTOR.md Cluster B -- same dirty-routing rationale
+      // beebo: the per-role dirty-routing pattern -- same dirty-routing rationale
       // as CMD_SET_TUNING_PARAMS above.
       savePrefs();
       writeOKFrame();
@@ -3199,14 +3190,13 @@ void Beebo::handleCmdFrame(size_t len) {
     if (pin == 0 || (pin >= 100000 && pin <= 999999)) {
       _role_state->prefs.ble_pin = pin;
       savePrefs();
-      // beebo: apply live -- this used to store the pin and nothing else, so
-      // it took a reboot to have any effect. Two RAM copies shadow
-      // _role_state->prefs.ble_pin and both have to move with it: _active_ble_pin (the
-      // 0 -> BLE_PIN_CODE fallback resolved at load, read by getBLEPin() when
-      // a transport toggle calls ble_interface.begin()) and the BLE stack's
-      // own _pin_code. Note a ble off/on cycle alone would NOT have picked a
-      // new pin up either -- that path takes initRadio(), not begin(), so it
-      // re-applied the stale cached copy.
+      // beebo: must apply live, not just persist -- two RAM copies shadow
+      // _role_state->prefs.ble_pin and both have to move with it:
+      // _active_ble_pin (the 0 -> BLE_PIN_CODE fallback resolved at load,
+      // read by getBLEPin() when a transport toggle calls
+      // ble_interface.begin()) and the BLE stack's own _pin_code. A ble
+      // off/on cycle alone does NOT pick a new pin up -- that path takes
+      // initRadio(), not begin(), so it would re-apply the stale cached copy.
       _active_ble_pin = (pin == 0) ? BLE_PIN_CODE : pin;   // same fallback begin() resolves
       ble_interface.setPinCode(_active_ble_pin);
       writeOKFrame();
@@ -3239,7 +3229,7 @@ void Beebo::handleCmdFrame(size_t len) {
         // Update node preferences for GPS settings. gps_enabled/gps_interval
         // are unified, park-loaded BeeboBasePrefs fields like rx_delay_base/
         // advert_loc_policy/etc -- savePrefs() routes by live role itself
-        // (SETTINGS_REFACTOR.md root-cause fix), no branch needed here.
+        // no branch needed here.
         if (strcmp(sp, "gps") == 0) {
           _role_state->prefs.gps_enabled = (np[0] == '1') ? 1 : 0;
           savePrefs();
@@ -3452,7 +3442,7 @@ void Beebo::handleCmdFrame(size_t len) {
     send_unscoped = true;
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_SET_DEFAULT_FLOOD_SCOPE && len >= 1) {
-    // beebo: SETTINGS_REFACTOR.md -- companion-only, unconditionally;
+    // beebo: companion-only, unconditionally;
     // repeater is refused above (see the repeater-refusal branch). This
     // is companion's own default-scope mechanism, never given independent
     // repeater-side storage -- repeater has its own, more capable one
@@ -3578,7 +3568,7 @@ void Beebo::handleCmdFrame(size_t len) {
       _role_state->prefs.radio_fem_rxgain = value;
       if (board.setLoRaFemLnaEnabled(value != 0)) {
         radio_driver.resetAGC();
-        // beebo: SETTINGS_REFACTOR.md Cluster B pattern -- radio_fem_rxgain
+        // beebo: the per-role dirty-routing pattern -- radio_fem_rxgain
         // is a per-role BeeboBasePrefs field like advert_loc_policy/
         // rx_delay_base/node_name/etc (each role can persist its own LNA
         // preference, applied fresh via applyRadioPrefs() when that role
@@ -3602,7 +3592,7 @@ void Beebo::handleCmdFrame(size_t len) {
       _role_state->prefs.rx_boosted_gain = value;
       radio_driver.setRxBoostedGainMode(value);
       radio_driver.resetAGC();
-      // beebo: SETTINGS_REFACTOR.md Cluster A -- same dirty-routing
+      // beebo: the per-role dirty-routing pattern -- same dirty-routing
       // rationale as CMD_SET_RADIO_PARAMS above.
       savePrefs();
       writeOKFrame();
@@ -3677,10 +3667,10 @@ void Beebo::handleCmdFrame(size_t len) {
     uint32_t value;
     memcpy(&value, &sub[1], 4);
     _role_state->prefs.batt_sample_period_secs = (uint16_t)value;
-    // beebo: SETTINGS_REFACTOR.md Cluster F -- batt_sample_period_secs is a
+    // beebo: the per-role dirty-routing pattern -- batt_sample_period_secs is a
     // real, independently-persisted per-role BeeboBasePrefs field (see
-    // Cluster F resolution above), so route the dirty write like every
-    // other per-role setter, same rationale as Cluster B.
+    // above), so route the dirty write like every
+    // other per-role setter.
     savePrefs();
     writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_BATT_SAMPLE_WINDOW) {
@@ -3722,9 +3712,9 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&out_frame[1], &value, 4);
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_NODE_ROLE && sub_len >= 2) {
-    // beebo: Phase 4 -- hot switch, takes effect immediately (every
+    // beebo: hot switch, takes effect immediately (every
     // role-conditional call site just reads _board.role live; see
-    // MULTI_ROLE_FW.md Phase 4). Before actually flipping the role, flush
+    // the advert-on-role-switch behavior). Before actually flipping the role, flush
     // any pending contacts/ACL write under the *old* role first: the
     // periodic dirty_contacts_expiry flush branches on _board.role at
     // flush time, so a write scheduled under the old role but flushed
@@ -3765,7 +3755,7 @@ void Beebo::handleCmdFrame(size_t len) {
       ack_overflow_count = 0;
       setNodeRole(sub[1], EVENT_SOURCE_BINARY);
       savePrefs();
-      // beebo: SETTINGS_REFACTOR.md Part 3 -- both roles' state (ACL/
+      // beebo: the per-role state store -- both roles' state (ACL/
       // region/prefs/identity) is loaded once per boot, eagerly, into their
       // own resident role_state_store[] slot (see loadRoleState(), called
       // from begin()); setNodeRole() above just repoints _role_state, no
@@ -3838,13 +3828,12 @@ void Beebo::handleCmdFrame(size_t len) {
     flushDirtyPrefs();
     writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_AGC_RESET_INTERVAL) {
-    // beebo: found via the pytest hardware suite -- this used to send the
-    // raw stored byte (quarter-seconds) instead of real seconds, unlike
-    // its sibling GET_ADVERT_INTERVAL (which does apply its own *2) and
-    // the text-CLI "get agc.reset.interval" (which does its own *4) --
-    // repeater.agc.reset.interval read back 1/4 of what was actually set
-    // over a binary connection (TCP/BLE/USB binary mode), while the text
-    // protocol reported it correctly.
+    // beebo: must apply the same *4 the text-CLI "get agc.reset.interval"
+    // applies, and its sibling GET_ADVERT_INTERVAL applies *2 for -- the raw
+    // stored byte is quarter-seconds, not real seconds. Sending it raw would
+    // make repeater.agc.reset.interval read back 1/4 of what was actually
+    // set over a binary connection while the text protocol reports it
+    // correctly.
     out_frame[0] = RESP_CODE_OK;
     uint32_t value = tlvGetAgcResetInterval(this, NODE_ROLE_REPEATER);
     memcpy(&out_frame[1], &value, 4);
@@ -3857,7 +3846,7 @@ void Beebo::handleCmdFrame(size_t len) {
     flushDirtyPrefs();
     writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_REPEATER_RXDELAY) {
-    // beebo: Cluster G audit (SETTINGS_REFACTOR.md) -- role_state_store[]
+    // beebo: role_state_store[]
     // is always sized NODE_ROLE_COUNT and indexed directly by role,
     // so a static build that doesn't compile in NODE_ROLE_REPEATER would
     // otherwise silently read/write that slot's zero-initialized (never
@@ -3992,9 +3981,9 @@ void Beebo::handleCmdFrame(size_t len) {
     // whichever role is live (see CMD_APP_START's self-info reply above).
     // companion.multi_acks (prefs.py) needs an always-companion GET the
     // same way companion.name needed GET_ROLE_NAME -- targets companion's
-    // own slot explicitly (SETTINGS_REFACTOR.md Part 3 follow-up, same fix
+    // own slot explicitly (same fix
     // as BEEBO_CMD_GET_REPEATER_* above), NOT _role_state->prefs (whichever
-    // role is currently live). isNodeRoleBuiltIn() guard: Cluster G audit,
+    // role is currently live). isNodeRoleBuiltIn() guard is required here,
     // same reasoning as above.
     if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
@@ -4115,7 +4104,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeOKFrame();
     }
   } else if (sub[0] == BEEBO_CMD_GET_ACK_STATS) {
-    // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- "TX reception confirmation".
+    // beebo: "TX reception confirmation".
     // Lifetime counts, RAM-only (BaseChatMesh's own _ack_success_count/
     // _ack_timeout_count, incremented at onAckRecv()/onContactPathRecv()'s
     // already-correct ACK-match points and Beebo::checkAckTableTimeouts()'s
@@ -4137,7 +4126,7 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&out_frame[10], &overflow, 4);
     _serial->writeFrame(out_frame, 14);
   } else if (sub[0] == BEEBO_CMD_GET_ECHO_COUNT) {
-    // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- flood-echo side. Four u32
+    // beebo: flood-echo side. Four u32
     // values, same RESP_CODE_BEEBO wrapper as GET_ACK_STATS above (this used
     // to be a single-value RESP_CODE_OK scalar before echo_timeout_count/
     // echo_overflow_count/self_tx_direct_count existed). self_tx_direct_count
@@ -4241,15 +4230,12 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&out_frame[1], &value, 4);
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_ADVERT_INTERVAL && sub_len >= 2) {
-    // beebo: found via live testing during the event-loop fix verification
-    // -- this used to divide by 2 again on top of repeater_settings.py's
-    // own encode=lambda v: v // 2 (matching GET_ADVERT_INTERVAL's *2
-    // decode), a double-division that silently stored 1/4 of the intended
-    // interval (e.g. "2" minutes -> Python sends 1 -> this used to store 0,
-    // disabling the timer instead of arming a 2-minute one). SET_AGC_RESET_
-    // INTERVAL never had this bug (it already stores sub[1] raw) -- this
-    // now matches that. tlvSetAdvertInterval also stores raw, so sub[1]
-    // passes straight through.
+    // beebo: sub[1] must pass through raw -- repeater_settings.py's own
+    // encode=lambda v: v // 2 already halves it (matching GET_ADVERT_INTERVAL's
+    // *2 decode), so dividing again here would silently store 1/4 of the
+    // intended interval (e.g. "2" minutes -> Python sends 1 -> stored 0,
+    // disabling the timer instead of arming a 2-minute one).
+    // tlvSetAdvertInterval also stores raw, matching SET_AGC_RESET_INTERVAL.
     tlvSetAdvertInterval(this, NODE_ROLE_REPEATER, sub[1]);
     flushDirtyPrefs();
     writeOKFrame();
@@ -4384,7 +4370,7 @@ void Beebo::handleCmdFrame(size_t len) {
   // through to the ERR_CODE_UNSUPPORTED_CMD catch-all at the end of this
   // chain, same as any other opcode this build doesn't implement.
   } else if (sub[0] == BEEBO_CMD_GET_REGION_HOME) {
-    // beebo: multi_role Phase 5/6 -- region_map is RegionMap-backed (see
+    // beebo: region_map is RegionMap-backed (see
     // Beebo.h's own member), not a ComPrefs/NodePrefs field, so this isn't
     // wired through tlvGet*/tlvSet*/GET_PREFS_TLV like the rest of
     // repeater.* -- it has its own separate load()/save() pair instead.
@@ -4656,7 +4642,7 @@ void Beebo::handleCmdFrame(size_t len) {
     _serial->writeFrame(out_frame, 5);  // 5B: app lib only parses "value" out of a 5B OK frame
   } else if (sub[0] == BEEBO_CMD_SET_BATT_PRESENT && sub_len >= 2) {
     _role_state->prefs.batt_present = constrain(sub[1], (uint8_t)BATT_PRESENT_UNKNOWN, (uint8_t)BATT_PRESENT_YES);
-    // beebo: SETTINGS_REFACTOR.md Cluster F -- same per-role dirty-routing
+    // beebo: the per-role dirty-routing pattern -- same per-role dirty-routing
     // rationale as BEEBO_CMD_SET_BATT_SAMPLE_PERIOD above.
     savePrefs();
     writeOKFrame();
@@ -4668,7 +4654,7 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_SET_ADC_RESOLUTION && sub_len >= 2) {
     if (board.setAdcResolution(sub[1])) {
       _role_state->prefs.adc_resolution_bits = sub[1];
-      // beebo: SETTINGS_REFACTOR.md Cluster F -- same per-role dirty-routing
+      // beebo: the per-role dirty-routing pattern -- same per-role dirty-routing
       // rationale as BEEBO_CMD_SET_BATT_SAMPLE_PERIOD above.
       savePrefs();
       writeOKFrame();
@@ -4678,7 +4664,7 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_GET_TUNE_ENABLED) {
     // beebo: RAM-only, like BEEBO_CMD_GET/SET_QUIET below -- no tlvGet*/
     // tlvSet* wrapper (nothing to persist) and no flushDirtyPrefs() on SET.
-    // Dynamic-tuning optimizer on/off (DYNAMIC_OPTIMIZER_PLAN.md); always
+    // Dynamic-tuning optimizer on/off ; always
     // reads back 0 after a reboot. Mirrors handleCommand()'s "get"/"set
     // tune.enabled" text-CLI keys (same _tune_enabled field), so both paths
     // read the exact same live state -- USB text CLI and this binary path
@@ -4866,7 +4852,7 @@ void Beebo::handleCmdFrame(size_t len) {
       case 0:
         _role_state->prefs.monring_config &= ~MON_CAP_ENABLED;
         monring.setConfig(_role_state->prefs.monring_config);
-        // beebo: SETTINGS_REFACTOR.md Cluster B pattern -- same rationale
+        // beebo: the per-role dirty-routing pattern -- same rationale
         // as tlvSetMonringConfig above.
         savePrefs();
         break;
@@ -5015,7 +5001,7 @@ void Beebo::handleCmdFrame(size_t len) {
         memcpy(_role_state->prefs.wifi_pwd, pwd, pwd_len);
         _role_state->prefs.wifi_pwd[pwd_len] = '\0';
       }
-      // beebo: SETTINGS_REFACTOR.md Cluster B pattern -- same rationale as
+      // beebo: the per-role dirty-routing pattern -- same rationale as
       // tlvSetWifiSsid above (this handler's own ssid write already routes
       // correctly via that helper; this second write is for wifi_pwd).
       savePrefs();
@@ -5039,10 +5025,9 @@ void Beebo::handleCmdFrame(size_t len) {
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_REPEATER_WIFI_CREDS || sub[0] == BEEBO_CMD_SET_COMPANION_WIFI_CREDS) {
     uint8_t role = (sub[0] == BEEBO_CMD_SET_REPEATER_WIFI_CREDS) ? NODE_ROLE_REPEATER : NODE_ROLE_COMPANION;
-    // beebo: STATIC_ROLE_BUILDS -- a role-targeted opcode for a role this
-    // binary doesn't compile in would otherwise read/write that role's
-    // never-loaded/never-persisted slot (Cluster G audit finding,
-    // SETTINGS_REFACTOR.md). Reject it the same way SET_NODE_ROLE does.
+    // beebo: a role-targeted opcode for a role this binary doesn't compile
+    // in would otherwise read/write that role's never-loaded/never-persisted
+    // slot. Reject it the same way SET_NODE_ROLE does.
     if (!isNodeRoleBuiltIn(role)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else if (!tlvSetWifiCreds(this, role, &sub[1], &sub[sub_len])) {
@@ -5362,7 +5347,7 @@ void Beebo::checkSerialInterface() {
   // the only things allowed to end it early (see CMD_DEVICE_QUERY handling).
   if (_monread.active) len = 0;
   if (len > 0) {
-    // beebo: multi_role Phase 5 -- USB's DualModeSerialInterface delivers a
+    // beebo: USB's DualModeSerialInterface delivers a
     // raw text-CLI line through this same checkRecvFrame() call, decided
     // fresh per command from its first byte (see DualModeSerialInterface.h).
     // Dispatch on the transport's own recorded classification
@@ -5579,7 +5564,7 @@ void Beebo::loop() {
   // below still runs, so CMD_SET_QUIET(0) and status queries stay responsive.
   bool skip_radio = (isOTAActive() && ota_priority) || _bench_quiet;
 
-  // beebo: found in the multi_role event-loop review -- loop() split by role
+  // beebo: loop() split by role
   // (BeeboCompanion.cpp/BeeboRepeater.cpp), same rationale as begin()'s own
   // dispatch above -- see Beebo.h's declarations. Each owns its own radio-loop
   // call (BaseChatMesh::loop() for companion, Mesh::loop() directly for
@@ -5600,7 +5585,7 @@ void Beebo::loop() {
   if (_is_repeater) loopRepeater(skip_radio || _is_companion);
 #endif
 
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- flood-echo side of the
+  // beebo: flood-echo side of the
   // pass/fail fix, role-agnostic (both companion self-originated sends and
   // repeater forwards populate the same echo ring) -- see
   // SimpleMeshTables::checkEchoTimeouts()'s own comment. Skipped along
@@ -5656,7 +5641,7 @@ void Beebo::loop() {
 
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: Phase A dynamic-tuning optimizer tick (see TuneController.h /
-  // DYNAMIC_OPTIMIZER_PLAN.md). Repeater role only (these knobs only affect
+  // Repeater role only (these knobs only affect
   // live behaviour for the repeater path -- see getAirtimeBudgetFactor()/
   // calcRxDelay()/getRetransmitDelay()/getDirectRetransmitDelay()/
   // getAGCResetInterval() above), off by default until explicitly enabled
@@ -6029,9 +6014,8 @@ bool Beebo::advert() {
   }
 }
 
-// beebo: found in the multi_role event-loop review -- requesting side of
-// the "node discover" protocol, entirely absent before. Ported from
-// simple_repeater's own sendNodeDiscoverReq (MyMesh.cpp:1098-1112); still
+// beebo: requesting side of
+// the "node discover" protocol. Still
 // sends the optional "since" field (zeroed) for wire compatibility with a
 // real simple_repeater answering it, even though this node's own responder
 // (onControlDataRecv) doesn't parse it back out -- see that function's
@@ -6108,7 +6092,7 @@ void Beebo::getPeerSharedSecret(uint8_t *dest_secret, int peer_idx) {
   BaseChatMesh::getPeerSharedSecret(dest_secret, peer_idx);
 }
 
-// beebo: found in the multi_role event-loop review -- never overridden
+// beebo: never overridden
 // before, so repeater-role peers fell through to BaseChatMesh's own
 // onPeerPathRecv, which indexes matching_peer_indexes[sender_idx] into the
 // ContactInfo table. searchPeersByHash's REPEATER branch (above) never
@@ -6177,8 +6161,8 @@ void Beebo::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, c
         MESH_DEBUG_PRINTLN("onPeerDataRecv: possible replay attack detected");
       }
     } else if (type == PAYLOAD_TYPE_TXT_MSG && len > 5 && client->isAdmin()) {
-      // beebo: multi_role Phase 6 -- mesh-transport text command surface.
-      // One more call site into Phase 5's handleCommand, same as
+      // beebo: mesh-transport text command surface.
+      // One more call site into handleCommand, same as
       // simple_repeater already runs it from three places (local serial,
       // USB/companion, and here) -- not a second dispatcher. Ported
       // verbatim from examples/simple_repeater/MyMesh.cpp's own
@@ -6251,7 +6235,7 @@ void Beebo::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, c
 }
 
 /* ------------------------------------------------------------------------
- * beebo: multi_role Phase 5 -- text-CLI back-compat surface (MULTI_ROLE_FW.md).
+ * beebo: text-CLI back-compat surface (MULTI_ROLE_FW.md).
  * Minimal viable set: ver, board, reboot, get/set for a small initial key
  * table. Not a port of CommonCLI.cpp's ~50-command table (see the
  * handleCommand declaration comment in Beebo.h for why) -- extend this the
@@ -6307,13 +6291,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
   } else if (memcmp(command, "advert.zerohop", 14) == 0) {
     advert() ? strcpy(reply, "OK - zerohop advert sent") : strcpy(reply, "Error");
   } else if (memcmp(command, "advert", 6) == 0) {
-    // beebo: found in the multi_role event-loop review -- this used to send
-    // a zero-hop advert for bare "advert" too (and had no "advert.zerohop"
-    // at all), silently diverging from real CommonCLI's own semantics
-    // (src/helpers/CommonCLI.cpp:288-295: bare "advert" is a FLOOD advert,
-    // "advert.zerohop" -- checked above, since it's also a prefix match of
-    // "advert" -- is the zero-hop-only variant), so `meshcli -r -s advert`
-    // against a multi_role repeater did the wrong thing. Not role-gated:
+    // beebo: bare "advert" must send a FLOOD advert, matching real
+    // CommonCLI's own semantics (src/helpers/CommonCLI.cpp: bare "advert" is
+    // a FLOOD advert; "advert.zerohop" -- checked above, since it's also a
+    // prefix match of "advert" -- is the zero-hop-only variant). Not role-gated:
     // companion_radio's own binary CMD_SEND_SELF_ADVERT already supports
     // this exact same flood/zero-hop choice via an optional flag byte, so a
     // flood advert is an equally legitimate companion operation, not a
@@ -6346,7 +6327,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     }
   } else if (memcmp(command, "get ", 4) == 0) {
     const char* key = &command[4];
-    // beebo: multi_role Phase 5/6 follow-up -- back-compat get surface for
+    // beebo: back-compat get surface for
     // meshcli -r -s. Keys with a companion NodePrefs equivalent (shared,
     // role-agnostic) read/write that field directly, same as the rest of
     // this firmware; keys with none (loop.detect, flood.*, agc.reset.
@@ -6372,13 +6353,13 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       int dc_frac = (int)((dc - dc_int) * 10.0f + 0.5f);
       sprintf(reply, "> %d.%d%%", dc_int, dc_frac);
     } else if (memcmp(key, "af", 2) == 0) {
-      // beebo: SETTINGS_TREE_CLEANUP.md Decision A -- repeater's own
+      // beebo: repeater keeps its own independent copy -- repeater's own
       // independent value, restoring simple_repeater's original single-role
       // meaning of this text-CLI key instead of aliasing the shared
       // companion value.
       sprintf(reply, "> %s", StrHelper::ftoa(_role_state->prefs.airtime_factor));
     } else if (memcmp(key, "multi.acks", 10) == 0) {
-      // beebo: SETTINGS_TREE_CLEANUP.md Decision A -- repeater's own
+      // beebo: repeater keeps its own independent copy -- repeater's own
       // independent value, same pattern as "af"/"rxdelay" above.
 #if BEEBO_ENABLE_REPEATER_ROLE
       sprintf(reply, "> %d", (uint32_t)(_role_state->prefs.multi_acks));
@@ -6402,7 +6383,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       strcpy(bw, StrHelper::ftoa3(_role_state->prefs.bw));
       sprintf(reply, "> %s,%s,%d,%d", freq, bw, (uint32_t)_role_state->prefs.sf, (uint32_t)_role_state->prefs.cr);
     } else if (memcmp(key, "rxdelay", 7) == 0) {
-      // beebo: SETTINGS_TREE_CLEANUP.md Decision A -- see "af"'s comment above.
+      // beebo: repeater keeps its own independent copy -- see "af"'s comment above.
       sprintf(reply, "> %s", StrHelper::ftoa(_role_state->prefs.rx_delay_base));
     } else if (memcmp(key, "tx", 2) == 0 && (key[2] == 0 || key[2] == ' ')) {
       sprintf(reply, "> %d", (int32_t)_role_state->prefs.tx_power_dbm);
@@ -6576,7 +6557,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     if (memcmp(key, "name ", 5) == 0) {
       if (isValidName(&key[5])) {
         StrHelper::strncpy(_role_state->prefs.node_name, &key[5], sizeof(_role_state->prefs.node_name));
-        // beebo: SETTINGS_REFACTOR.md Cluster B pattern -- node_name is the
+        // beebo: the per-role dirty-routing pattern -- node_name is the
         // live role's own persisted name, reachable via this role-agnostic
         // text-CLI entry point while repeater is live -- distinct from
         // "repeater.name " below, which always targets repeater
@@ -6647,7 +6628,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       }
       strcpy(reply, "OK");
     } else if (memcmp(key, "multi.acks ", 11) == 0) {
-      // beebo: SETTINGS_TREE_CLEANUP.md Decision A -- repeater's own
+      // beebo: repeater keeps its own independent copy -- repeater's own
       // independent value, mirroring "af"/"rxdelay"'s get-side branch above.
       uint8_t v = (uint8_t)constrain(atoi(&key[11]), 0, 1);
       _role_state->prefs.multi_acks = v;
@@ -6668,17 +6649,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %d", (uint32_t)_role_state->prefs.path_hash_mode);
 #endif
     } else if (memcmp(key, "radio.fem.rxgain ", 17) == 0) {
-      // beebo: Part 2 relocation -- radio_fem_rxgain's set path used to be
-      // stock CommonCLI.cpp's own handler (removed as part of restoring
-      // CommonCLI.h/.cpp to byte-identical with upstream, see
-      // SETTINGS_REFACTOR.md Part 2). No prior set-intercept existed here
-      // at all; this is reachable regardless of role, mirroring the
-      // existing lat/lon pattern above -- including the same per-role
-      // dirty-write routing (SETTINGS_REFACTOR.md Cluster B), since
-      // radio_fem_rxgain is a per-role BeeboBasePrefs field like
-      // advert_loc_policy/rx_delay_base/node_name, not a role-agnostic one
-      // (corrected from a prior version of this comment that claimed
-      // otherwise).
+      // beebo: reachable regardless of role, mirroring the existing lat/lon
+      // pattern above -- including the same per-role dirty-write routing,
+      // since radio_fem_rxgain is a per-role BeeboBasePrefs field like
+      // advert_loc_policy/rx_delay_base/node_name, not a role-agnostic one.
       if (!board.canControlLoRaFemLna()) {
         strcpy(reply, "Error: unsupported");
       } else if (memcmp(&key[17], "on", 2) == 0) {
@@ -6721,7 +6695,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %s", StrHelper::ftoa(_role_state->prefs.node_lon));
     } else if (memcmp(key, "wifi.ssid ", 10) == 0) {
       StrHelper::strncpy(_role_state->prefs.wifi_ssid, &key[10], sizeof(_role_state->prefs.wifi_ssid));
-      // beebo: SETTINGS_REFACTOR.md Cluster B pattern -- wifi_ssid/wifi_pwd
+      // beebo: the per-role dirty-routing pattern -- wifi_ssid/wifi_pwd
       // are per-role fields, reachable via this text-CLI admin channel
       // while repeater is live.
       savePrefs();
@@ -6807,7 +6781,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       strcpy(reply, "ERR: not supported");
 #endif
     } else if (memcmp(key, "rxdelay ", 8) == 0) {
-      // beebo: SETTINGS_TREE_CLEANUP.md Decision A -- repeater-only key
+      // beebo: repeater keeps its own independent copy -- repeater-only key
       // (matches the GET side's role branch above); companion continues to
       // set the shared value via CMD_SET_TUNING_PARAMS only, unaffected.
 #if BEEBO_ENABLE_REPEATER_ROLE
@@ -6965,11 +6939,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
 #else
     strcpy(reply, "ERR: not supported");
 #endif
-  // beebo: found in the multi_role event-loop review -- requesting side of
-  // the "node discover" protocol, entirely absent before. Ported from
-  // simple_repeater's own handleCommand branch (MyMesh.cpp:1546-1554), then
-  // extended with an optional type-list argument (repeater/chat/room/sensor/
-  // all) -- upstream's version only ever asked for repeaters. Not
+  // beebo: requesting side of
+  // the "node discover" protocol, extended with an optional type-list
+  // argument (repeater/chat/room/sensor/all) -- simple_repeater's own
+  // version only ever asked for repeaters. Not
   // role-gated: unlike answering a request (which replies as whatever this
   // node's own current type is), asking "who's near me" has no such
   // constraint -- responses are logged into putNeighbour(), the same
