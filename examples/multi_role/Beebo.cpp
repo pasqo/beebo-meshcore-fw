@@ -4901,7 +4901,7 @@ void Beebo::handleCmdFrame(size_t len) {
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_END_OF_ADVERT_PATHS;
     _serial->writeFrame(out_frame, 2);
-  } else if (sub[0] == BEEBO_CMD_GET_ROLE_PUBLIC_KEY && sub_len >= 2) {
+  } else if (sub[0] == BEEBO_CMD_GET_PUBLIC_KEY && sub_len >= 2) {
     // beebo: PER_ROLE_IDENTITY -- self_info only ever reflects the live
     // role's self_id, so companion.public_key/repeater.public_key read
     // through here instead to reach either role's pubkey regardless of
@@ -4923,26 +4923,26 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_NOT_FOUND);
       } else {
         out_frame[0] = RESP_CODE_BEEBO;
-        out_frame[1] = BEEBO_RESP_ROLE_PUBLIC_KEY;
+        out_frame[1] = BEEBO_RESP_PUBLIC_KEY;
         memcpy(&out_frame[2], id.pub_key, PUB_KEY_SIZE);
         _serial->writeFrame(out_frame, 2 + PUB_KEY_SIZE);
       }
     }
   } else if (sub[0] == BEEBO_CMD_GET_ROLE_NAME && sub_len >= 2) {
-    // beebo: mirrors GET_ROLE_PUBLIC_KEY -- RESP_CODE_SELF_INFO's own
+    // beebo: mirrors GET_PUBLIC_KEY -- RESP_CODE_SELF_INFO's own
     // "name" field is live-role-scoped (swaps with type/pubkey, see that
     // reply's own comment above), so it's only ever correct for whichever
     // role is actually live, not an arbitrary target role. companion.name/
     // repeater.name settings leaves and anything else that needs a role's
     // own name irrespective of what's live read through here instead.
-    // Unlike GET_ROLE_PUBLIC_KEY, always succeeds for either role -- a
+    // Unlike GET_PUBLIC_KEY, always succeeds for either role -- a
     // name isn't gated on that role's identity having ever been created.
     uint8_t role = sub[1];
     if (role != NODE_ROLE_COMPANION && role != NODE_ROLE_REPEATER) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       // beebo: this opcode's entire purpose is to be correct regardless of
-      // which role is live, matching GET_ROLE_PUBLIC_KEY's pattern just
+      // which role is live, matching GET_PUBLIC_KEY's pattern just
       // above -- so it reads through getRoleName(role), never _role_state
       // (the *live* role's slot).
       const char* name = getRoleName(role);
