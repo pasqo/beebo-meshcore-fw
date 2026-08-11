@@ -1415,6 +1415,7 @@ void Beebo::initMonRing() {
   if (ring != NULL && monring.init(ring, want, (uint32_t)getRTCClock()->getCurrentTime(),
                                     buildRadioRecord(), buildEnvRecord())) {
     monring.setConfig(_role_state->prefs.monring_config);  // apply persisted enable + per-kind capture mask
+    monring.setEventTypeMask(_role_state->prefs.monring_event_mask);  // apply persisted per-event-type capture mask
     MESH_DEBUG_PRINTLN("MonRing: %u records (%u KB PSRAM), %u KB PSRAM free after",
                        monring.capacity(), (unsigned)(want / 1024),
                        (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
@@ -2118,6 +2119,37 @@ bool Beebo::tlvSetGuestPassword(Beebo* self, uint8_t role, const uint8_t* in, si
 #endif
   return true;
 }
+// beebo: BeeboBoardPrefs fields -- one value for the whole device, `role`
+// is accepted (every PrefsTlvField accessor has the same signature) but
+// ignored; always touches self->_board regardless of what role byte the
+// caller passed. Same persistence mechanism as SET_OWNER_PASSWORD/
+// SET_BOARD_NAME used before retirement (_board_dirty + flushDirtyPrefs()),
+// not persistRoleSlot() -- board.role/board_password/board_name live
+// outside role_state_store entirely.
+int Beebo::tlvGetBoardName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+  size_t n = strlen(self->_board.board_name);
+  if (n > max_len) n = max_len;
+  memcpy(out, self->_board.board_name, n);
+  return (int)n;
+}
+bool Beebo::tlvSetBoardName(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
+  if (len > sizeof(self->_board.board_name) - 1) len = sizeof(self->_board.board_name) - 1;
+  memcpy(self->_board.board_name, in, len);
+  self->_board.board_name[len] = '\0';
+  self->_board_dirty = true;
+  return true;
+}
+int Beebo::tlvGetOwnerPasswordSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+  out[0] = self->_board.board_password[0] != 0 ? 1 : 0;
+  return 1;
+}
+bool Beebo::tlvSetOwnerPassword(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
+  if (len > sizeof(self->_board.board_password) - 1) len = sizeof(self->_board.board_password) - 1;
+  memcpy(self->_board.board_password, in, len);
+  self->_board.board_password[len] = '\0';
+  self->_board_dirty = true;
+  return true;
+}
 uint32_t Beebo::tlvGetBlePin(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.ble_pin;
 }
@@ -2148,6 +2180,27 @@ bool Beebo::tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw) {
   slot.prefs.monring_config = (uint8_t)raw;
   if (role == self->_board.role) {
     self->monring.setConfig(slot.prefs.monring_config);
+    self->savePrefs();
+  } else {
+    persistRoleSlot(self, role, slot);
+  }
+  return true;
+}
+
+// beebo: per-event-type MON_EVENT capture bitmask (bit N = MonRing.h's
+// EVENT_* id N), now persisted per role like monring_config above --
+// previously RAM-only via the individual GET/SET_MONRING_EVENT_MASK
+// opcodes (reset to all-1s/capture-everything every boot); folded into
+// PREFS_TLV so it survives reboot per role, same live-vs-parked-slot
+// side-effect rule as tlvSetMonringConfig.
+uint32_t Beebo::tlvGetMonringEventMask(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.monring_event_mask;
+}
+bool Beebo::tlvSetMonringEventMask(Beebo* self, uint8_t role, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.monring_event_mask = raw;
+  if (role == self->_board.role) {
+    self->monring.setEventTypeMask(raw);
     self->savePrefs();
   } else {
     persistRoleSlot(self, role, slot);
@@ -2514,8 +2567,8 @@ void Beebo::handleCmdFrame(size_t len) {
     // inconsistency: two of these three fields were already live-role-
     // aware, this one silently wasn't). companion.name/repeater.name
     // settings leaves get either role's name irrespective of live role via
-    // the dedicated GET_ROLE_NAME opcode instead -- self_info is only ever
-    // meant to describe "whichever role is live right now", matching its
+    // GET_PREFS_TLV(KEY_NAME) instead -- self_info is only ever meant to
+    // describe "whichever role is live right now", matching its
     // type/pubkey fields.
     const char* name = _is_repeater ? getRoleName(NODE_ROLE_REPEATER) : _role_state->prefs.node_name;
     int tlen = strlen(name); // revisit: UTF_8 ??
@@ -3856,7 +3909,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // 4-byte payload (the stock meshcore library's generic OK-frame parser
     // only ever reads bytes[1:5] into "value", silently dropping anything
     // after) -- needs its own RESP_CODE_BEEBO sub-id and a custom reader
-    // patch client-side, same as GET_FULL_VERSION/GET_ROLE_NAME above.
+    // patch client-side, same as GET_FULL_VERSION above.
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_ACK_STATS;
     uint32_t success = getAckSuccessCount();
@@ -3888,58 +3941,6 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&out_frame[10], &overflow, 4);
     memcpy(&out_frame[14], &self_tx_direct, 4);
     _serial->writeFrame(out_frame, 18);
-  } else if (sub[0] == BEEBO_CMD_GET_DEDUP_WINDOW) {
-    // beebo: DoS/QoS audit follow-up -- see SimpleMeshTables.h's comment
-    // above DEDUP_LIVE_WINDOW_MS_DEFAULT. The eviction count itself is
-    // already in GET_MONRING's header (rx_dedup_table_full_count); this is
-    // just the companion value of the window (ms) it's gated by.
-    out_frame[0] = RESP_CODE_OK;
-    uint32_t value = _role_state->prefs.dedup_window_ms;
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_DEDUP_WINDOW && sub_len >= 5) {
-    uint32_t value;
-    memcpy(&value, &sub[1], 4);
-    // beebo: 0 is a real, literal value -- disables live-eviction counting
-    // entirely (see SimpleMeshTables.h's setDedupWindowMs() comment), not
-    // a "reset to default" sentinel. [0, DEDUP_WINDOW_MAX_MS] is the full
-    // valid range; out-of-range is rejected outright, same as SET_LOOP_DETECT.
-    if (value > DEDUP_WINDOW_MAX_MS) {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-      return;
-    }
-    appendSettingChangedEvent(SETTING_DEDUP_WINDOW, _role_state->prefs.dedup_window_ms, value, EVENT_SOURCE_BINARY);
-    _role_state->prefs.dedup_window_ms = value;
-    pushActiveDedupWindow();  // no-op on the live table unless companion is the active role
-    savePrefs();
-    writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_SET_OWNER_PASSWORD) {
-    // beebo: SETTINGS_ISOLATION follow-up -- role-agnostic backup/recovery
-    // credential, BeeboBoardPrefs.board_password, always compiled in
-    // (unlike ComPrefs.password/repeater.password, gone entirely on a
-    // static companion build) -- no repeater-state-loaded gate needed here
-    // since it's not a _role_state->prefs field at all (_board.board_password,
-    // BeeboBoardPrefs's own file).
-    size_t pw_len = min((size_t)sub_len - 1, sizeof(_board.board_password) - 1);
-    memcpy(_board.board_password, &sub[1], pw_len);
-    _board.board_password[pw_len] = 0;
-    _board_dirty = true;
-    flushDirtyPrefs();
-    writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_OWNER_PASSWORD_SET) {
-    out_frame[0] = RESP_CODE_OK;
-    uint32_t value = _board.board_password[0] != 0 ? 1 : 0;
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_GET_REPEATER_PASSWORD_SET) {
-#if BEEBO_ENABLE_REPEATER_ROLE
-    out_frame[0] = RESP_CODE_OK;
-    uint32_t value = strcmp(role_state_store[NODE_ROLE_REPEATER].prefs.password, ADMIN_PASSWORD) != 0 ? 1 : 0;
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
-#endif
   } else if (sub[0] == BEEBO_CMD_REBOOT_WITH_TIME && sub_len >= 5) {
     // beebo: recovery path for a device whose own clock is wrong (e.g.
     // stuck ahead of every real clock) -- an ordinary reboot persists this
@@ -4548,16 +4549,6 @@ void Beebo::handleCmdFrame(size_t len) {
         if (sub_len >= 5) memcpy(&_ota_restart_ts, &sub[1], 4);
       }
     }
-  } else if (sub[0] == BEEBO_CMD_GET_MONRING_EVENT_MASK) {
-    out_frame[0] = RESP_CODE_OK;
-    uint32_t value = monring.eventTypeMask();
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_MONRING_EVENT_MASK && sub_len >= 5) {
-    uint32_t value;
-    memcpy(&value, &sub[1], 4);
-    monring.setEventTypeMask(value);  // RAM-only, not persisted (see protocol.yaml)
-    writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_NODE_DISCOVER && sub_len >= 2) {
     // beebo: companion binary entry point for the "node discover" protocol
     // (see protocol.yaml and sendNodeDiscoverReq()) -- previously only
@@ -4630,30 +4621,6 @@ void Beebo::handleCmdFrame(size_t len) {
         _serial->writeFrame(out_frame, 2 + PUB_KEY_SIZE);
       }
     }
-  } else if (sub[0] == BEEBO_CMD_GET_ROLE_NAME && sub_len >= 2) {
-    // beebo: mirrors GET_PUBLIC_KEY -- RESP_CODE_SELF_INFO's own
-    // "name" field is live-role-scoped (swaps with type/pubkey, see that
-    // reply's own comment above), so it's only ever correct for whichever
-    // role is actually live, not an arbitrary target role. companion.name/
-    // repeater.name settings leaves and anything else that needs a role's
-    // own name irrespective of what's live read through here instead.
-    // Unlike GET_PUBLIC_KEY, always succeeds for either role -- a
-    // name isn't gated on that role's identity having ever been created.
-    uint8_t role = resolveRoleByte(sub[1]);
-    if (role != NODE_ROLE_COMPANION && role != NODE_ROLE_REPEATER) {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else {
-      // beebo: this opcode's entire purpose is to be correct regardless of
-      // which role is live, matching GET_PUBLIC_KEY's pattern just
-      // above -- so it reads through getRoleName(role), never _role_state
-      // (the *live* role's slot).
-      const char* name = getRoleName(role);
-      out_frame[0] = RESP_CODE_BEEBO;
-      out_frame[1] = BEEBO_RESP_ROLE_NAME;
-      int nlen = strlen(name);
-      memcpy(&out_frame[2], name, nlen);
-      _serial->writeFrame(out_frame, 2 + nlen);
-    }
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
     // beebo: factory eFuse base MAC -- hardware-burned, stable across
     // reflashes/identity changes/role switches, unrelated to node.public_key
@@ -4665,30 +4632,11 @@ void Beebo::handleCmdFrame(size_t len) {
     out_frame[1] = BEEBO_RESP_BOARD_ID;
     memcpy(&out_frame[2], mac, 6);
     _serial->writeFrame(out_frame, 2 + 6);
-  } else if (sub[0] == BEEBO_CMD_GET_BOARD_NAME) {
-    // beebo: DEVICE_NAME plan -- human-editable alias for board.id, distinct
-    // from the per-role persona names (companion.name/repeater.name, see
-    // BEEBO_CMD_GET_ROLE_NAME above). Plain string reply, may be empty.
-    out_frame[0] = RESP_CODE_BEEBO;
-    out_frame[1] = BEEBO_RESP_BOARD_NAME;
-    int name_len = strlen(_board.board_name);
-    memcpy(&out_frame[2], _board.board_name, name_len);
-    _serial->writeFrame(out_frame, 2 + name_len);
-  } else if (sub[0] == BEEBO_CMD_SET_BOARD_NAME) {
-    // beebo: DEVICE_NAME plan -- purely a local label, no gating/security
-    // role unlike owner_password, so no repeater-state-loaded gate or
-    // password-verification dance needed here either.
-    size_t name_len = min((size_t)sub_len - 1, sizeof(_board.board_name) - 1);
-    memcpy(_board.board_name, &sub[1], name_len);
-    _board.board_name[name_len] = 0;
-    _board_dirty = true;
-    flushDirtyPrefs();
-    writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_UNLOCK_ROLE_SECRETS && sub_len >= 1) {
     // beebo: SETTINGS_ISOLATION follow-up -- password-gated secret readback
-    // for `beebo config backup`, checked against BeeboCompanionPrefs.
-    // owner_password (SET_OWNER_PASSWORD above) rather than ComPrefs.
-    // password -- owner_password is compiled into every build (static
+    // for `beebo config backup`, checked against BeeboBoardPrefs.
+    // board_password (GET_PREFS_TLV(KEY_OWNER_PASSWORD)) rather than ComPrefs.
+    // password -- board_password is compiled into every build (static
     // companion/repeater included), so this opcode itself no longer needs
     // BEEBO_ENABLE_REPEATER_ROLE at all; only the repeater.guest.password
     // half of the reply does. An empty (never-set) owner_password always

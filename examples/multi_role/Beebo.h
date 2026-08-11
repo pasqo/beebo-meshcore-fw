@@ -1086,6 +1086,17 @@ private:
     // stays a distinct opcode rather than folding into this generic flag.
     PREFS_TLV_REPEATER_PASSWORD = 39,   // string, write-only
     PREFS_TLV_GUEST_PASSWORD = 40,      // string, write-only
+    // beebo: BeeboBoardPrefs fields -- one value for the whole device, no
+    // per-role slot at all (unlike every key above). The role byte is
+    // accepted but ignored for these two keys; get_raw/get_str/set_raw/
+    // set_str always touch self->_board regardless of what role was
+    // requested, same as node.role would if it were registered here (it
+    // isn't -- SET_NODE_ROLE has hot-switch side effects, flush/invalidate
+    // logic, and build-compiled-in validation that don't fit a generic
+    // batched-write setter; see its own handler's comment).
+    PREFS_TLV_BOARD_NAME = 41,          // string
+    PREFS_TLV_OWNER_PASSWORD = 42,      // string, write-only (get_str returns a 1-byte "is it set" flag)
+    PREFS_TLV_MONRING_EVENT_MASK = 43,  // u32, per-event-type MON_EVENT capture bitmask (see tlvGetMonringEventMask)
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1160,10 +1171,16 @@ private:
   static bool tlvSetRepeaterPassword(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   static int tlvGetGuestPasswordSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
   static bool tlvSetGuestPassword(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
+  static int tlvGetBoardName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetBoardName(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
+  static int tlvGetOwnerPasswordSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetOwnerPassword(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   static uint32_t tlvGetBlePin(Beebo* self, uint8_t role);
   static bool tlvSetBlePin(Beebo* self, uint8_t role, uint32_t pin);
   static uint32_t tlvGetMonringConfig(Beebo* self, uint8_t role);
   static bool tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetMonringEventMask(Beebo* self, uint8_t role);
+  static bool tlvSetMonringEventMask(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRxDelayBase(Beebo* self, uint8_t role);
   static bool tlvSetRxDelayBase(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAirtimeFactor(Beebo* self, uint8_t role);

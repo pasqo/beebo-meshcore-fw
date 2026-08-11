@@ -225,6 +225,13 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
           if (file.available() >= (int)(sizeof(_prefs.node_lat) + sizeof(_prefs.node_lon))) {
             file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
             file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
+            // next: monring_event_mask folded in from here -- same
+            // tail-hazard as node_lat/node_lon above: a file saved before
+            // this field existed ends right after node_lon, with no mask
+            // present.
+            if (file.available() >= (int)sizeof(_prefs.monring_event_mask)) {
+              file.read((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
+            }
           }
         }
       }
@@ -286,6 +293,7 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)_board.board_name, sizeof(_board.board_name));
     file.write((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
     file.write((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
+    file.write((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
 
     file.close();
   }
@@ -361,6 +369,12 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, void* com_prefs, size
         file.read((uint8_t *)&_prefs.tcp_enabled, sizeof(_prefs.tcp_enabled));
         file.read((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));
         file.read((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));
+        // next: monring_event_mask folded in from here -- same tail-hazard
+        // as the fields above: a file saved before this field existed ends
+        // right after monring_config, with no mask present.
+        if (file.available() >= (int)sizeof(_prefs.monring_event_mask)) {
+          file.read((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
+        }
       }
     }
 
@@ -391,6 +405,7 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const void* com
     file.write((uint8_t *)&_prefs.tcp_enabled, sizeof(_prefs.tcp_enabled));
     file.write((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));
     file.write((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));
+    file.write((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
     // next: 4 + com_prefs_len + BeeboBasePrefs's remaining-field bytes
 
     file.close();
