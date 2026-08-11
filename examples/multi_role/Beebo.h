@@ -1264,39 +1264,40 @@ private:
   void beginRepeater();
   void loopRepeater(bool skip_radio);
 #endif
-  // beebo: restores stock simple_repeater's own default-scope mechanism
-  // (MyMesh.cpp's begin()/onDefaultRegionChanged(), RegionMap's independent
-  // default_id, distinct from home_id/getHomeRegion()) instead of borrowing
-  // companion's _role_state->prefs.default_scope_key, the ad-hoc Phase 3 stand-in used
-  // before this. No cached TransportKey member (unlike stock's own
-  // default_scope field) -- computed fresh from region_map.getDefaultRegion()
-  // each call, only ever needed on a periodic flood-advert timer or an
-  // explicit advert action, not a per-packet hot path, so a live cache
-  // (and the onDefaultRegionChanged() invalidation it would need) isn't
-  // worth the complexity. Declared unconditionally (like region_map/
-  // _role_state->prefs themselves) since sendFloodReply() -- always compiled,
-  // though only ever repeater-reachable at runtime -- calls it; body is
-  // internally #if-guarded, same pattern updateAdvertTimer()/
-  // updateFloodAdvertTimer() use (genuinely repeater-only logic, unlike
-  // the PREFS_TLV_FIELDS accessors, which are role-generic and unguarded).
-  void getRepeaterDefaultScope(TransportKey& out);
-
-  // beebo: `role`'s own default scope -- repeater's RegionMap-backed one
-  // (getRepeaterDefaultScope()) for NODE_ROLE_REPEATER, that role's own
-  // stored default_scope_key (role_state_store[role].prefs) otherwise.
+  // beebo: `role`'s own default scope -- for NODE_ROLE_REPEATER, restores
+  // stock simple_repeater's own default-scope mechanism (MyMesh.cpp's
+  // begin()/onDefaultRegionChanged(), RegionMap's independent default_id,
+  // distinct from home_id/getHomeRegion()); for any other role, that
+  // role's own stored default_scope_key (role_state_store[role].prefs).
   // Explicit-role, not implicit-live-role, same convention as every
   // tlvGet*/tlvSet* accessor (PREFS_TLV_ROLE_UNIFICATION.md) -- repeater's
-  // half isn't truly per-role storage (RegionMap is a single
-  // repeater-only instance, not role_state_store[]-addressable), but
-  // `role == NODE_ROLE_REPEATER` is still the right selector for it.
+  // half isn't truly per-role storage (RegionMap is a single repeater-only
+  // instance, not role_state_store[]-addressable), but
+  // `role == NODE_ROLE_REPEATER` is still the right selector for it. One
+  // function, not a role-generic wrapper around a separate repeater-only
+  // one -- there used to be a getRepeaterDefaultScope() this called
+  // internally; folded directly in here instead.
+  // No cached TransportKey member (unlike stock's own default_scope
+  // field) -- computed fresh from region_map.getDefaultRegion() each call,
+  // only ever needed on a periodic flood-advert timer or an explicit
+  // advert action, not a per-packet hot path, so a live cache (and the
+  // onDefaultRegionChanged() invalidation it would need) isn't worth the
+  // complexity. Declared/defined unconditionally (region_map/
+  // role_state_store[] both always exist) since sendFloodReply() --
+  // always compiled -- calls it with NODE_ROLE_REPEATER even though
+  // that's only ever reachable at runtime from repeater-role code; the
+  // NODE_ROLE_REPEATER branch is internally #if-guarded, same pattern
+  // updateAdvertTimer()/updateFloodAdvertTimer() use (genuinely
+  // repeater-only logic, unlike the PREFS_TLV_FIELDS accessors, which are
+  // role-generic and unguarded).
   // Collapses the `if (_is_repeater) getRepeaterDefaultScope(out); else
-  // memcpy(...)` branch duplicated at each call site (CMD_SEND_SELF_ADVERT,
-  // handleCommand()'s bare "advert") into one call, callers passing
-  // `_board.role` explicitly for "whichever role is live" instead of the
-  // function baking that in itself.
-  // NOT a substitute for getRepeaterDefaultScope() itself -- sendFloodReply()
-  // and loopRepeater() deliberately always want repeater's own default
-  // region regardless of which role is live.
+  // memcpy(...)` branch that used to be duplicated at each call site
+  // (CMD_SEND_SELF_ADVERT, handleCommand()'s bare "advert") into one call,
+  // callers passing `_board.role` explicitly for "whichever role is live"
+  // instead of the function baking that in itself. sendFloodReply()/
+  // loopRepeater() pass NODE_ROLE_REPEATER explicitly instead -- they
+  // deliberately always want repeater's own default region regardless of
+  // which role is live.
   void getDefaultScope(uint8_t role, TransportKey& out);
 
   // beebo: region of the flood packet currently being evaluated by

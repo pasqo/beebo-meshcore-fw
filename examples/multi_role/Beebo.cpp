@@ -2421,7 +2421,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // (never given independent repeater-side storage, see
     // saveBeeboRepeaterPrefs()/loadBeeboRepeaterPrefs()); repeater has its
     // own, more capable default-scope mechanism already
-    // (RegionMap/getRepeaterDefaultScope(), GET/SET_REGION_DEFAULT).
+    // (RegionMap/getDefaultScope(), GET/SET_REGION_DEFAULT).
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
   } else if (cmd_frame[0] == CMD_SEND_TXT_MSG && len >= 14) {
     int i = 1;
@@ -3490,7 +3490,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // repeater is refused above (see the repeater-refusal branch). This
     // is companion's own default-scope mechanism, never given independent
     // repeater-side storage -- repeater has its own, more capable one
-    // already (RegionMap/getRepeaterDefaultScope(), GET/SET_REGION_DEFAULT).
+    // already (RegionMap/getDefaultScope(), GET/SET_REGION_DEFAULT).
     if (len >= 1+31+16) {
       int n = strlen((char *) &cmd_frame[1]);
       if (n > 0 && n < 31) {
@@ -4464,7 +4464,7 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_GET_REGION_DEFAULT) {
     // beebo: restores stock simple_repeater's own default-scope mechanism
     // (RegionMap's independent default_id/getDefaultRegion(), distinct from
-    // home_id above) -- see getRepeaterDefaultScope()'s own comment.
+    // home_id above) -- see getDefaultScope()'s own comment.
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_REGION_DEFAULT;
     RegionEntry* def = region_map.getDefaultRegion();
@@ -6097,17 +6097,17 @@ void Beebo::sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, uin
   // beebo: only ever called from repeater-role admin-request/ACL code
   // (BeeboRepeater.cpp, Beebo.cpp's onPeerDataRecv() inside its
   // `if (_is_repeater)` block) -- restored to repeater's own RegionMap
-  // default region (getRepeaterDefaultScope()), matching stock
-  // simple_repeater's own default_scope more closely than the earlier
-  // borrow-companion's-field stand-in did. Unlike stock's sendFloodReply,
-  // still doesn't preserve the *request* packet's incoming RF-region scope
-  // via recv_pkt_region -- a tracking mechanism this port doesn't add.
-  // path_hash_size is unused here: the TransportKey overload of
-  // sendFloodScoped always sizes hashes from the live role's own
-  // path_hash_mode (_role_state->prefs's for repeater, _role_state->prefs's for companion --
-  // see its own definition).
+  // default region (getDefaultScope(NODE_ROLE_REPEATER, ...)), matching
+  // stock simple_repeater's own default_scope more closely than the
+  // earlier borrow-companion's-field stand-in did. Unlike stock's
+  // sendFloodReply, still doesn't preserve the *request* packet's
+  // incoming RF-region scope via recv_pkt_region -- a tracking mechanism
+  // this port doesn't add. path_hash_size is unused here: the
+  // TransportKey overload of sendFloodScoped always sizes hashes from the
+  // live role's own path_hash_mode (_role_state->prefs's for repeater,
+  // _role_state->prefs's for companion -- see its own definition).
   TransportKey default_scope;
-  getRepeaterDefaultScope(default_scope);
+  getDefaultScope(NODE_ROLE_REPEATER, default_scope);
   auto scope = send_scope.isNull() ? &default_scope : &send_scope;
   sendFloodScoped(*scope, packet, delay_millis);
 }

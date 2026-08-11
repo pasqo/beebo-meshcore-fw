@@ -44,7 +44,7 @@ void Beebo::loopRepeater(bool skip_radio) {
     mesh::Packet* pkt = createSelfAdvertPacket();
     if (pkt) {
       TransportKey default_scope;
-      getRepeaterDefaultScope(default_scope);
+      getDefaultScope(NODE_ROLE_REPEATER, default_scope);
       sendFloodScoped(default_scope, pkt, 0);
     }
     updateFloodAdvertTimer(); // schedule next flood advert
@@ -84,29 +84,22 @@ void Beebo::beginRepeater() {
 #endif // BEEBO_ENABLE_REPEATER_ROLE
 
 // beebo: mirrors stock simple_repeater's begin()/onDefaultRegionChanged()
-// combined -- compute fresh each call instead of caching, see Beebo.h's
-// own comment on this method for why. Declared/defined unconditionally
-// (region_map itself always exists, like _role_state->prefs) since sendFloodReply()
-// (Beebo.cpp, always compiled) calls it even though it's only ever
-// reachable at runtime from repeater-role code.
-void Beebo::getRepeaterDefaultScope(TransportKey& out) {
-#if BEEBO_ENABLE_REPEATER_ROLE
-  RegionEntry* r = region_map.getDefaultRegion();
-  if (r) {
-    region_map.getTransportKeysFor(*r, &out, 1);
-    return;
-  }
-#endif
-  memset(out.key, 0, sizeof(out.key));
-}
-
-// beebo: see this function's own declaration in Beebo.h -- collapses the
-// if-repeater-else-companion branch that used to be duplicated at each
-// call site.
+// combined -- compute fresh each call instead of caching, see this
+// function's own declaration in Beebo.h for why. Declared/defined
+// unconditionally (region_map itself always exists, like _role_state->prefs)
+// since sendFloodReply() (Beebo.cpp, always compiled) calls it even though
+// the NODE_ROLE_REPEATER branch is only ever reachable at runtime from
+// repeater-role code. See Beebo.h's declaration for the collapsed
+// if-repeater-else-companion branch this used to require at each call site.
 void Beebo::getDefaultScope(uint8_t role, TransportKey& out) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (role == NODE_ROLE_REPEATER) {
-    getRepeaterDefaultScope(out);
+    RegionEntry* r = region_map.getDefaultRegion();
+    if (r) {
+      region_map.getTransportKeysFor(*r, &out, 1);
+      return;
+    }
+    memset(out.key, 0, sizeof(out.key));
     return;
   }
 #endif
@@ -649,7 +642,7 @@ void Beebo::sendSelfAdvertisement(int delay_millis, bool flood) {
   if (!pkt) return;
   if (flood) {
     TransportKey default_scope;
-    getRepeaterDefaultScope(default_scope);
+    getDefaultScope(NODE_ROLE_REPEATER, default_scope);
     sendFloodScoped(default_scope, pkt, delay_millis);
   } else {
     sendZeroHop(pkt, delay_millis);
