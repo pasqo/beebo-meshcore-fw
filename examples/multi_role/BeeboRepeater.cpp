@@ -516,7 +516,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_OWNER_INFO,             TLV_STRING, nullptr, nullptr, tlvGetOwnerInfo,    tlvSetOwnerInfo },
   { PREFS_TLV_REPEATER_NAME,          TLV_STRING, nullptr, nullptr, tlvGetName, tlvSetName },
   { PREFS_TLV_WIFI_SSID,              TLV_STRING, nullptr, nullptr, tlvGetWifiSsid,     tlvSetWifiSsid },
-  { PREFS_TLV_TRANSPORT_CONFIG,       TLV_U32,    tlvGetRoleTransportConfig, tlvSetRoleTransportConfig, nullptr, nullptr },
+  { PREFS_TLV_TRANSPORT_CONFIG,       TLV_U32,    tlvGetTransportConfig, tlvSetTransportConfig, nullptr, nullptr },
   { PREFS_TLV_MONRING_CONFIG,         TLV_U32,    tlvGetMonringConfig,   tlvSetMonringConfig,   nullptr, nullptr },
   { PREFS_TLV_REPEATER_RXDELAY,       TLV_FLOAT,  tlvGetRxDelayBase,   tlvSetRxDelayBase,   nullptr, nullptr },
   { PREFS_TLV_REPEATER_AIRTIME,       TLV_FLOAT,  tlvGetAirtimeFactor, tlvSetAirtimeFactor, nullptr, nullptr },
@@ -526,6 +526,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_REPEATER_LAT,            TLV_U32,    tlvGetLat,           tlvSetLat,           nullptr, nullptr },
   { PREFS_TLV_REPEATER_LON,            TLV_U32,    tlvGetLon,           tlvSetLon,           nullptr, nullptr },
   { PREFS_TLV_ADV_LOC_POLICY,          TLV_U32,    tlvGetAdvLocPolicy,  tlvSetAdvLocPolicy,  nullptr, nullptr },
+  { PREFS_TLV_BLE_PIN,                 TLV_U32,    tlvGetBlePin,        tlvSetBlePin,        nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 

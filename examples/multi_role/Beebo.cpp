@@ -2040,11 +2040,11 @@ bool Beebo::tlvSetWifiSsid(Beebo* self, uint8_t role, const uint8_t* in, size_t 
 // behavior exactly), so PREFS_TLV_FIELDS and the legacy GET/SET_
 // TRANSPORT_CONFIG opcode now call these directly instead of keeping a
 // second implementation.
-uint32_t Beebo::tlvGetRoleTransportConfig(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetTransportConfig(Beebo* self, uint8_t role) {
   BeeboPrefs& p = self->role_state_store[role].prefs;
   return (uint32_t)p.ble_enabled | ((uint32_t)p.tcp_enabled << 8) | ((uint32_t)p.usb_enabled << 16);
 }
-bool Beebo::tlvSetRoleTransportConfig(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetTransportConfig(Beebo* self, uint8_t role, uint32_t raw) {
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.ble_enabled = (raw & 0xFF) ? 1 : 0;
   slot.prefs.tcp_enabled = ((raw >> 8) & 0xFF) ? 1 : 0;
@@ -2059,19 +2059,18 @@ bool Beebo::tlvSetRoleTransportConfig(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-int Beebo::tlvGetRoleWifiSsid(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
-  const char* ssid = self->role_state_store[role].prefs.wifi_ssid;
-  size_t n = strlen(ssid);
-  if (n > max_len) n = max_len;
-  memcpy(out, ssid, n);
-  return (int)n;
-}
-bool Beebo::tlvGetRoleWifiPwdSet(Beebo* self, uint8_t role) {
+// beebo: PREFS_TLV_ROLE_UNIFICATION.md -- tlvGetRoleWifiSsid retired, it had
+// become byte-for-byte identical to tlvGetWifiSsid above once that got
+// role-parameterized in Phase 1/2 (both just read
+// role_state_store[role].prefs.wifi_ssid). The node.wifi.* opcode below now
+// calls tlvGetWifiSsid directly instead of keeping two copies of the same
+// function.
+bool Beebo::tlvGetWifiPwdSet(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.wifi_pwd[0] != '\0';
 }
 // beebo: mirrors BEEBO_CMD_SET_WIFI_CREDS's own parsing exactly (ssid\0pwd\0,
 // empty segment = leave unchanged) -- see that handler's comment.
-bool Beebo::tlvSetRoleWifiCreds(Beebo* self, uint8_t role, const uint8_t* p, const uint8_t* end) {
+bool Beebo::tlvSetWifiCreds(Beebo* self, uint8_t role, const uint8_t* p, const uint8_t* end) {
   const uint8_t* ssid_start = p;
   while (p < end && *p) p++;
   if (p >= end) return false;
@@ -2094,10 +2093,10 @@ bool Beebo::tlvSetRoleWifiCreds(Beebo* self, uint8_t role, const uint8_t* p, con
   return true;
 }
 
-uint32_t Beebo::tlvGetRoleBlePin(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetBlePin(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.ble_pin;
 }
-bool Beebo::tlvSetRoleBlePin(Beebo* self, uint8_t role, uint32_t pin) {
+bool Beebo::tlvSetBlePin(Beebo* self, uint8_t role, uint32_t pin) {
   if (pin != 0 && (pin < 100000 || pin > 999999)) return false;
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.ble_pin = pin;
@@ -5087,12 +5086,12 @@ void Beebo::handleCmdFrame(size_t len) {
     // SETTINGS_REFACTOR.md). Reject it the same way SET_NODE_ROLE does.
     if (!isNodeRoleBuiltIn(role)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (!tlvSetRoleWifiCreds(this, role, &sub[1], &sub[sub_len])) {
+    } else if (!tlvSetWifiCreds(this, role, &sub[1], &sub[sub_len])) {
       writeErrFrame(ERR_CODE_BAD_STATE);
     } else {
       writeOKFrame();
       // beebo: only live-apply (start WiFi) if this write also targets the
-      // currently-live role -- see tlvSetRoleWifiCreds's own comment.
+      // currently-live role -- see tlvSetWifiCreds's own comment.
       if (role == _board.role) {
         _wifi_creds_pending = true;
       }
@@ -5104,7 +5103,7 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       out_frame[0] = RESP_CODE_BEEBO;
       out_frame[1] = BEEBO_RESP_WIFI_SSID;
-      int ssid_len = tlvGetRoleWifiSsid(this, role, &out_frame[2], MAX_FRAME_SIZE - 2);
+      int ssid_len = tlvGetWifiSsid(this, role, &out_frame[2], MAX_FRAME_SIZE - 2);
       _serial->writeFrame(out_frame, 2 + ssid_len);
     }
   } else if (sub[0] == BEEBO_CMD_GET_REPEATER_WIFI_PWD_SET || sub[0] == BEEBO_CMD_GET_COMPANION_WIFI_PWD_SET) {
@@ -5113,7 +5112,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRoleWifiPwdSet(this, role) ? 1 : 0;
+      uint32_t value = tlvGetWifiPwdSet(this, role) ? 1 : 0;
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -5123,7 +5122,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRoleTransportConfig(this, role);
+      uint32_t value = tlvGetTransportConfig(this, role);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -5133,10 +5132,10 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       uint32_t raw = (uint32_t)sub[1] | ((uint32_t)sub[2] << 8) | ((uint32_t)sub[3] << 16);
-      tlvSetRoleTransportConfig(this, role, raw);
+      tlvSetTransportConfig(this, role, raw);
       writeOKFrame();
       // beebo: only live-apply if this write also targets the currently-live
-      // role -- see tlvSetRoleTransportConfig's own comment. No reboot option
+      // role -- see tlvSetTransportConfig's own comment. No reboot option
       // here (unlike SET_TRANSPORT_CONFIG) -- rebooting only makes sense for
       // the live role.
       if (role == _board.role) {
@@ -5149,7 +5148,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRoleBlePin(this, role);
+      uint32_t value = tlvGetBlePin(this, role);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -5159,7 +5158,7 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&pin, &sub[1], 4);
     if (!isNodeRoleBuiltIn(role)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (!tlvSetRoleBlePin(this, role, pin)) {
+    } else if (!tlvSetBlePin(this, role, pin)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       writeOKFrame();
@@ -5360,12 +5359,12 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_GET_TRANSPORT_CONFIG) {
     out_frame[0] = RESP_CODE_OK;
-    uint32_t v = tlvGetRoleTransportConfig(this, this->_board.role);
+    uint32_t v = tlvGetTransportConfig(this, this->_board.role);
     memcpy(&out_frame[1], &v, 4);
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_TRANSPORT_CONFIG && sub_len >= 4) {
     uint32_t raw = (uint32_t)sub[1] | ((uint32_t)sub[2] << 8) | ((uint32_t)sub[3] << 16);
-    tlvSetRoleTransportConfig(this, this->_board.role, raw);  // applies the ble/tcp/usb invariants + savePrefs()
+    tlvSetTransportConfig(this, this->_board.role, raw);  // applies the ble/tcp/usb invariants + savePrefs()
     bool want_reboot = sub_len >= 5 && sub[4] != 0;
     writeOKFrame();
     if (want_reboot) {
@@ -6791,9 +6790,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       // invariants, rather than re-deriving them here.
       bool on = memcmp(&key[4], "on", 2) == 0;
       bool want_reboot = strstr(&key[4], "--reboot") != NULL;
-      uint32_t raw = tlvGetRoleTransportConfig(this, this->_board.role);
+      uint32_t raw = tlvGetTransportConfig(this, this->_board.role);
       if (on) raw |= 0xFF; else raw &= ~(uint32_t)0xFF;
-      tlvSetRoleTransportConfig(this, this->_board.role, raw);
+      tlvSetTransportConfig(this, this->_board.role, raw);
       if (want_reboot) {
         _ota_restart_time = futureMillis(750);
         _ota_restart_ts = 0;
@@ -6804,9 +6803,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "tcp ", 4) == 0) {
       bool on = memcmp(&key[4], "on", 2) == 0;
       bool want_reboot = strstr(&key[4], "--reboot") != NULL;
-      uint32_t raw = tlvGetRoleTransportConfig(this, this->_board.role);
+      uint32_t raw = tlvGetTransportConfig(this, this->_board.role);
       if (on) raw |= (uint32_t)0xFF << 8; else raw &= ~((uint32_t)0xFF << 8);
-      tlvSetRoleTransportConfig(this, this->_board.role, raw);
+      tlvSetTransportConfig(this, this->_board.role, raw);
       if (want_reboot) {
         _ota_restart_time = futureMillis(750);
         _ota_restart_ts = 0;
@@ -6821,9 +6820,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       // caller to trigger later, same as the binary opcode's own comment.
       bool on = memcmp(&key[4], "on", 2) == 0;
       bool want_reboot = strstr(&key[4], "--reboot") != NULL;
-      uint32_t raw = tlvGetRoleTransportConfig(this, this->_board.role);
+      uint32_t raw = tlvGetTransportConfig(this, this->_board.role);
       if (on) raw |= (uint32_t)0xFF << 16; else raw &= ~((uint32_t)0xFF << 16);
-      tlvSetRoleTransportConfig(this, this->_board.role, raw);
+      tlvSetTransportConfig(this, this->_board.role, raw);
       if (want_reboot) {
         _ota_restart_time = futureMillis(750);
         _ota_restart_ts = 0;

@@ -1077,11 +1077,13 @@ private:
     PREFS_TLV_REPEATER_LAT = 23,   // fixed-point *1e6 in an int32
     PREFS_TLV_REPEATER_LON = 24,   // fixed-point *1e6 in an int32
     // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- folded in once its
-    // accessor became role-generic; "REPEATER_" in the key/function names
-    // above is now a historical misnomer (every one of these targets
-    // whichever role the call's own leading role byte names, companion
-    // included), not a rename this phase -- see the plan doc.
+    // accessor became role-generic; the "REPEATER_" key-name prefix above
+    // is a historical misnomer left as-is (unlike the C++ function names,
+    // which were renamed -- see the plan doc; renumbering/renaming these
+    // wire-level enum values would be a real protocol.yaml-style
+    // compat concern, not just a local identifier).
     PREFS_TLV_ADV_LOC_POLICY = 25,
+    PREFS_TLV_BLE_PIN = 26,
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 1 -- every accessor takes an
@@ -1153,13 +1155,12 @@ private:
   // of the four accessors just above, for node.transport.*/node.wifi.*/
   // node.ble.pin's companion.*/repeater.* binary-protocol access (see
   // persistRoleSlot()'s comment for why these exist).
-  static uint32_t tlvGetRoleTransportConfig(Beebo* self, uint8_t role);
-  static bool tlvSetRoleTransportConfig(Beebo* self, uint8_t role, uint32_t raw);
-  static int tlvGetRoleWifiSsid(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
-  static bool tlvGetRoleWifiPwdSet(Beebo* self, uint8_t role);
-  static bool tlvSetRoleWifiCreds(Beebo* self, uint8_t role, const uint8_t* p, const uint8_t* end);
-  static uint32_t tlvGetRoleBlePin(Beebo* self, uint8_t role);
-  static bool tlvSetRoleBlePin(Beebo* self, uint8_t role, uint32_t pin);
+  static uint32_t tlvGetTransportConfig(Beebo* self, uint8_t role);
+  static bool tlvSetTransportConfig(Beebo* self, uint8_t role, uint32_t raw);
+  static bool tlvGetWifiPwdSet(Beebo* self, uint8_t role);
+  static bool tlvSetWifiCreds(Beebo* self, uint8_t role, const uint8_t* p, const uint8_t* end);
+  static uint32_t tlvGetBlePin(Beebo* self, uint8_t role);
+  static bool tlvSetBlePin(Beebo* self, uint8_t role, uint32_t pin);
   static uint32_t tlvGetMonringConfig(Beebo* self, uint8_t role);
   static bool tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw);
   // beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- the role-parameterized
