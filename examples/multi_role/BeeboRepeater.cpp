@@ -525,6 +525,15 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_ADV_LOC_POLICY,          TLV_U32,    tlvGetAdvLocPolicy,  tlvSetAdvLocPolicy,  nullptr, nullptr },
   { PREFS_TLV_BLE_PIN,                 TLV_U32,    tlvGetBlePin,        tlvSetBlePin,        nullptr, nullptr },
   { PREFS_TLV_WIFI_PWD,                TLV_STRING, nullptr, nullptr, tlvGetWifiPwdSetStr, tlvSetWifiPwd },
+  { PREFS_TLV_RADIO_FEM_RXGAIN, TLV_U32,   tlvGetRadioFemRxgain, tlvSetRadioFemRxgain, nullptr, nullptr },
+  { PREFS_TLV_RADIO_RXGAIN,     TLV_U32,   tlvGetRadioRxgain,    tlvSetRadioRxgain,    nullptr, nullptr },
+  { PREFS_TLV_ADC_MULTIPLIER,   TLV_FLOAT, tlvGetAdcMultiplier,  tlvSetAdcMultiplier,  nullptr, nullptr },
+  { PREFS_TLV_ADC_RESOLUTION,   TLV_U32,   tlvGetAdcResolution,  tlvSetAdcResolution,  nullptr, nullptr },
+  { PREFS_TLV_BATT_PRESENT,        TLV_U32, tlvGetBattPresent,       tlvSetBattPresent,       nullptr, nullptr },
+  { PREFS_TLV_BATT_SAMPLE_PERIOD,  TLV_U32, tlvGetBattSamplePeriod,  tlvSetBattSamplePeriod,  nullptr, nullptr },
+  { PREFS_TLV_BATT_SAMPLE_WINDOW,  TLV_U32, tlvGetBattSampleWindow,  tlvSetBattSampleWindow,  nullptr, nullptr },
+  { PREFS_TLV_BATT_CHARGED_MV,     TLV_U32, tlvGetBattChargedMv,     tlvSetBattChargedMv,     nullptr, nullptr },
+  { PREFS_TLV_IDLE_MARGIN,         TLV_U32, tlvGetIdleMargin,        tlvSetIdleMargin,        nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 

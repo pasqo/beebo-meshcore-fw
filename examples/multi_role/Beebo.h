@@ -1051,6 +1051,23 @@ private:
     PREFS_TLV_ADV_LOC_POLICY = 25,
     PREFS_TLV_BLE_PIN = 26,
     PREFS_TLV_WIFI_PWD = 27,   // string; set writes the password, get returns a 1-byte "is it set" flag, never the plaintext
+    // beebo: board/battery BeeboBasePrefs fields -- role-generic
+    // declaration (BeeboBasePrefs.h), independent per-role persisted
+    // value, same convention as keys 18-24 above. Unlike those, the live
+    // role's value also mirrors into board/radio_driver runtime state, so
+    // set_raw only calls the hardware setter when role == the currently
+    // live role; writing a non-live role's slot persists without
+    // touching hardware (applied on the next switch into that role, same
+    // as every other per-role prefs field).
+    PREFS_TLV_RADIO_FEM_RXGAIN = 28,   // board LoRa FEM LNA gain, bool
+    PREFS_TLV_RADIO_RXGAIN = 29,       // radio_driver boosted RX gain, bool
+    PREFS_TLV_ADC_MULTIPLIER = 30,     // float; 0.0 = board default
+    PREFS_TLV_ADC_RESOLUTION = 31,     // bits, 10 or 12
+    PREFS_TLV_BATT_PRESENT = 32,
+    PREFS_TLV_BATT_SAMPLE_PERIOD = 33, // secs
+    PREFS_TLV_BATT_SAMPLE_WINDOW = 34, // secs
+    PREFS_TLV_BATT_CHARGED_MV = 35,
+    PREFS_TLV_IDLE_MARGIN = 36,        // ms
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1141,6 +1158,24 @@ private:
   static bool tlvSetLon(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAdvLocPolicy(Beebo* self, uint8_t role);
   static bool tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRadioFemRxgain(Beebo* self, uint8_t role);
+  static bool tlvSetRadioFemRxgain(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRadioRxgain(Beebo* self, uint8_t role);
+  static bool tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetAdcMultiplier(Beebo* self, uint8_t role);
+  static bool tlvSetAdcMultiplier(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetAdcResolution(Beebo* self, uint8_t role);
+  static bool tlvSetAdcResolution(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetBattPresent(Beebo* self, uint8_t role);
+  static bool tlvSetBattPresent(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetBattSamplePeriod(Beebo* self, uint8_t role);
+  static bool tlvSetBattSamplePeriod(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetBattSampleWindow(Beebo* self, uint8_t role);
+  static bool tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetBattChargedMv(Beebo* self, uint8_t role);
+  static bool tlvSetBattChargedMv(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetIdleMargin(Beebo* self, uint8_t role);
+  static bool tlvSetIdleMargin(Beebo* self, uint8_t role, uint32_t raw);
   static bool tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw);
   static bool tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw);
 

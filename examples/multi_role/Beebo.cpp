@@ -2220,6 +2220,119 @@ bool Beebo::tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
+// beebo: board/battery BeeboBasePrefs fields (see Beebo.h's PrefsTlvKey
+// comment) -- same role-generic, not-gated-by-BEEBO_ENABLE_REPEATER_ROLE
+// pattern as multi_acks/lat/lon above, since BeeboBasePrefs is always
+// compiled for both roles. board/radio_driver calls only happen when role
+// is the currently-live one, matching what the (now-retired) individual
+// opcodes did.
+uint32_t Beebo::tlvGetRadioFemRxgain(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.radio_fem_rxgain;
+}
+bool Beebo::tlvSetRadioFemRxgain(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw > 1) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.radio_fem_rxgain = (uint8_t)raw;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role && board.canControlLoRaFemLna()) {
+    if (board.setLoRaFemLnaEnabled(raw != 0)) radio_driver.resetAGC();
+  }
+  return true;
+}
+
+uint32_t Beebo::tlvGetRadioRxgain(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.rx_boosted_gain;
+}
+bool Beebo::tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw > 1) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.rx_boosted_gain = (uint8_t)raw;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role) {
+    radio_driver.setRxBoostedGainMode(raw);
+    radio_driver.resetAGC();
+  }
+  return true;
+}
+
+uint32_t Beebo::tlvGetAdcMultiplier(Beebo* self, uint8_t role) {
+  uint32_t raw; float v = self->role_state_store[role].prefs.adc_multiplier;
+  memcpy(&raw, &v, 4);
+  return raw;
+}
+bool Beebo::tlvSetAdcMultiplier(Beebo* self, uint8_t role, uint32_t raw) {
+  float v; memcpy(&v, &raw, 4);
+  v = constrain(v, 0.0f, 10.0f);
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.adc_multiplier = v;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role) board.setAdcMultiplier(v);
+  return true;
+}
+
+uint32_t Beebo::tlvGetAdcResolution(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.adc_resolution_bits;
+}
+bool Beebo::tlvSetAdcResolution(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw != 10 && raw != 12) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.adc_resolution_bits = (uint8_t)raw;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role) board.setAdcResolution((uint8_t)raw);
+  return true;
+}
+
+uint32_t Beebo::tlvGetBattPresent(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.batt_present;
+}
+bool Beebo::tlvSetBattPresent(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw > (uint32_t)BATT_PRESENT_YES) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.batt_present = (uint8_t)raw;
+  persistRoleSlot(self, role, slot);
+  return true;
+}
+
+uint32_t Beebo::tlvGetBattSamplePeriod(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.batt_sample_period_secs;
+}
+bool Beebo::tlvSetBattSamplePeriod(Beebo* self, uint8_t role, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.batt_sample_period_secs = (uint16_t)raw;
+  persistRoleSlot(self, role, slot);
+  return true;
+}
+
+uint32_t Beebo::tlvGetBattSampleWindow(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.batt_sample_window_secs;
+}
+bool Beebo::tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.batt_sample_window_secs = (uint16_t)raw;
+  persistRoleSlot(self, role, slot);
+  return true;
+}
+
+uint32_t Beebo::tlvGetBattChargedMv(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.batt_charged_mv;
+}
+bool Beebo::tlvSetBattChargedMv(Beebo* self, uint8_t role, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.batt_charged_mv = (uint16_t)raw;
+  persistRoleSlot(self, role, slot);
+  return true;
+}
+
+uint32_t Beebo::tlvGetIdleMargin(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.idle_margin_ms;
+}
+bool Beebo::tlvSetIdleMargin(Beebo* self, uint8_t role, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.idle_margin_ms = (uint16_t)raw;
+  persistRoleSlot(self, role, slot);
+  return true;
+}
+
 // beebo: companion's own write-side counterparts to the role-generic
 // accessors above / BEEBO_CMD_GET_COMPANION_* above -- fixes the mirror-image write gap
 // documented in BUGS.md ('companion.* writes issued while repeater is the
@@ -3556,54 +3669,6 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_TABLE_FULL);
       }
     }
-  } else if (sub[0] == BEEBO_CMD_GET_RADIO_FEM_RXGAIN) {
-    if (!board.canControlLoRaFemLna()) {
-      writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
-    } else {
-      out_frame[0] = RESP_CODE_OK;
-      uint32_t value = board.isLoRaFemLnaEnabled() ? 1 : 0;
-      memcpy(&out_frame[1], &value, 4);
-      _serial->writeFrame(out_frame, 5);
-    }
-  } else if (sub[0] == BEEBO_CMD_SET_RADIO_FEM_RXGAIN && sub_len >= 2) {
-    uint8_t value = sub[1];
-    if (!board.canControlLoRaFemLna()) {
-      writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
-    } else if (value <= 1) {
-      _role_state->prefs.radio_fem_rxgain = value;
-      if (board.setLoRaFemLnaEnabled(value != 0)) {
-        radio_driver.resetAGC();
-        // beebo: the per-role dirty-routing pattern -- radio_fem_rxgain
-        // is a per-role BeeboBasePrefs field like advert_loc_policy/
-        // rx_delay_base/node_name/etc (each role can persist its own LNA
-        // preference, applied fresh via applyRadioPrefs() when that role
-        // becomes live), reachable while repeater is live.
-        savePrefs();
-        writeOKFrame();
-      } else {
-        writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
-      }
-    } else {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    }
-  } else if (sub[0] == BEEBO_CMD_GET_RADIO_RXGAIN) {
-    out_frame[0] = RESP_CODE_OK;
-    uint32_t value = radio_driver.getRxBoostedGainMode() ? 1 : 0;
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_RADIO_RXGAIN && sub_len >= 2) {
-    uint8_t value = sub[1];
-    if (value <= 1) {
-      _role_state->prefs.rx_boosted_gain = value;
-      radio_driver.setRxBoostedGainMode(value);
-      radio_driver.resetAGC();
-      // beebo: the per-role dirty-routing pattern -- same dirty-routing
-      // rationale as CMD_SET_RADIO_PARAMS above.
-      savePrefs();
-      writeOKFrame();
-    } else {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    }
   } else if (sub[0] == BEEBO_CMD_GET_SAVE_PREFS) {
     out_frame[0] = RESP_CODE_OK;
     uint32_t value = getSavePrefs() ? 1 : 0;
@@ -3627,18 +3692,6 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
-  } else if (sub[0] == BEEBO_CMD_GET_ADC_MULTIPLIER) {
-    out_frame[0] = RESP_CODE_OK;
-    float value = board.getAdcMultiplier();
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_ADC_MULTIPLIER && sub_len >= 5) {
-    float value;
-    memcpy(&value, &sub[1], 4);
-    _role_state->prefs.adc_multiplier = constrain(value, 0.0f, 10.0f);
-    board.setAdcMultiplier(_role_state->prefs.adc_multiplier);
-    savePrefs();
-    writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_BATT_STATE) {
     out_frame[0] = RESP_CODE_OK;
     uint32_t value = _batt_state;
@@ -3663,54 +3716,6 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
-  } else if (sub[0] == BEEBO_CMD_GET_BATT_SAMPLE_PERIOD) {
-    out_frame[0] = RESP_CODE_OK;
-    uint32_t value = _role_state->prefs.batt_sample_period_secs;
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_BATT_SAMPLE_PERIOD && sub_len >= 5) {
-    uint32_t value;
-    memcpy(&value, &sub[1], 4);
-    _role_state->prefs.batt_sample_period_secs = (uint16_t)value;
-    // beebo: the per-role dirty-routing pattern -- batt_sample_period_secs is a
-    // real, independently-persisted per-role BeeboBasePrefs field (see
-    // above), so route the dirty write like every
-    // other per-role setter.
-    savePrefs();
-    writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_BATT_SAMPLE_WINDOW) {
-    out_frame[0] = RESP_CODE_OK;
-    uint32_t value = _role_state->prefs.batt_sample_window_secs;
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_BATT_SAMPLE_WINDOW && sub_len >= 5) {
-    uint32_t value;
-    memcpy(&value, &sub[1], 4);
-    _role_state->prefs.batt_sample_window_secs = (uint16_t)value;
-    savePrefs();
-    writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_BATT_CHARGED_MV) {
-    out_frame[0] = RESP_CODE_OK;
-    uint32_t value = _role_state->prefs.batt_charged_mv;
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_BATT_CHARGED_MV && sub_len >= 5) {
-    uint32_t value;
-    memcpy(&value, &sub[1], 4);
-    _role_state->prefs.batt_charged_mv = (uint16_t)value;
-    savePrefs();
-    writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_IDLE_MARGIN) {
-    out_frame[0] = RESP_CODE_OK;
-    uint32_t value = _role_state->prefs.idle_margin_ms;
-    memcpy(&out_frame[1], &value, 4);
-    _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_IDLE_MARGIN && sub_len >= 5) {
-    uint32_t value;
-    memcpy(&value, &sub[1], 4);
-    _role_state->prefs.idle_margin_ms = (uint16_t)value;
-    savePrefs();
-    writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_NODE_ROLE) {
     out_frame[0] = RESP_CODE_OK;
     uint32_t value = _board.role;
@@ -4237,32 +4242,6 @@ void Beebo::handleCmdFrame(size_t len) {
     size_t ver_len = strlen(FIRMWARE_VERSION);
     memcpy(&out_frame[2], FIRMWARE_VERSION, ver_len);
     _serial->writeFrame(out_frame, 2 + ver_len);
-  } else if (sub[0] == BEEBO_CMD_GET_BATT_PRESENT) {
-    out_frame[0] = RESP_CODE_OK;
-    memset(&out_frame[1], 0, 4);
-    out_frame[1] = _role_state->prefs.batt_present;
-    _serial->writeFrame(out_frame, 5);  // 5B: app lib only parses "value" out of a 5B OK frame
-  } else if (sub[0] == BEEBO_CMD_SET_BATT_PRESENT && sub_len >= 2) {
-    _role_state->prefs.batt_present = constrain(sub[1], (uint8_t)BATT_PRESENT_UNKNOWN, (uint8_t)BATT_PRESENT_YES);
-    // beebo: the per-role dirty-routing pattern -- same per-role dirty-routing
-    // rationale as BEEBO_CMD_SET_BATT_SAMPLE_PERIOD above.
-    savePrefs();
-    writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_ADC_RESOLUTION) {
-    out_frame[0] = RESP_CODE_OK;
-    memset(&out_frame[1], 0, 4);
-    out_frame[1] = board.getAdcResolution();
-    _serial->writeFrame(out_frame, 5);  // 5B: app lib only parses "value" out of a 5B OK frame
-  } else if (sub[0] == BEEBO_CMD_SET_ADC_RESOLUTION && sub_len >= 2) {
-    if (board.setAdcResolution(sub[1])) {
-      _role_state->prefs.adc_resolution_bits = sub[1];
-      // beebo: the per-role dirty-routing pattern -- same per-role dirty-routing
-      // rationale as BEEBO_CMD_SET_BATT_SAMPLE_PERIOD above.
-      savePrefs();
-      writeOKFrame();
-    } else {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    }
   } else if (sub[0] == BEEBO_CMD_GET_TUNE_ENABLED) {
     // beebo: RAM-only, like BEEBO_CMD_GET/SET_QUIET below -- no tlvGet*/
     // tlvSet* wrapper (nothing to persist) and no flushDirtyPrefs() on SET.

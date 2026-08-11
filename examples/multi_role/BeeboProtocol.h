@@ -20,30 +20,12 @@
 #define BEEBO_CMD_GET_MONRING                       139  // read monitor ring. payload: [after_seq:4 LE] (optional) [after_ts:4 LE] (optional, capture-time epoch of the record at after_seq as the client last recorded it -- lets the firmware detect a reboot/clear/wraparound since then and override to a full read, since after_seq alone can alias across MonRing::_next_seq resetting to 0; see the reply's reset flag)
 #define BEEBO_CMD_SET_MONRING                       140  // control RX capture. payload: [op:1] 0=pause 1=resume 2=clear 3=set config (byte2, persisted)
 #define BEEBO_CMD_SET_XFER_CAPS                     141  // (BULK_XFER): negotiate bulk-transfer caps. payload: [max_rx_frame:2 LE][flags:1]; flags bit0=accept streamed reads
-#define BEEBO_CMD_GET_RADIO_FEM_RXGAIN              142  // read FEM RX gain
-#define BEEBO_CMD_SET_RADIO_FEM_RXGAIN              143  // set FEM RX gain
-#define BEEBO_CMD_GET_RADIO_RXGAIN                  144  // read radio RX gain
-#define BEEBO_CMD_SET_RADIO_RXGAIN                  145  // set radio RX gain
 #define BEEBO_CMD_APP_DISCONNECT                    146  // disconnect the companion session
-#define BEEBO_CMD_GET_ADC_MULTIPLIER                150  // reply OK + value (4B LE float) = battery ADC divider multiplier (0.0 = board default)
-#define BEEBO_CMD_SET_ADC_MULTIPLIER                151  // payload: 4B LE float. 0.0 resets to board default
 #define BEEBO_CMD_SEND_POKE                         152  // originate a 'poke' to a contact. payload: [pub_key:PUB_KEY_SIZE]
-#define BEEBO_CMD_GET_BATT_STATE                    153  // reply OK + value (4B LE) = BATT_STATE_* (byte0)
-#define BEEBO_CMD_GET_BATT_SAMPLE_PERIOD            154  // reply OK + value (4B LE) = seconds (0 = default)
-#define BEEBO_CMD_SET_BATT_SAMPLE_PERIOD            155  // payload: 4B LE uint32 seconds; 0 resets to default; persisted
-#define BEEBO_CMD_GET_BATT_PRESENT                  156  // reply OK + value (1B) = 0 unknown/1 no/2 yes; user-declared, persisted
-#define BEEBO_CMD_SET_BATT_PRESENT                  157  // payload: 1B value (0/1/2); persisted
-#define BEEBO_CMD_GET_ADC_RESOLUTION                158  // reply OK + value (1B) = ADC sample resolution, bits (10 or 12)
-#define BEEBO_CMD_SET_ADC_RESOLUTION                159  // payload: 1B value (10 or 12); persisted
+#define BEEBO_CMD_GET_BATT_STATE                    153  // reply OK + value (4B LE) = BATT_STATE_* (byte0); RAM-only live sensor state, not a PrefsTlv field
 #define BEEBO_CMD_GET_QUIET                         160  // reply OK + value (1B) = bench-quiet state (0=off, 1=on)
 #define BEEBO_CMD_SET_QUIET                         161  // payload: 1B value (0=off -> reboots, 1=on -> sleeps radio+FEM); RAM-only, not persisted
-#define BEEBO_CMD_GET_BATT_SAMPLE_WINDOW            162  // reply OK + value (4B LE) = seconds (0 = default)
-#define BEEBO_CMD_SET_BATT_SAMPLE_WINDOW            163  // payload: 4B LE uint32 seconds; 0 resets to default; persisted
-#define BEEBO_CMD_GET_BATT_CHARGED_MV               164  // reply OK + value (4B LE) = mV (0 = default, see BATT_FULL_MV_DEFAULT)
-#define BEEBO_CMD_SET_BATT_CHARGED_MV               165  // payload: 4B LE uint32 mV; 0 resets to default; persisted
 #define BEEBO_CMD_SET_BATT_STATE                    166  // payload: 1B value = BATT_STATE_*; RAM-only, not persisted; re-seeds the trend anchor
-#define BEEBO_CMD_GET_IDLE_MARGIN                   167  // reply OK + value (4B LE) = ms (0 = default, see IDLE_MARGIN_DEFAULT_MS)
-#define BEEBO_CMD_SET_IDLE_MARGIN                   168  // payload: 4B LE uint32 ms; 0 resets to default; persisted
 #define BEEBO_CMD_GET_NODE_ROLE                     169  // reply OK + value (4B LE) = NODE_ROLE_* (0=companion, 1=repeater); multi_role only
 #define BEEBO_CMD_SET_NODE_ROLE                     170  // payload: 1B value = NODE_ROLE_*; persisted; hot switch (immediate); multi_role only
 #define BEEBO_CMD_GET_OWNER_INFO                    195  // reply OK + owner info bytes (no NUL, up to 119); multi_role only
