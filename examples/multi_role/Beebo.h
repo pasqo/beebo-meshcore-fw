@@ -1145,8 +1145,8 @@ private:
   static bool tlvSetFloodMaxAdvert(Beebo* self, uint8_t role, uint32_t raw);
   static int tlvGetOwnerInfo(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
   static bool tlvSetOwnerInfo(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
-  static int tlvGetRepeaterName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
-  static bool tlvSetRepeaterName(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
+  static int tlvGetName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetName(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   static int tlvGetWifiSsid(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
   static bool tlvSetWifiSsid(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   // beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- role-targeted variants
@@ -1162,8 +1162,11 @@ private:
   static bool tlvSetRoleBlePin(Beebo* self, uint8_t role, uint32_t pin);
   static uint32_t tlvGetMonringConfig(Beebo* self, uint8_t role);
   static bool tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw);
-  // beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- the tlvGetRepeater*/
-  // tlvSetRepeater* accessors below (and the role-targeted node.wifi.*/
+  // beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- the role-parameterized
+  // accessors below (renamed off "Repeater"/"Companion" per
+  // PREFS_TLV_ROLE_UNIFICATION.md -- one tlv{Get|Set}<Field>(self, role, ...)
+  // shape regardless of how many roles a field applies to) (and the
+  // role-targeted node.wifi.*/
   // node.transport.*/node.ble.* accessors further down) are beebo's
   // binary-protocol namespaced equivalents of a role's own text-CLI
   // settings (multi.acks, path.hash.mode, ...), meant to address that
@@ -1178,33 +1181,34 @@ private:
   // non-live role's slot needs an immediate direct save instead of just
   // setting .dirty.
   static void persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot);
-  static uint32_t tlvGetRepeaterRxDelayBase(Beebo* self, uint8_t role);
-  static bool tlvSetRepeaterRxDelayBase(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetRepeaterAirtimeFactor(Beebo* self, uint8_t role);
-  static bool tlvSetRepeaterAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetRepeaterDedupWindow(Beebo* self, uint8_t role);
-  static bool tlvSetRepeaterDedupWindow(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetRepeaterMultiAcks(Beebo* self, uint8_t role);
-  static bool tlvSetRepeaterMultiAcks(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetRepeaterPathHashMode(Beebo* self, uint8_t role);
-  static bool tlvSetRepeaterPathHashMode(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetRepeaterLat(Beebo* self, uint8_t role);
-  static bool tlvSetRepeaterLat(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetRepeaterLon(Beebo* self, uint8_t role);
-  static bool tlvSetRepeaterLon(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetRepeaterAdvLocPolicy(Beebo* self, uint8_t role);
-  static bool tlvSetRepeaterAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw);
-  // beebo: companion's own write-side counterparts, closing the mirror-
-  // image gap documented in BUGS.md ('companion.* write gap') -- see
-  // their definitions (Beebo.cpp, just above handleCmdFrame()) for the
-  // full rationale. Name/Lat/Lon/MultiAcks/PathHashMode/AdvLocPolicy retired
-  // (PREFS_TLV_ROLE_UNIFICATION.md Phase 3) -- tlvSetRepeaterX above is now
-  // role-generic (and unguarded -- see its own comment in Beebo.cpp) and
-  // used directly with NODE_ROLE_COMPANION instead. ManualAddContacts/
-  // AutoaddConfig stay -- genuinely companion-only concepts with no
-  // repeater-side twin to fold into.
-  static bool tlvSetCompanionManualAddContacts(Beebo* self, uint32_t raw);
-  static bool tlvSetCompanionAutoaddConfig(Beebo* self, uint32_t raw);
+  static uint32_t tlvGetRxDelayBase(Beebo* self, uint8_t role);
+  static bool tlvSetRxDelayBase(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetAirtimeFactor(Beebo* self, uint8_t role);
+  static bool tlvSetAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetDedupWindow(Beebo* self, uint8_t role);
+  static bool tlvSetDedupWindow(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetMultiAcks(Beebo* self, uint8_t role);
+  static bool tlvSetMultiAcks(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetPathHashMode(Beebo* self, uint8_t role);
+  static bool tlvSetPathHashMode(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetLat(Beebo* self, uint8_t role);
+  static bool tlvSetLat(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetLon(Beebo* self, uint8_t role);
+  static bool tlvSetLon(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetAdvLocPolicy(Beebo* self, uint8_t role);
+  static bool tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw);
+  // beebo: closes the mirror-image write gap documented in BUGS.md
+  // ('companion.* write gap') -- see their definitions (Beebo.cpp, just
+  // above handleCmdFrame()) for the full rationale. Name/Lat/Lon/MultiAcks/
+  // PathHashMode/AdvLocPolicy folded into the role-generic accessors above
+  // (unguarded -- see their own comment in Beebo.cpp) and called directly
+  // with NODE_ROLE_COMPANION instead of a separate implementation.
+  // ManualAddContacts/AutoaddConfig below are genuinely companion-only
+  // concepts with no repeater-side twin, but still role-parameterized and
+  // named without "Companion" for API uniformity
+  // (PREFS_TLV_ROLE_UNIFICATION.md).
+  static bool tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw);
+  static bool tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw);
 
   // Encodes every field above into out (caller-sized) as [key][len][value]
   // triplets, returns bytes written. Decodes one triplet from in[pos..],
@@ -1271,7 +1275,9 @@ private:
   // worth the complexity. Declared unconditionally (like region_map/
   // _role_state->prefs themselves) since sendFloodReply() -- always compiled,
   // though only ever repeater-reachable at runtime -- calls it; body is
-  // internally #if-guarded, same pattern as the tlvGetRepeater* accessors.
+  // internally #if-guarded, same pattern updateAdvertTimer()/
+  // updateFloodAdvertTimer() use (genuinely repeater-only logic, unlike
+  // the PREFS_TLV_FIELDS accessors, which are role-generic and unguarded).
   void getRepeaterDefaultScope(TransportKey& out);
 
   // beebo: region of the flood packet currently being evaluated by

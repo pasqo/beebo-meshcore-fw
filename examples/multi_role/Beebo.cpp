@@ -1514,8 +1514,8 @@ EnvRecord Beebo::buildEnvRecord() {
 // implementation, so a live-applied tuning change can't drift from what a
 // human explicitly setting that same value would produce. TUNE_RX_DELAY_BASE/
 // TUNE_AIRTIME_FACTOR now write the repeater's own independent copy
-// (SETTINGS_TREE_CLEANUP.md Decision A) via tlvSetRepeaterRxDelayBase/
-// tlvSetRepeaterAirtimeFactor instead of the shared companion _role_state->prefs fields
+// (SETTINGS_TREE_CLEANUP.md Decision A) via tlvSetRxDelayBase/
+// tlvSetAirtimeFactor instead of the shared companion _role_state->prefs fields
 // -- the tuning optimizer only ever runs on a repeater (see loop()'s
 // `_is_repeater && _tune_enabled` gate), so this is never reached for a
 // companion. TUNE_INTERFERENCE_THRESHOLD never reaches here
@@ -1525,7 +1525,7 @@ void Beebo::applyTuneDecision(uint8_t param_id, int16_t value) {
     case TUNE_RX_DELAY_BASE: {
       float vf = value / 100.0f;
       uint32_t bits; memcpy(&bits, &vf, 4);
-      tlvSetRepeaterRxDelayBase(this, NODE_ROLE_REPEATER, bits);
+      tlvSetRxDelayBase(this, NODE_ROLE_REPEATER, bits);
       flushDirtyPrefs();
       break;
     }
@@ -1550,7 +1550,7 @@ void Beebo::applyTuneDecision(uint8_t param_id, int16_t value) {
     case TUNE_AIRTIME_FACTOR: {
       float vf = value / 100.0f;
       uint32_t bits; memcpy(&bits, &vf, 4);
-      tlvSetRepeaterAirtimeFactor(this, NODE_ROLE_REPEATER, bits);
+      tlvSetAirtimeFactor(this, NODE_ROLE_REPEATER, bits);
       flushDirtyPrefs();
       break;
     }
@@ -2032,7 +2032,7 @@ bool Beebo::tlvSetWifiSsid(Beebo* self, uint8_t role, const uint8_t* in, size_t 
 // also happens to be the currently-live role -- writing to a non-live
 // role's slot just persists, taking effect the next time that role
 // actually becomes live, same convention as every other role-targeted
-// setter (tlvSetRepeaterMultiAcks etc. above).
+// setter (tlvSetMultiAcks etc. above).
 //
 // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 1/2 -- tlvGetTransportConfig/
 // tlvSetTransportConfig (the old implicit-live-role pair) are retired;
@@ -2167,30 +2167,31 @@ void Beebo::persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot) {
 // live).
 //
 // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- deliberately NOT gated by
-// `#if BEEBO_ENABLE_REPEATER_ROLE` (unlike most of this file's other
-// tlvGetRepeater*/tlvSetRepeater* functions), even though the name still
-// says "Repeater": these five are now also called with NODE_ROLE_COMPANION
-// (the former tlvSetCompanionLat/Lon/MultiAcks/PathHashMode/AdvLocPolicy
-// call sites, retired in favor of these). role_state_store[] always exists
+// `#if BEEBO_ENABLE_REPEATER_ROLE` (unlike some of this file's other
+// genuinely repeater-only functions): these five are called with either
+// role (the former tlvSetCompanionLat/Lon/MultiAcks/PathHashMode/
+// AdvLocPolicy call sites, retired in favor of these -- also renamed off
+// "Repeater" per the API-uniformity goal in the plan doc). role_state_store[]
+// always exists
 // for both roles on every build and persistRoleSlot() already branches
 // safely per role internally, so gating the whole body on
 // BEEBO_ENABLE_REPEATER_ROLE would silently no-op the companion path too
 // on a companion-only static build -- exactly the regression this comment
 // exists to prevent reintroducing.
-uint32_t Beebo::tlvGetRepeaterMultiAcks(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetMultiAcks(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.multi_acks;
 }
-bool Beebo::tlvSetRepeaterMultiAcks(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetMultiAcks(Beebo* self, uint8_t role, uint32_t raw) {
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.multi_acks = (uint8_t)(raw ? 1 : 0);
   persistRoleSlot(self, role, slot);
   return true;
 }
 
-uint32_t Beebo::tlvGetRepeaterPathHashMode(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetPathHashMode(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.path_hash_mode;
 }
-bool Beebo::tlvSetRepeaterPathHashMode(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetPathHashMode(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw >= 3) return false;
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.path_hash_mode = (uint8_t)raw;
@@ -2198,12 +2199,12 @@ bool Beebo::tlvSetRepeaterPathHashMode(Beebo* self, uint8_t role, uint32_t raw) 
   return true;
 }
 
-uint32_t Beebo::tlvGetRepeaterLat(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetLat(Beebo* self, uint8_t role) {
   int32_t lat = (int32_t)(self->role_state_store[role].prefs.node_lat * 1000000.0);
   uint32_t raw; memcpy(&raw, &lat, 4);
   return raw;
 }
-bool Beebo::tlvSetRepeaterLat(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetLat(Beebo* self, uint8_t role, uint32_t raw) {
   int32_t lat; memcpy(&lat, &raw, 4);
   if (lat > 90 * 1000000 || lat < -90 * 1000000) return false;
   BeeboRoleState& slot = self->role_state_store[role];
@@ -2212,12 +2213,12 @@ bool Beebo::tlvSetRepeaterLat(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-uint32_t Beebo::tlvGetRepeaterLon(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetLon(Beebo* self, uint8_t role) {
   int32_t lon = (int32_t)(self->role_state_store[role].prefs.node_lon * 1000000.0);
   uint32_t raw; memcpy(&raw, &lon, 4);
   return raw;
 }
-bool Beebo::tlvSetRepeaterLon(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetLon(Beebo* self, uint8_t role, uint32_t raw) {
   int32_t lon; memcpy(&lon, &raw, 4);
   if (lon > 180 * 1000000 || lon < -180 * 1000000) return false;
   BeeboRoleState& slot = self->role_state_store[role];
@@ -2232,10 +2233,10 @@ bool Beebo::tlvSetRepeaterLon(Beebo* self, uint8_t role, uint32_t raw) {
 // CMD_SET_OTHER_PARAMS. Clamping mirrors CommonCLI.cpp's own "gps advert"
 // setter (0-2), which is compiled out on beebo since ENV_INCLUDE_GPS=0 --
 // this opcode is the repeater role's only reachable way to view/change it.
-uint32_t Beebo::tlvGetRepeaterAdvLocPolicy(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetAdvLocPolicy(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.advert_loc_policy;
 }
-bool Beebo::tlvSetRepeaterAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw >= 3) return false;
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.advert_loc_policy = (uint8_t)raw;
@@ -2243,8 +2244,8 @@ bool Beebo::tlvSetRepeaterAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw) 
   return true;
 }
 
-// beebo: companion's own write-side counterparts to tlvGetRepeater*/
-// BEEBO_CMD_GET_COMPANION_* above -- fixes the mirror-image write gap
+// beebo: companion's own write-side counterparts to the role-generic
+// accessors above / BEEBO_CMD_GET_COMPANION_* above -- fixes the mirror-image write gap
 // documented in BUGS.md ('companion.* writes issued while repeater is the
 // live role corrupt repeater's own slot'). CMD_SET_OTHER_PARAMS/
 // CMD_SET_PATH_HASH_MODE/CMD_SET_ADVERT_LATLON/CMD_SET_DEVICE_NAME keep
@@ -2260,24 +2261,29 @@ bool Beebo::tlvSetRepeaterAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw) 
 // BEEBO_CMD_GET_COMPANION_* handlers).
 //
 // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- tlvSetCompanionName
-// retired; tlvSetRepeaterName (BeeboRepeater.cpp, now role-generic and
+// retired; tlvSetName (BeeboRepeater.cpp, now role-generic and
 // unguarded) is an exact superset, so SET_COMPANION_NAME calls that
 // directly with NODE_ROLE_COMPANION instead of keeping a duplicate.
 // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- tlvSetCompanionLat/Lon/
-// MultiAcks/PathHashMode/AdvLocPolicy retired; tlvSetRepeaterLat/Lon/
+// MultiAcks/PathHashMode/AdvLocPolicy retired; tlvSetLat/Lon/
 // MultiAcks/PathHashMode/AdvLocPolicy (now role-generic, Phase 1/2) are an
 // exact superset, so the SET_COMPANION_* opcodes below call those directly
 // with NODE_ROLE_COMPANION instead of keeping a byte-for-byte duplicate.
-bool Beebo::tlvSetCompanionManualAddContacts(Beebo* self, uint32_t raw) {
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+// beebo: PREFS_TLV_ROLE_UNIFICATION.md -- API-uniformity pass: role-
+// parameterized and renamed off "Companion" even though only ever called
+// with NODE_ROLE_COMPANION today (no repeater-side concept exists for
+// either field) -- unifying means one tlv{Get|Set}<Field>(self, role, ...)
+// shape everywhere, not just for fields two roles happen to share.
+bool Beebo::tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.manual_add_contacts = (uint8_t)(raw ? 1 : 0);
-  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  persistRoleSlot(self, role, slot);
   return true;
 }
-bool Beebo::tlvSetCompanionAutoaddConfig(Beebo* self, uint32_t raw) {
-  BeeboRoleState& slot = self->role_state_store[NODE_ROLE_COMPANION];
+bool Beebo::tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.autoadd_config = (uint8_t)raw;
-  persistRoleSlot(self, NODE_ROLE_COMPANION, slot);
+  persistRoleSlot(self, role, slot);
   return true;
 }
 
@@ -3903,7 +3909,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterRxDelayBase(this, NODE_ROLE_REPEATER);
+      uint32_t value = tlvGetRxDelayBase(this, NODE_ROLE_REPEATER);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -3913,7 +3919,7 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       uint32_t raw;
       memcpy(&raw, &sub[1], 4);
-      tlvSetRepeaterRxDelayBase(this, NODE_ROLE_REPEATER, raw);
+      tlvSetRxDelayBase(this, NODE_ROLE_REPEATER, raw);
       flushDirtyPrefs();
       writeOKFrame();
     }
@@ -3922,7 +3928,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterAirtimeFactor(this, NODE_ROLE_REPEATER);
+      uint32_t value = tlvGetAirtimeFactor(this, NODE_ROLE_REPEATER);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -3932,7 +3938,7 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       uint32_t raw;
       memcpy(&raw, &sub[1], 4);
-      tlvSetRepeaterAirtimeFactor(this, NODE_ROLE_REPEATER, raw);
+      tlvSetAirtimeFactor(this, NODE_ROLE_REPEATER, raw);
       flushDirtyPrefs();
       writeOKFrame();
     }
@@ -3941,7 +3947,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterMultiAcks(this, NODE_ROLE_REPEATER);
+      uint32_t value = tlvGetMultiAcks(this, NODE_ROLE_REPEATER);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -3949,7 +3955,7 @@ void Beebo::handleCmdFrame(size_t len) {
     if (!isNodeRoleBuiltIn(NODE_ROLE_REPEATER)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
-      tlvSetRepeaterMultiAcks(this, NODE_ROLE_REPEATER, sub[1]);
+      tlvSetMultiAcks(this, NODE_ROLE_REPEATER, sub[1]);
       flushDirtyPrefs();
       writeOKFrame();
     }
@@ -3958,12 +3964,12 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterPathHashMode(this, NODE_ROLE_REPEATER);
+      uint32_t value = tlvGetPathHashMode(this, NODE_ROLE_REPEATER);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
   } else if (sub[0] == BEEBO_CMD_SET_REPEATER_PATH_HASH_MODE && sub_len >= 2) {
-    if (!isNodeRoleBuiltIn(NODE_ROLE_REPEATER) || !tlvSetRepeaterPathHashMode(this, NODE_ROLE_REPEATER, sub[1])) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_REPEATER) || !tlvSetPathHashMode(this, NODE_ROLE_REPEATER, sub[1])) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -3974,14 +3980,14 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterLat(this, NODE_ROLE_REPEATER);
+      uint32_t value = tlvGetLat(this, NODE_ROLE_REPEATER);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
   } else if (sub[0] == BEEBO_CMD_SET_REPEATER_LAT && sub_len >= 5) {
     uint32_t raw;
     memcpy(&raw, &sub[1], 4);
-    if (!isNodeRoleBuiltIn(NODE_ROLE_REPEATER) || !tlvSetRepeaterLat(this, NODE_ROLE_REPEATER, raw)) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_REPEATER) || !tlvSetLat(this, NODE_ROLE_REPEATER, raw)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -3992,14 +3998,14 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterLon(this, NODE_ROLE_REPEATER);
+      uint32_t value = tlvGetLon(this, NODE_ROLE_REPEATER);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
   } else if (sub[0] == BEEBO_CMD_SET_REPEATER_LON && sub_len >= 5) {
     uint32_t raw;
     memcpy(&raw, &sub[1], 4);
-    if (!isNodeRoleBuiltIn(NODE_ROLE_REPEATER) || !tlvSetRepeaterLon(this, NODE_ROLE_REPEATER, raw)) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_REPEATER) || !tlvSetLon(this, NODE_ROLE_REPEATER, raw)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4010,12 +4016,12 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterAdvLocPolicy(this, NODE_ROLE_REPEATER);
+      uint32_t value = tlvGetAdvLocPolicy(this, NODE_ROLE_REPEATER);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
   } else if (sub[0] == BEEBO_CMD_SET_REPEATER_ADV_LOC_POLICY && sub_len >= 2) {
-    if (!isNodeRoleBuiltIn(NODE_ROLE_REPEATER) || !tlvSetRepeaterAdvLocPolicy(this, NODE_ROLE_REPEATER, sub[1])) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_REPEATER) || !tlvSetAdvLocPolicy(this, NODE_ROLE_REPEATER, sub[1])) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4036,7 +4042,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterMultiAcks(this, NODE_ROLE_COMPANION);
+      uint32_t value = tlvGetMultiAcks(this, NODE_ROLE_COMPANION);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -4047,7 +4053,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterPathHashMode(this, NODE_ROLE_COMPANION);
+      uint32_t value = tlvGetPathHashMode(this, NODE_ROLE_COMPANION);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -4061,7 +4067,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      int32_t value = (int32_t)tlvGetRepeaterLat(this, NODE_ROLE_COMPANION);
+      int32_t value = (int32_t)tlvGetLat(this, NODE_ROLE_COMPANION);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -4071,7 +4077,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      int32_t value = (int32_t)tlvGetRepeaterLon(this, NODE_ROLE_COMPANION);
+      int32_t value = (int32_t)tlvGetLon(this, NODE_ROLE_COMPANION);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -4082,13 +4088,13 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterAdvLocPolicy(this, NODE_ROLE_COMPANION);
+      uint32_t value = tlvGetAdvLocPolicy(this, NODE_ROLE_COMPANION);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
   } else if (sub[0] == BEEBO_CMD_SET_COMPANION_NAME && sub_len >= 2) {
     if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) ||
-        !tlvSetRepeaterName(this, NODE_ROLE_COMPANION, &sub[1], (size_t)sub_len - 1)) {
+        !tlvSetName(this, NODE_ROLE_COMPANION, &sub[1], (size_t)sub_len - 1)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4096,7 +4102,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_SET_COMPANION_LAT && sub_len >= 5) {
     uint32_t raw; memcpy(&raw, &sub[1], 4);
-    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetRepeaterLat(this, NODE_ROLE_COMPANION, raw)) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetLat(this, NODE_ROLE_COMPANION, raw)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4104,7 +4110,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_SET_COMPANION_LON && sub_len >= 5) {
     uint32_t raw; memcpy(&raw, &sub[1], 4);
-    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetRepeaterLon(this, NODE_ROLE_COMPANION, raw)) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetLon(this, NODE_ROLE_COMPANION, raw)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4112,7 +4118,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_SET_COMPANION_MULTI_ACKS && sub_len >= 5) {
     uint32_t raw; memcpy(&raw, &sub[1], 4);
-    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetRepeaterMultiAcks(this, NODE_ROLE_COMPANION, raw)) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetMultiAcks(this, NODE_ROLE_COMPANION, raw)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4120,7 +4126,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_SET_COMPANION_PATH_HASH_MODE && sub_len >= 5) {
     uint32_t raw; memcpy(&raw, &sub[1], 4);
-    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetRepeaterPathHashMode(this, NODE_ROLE_COMPANION, raw)) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetPathHashMode(this, NODE_ROLE_COMPANION, raw)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4128,7 +4134,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_SET_COMPANION_ADV_LOC_POLICY && sub_len >= 5) {
     uint32_t raw; memcpy(&raw, &sub[1], 4);
-    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetRepeaterAdvLocPolicy(this, NODE_ROLE_COMPANION, raw)) {
+    if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) || !tlvSetAdvLocPolicy(this, NODE_ROLE_COMPANION, raw)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4136,7 +4142,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_SET_COMPANION_MANUAL_ADD_CONTACTS && sub_len >= 2) {
     if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) ||
-        !tlvSetCompanionManualAddContacts(this, sub[1])) {
+        !tlvSetManualAddContacts(this, NODE_ROLE_COMPANION, sub[1])) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4144,7 +4150,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_SET_COMPANION_AUTOADD_CONFIG && sub_len >= 2) {
     if (!isNodeRoleBuiltIn(NODE_ROLE_COMPANION) ||
-        !tlvSetCompanionAutoaddConfig(this, sub[1])) {
+        !tlvSetAutoaddConfig(this, NODE_ROLE_COMPANION, sub[1])) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       flushDirtyPrefs();
@@ -4224,7 +4230,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       out_frame[0] = RESP_CODE_OK;
-      uint32_t value = tlvGetRepeaterDedupWindow(this, NODE_ROLE_REPEATER);
+      uint32_t value = tlvGetDedupWindow(this, NODE_ROLE_REPEATER);
       memcpy(&out_frame[1], &value, 4);
       _serial->writeFrame(out_frame, 5);
     }
@@ -4235,7 +4241,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
     uint32_t raw;
     memcpy(&raw, &sub[1], 4);
-    if (!tlvSetRepeaterDedupWindow(this, NODE_ROLE_REPEATER, raw)) {
+    if (!tlvSetDedupWindow(this, NODE_ROLE_REPEATER, raw)) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
       return;
     }
@@ -4406,10 +4412,10 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_GET_REPEATER_NAME) {
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_REPEATER_NAME;
-    int name_len = tlvGetRepeaterName(this, NODE_ROLE_REPEATER, &out_frame[2], MAX_FRAME_SIZE - 2);
+    int name_len = tlvGetName(this, NODE_ROLE_REPEATER, &out_frame[2], MAX_FRAME_SIZE - 2);
     _serial->writeFrame(out_frame, 2 + name_len);
   } else if (sub[0] == BEEBO_CMD_SET_REPEATER_NAME) {
-    tlvSetRepeaterName(this, NODE_ROLE_REPEATER, &sub[1], (size_t)sub_len - 1);
+    tlvSetName(this, NODE_ROLE_REPEATER, &sub[1], (size_t)sub_len - 1);
     flushDirtyPrefs();
     writeOKFrame();
 #if BEEBO_ENABLE_REPEATER_ROLE

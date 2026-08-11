@@ -149,7 +149,7 @@ void Beebo::updateFloodAdvertTimer() {
 // (role_state_store[NODE_ROLE_REPEATER] + persistRoleSlot(), see that
 // function's comment in Beebo.cpp), NOT self->_role_state->prefs (whichever
 // role is currently live) -- fixed 2026-08-10, same bug class as
-// tlvSetRepeaterName/tlvGet+SetOwnerInfo below and the rxdelay/dedup_window
+// tlvSetName/tlvGet+SetOwnerInfo below and the rxdelay/dedup_window
 // pair above: a `beebo settings repeater.*` write issued while companion was
 // the live role used to silently land in companion's own NodePrefs slot
 // instead (see BUGS.md, kbase/SETTINGS_REFACTOR.md's Known gaps).
@@ -205,7 +205,7 @@ bool Beebo::tlvSetAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
   // beebo: updateAdvertTimer() reads _role_state->prefs (the LIVE role) --
   // a genuine re-arm when repeater is live, a harmless no-op re-apply of
   // the live (non-repeater) role's own unrelated advert_interval otherwise,
-  // same reasoning as tlvSetRepeaterDedupWindow's pushActiveDedupWindow()
+  // same reasoning as tlvSetDedupWindow's pushActiveDedupWindow()
   // call above.
   self->updateAdvertTimer();
 #endif
@@ -356,14 +356,14 @@ bool Beebo::tlvSetFloodMaxUnscoped(Beebo* self, uint8_t role, uint32_t raw) {
 // beebo: SETTINGS_REFACTOR.md Part 3 follow-up -- targets repeater's own
 // slot explicitly (see persistRoleSlot()'s comment, Beebo.cpp), NOT
 // self->_role_state->prefs (whichever role is currently live).
-uint32_t Beebo::tlvGetRepeaterRxDelayBase(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetRxDelayBase(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   return _floatBits(self->role_state_store[role].prefs.rx_delay_base);
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetRepeaterRxDelayBase(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetRxDelayBase(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.rx_delay_base = _bitsFloat(raw);
@@ -372,14 +372,14 @@ bool Beebo::tlvSetRepeaterRxDelayBase(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-uint32_t Beebo::tlvGetRepeaterAirtimeFactor(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetAirtimeFactor(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   return _floatBits(self->role_state_store[role].prefs.airtime_factor);
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetRepeaterAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.airtime_factor = _bitsFloat(raw);
@@ -401,14 +401,14 @@ bool Beebo::tlvSetRepeaterAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw)
 // unconditionally, so it's a harmless no-op re-apply of the live role's
 // already-current value when this write targets a non-live repeater slot,
 // and a genuine re-apply when repeater is the one that's live.
-uint32_t Beebo::tlvGetRepeaterDedupWindow(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetDedupWindow(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   return self->role_state_store[role].prefs.dedup_window_ms;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetRepeaterDedupWindow(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetDedupWindow(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > DEDUP_WINDOW_MAX_MS) return false;
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: MON_SETTING, reusing this field's own PrefsTlvKey (20) as the
@@ -474,10 +474,10 @@ bool Beebo::tlvSetOwnerInfo(Beebo* self, uint8_t role, const uint8_t* in, size_t
 }
 
 // beebo: PREFS_TLV_ROLE_UNIFICATION.md Phase 3 -- not gated by
-// `#if BEEBO_ENABLE_REPEATER_ROLE` (see tlvGetRepeaterMultiAcks's comment
+// `#if BEEBO_ENABLE_REPEATER_ROLE` (see tlvGetMultiAcks's comment
 // in Beebo.cpp for why): also called with NODE_ROLE_COMPANION now (the
 // former tlvSetCompanionName call site, retired below).
-int Beebo::tlvGetRepeaterName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+int Beebo::tlvGetName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
   // beebo: getRoleName(role) always reads that role's own resident slot
   // directly (role_state_store[role] -- see its own comment in Beebo.h),
   // regardless of which role is currently live; empty if that role's name
@@ -488,7 +488,7 @@ int Beebo::tlvGetRepeaterName(Beebo* self, uint8_t role, uint8_t* out, size_t ma
   memcpy(out, name, n);
   return (int)n;
 }
-bool Beebo::tlvSetRepeaterName(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
+bool Beebo::tlvSetName(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
   // beebo: silently truncates (never rejects) an overlong value, matching
   // the individual SET_REPEATER_NAME/SET_COMPANION_NAME handlers' own
   // min(len, sizeof-1) clamp.
@@ -514,18 +514,18 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_FLOOD_MAX_UNSCOPED,     TLV_U32,    tlvGetFloodMaxUnscoped,      tlvSetFloodMaxUnscoped,      nullptr, nullptr },
   { PREFS_TLV_FLOOD_MAX_ADVERT,       TLV_U32,    tlvGetFloodMaxAdvert,        tlvSetFloodMaxAdvert,        nullptr, nullptr },
   { PREFS_TLV_OWNER_INFO,             TLV_STRING, nullptr, nullptr, tlvGetOwnerInfo,    tlvSetOwnerInfo },
-  { PREFS_TLV_REPEATER_NAME,          TLV_STRING, nullptr, nullptr, tlvGetRepeaterName, tlvSetRepeaterName },
+  { PREFS_TLV_REPEATER_NAME,          TLV_STRING, nullptr, nullptr, tlvGetName, tlvSetName },
   { PREFS_TLV_WIFI_SSID,              TLV_STRING, nullptr, nullptr, tlvGetWifiSsid,     tlvSetWifiSsid },
   { PREFS_TLV_TRANSPORT_CONFIG,       TLV_U32,    tlvGetRoleTransportConfig, tlvSetRoleTransportConfig, nullptr, nullptr },
   { PREFS_TLV_MONRING_CONFIG,         TLV_U32,    tlvGetMonringConfig,   tlvSetMonringConfig,   nullptr, nullptr },
-  { PREFS_TLV_REPEATER_RXDELAY,       TLV_FLOAT,  tlvGetRepeaterRxDelayBase,   tlvSetRepeaterRxDelayBase,   nullptr, nullptr },
-  { PREFS_TLV_REPEATER_AIRTIME,       TLV_FLOAT,  tlvGetRepeaterAirtimeFactor, tlvSetRepeaterAirtimeFactor, nullptr, nullptr },
-  { PREFS_TLV_REPEATER_DEDUP_WINDOW,  TLV_U32,    tlvGetRepeaterDedupWindow,   tlvSetRepeaterDedupWindow,   nullptr, nullptr },
-  { PREFS_TLV_REPEATER_MULTI_ACKS,     TLV_U32,    tlvGetRepeaterMultiAcks,     tlvSetRepeaterMultiAcks,     nullptr, nullptr },
-  { PREFS_TLV_REPEATER_PATH_HASH_MODE, TLV_U32,    tlvGetRepeaterPathHashMode,  tlvSetRepeaterPathHashMode,  nullptr, nullptr },
-  { PREFS_TLV_REPEATER_LAT,            TLV_U32,    tlvGetRepeaterLat,           tlvSetRepeaterLat,           nullptr, nullptr },
-  { PREFS_TLV_REPEATER_LON,            TLV_U32,    tlvGetRepeaterLon,           tlvSetRepeaterLon,           nullptr, nullptr },
-  { PREFS_TLV_ADV_LOC_POLICY,          TLV_U32,    tlvGetRepeaterAdvLocPolicy,  tlvSetRepeaterAdvLocPolicy,  nullptr, nullptr },
+  { PREFS_TLV_REPEATER_RXDELAY,       TLV_FLOAT,  tlvGetRxDelayBase,   tlvSetRxDelayBase,   nullptr, nullptr },
+  { PREFS_TLV_REPEATER_AIRTIME,       TLV_FLOAT,  tlvGetAirtimeFactor, tlvSetAirtimeFactor, nullptr, nullptr },
+  { PREFS_TLV_REPEATER_DEDUP_WINDOW,  TLV_U32,    tlvGetDedupWindow,   tlvSetDedupWindow,   nullptr, nullptr },
+  { PREFS_TLV_REPEATER_MULTI_ACKS,     TLV_U32,    tlvGetMultiAcks,     tlvSetMultiAcks,     nullptr, nullptr },
+  { PREFS_TLV_REPEATER_PATH_HASH_MODE, TLV_U32,    tlvGetPathHashMode,  tlvSetPathHashMode,  nullptr, nullptr },
+  { PREFS_TLV_REPEATER_LAT,            TLV_U32,    tlvGetLat,           tlvSetLat,           nullptr, nullptr },
+  { PREFS_TLV_REPEATER_LON,            TLV_U32,    tlvGetLon,           tlvSetLon,           nullptr, nullptr },
+  { PREFS_TLV_ADV_LOC_POLICY,          TLV_U32,    tlvGetAdvLocPolicy,  tlvSetAdvLocPolicy,  nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 
