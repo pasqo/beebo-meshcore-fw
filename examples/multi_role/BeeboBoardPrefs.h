@@ -43,6 +43,21 @@
 // and Beebo::begin()).
 struct BeeboBoardPrefs {
   uint8_t role = NODE_ROLE_DEFAULT; // node.role - companion/repeater role selection. Default = companion, unless only repeater is compiled in.
-  char board_password[16] = {0};    // node.owner.password - backup/recovery credential. Default = unset.
+  char board_password[16] = {0};    // board.password - backup/recovery credential. Default = unset.
   char board_name[32] = {0};        // board.name - human-editable alias for this physical board's identity (board.id, the read-only eFuse MAC). Default = unset.
+
+  // beebo: BOARD_BATTERY_PREFS.md -- moved out of BeeboBasePrefs (which
+  // gives each role its own independently-persisted copy) since there's
+  // one physical VBAT ADC/battery per board, not one per role. adc_multiplier
+  // is a deliberate exception to the general "reuse upstream ComPrefs when
+  // the repeater role is compiled in" convention BeeboBasePrefs.h otherwise
+  // follows -- that convention is exactly what caused this field's bug
+  // (companion had no storage for it at all on a multi_role build).
+  float adc_multiplier = 0.0f;       // board.adc.multiplier - battery ADC divider multiplier override; 0.0f = use board default
+  uint8_t adc_resolution_bits = 12;  // board.adc.resolution - battery ADC sample resolution, bits (10 or 12)
+  uint8_t batt_present = 0;          // board.battery.present
+  uint16_t batt_sample_period_secs = 0;  // board.battery.sample_period
+  uint16_t batt_sample_window_secs = 0;  // board.battery.sample_window
+  uint16_t batt_charged_mv = 0;          // battery.charged_mv (no settings-tree leaf yet)
+  uint16_t idle_margin_ms = 0;           // board.state.idle_margin
 };

@@ -1088,7 +1088,7 @@ void Beebo::loadRoleState(uint8_t role) {
     // pointer must target this slot for that call to land correctly (it
     // may not be the live role yet), restored to the live role's slot
     // afterward by begin()'s own repoint once every role has loaded.
-    bool beebo_repeater_existed = _store->loadBeeboRepeaterPrefs(slot.prefs, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
+    bool beebo_repeater_existed = _store->loadBeeboRepeaterPrefs(slot.prefs, _board, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
     if (!beebo_repeater_existed) {
       FILESYSTEM* fs = _store->getPrimaryFS();
       if (fs->exists("/com_prefs")) {
@@ -1100,7 +1100,7 @@ void Beebo::loadRoleState(uint8_t role) {
       // in this role's own prefs, seeded by loadBeeboRepeaterPrefs()/
       // loadBeeboCompanionPrefs() from whichever role loaded first if this
       // is genuinely the second role ever activated on this device.
-      _store->saveBeeboRepeaterPrefs(slot.prefs, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
+      _store->saveBeeboRepeaterPrefs(slot.prefs, _board, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
     }
     // beebo: 0 is a real, literal "disabled" value, not "unset" -- this
     // clamp only catches genuinely out-of-range data (an older beebo build's
@@ -1115,15 +1115,16 @@ void Beebo::loadRoleState(uint8_t role) {
 void Beebo::begin() {
   Mesh::begin();
 
-  // beebo: BeeboBoardPrefs's own file
-  // (role/board_password/board_name), loaded right after companion's so
-  // its values win when present. Before this file existed, these three
-  // fields were persisted as a tail fold-in of /beebo_companion (still
-  // read above by loadBeeboCompanionPrefs's own tail-hazard guards, purely
-  // as a one-time migration seed now) -- board_existed false means this is
-  // that migration case (or a genuinely fresh device), so the values just
-  // loaded/detected get written out to the new file below once role
-  // detection (and syncNodeRoleCache()'s own fallback) has settled.
+  // beebo: BeeboBoardPrefs's own file (role/board_password/board_name,
+  // and as of BOARD_BATTERY_PREFS.md the seven battery/ADC fields).
+  // Before this file existed (or before it carried the battery/ADC
+  // fields), these were persisted as a tail fold-in of /beebo_companion/
+  // /beebo_repeater -- still read there by loadBeeboCompanionPrefs's/
+  // loadBeeboRepeaterPrefs's own tail-hazard guards, purely as a one-time
+  // migration seed now. board_existed false means this is that migration
+  // case (or a genuinely fresh device); see the saveBeeboBoardPrefs() call
+  // below (after both roles' own files have loaded) for why the persist
+  // has to wait until then rather than happening right here.
   bool board_existed = _store->loadBeeboBoardPrefs(_board);
 
   // beebo: PER_ROLE_IDENTITY -- true first boot under this role (neither
@@ -1150,15 +1151,6 @@ void Beebo::begin() {
   // sync cache -- loadBeeboCompanionPrefs()/loadBeeboBoardPrefs() (or the
   // detection above) write role directly
   syncNodeRoleCache();
-  // beebo: BeeboBoardPrefs unification -- /beebo_board didn't exist yet
-  // (pre-refactor device, or genuinely fresh), so persist whatever role
-  // detection above and syncNodeRoleCache()'s own fallback settled on,
-  // plus the legacy-migrated board_password/board_name, into the new file
-  // now so every subsequent boot loads it directly instead of relying on
-  // /beebo_companion's tail.
-  if (!board_existed) {
-    _store->saveBeeboBoardPrefs(_board);
-  }
 
   // beebo: the per-role state store -- eager per-role boot load. Every
   // compiled-in role gets its own resident role_state_store[] slot loaded
@@ -1177,6 +1169,25 @@ void Beebo::begin() {
 #if BEEBO_ENABLE_REPEATER_ROLE
   loadRoleState(NODE_ROLE_REPEATER);
 #endif
+
+  // beebo: BeeboBoardPrefs unification -- board_existed false means
+  // /beebo_board either didn't exist yet (pre-refactor device, or
+  // genuinely fresh) or predated the battery/ADC fields
+  // (BOARD_BATTERY_PREFS.md) -- either way, persist whatever role
+  // detection/syncNodeRoleCache() above settled on, plus whatever
+  // loadRoleState() above just migration-seeded into `_board` from
+  // /beebo_companion's/beebo_repeater's own legacy tail (board_password/
+  // board_name/adc_multiplier/adc_resolution_bits/batt_present/
+  // batt_sample_period_secs/batt_sample_window_secs/batt_charged_mv/
+  // idle_margin_ms), into the new file now. Deliberately placed here, not
+  // right after loadBeeboBoardPrefs() above -- that seed only exists once
+  // loadRoleState() has actually read it in, so saving any earlier would
+  // persist `_board`'s plain compiled-in defaults instead of the real
+  // migrated values on exactly the one-time upgrade path this exists to
+  // handle correctly.
+  if (!board_existed) {
+    _store->saveBeeboBoardPrefs(_board);
+  }
 
   // beebo: point _role_state (and mirror self_id/cli's own prefs pointer)
   // at the live role's now-resident slot. Every generic call site below
@@ -1210,7 +1221,7 @@ void Beebo::begin() {
   // beebo: seed the trend state once at boot from the just-loaded pref,
   // instead of always defaulting to INIT and relying on the first
   // updateBattTrend() call to notice batt_present==NO and correct it.
-  resetBattTrendRef(_batt_state, _cached_batt_mv, _role_state->prefs.batt_present);
+  resetBattTrendRef(_batt_state, _cached_batt_mv, _board.batt_present);
 
   // beebo: anchor the battery sample schedule to boot time instead of
   // leaving _next_batt_trigger/_next_batt_deadline at their zero-init value
@@ -1220,8 +1231,8 @@ void Beebo::begin() {
   // every loop() tick from boot a chance to land on an idle read. The hard
   // deadline still lands at period_secs + window_secs, same as steady state.
   {
-    uint32_t period_secs = _role_state->prefs.batt_sample_period_secs;
-    uint32_t window_secs = _role_state->prefs.batt_sample_window_secs;
+    uint32_t period_secs = _board.batt_sample_period_secs;
+    uint32_t window_secs = _board.batt_sample_window_secs;
     _next_batt_trigger = futureMillis(0);
     _next_batt_deadline = futureMillis((period_secs + window_secs) * 1000UL);
   }
@@ -1347,22 +1358,22 @@ void Beebo::clampRadioPrefs() {
   _role_state->prefs.cr = constrain(_role_state->prefs.cr, 5, 8);
   _role_state->prefs.tx_power_dbm = constrain(_role_state->prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
   _role_state->prefs.radio_fem_rxgain = constrain(_role_state->prefs.radio_fem_rxgain, 0, 1);
-  _role_state->prefs.adc_multiplier = constrain(_role_state->prefs.adc_multiplier, 0.0f, 10.0f);
-  if (_role_state->prefs.batt_sample_period_secs == 0) {
-    _role_state->prefs.batt_sample_period_secs = BATT_SAMPLE_PERIOD_DEFAULT_SECS;  // beebo: default period
+  _board.adc_multiplier = constrain(_board.adc_multiplier, 0.0f, 10.0f);
+  if (_board.batt_sample_period_secs == 0) {
+    _board.batt_sample_period_secs = BATT_SAMPLE_PERIOD_DEFAULT_SECS;  // beebo: default period
   }
-  if (_role_state->prefs.batt_sample_window_secs == 0) {
-    _role_state->prefs.batt_sample_window_secs = BATT_SAMPLE_WINDOW_DEFAULT_SECS;  // beebo: default window
+  if (_board.batt_sample_window_secs == 0) {
+    _board.batt_sample_window_secs = BATT_SAMPLE_WINDOW_DEFAULT_SECS;  // beebo: default window
   }
-  _role_state->prefs.batt_present = constrain(_role_state->prefs.batt_present, (uint8_t)BATT_PRESENT_UNKNOWN, (uint8_t)BATT_PRESENT_YES);
-  if (_role_state->prefs.adc_resolution_bits != 10 && _role_state->prefs.adc_resolution_bits != 12) {
-    _role_state->prefs.adc_resolution_bits = 12;  // beebo: default resolution
+  _board.batt_present = constrain(_board.batt_present, (uint8_t)BATT_PRESENT_UNKNOWN, (uint8_t)BATT_PRESENT_YES);
+  if (_board.adc_resolution_bits != 10 && _board.adc_resolution_bits != 12) {
+    _board.adc_resolution_bits = 12;  // beebo: default resolution
   }
-  if (_role_state->prefs.batt_charged_mv == 0) {
-    _role_state->prefs.batt_charged_mv = BATT_FULL_MV_DEFAULT;  // beebo: default charged-voltage threshold
+  if (_board.batt_charged_mv == 0) {
+    _board.batt_charged_mv = BATT_FULL_MV_DEFAULT;  // beebo: default charged-voltage threshold
   }
-  if (_role_state->prefs.idle_margin_ms == 0) {
-    _role_state->prefs.idle_margin_ms = IDLE_MARGIN_DEFAULT_MS;  // beebo: default idle margin
+  if (_board.idle_margin_ms == 0) {
+    _board.idle_margin_ms = IDLE_MARGIN_DEFAULT_MS;  // beebo: default idle margin
   }
   // beebo: dedup_window_ms has NO "0 = default" resolution, unlike every
   // field above -- 0 is a real, literal value here (disables live-eviction
@@ -1392,8 +1403,8 @@ void Beebo::applyRadioPrefs() {
   radio_driver.setTxPower(_role_state->prefs.tx_power_dbm);
   radio_driver.setRxBoostedGainMode(_role_state->prefs.rx_boosted_gain);
   board.setLoRaFemLnaEnabled(_role_state->prefs.radio_fem_rxgain);
-  board.setAdcMultiplier(_role_state->prefs.adc_multiplier);
-  board.setAdcResolution(_role_state->prefs.adc_resolution_bits);
+  board.setAdcMultiplier(_board.adc_multiplier);
+  board.setAdcResolution(_board.adc_resolution_bits);
 }
 
 // beebo: allocate the monitor ring. Called last in setup(), after the
@@ -1411,7 +1422,7 @@ void Beebo::initMonRing() {
   // beebo: not radioIsIdle()-verified at this point in boot -- reset the
   // trend anchor/state instead of seeding it directly, so updateBattTrend()
   // won't classify against it until a confirmed-idle sample replaces it.
-  resetBattTrendRef(_batt_state, _cached_batt_mv, _role_state->prefs.batt_present);
+  resetBattTrendRef(_batt_state, _cached_batt_mv, _board.batt_present);
   if (ring != NULL && monring.init(ring, want, (uint32_t)getRTCClock()->getCurrentTime(),
                                     buildRadioRecord(), buildEnvRecord())) {
     monring.setConfig(_role_state->prefs.monring_config);  // apply persisted enable + per-kind capture mask
@@ -1458,7 +1469,7 @@ void Beebo::initMonRing() {
 // see NodePrefs.idle_margin_ms / IDLE_MARGIN_DEFAULT_MS (BattTrend.h) for the
 // runtime-overridable version.
 bool Beebo::radioIsIdle() const {
-  uint32_t margin = _role_state->prefs.idle_margin_ms > 0 ? _role_state->prefs.idle_margin_ms : IDLE_MARGIN_DEFAULT_MS;
+  uint32_t margin = _board.idle_margin_ms > 0 ? _board.idle_margin_ms : IDLE_MARGIN_DEFAULT_MS;
   return !_radio->isReceiving() && !isTransmitting()
          && millisHasNowPassed(_last_radio_active_ms + margin);
 }
@@ -1699,7 +1710,7 @@ void Beebo::writeDirtyPrefs() {
   if (_role_state->prefs.dirty) {
 #if BEEBO_ENABLE_REPEATER_ROLE
     if (_board.role == NODE_ROLE_REPEATER) {
-      _store->saveBeeboRepeaterPrefs(_role_state->prefs, static_cast<ComPrefs*>(&_role_state->prefs), sizeof(ComPrefs));
+      _store->saveBeeboRepeaterPrefs(_role_state->prefs, _board, static_cast<ComPrefs*>(&_role_state->prefs), sizeof(ComPrefs));
     } else
 #endif
     {
@@ -1753,7 +1764,7 @@ void Beebo::reloadPrefs() {
   _role_state->prefs.dirty = _board_dirty = false;
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (_is_repeater) {
-    _store->loadBeeboRepeaterPrefs(_role_state->prefs, static_cast<ComPrefs*>(&_role_state->prefs), sizeof(ComPrefs));
+    _store->loadBeeboRepeaterPrefs(_role_state->prefs, _board, static_cast<ComPrefs*>(&_role_state->prefs), sizeof(ComPrefs));
   } else
 #endif
   {
@@ -2225,7 +2236,7 @@ void Beebo::persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot) {
   }
 #if BEEBO_ENABLE_REPEATER_ROLE
   else if (role == NODE_ROLE_REPEATER) {
-    self->_store->saveBeeboRepeaterPrefs(slot.prefs, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
+    self->_store->saveBeeboRepeaterPrefs(slot.prefs, self->_board, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
   }
 #endif
 }
@@ -2335,67 +2346,72 @@ bool Beebo::tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
+// beebo: BOARD_BATTERY_PREFS.md -- these seven all address self->_board
+// (BeeboBoardPrefs), not role_state_store[role].prefs, and always apply
+// live/persist regardless of `role`: there's one physical VBAT ADC/
+// battery per board, not one per role, so a board-scoped field is always
+// "live" no matter which role's TLV request wrote it -- the previous
+// `if (role == self->_board.role) ...` live-apply guards only existed
+// because these fields used to (incorrectly) pretend to be per-role.
 uint32_t Beebo::tlvGetAdcMultiplier(Beebo* self, uint8_t role) {
-  uint32_t raw; float v = self->role_state_store[role].prefs.adc_multiplier;
+  uint32_t raw; float v = self->_board.adc_multiplier;
   memcpy(&raw, &v, 4);
   return raw;
 }
 bool Beebo::tlvSetAdcMultiplier(Beebo* self, uint8_t role, uint32_t raw) {
   float v; memcpy(&v, &raw, 4);
   v = constrain(v, 0.0f, 10.0f);
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.adc_multiplier = v;
-  persistRoleSlot(self, role, slot);
-  if (role == self->_board.role) board.setAdcMultiplier(v);
+  self->_board.adc_multiplier = v;
+  self->_board_dirty = true;
+  board.setAdcMultiplier(v);
   return true;
 }
 
 uint32_t Beebo::tlvGetAdcResolution(Beebo* self, uint8_t role) {
-  return self->role_state_store[role].prefs.adc_resolution_bits;
+  return self->_board.adc_resolution_bits;
 }
 bool Beebo::tlvSetAdcResolution(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw != 10 && raw != 12) return false;
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.adc_resolution_bits = (uint8_t)raw;
-  persistRoleSlot(self, role, slot);
-  if (role == self->_board.role) board.setAdcResolution((uint8_t)raw);
+  self->_board.adc_resolution_bits = (uint8_t)raw;
+  self->_board_dirty = true;
+  board.setAdcResolution((uint8_t)raw);
   return true;
 }
 
 uint32_t Beebo::tlvGetBattPresent(Beebo* self, uint8_t role) {
-  return self->role_state_store[role].prefs.batt_present;
+  return self->_board.batt_present;
 }
 bool Beebo::tlvSetBattPresent(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > (uint32_t)BATT_PRESENT_YES) return false;
-  return persistScalarField(self, role, self->role_state_store[role].prefs.batt_present, raw);
+  return persistBoardField(self, self->_board.batt_present, raw);
 }
 
 uint32_t Beebo::tlvGetBattSamplePeriod(Beebo* self, uint8_t role) {
-  return self->role_state_store[role].prefs.batt_sample_period_secs;
+  return self->_board.batt_sample_period_secs;
 }
 bool Beebo::tlvSetBattSamplePeriod(Beebo* self, uint8_t role, uint32_t raw) {
-  return persistScalarField(self, role, self->role_state_store[role].prefs.batt_sample_period_secs, raw);
+  return persistBoardField(self, self->_board.batt_sample_period_secs, raw);
 }
 
 uint32_t Beebo::tlvGetBattSampleWindow(Beebo* self, uint8_t role) {
-  return self->role_state_store[role].prefs.batt_sample_window_secs;
+  return self->_board.batt_sample_window_secs;
 }
 bool Beebo::tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw) {
-  return persistScalarField(self, role, self->role_state_store[role].prefs.batt_sample_window_secs, raw);
+  return persistBoardField(self, self->_board.batt_sample_window_secs, raw);
 }
 
 uint32_t Beebo::tlvGetBattChargedMv(Beebo* self, uint8_t role) {
-  return self->role_state_store[role].prefs.batt_charged_mv;
+  return self->_board.batt_charged_mv;
 }
 bool Beebo::tlvSetBattChargedMv(Beebo* self, uint8_t role, uint32_t raw) {
-  return persistScalarField(self, role, self->role_state_store[role].prefs.batt_charged_mv, raw);
+  return persistBoardField(self, self->_board.batt_charged_mv, raw);
 }
 
 uint32_t Beebo::tlvGetIdleMargin(Beebo* self, uint8_t role) {
-  return self->role_state_store[role].prefs.idle_margin_ms;
+  return self->_board.idle_margin_ms;
 }
 bool Beebo::tlvSetIdleMargin(Beebo* self, uint8_t role, uint32_t raw) {
-  return persistScalarField(self, role, self->role_state_store[role].prefs.idle_margin_ms, raw);
+  return persistBoardField(self, self->_board.idle_margin_ms, raw);
 }
 
 // beebo: companion's own write-side counterparts to the role-generic
@@ -3764,7 +3780,7 @@ void Beebo::handleCmdFrame(size_t len) {
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_BATT_STATE && sub_len >= 2) {
     uint8_t value = sub[1];
-    if (_role_state->prefs.batt_present == BATT_PRESENT_NO) {
+    if (_board.batt_present == BATT_PRESENT_NO) {
       // beebo: batt_present==no already pins the classifier to PLUGGED (see
       // classifyBattTrend()/resetBattTrendRef()) -- forcing any other state
       // here would just get overwritten by the next sample, so reject it
@@ -4411,7 +4427,7 @@ void Beebo::handleCmdFrame(size_t len) {
         break;
       case 2:
         // beebo: not radioIsIdle()-verified -- see initMonRing()'s comment.
-        resetBattTrendRef(_batt_state, _cached_batt_mv, _role_state->prefs.batt_present);
+        resetBattTrendRef(_batt_state, _cached_batt_mv, _board.batt_present);
         monring.clear((uint32_t)getRTCClock()->getCurrentTime(), buildRadioRecord(), buildEnvRecord());
         break;
       default: writeErrFrame(ERR_CODE_ILLEGAL_ARG); return;
@@ -4833,10 +4849,10 @@ uint16_t Beebo::updateBattTrend(bool force_read) {
   bool idle_now = radioIsIdle();
   uint16_t new_batt_mv = board.getBattMilliVolts();
   if (due) {
-    uint32_t period_secs = _role_state->prefs.batt_sample_period_secs > 0
-                            ? _role_state->prefs.batt_sample_period_secs : BATT_SAMPLE_PERIOD_DEFAULT_SECS;
-    uint32_t window_secs = _role_state->prefs.batt_sample_window_secs > 0
-                            ? _role_state->prefs.batt_sample_window_secs : BATT_SAMPLE_WINDOW_DEFAULT_SECS;
+    uint32_t period_secs = _board.batt_sample_period_secs > 0
+                            ? _board.batt_sample_period_secs : BATT_SAMPLE_PERIOD_DEFAULT_SECS;
+    uint32_t window_secs = _board.batt_sample_window_secs > 0
+                            ? _board.batt_sample_window_secs : BATT_SAMPLE_WINDOW_DEFAULT_SECS;
     _next_batt_trigger = futureMillis(period_secs * 1000UL);
     _next_batt_deadline = futureMillis((period_secs + window_secs) * 1000UL);
     // beebo: only feed idle (IR-drop-clear) readings into the trend anchor/
@@ -4856,8 +4872,8 @@ uint16_t Beebo::updateBattTrend(bool force_read) {
           _cached_batt_mv = new_batt_mv;  // first-ever sample (post-settle boot, or post-reset) -- seed the anchor
         }
         _batt_state = classifyBattTrend(new_batt_mv, _cached_batt_mv, _batt_state,
-                                         _role_state->prefs.batt_present, _role_state->prefs.adc_resolution_bits,
-                                         _role_state->prefs.batt_charged_mv > 0 ? _role_state->prefs.batt_charged_mv : BATT_FULL_MV_DEFAULT);
+                                         _board.batt_present, _board.adc_resolution_bits,
+                                         _board.batt_charged_mv > 0 ? _board.batt_charged_mv : BATT_FULL_MV_DEFAULT);
       }
     }
   }
@@ -5753,19 +5769,19 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "usb", 3) == 0) {
       sprintf(reply, "> %s", _role_state->prefs.usb_enabled ? "on" : "off");
     } else if (memcmp(key, "adc.multiplier", 14) == 0) {
-      sprintf(reply, "> %.3f", _role_state->prefs.adc_multiplier);
+      sprintf(reply, "> %.3f", _board.adc_multiplier);
     } else if (memcmp(key, "adc.resolution", 14) == 0) {
-      sprintf(reply, "> %u", _role_state->prefs.adc_resolution_bits);
+      sprintf(reply, "> %u", _board.adc_resolution_bits);
     } else if (memcmp(key, "battery.sample_period", 21) == 0) {
-      sprintf(reply, "> %u", _role_state->prefs.batt_sample_period_secs);
+      sprintf(reply, "> %u", _board.batt_sample_period_secs);
     } else if (memcmp(key, "battery.sample_window", 21) == 0) {
-      sprintf(reply, "> %u", _role_state->prefs.batt_sample_window_secs);
+      sprintf(reply, "> %u", _board.batt_sample_window_secs);
     } else if (memcmp(key, "battery.present", 15) == 0) {
-      sprintf(reply, "> %s", _role_state->prefs.batt_present == 2 ? "yes" : (_role_state->prefs.batt_present == 1 ? "no" : "unknown"));
+      sprintf(reply, "> %s", _board.batt_present == 2 ? "yes" : (_board.batt_present == 1 ? "no" : "unknown"));
     } else if (memcmp(key, "battery.charged_mv", 18) == 0) {
-      sprintf(reply, "> %u", _role_state->prefs.batt_charged_mv);
+      sprintf(reply, "> %u", _board.batt_charged_mv);
     } else if (memcmp(key, "board.state.idle_margin", 23) == 0) {
-      sprintf(reply, "> %u", _role_state->prefs.idle_margin_ms);
+      sprintf(reply, "> %u", _board.idle_margin_ms);
     } else if (memcmp(key, "guest.password", 14) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
       sprintf(reply, "> %s", _role_state->prefs.guest_password);
@@ -6014,6 +6030,26 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       } else {
         strcpy(reply, "Error: state must be on or off");
       }
+    } else if (memcmp(key, "adc.multiplier ", 15) == 0) {
+      // beebo: fixes the same "set X has no interceptor" gap as "set lat"
+      // below (BOARD_BATTERY_PREFS.md) -- adc.multiplier used to share
+      // storage with upstream ComPrefs.adc_multiplier (inherited via
+      // BeeboRepeaterPrefs), so falling through to real cli.handleCommand()
+      // happened to land in the exact place "get adc.multiplier" read.
+      // Now that adc.multiplier is beebo's own board-scoped
+      // _board.adc_multiplier (BeeboBoardPrefs), that coincidence no
+      // longer holds, so this needs an explicit interceptor same as "lat"/
+      // "lon" got for the analogous reason. Reuses tlvSetAdcMultiplier()
+      // so the clamp/live-apply/persist logic lives in exactly one place.
+      // (adc.resolution/battery.*/board.state.idle_margin have no
+      // upstream CommonCLI.cpp equivalent at all -- unlike adc.multiplier,
+      // they were never reachable by "set" over a text-CLI CommonLink
+      // session before or after this change, so no interceptor is needed
+      // for them here.)
+      float v = atof(&key[15]);
+      uint32_t raw; memcpy(&raw, &v, 4);
+      tlvSetAdcMultiplier(this, this->_board.role, raw);
+      sprintf(reply, "> %.3f", _board.adc_multiplier);
     } else if (memcmp(key, "lat ", 4) == 0) {
       // beebo: fixes the "set lat has no interceptor" gap flagged in
       // kbase/PROTOCOL_AND_SETTINGS_STORAGE.md's "critical trap" section --

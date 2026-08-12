@@ -1252,6 +1252,17 @@ private:
     persistRoleSlot(self, role, self->role_state_store[role]);
     return true;
   }
+  // beebo: BOARD_BATTERY_PREFS.md -- persistScalarField's counterpart for
+  // a BeeboBoardPrefs field (board-scoped, not per-role): store, mark
+  // _board_dirty so writeDirtyPrefs() flushes it to /beebo_board, report
+  // success. No `role` param -- a board-scoped field is always "live"
+  // regardless of which role's TLV request wrote it.
+  template <typename T, typename V>
+  static inline bool persistBoardField(Beebo* self, T& field, V value) {
+    field = static_cast<T>(value);
+    self->_board_dirty = true;
+    return true;
+  }
 
   // beebo: CommonCLI fallback's 'tempradio <freq> <bw> <sf> <cr> <mins>' --
   // a two-stage set-then-revert timer, ticked from loopRepeater() since
