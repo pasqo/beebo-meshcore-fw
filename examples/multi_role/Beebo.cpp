@@ -5116,11 +5116,18 @@ void Beebo::loopTransports() {
   // Drain WiFi STA events stashed by the (other-task) event handler into the
   // debug ring here, so all ring writes stay in the single loop() context.
   if (_sta_disc_reason >= 0) {
-    transport_log.log(TLOG_WIFI_STA_DISCONNECTED, (int8_t)_sta_disc_reason);
+    // No (int8_t) truncation here -- esp_wifi disconnect reason codes go up
+    // to ~208 (e.g. BEACON_TIMEOUT=200, NO_AP_FOUND=201), which silently
+    // wrapped negative through an int8_t before `detail` was widened to
+    // int32_t for the IP-logging change above.
+    transport_log.log(TLOG_WIFI_STA_DISCONNECTED, _sta_disc_reason);
     _sta_disc_reason = -1;
   }
   if (_sta_got_ip) {
-    transport_log.log(TLOG_WIFI_STA_GOT_IP);
+    IPAddress ip = WiFi.localIP();
+    int32_t packed_ip = ((int32_t)ip[0] << 24) | ((int32_t)ip[1] << 16)
+                       | ((int32_t)ip[2] << 8) | (int32_t)ip[3];
+    transport_log.log(TLOG_WIFI_STA_GOT_IP, packed_ip);
     _sta_got_ip = false;
   }
 
