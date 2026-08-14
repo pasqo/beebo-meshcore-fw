@@ -1187,6 +1187,26 @@ void Beebo::begin() {
   // handle correctly.
   if (!board_existed) {
     _store->saveBeeboBoardPrefs(_board);
+  } else {
+    // beebo: loadRoleState(NODE_ROLE_COMPANION) above just called
+    // loadBeeboCompanionPrefs(), which unconditionally re-reads _board.role/
+    // board_password/board_name/the battery-ADC fields from /beebo_companion's
+    // own legacy tail (see that function's own comment: "a genuine migration
+    // seed when /beebo_board predates these fields, an inert echo of the
+    // already-authoritative /beebo_board value otherwise") -- that claim only
+    // holds if /beebo_companion's tail is actually kept in sync with
+    // /beebo_board on every write, which it isn't: setNodeRole() (a live
+    // node.role switch) updates _board.role in RAM but never persists it to
+    // either file, so /beebo_companion's tail can carry an arbitrarily old
+    // role byte from whenever it was last flushed. board_existed true means
+    // /beebo_board is the real authoritative file here, so undo that clobber
+    // by re-reading it now -- the same fix reloadPrefs() already gets for
+    // free by ordering its own loadBeeboBoardPrefs() call after
+    // loadBeeboCompanionPrefs(). Re-sync the cached _is_repeater/_is_companion
+    // flags afterward, since they were already derived (further up) from the
+    // pre-clobber value.
+    _store->loadBeeboBoardPrefs(_board);
+    syncNodeRoleCache();
   }
 
   // beebo: point _role_state (and mirror self_id/cli's own prefs pointer)
