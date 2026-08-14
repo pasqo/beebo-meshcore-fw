@@ -6,7 +6,14 @@
 // Ring sized to capture a full interactive session (e.g. a measurement sweep
 // of ~40 commands = ~80 cmd recv/done events) for post-mortem fetch. Each
 // event is 9 bytes on the wire; the ring is fetched paginated (see serialize).
-#define TLOG_MAX_EVENTS 256
+// 1024 events * 12 bytes (in-memory, padded) = 12KB static/.bss -- bumped
+// from 256 since a long-running interactive/test session's own command
+// traffic (each CLI round trip logs a CMD_RECV/CMD_DONE pair) can wrap a
+// 256-deep ring within a handful of commands, evicting real transport
+// events (e.g. TLOG_WIFI_STA_GOT_IP) before they can be fetched. Confirmed
+// affordable against a real device's live free heap (`bench status`, not
+// just the raw 512KB SRAM figure): 62KB free before this bump, 53KB after.
+#define TLOG_MAX_EVENTS 1024
 
 #define TLOG_MULTI_LOCK       1
 #define TLOG_MULTI_RELEASE    2
