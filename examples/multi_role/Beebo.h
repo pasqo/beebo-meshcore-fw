@@ -831,16 +831,20 @@ private:
   // handoff.
   BeeboBoardPrefs _board;
   bool _board_dirty = false;
-  // beebo: cached (_board.role == NODE_ROLE_REPEATER), kept in sync by
-  // setNodeRole() -- avoids re-deriving this comparison at every one of its
-  // call sites. Only setNodeRole() and the post-load sync in begin()/
-  // reloadPrefs() may write _board.role directly; everything else
-  // (including the CMD_SET_NODE_ROLE handlers) must go through setNodeRole()
-  // so the cache can't drift from the persisted value.
-  bool _is_repeater = false;
-  // beebo: mutually exclusive with _is_repeater -- node_role is a strict
-  // either/or (companion or repeater), see setNodeRole()/isNodeRoleBuiltIn().
-  bool _is_companion = false;
+  // beebo: plain live reads of _board.role, not a cached bool -- a prior
+  // version of this cached (_is_repeater/_is_companion, written by
+  // setNodeRole() and a post-load sync in begin()/reloadPrefs()) and it
+  // desynced from _board.role in practice: DataStore::loadBeeboCompanionPrefs()
+  // has its own legacy-tail read of _board.role (a migration-seed path,
+  // see that function's own comment) that can silently overwrite
+  // _board.role from begin()'s loadRoleState() call without a matching
+  // cache re-sync (see BUGS.md's 2026-08-13 entry). A single byte compare
+  // is cheap enough that there's no performance case for caching it, and
+  // reading _board.role directly means there's no second copy left to
+  // drift -- mutually exclusive by construction (node_role is a strict
+  // either/or, see setNodeRole()/isNodeRoleBuiltIn()).
+  bool isRepeater() const { return _board.role == NODE_ROLE_REPEATER; }
+  bool isCompanion() const { return _board.role == NODE_ROLE_COMPANION; }
   // beebo: PER_ROLE_IDENTITY -- defined in Beebo.cpp (needs radio_new_identity(),
   // declared per-board in target.h, not necessarily visible from this header).
   // Loads/migrates/generates `role`'s identity into its own resident
@@ -877,8 +881,6 @@ private:
       applyRoleSwitchPrefs();
     }
     _board.role = role;
-    _is_repeater = (role == NODE_ROLE_REPEATER);
-    _is_companion = (role == NODE_ROLE_COMPANION);
   }
   // beebo: the per-role state store -- re-applies radio/transport-
   // affecting prefs after setNodeRole() repoints _role_state at the
@@ -890,11 +892,11 @@ private:
   // outside (SET_NODE_ROLE, `node.role` text command) must check this
   // first: a static-role build has no acl/region_map/anon_limiter
   // (repeater) or no contact/channel/message store (companion), so ending
-  // up with _is_repeater/_is_companion true for an uncompiled half would
-  // dereference members that don't exist. Also false for any value other
-  // than NODE_ROLE_COMPANION/NODE_ROLE_REPEATER (e.g. a stale persisted
-  // COPEATER=2 from older firmware), which syncNodeRoleCache() below falls
-  // back away from.
+  // up with _board.role set to an uncompiled half would make isRepeater()/
+  // isCompanion() dereference members that don't exist. Also false for any
+  // value other than NODE_ROLE_COMPANION/NODE_ROLE_REPEATER (e.g. a stale
+  // persisted COPEATER=2 from older firmware), which sanitizeNodeRole()
+  // below falls back away from.
   static bool isNodeRoleBuiltIn(uint8_t role) {
 #if !BEEBO_ENABLE_COMPANION_ROLE
     if (role == NODE_ROLE_COMPANION) return false;
@@ -919,8 +921,10 @@ private:
   // (or the other static-role build, or older firmware with a persisted
   // COPEATER=2) can have a persisted node_role this binary doesn't support
   // -- fall back to whichever half IS built in (preferring companion)
-  // rather than leaving _is_repeater/_is_companion true for uncompiled state.
-  void syncNodeRoleCache() {
+  // rather than leaving _board.role on an uncompiled value. No cache left
+  // to resync (isRepeater()/isCompanion() read _board.role live) -- this
+  // is purely the isNodeRoleBuiltIn() fallback now.
+  void sanitizeNodeRole() {
     if (!isNodeRoleBuiltIn(_board.role)) {
 #if BEEBO_ENABLE_COMPANION_ROLE
       _board.role = NODE_ROLE_COMPANION;
@@ -928,8 +932,6 @@ private:
       _board.role = NODE_ROLE_REPEATER;
 #endif
     }
-    _is_repeater = (_board.role == NODE_ROLE_REPEATER);
-    _is_companion = (_board.role == NODE_ROLE_COMPANION);
   }
   bool _save_prefs = true;       // beebo: RAM-only flag gating both stores' writes (see savePrefs)
   // beebo: dirty state now lives on
@@ -1276,7 +1278,7 @@ private:
   // SimpleMeshTables instance -- called after boot, a prefs reload, either
   // dedup-window SET handler, and every node.role hot switch (binary and
   // text CLI), since SimpleMeshTables caches the value rather than reading
-  // _role_state->prefs/_is_repeater live like rx_delay_base/airtime_factor's call sites do.
+  // _role_state->prefs/isRepeater() live like rx_delay_base/airtime_factor's call sites do.
   void pushActiveDedupWindow();
 
   // beebo: begin()/loop() are split by role into their own files

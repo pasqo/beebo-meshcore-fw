@@ -69,7 +69,7 @@ void Beebo::loopRepeater(bool skip_radio) {
 // for every compiled-in role regardless of which is live (Beebo::begin()'s
 // loadRoleState(NODE_ROLE_REPEATER) call, Beebo.cpp), replacing the old
 // lazy load-on-first-repeater-entry model this function used to implement
-// itself. beginRepeater() (called from begin() only `if (_is_repeater)`,
+// itself. beginRepeater() (called from begin() only `if (isRepeater())`,
 // and from the SET_NODE_ROLE handlers on every switch into repeater) is
 // now just the live-session part: (re-)arm the advert timers, unconditional
 // on every entry into repeater so a stale deadline from a much earlier
@@ -602,7 +602,7 @@ bool Beebo::applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, si
 
 // beebo: PER_ROLE_IDENTITY -- this callback is only ever reached via
 // CommonCLI's "prv.key" text command, which itself is only reachable while
-// repeater is the live role (see the _is_repeater-gated cli.handleCommand()
+// repeater is the live role (see the isRepeater()-gated cli.handleCommand()
 // fallthroughs in Beebo.cpp's handleCommand()). So unlike the pre-split
 // shared self_id this used to mirror, a rekey here always targets the
 // *repeater* identity specifically and never touches companion's -- the
@@ -720,7 +720,7 @@ mesh::Packet* Beebo::createRepeaterSelfAdvert(const char* name, double lat, doub
 #if BEEBO_ENABLE_REPEATER_ROLE
 void Beebo::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const mesh::Identity &sender,
                             uint8_t *data, size_t len) {
-  if (!_is_repeater) return;  // companion never accepts inbound mesh admin requests
+  if (!isRepeater()) return;  // companion never accepts inbound mesh admin requests
 
   if (packet->getPayloadType() == PAYLOAD_TYPE_ANON_REQ) { // received an initial request by a possible admin
                                                             // client (unknown at this stage)
