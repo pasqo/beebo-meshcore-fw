@@ -1099,6 +1099,22 @@ private:
     PREFS_TLV_BOARD_NAME = 41,          // string
     PREFS_TLV_OWNER_PASSWORD = 42,      // string, write-only (get_str returns a 1-byte "is it set" flag)
     PREFS_TLV_MONRING_EVENT_MASK = 43,  // u32, per-event-type MON_EVENT capture bitmask (see tlvGetMonringEventMask)
+    // beebo: companion's own client_repeat (NodePrefs.h) -- historically
+    // only reachable live via stock CMD_SET_RADIO_PARAMS/CMD_DEVICE_QUERY
+    // (companion_settings.py's _get_client_repeat/_set_client_repeat), not
+    // through this table at all, unlike every sibling companion-only field
+    // above (MANUAL_ADD_CONTACTS/AUTOADD_CONFIG). That left it the one
+    // leaf in a `settings companion` render still paying its own
+    // individual round trip outside the batched GET_PREFS_TLV fetch,
+    // exposing it to a rare upstream meshcore dispatcher race
+    // (no_event_received on an otherwise-healthy link, confirmed on real
+    // hardware 2026-08-14). client_repeat is a pure software forwarding
+    // gate (checked directly at the point of use, not a real physical
+    // radio parameter despite living in the historical SET_RADIO_PARAMS
+    // opcode bundle), so persistScalarField() here takes effect
+    // immediately, same as every other field in this table -- no need to
+    // also touch actual LoRa radio state.
+    PREFS_TLV_COMPANION_REPEAT = 44,
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1221,6 +1237,8 @@ private:
   static bool tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAutoaddConfig(Beebo* self, uint8_t role);
   static bool tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetCompanionRepeat(Beebo* self, uint8_t role);
+  static bool tlvSetCompanionRepeat(Beebo* self, uint8_t role, uint32_t raw);
 
   // Encodes every field above into out (caller-sized) as [key][len][value]
   // triplets, returns bytes written. Decodes one triplet from in[pos..],

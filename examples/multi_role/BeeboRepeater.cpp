@@ -516,6 +516,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_BOARD_NAME,        TLV_STRING, nullptr, nullptr, tlvGetBoardName,              tlvSetBoardName },
   { PREFS_TLV_OWNER_PASSWORD,    TLV_STRING, nullptr, nullptr, tlvGetOwnerPasswordSetStr,    tlvSetOwnerPassword },
   { PREFS_TLV_MONRING_EVENT_MASK, TLV_U32,   tlvGetMonringEventMask, tlvSetMonringEventMask, nullptr, nullptr },
+  { PREFS_TLV_COMPANION_REPEAT,   TLV_U32,   tlvGetCompanionRepeat,  tlvSetCompanionRepeat,  nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 

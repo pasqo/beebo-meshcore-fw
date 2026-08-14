@@ -2461,6 +2461,27 @@ uint32_t Beebo::tlvGetAutoaddConfig(Beebo* self, uint8_t role) {
 bool Beebo::tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw) {
   return persistScalarField(self, role, self->role_state_store[role].prefs.autoadd_config, raw);
 }
+// beebo: companion's own client_repeat -- see PREFS_TLV_COMPANION_REPEAT's
+// own comment (Beebo.h) for why this exists alongside the still-live
+// CMD_SET_RADIO_PARAMS/CMD_DEVICE_QUERY path rather than replacing it.
+// Enabling repeat must still be rejected outside the node's allowed
+// repeat-frequency ranges here too, same as CMD_SET_RADIO_PARAMS's own
+// isValidClientRepeatFreq() check just above -- this is a real regulatory
+// constraint, not a formality, and this TLV path is a second, independent
+// way to flip the same client_repeat field, so it needs the same guard or
+// it becomes a silent bypass (caught by
+// test_companion_repeat_rejects_out_of_band_frequency_fail on real
+// hardware 2026-08-14).
+uint32_t Beebo::tlvGetCompanionRepeat(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.client_repeat;
+}
+bool Beebo::tlvSetCompanionRepeat(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw) {
+    uint32_t freq_khz = (uint32_t)(self->role_state_store[role].prefs.freq * 1000.0f);
+    if (!self->isValidClientRepeatFreq(freq_khz)) return false;
+  }
+  return persistScalarField(self, role, self->role_state_store[role].prefs.client_repeat, raw ? 1 : 0);
+}
 
 void Beebo::handleCmdFrame(size_t len) {
   if (cmd_frame[0] == CMD_DEVICE_QUERY && len >= 2) { // sent when app establishes connection
