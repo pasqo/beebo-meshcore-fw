@@ -179,6 +179,10 @@ uint32_t Beebo::tlvGetAgcResetInterval(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetAgcResetInterval(Beebo* self, uint8_t role, uint32_t raw) {
+  // beebo: agc_reset_interval is a uint8_t storing secs/4 (CommonCLI.h) --
+  // max representable is 255*4=1020s. Reject out of range instead of
+  // silently wrapping, same convention as tlvSetLoopDetect's raw > 3 check.
+  if (raw / 4 > 255) return false;
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.agc_reset_interval, raw / 4);
 #endif
