@@ -4771,7 +4771,7 @@ void Beebo::checkSerialInterface() {
                     || (cmd_frame[0] == CMD_GET_STATS && len >= 2
                         && (cmd_frame[1] == STATS_TYPE_TRANSPORT || cmd_frame[1] == STATS_TYPE_PROFILE)));
     if (trace) {
-      transport_log.log(TLOG_CMD_RECV, (int8_t)cmd_frame[0]);
+      transport_log.log(TLOG_CMD_RECV, (uint8_t)cmd_frame[0]);
       // (cmd<<8)|sub so CMD_BEEBO sub-commands (OTA/WiFi/RF measurement/…)
       // and CMD_GET_STATS sub-types are distinguishable, unlike TLOG_CMD_*'s
       // 1-byte outer-command-only detail. Only these two commands' second
@@ -4797,7 +4797,7 @@ void Beebo::checkSerialInterface() {
                 cmd_frame[1] == BEEBO_CMD_GET_PREFS_TLV));
       if (command_run_eligible) appendCommandRunEvent(prof_id);
       handleCmdFrame(len);
-      transport_log.log(TLOG_CMD_DONE, (int8_t)cmd_frame[0]);
+      transport_log.log(TLOG_CMD_DONE, (uint8_t)cmd_frame[0]);
     } else {
       handleCmdFrame(len);
     }
