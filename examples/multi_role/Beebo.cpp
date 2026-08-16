@@ -2383,7 +2383,13 @@ bool Beebo::tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw) {
 // `if (role == self->_board.role) ...` live-apply guards only existed
 // because these fields used to (incorrectly) pretend to be per-role.
 uint32_t Beebo::tlvGetAdcMultiplier(Beebo* self, uint8_t role) {
-  uint32_t raw; float v = self->_board.adc_multiplier;
+  // beebo: _board.adc_multiplier is the persisted override, 0.0f meaning
+  // "use board default" (see setAdcMultiplier()) -- report the resolved,
+  // actually-in-effect value here instead of that raw possibly-0 field, or
+  // a never-calibrated node reads back as 0 and callers computing a new
+  // multiplier as a ratio against it (e.g. `beebo battery calibrate`) get
+  // stuck multiplying by 0 forever.
+  uint32_t raw; float v = board.getAdcMultiplier();
   memcpy(&raw, &v, 4);
   return raw;
 }
@@ -5826,7 +5832,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "usb", 3) == 0) {
       sprintf(reply, "> %s", _role_state->prefs.usb_enabled ? "on" : "off");
     } else if (memcmp(key, "adc.multiplier", 14) == 0) {
-      sprintf(reply, "> %.3f", _board.adc_multiplier);
+      // beebo: report the resolved value (see tlvGetAdcMultiplier's comment),
+      // not the raw persisted override which reads 0 pre-calibration.
+      sprintf(reply, "> %.3f", board.getAdcMultiplier());
     } else if (memcmp(key, "adc.resolution", 14) == 0) {
       sprintf(reply, "> %u", _board.adc_resolution_bits);
     } else if (memcmp(key, "battery.sample_period", 21) == 0) {
