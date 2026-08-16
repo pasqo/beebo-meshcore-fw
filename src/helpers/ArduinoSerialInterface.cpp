@@ -21,6 +21,27 @@ bool ArduinoSerialInterface::isWriteBusy() const {
   return false;
 }
 
+// Stream::write(buf, size) is allowed to short-write (return less than
+// requested) rather than block -- e.g. the USB CDC peripheral's own TX
+// buffer being momentarily full under rapid back-to-back replies, with no
+// setTxBufferSize call on this core's USBCDC class (see main.cpp's own
+// comment on why). A short write here silently truncates the frame with no
+// way for the host to recover: its own byte-parser just waits forever for
+// bytes that were never sent, stalling the command for its full timeout.
+// Retry the remainder until the whole buffer is out; this can only ever
+// under-run if the peripheral itself stops accepting bytes entirely (already
+// a lost-connection condition handled elsewhere), not from a transient
+// backlog draining at normal USB speed.
+static size_t writeAll(Stream* serial, const uint8_t* buf, size_t len) {
+  size_t written = 0;
+  while (written < len) {
+    size_t n = serial->write(buf + written, len - written);
+    if (n == 0) break;   // peripheral not accepting bytes at all -- give up
+    written += n;
+  }
+  return written;
+}
+
 size_t ArduinoSerialInterface::writeFrame(const uint8_t src[], size_t len) {
   if (len > MAX_FRAME_SIZE) {
     // frame is too big!
@@ -32,8 +53,8 @@ size_t ArduinoSerialInterface::writeFrame(const uint8_t src[], size_t len) {
   hdr[1] = (len & 0xFF);  // LSB
   hdr[2] = (len >> 8);    // MSB
 
-  _serial->write(hdr, 3);
-  return _serial->write(src, len);
+  if (writeAll(_serial, hdr, 3) < 3) return 0;
+  return writeAll(_serial, src, len);
 }
 
 size_t ArduinoSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {

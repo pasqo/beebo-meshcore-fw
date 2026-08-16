@@ -63,6 +63,16 @@ class MultiSerialInterface : public BaseSerialInterface {
   }
   void release(int prev) {
     transport_log.log(TLOG_MULTI_RELEASE, _subs[prev].type);
+    // Reset the released sub's own byte-parser state: a session can end
+    // mid-frame (host closes the port between test runs, or an exclusive
+    // transport preempts a non-exclusive one -- see checkRecvFrame's two
+    // call sites below), leaving the parser expecting the rest of a frame
+    // that's never coming. Left alone, the sub's *next* session has its
+    // opening bytes consumed as that phantom frame's payload instead of
+    // parsed as new commands -- a desync that persists (and can cascade)
+    // until the stray byte count happens to complete on its own.
+    _subs[prev].iface->disable();
+    _subs[prev].iface->enable();
     _active = -1;
     if (!_enabled) return;
     if (!_subs[prev].exclusive) return;
