@@ -924,6 +924,15 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   // exact bit combination is what caught this previously disagreeing with
   // that header).
   _role_state->prefs.monring_config = (MON_CAP_ALL & ~MON_CAP_ENV & ~MON_CAP_TUNE) | MON_CAP_ENABLED;
+  // beebo: the memset above wipes out BeeboBasePrefs.h's in-class default
+  // (0xFFFFFFFFu, capture every event type) same as it wipes monring_config's
+  // -- re-assert it explicitly here too, or a device whose persisted file
+  // predates this field (DataStore.cpp's own tail-hazard-gated read for it)
+  // boots with a live mask of 0, silently dropping every MON_EVENT record
+  // forever despite the live lifetime counters (ack_success_count etc.)
+  // still incrementing normally -- confirmed live on `bunch` 2026-08-15,
+  // tracked in BUGS.md.
+  _role_state->prefs.monring_event_mask = 0xFFFFFFFFu;
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: repeater-role _role_state->prefs (CommonCLI's real
   // NodePrefs, /com_prefs) defaults. These ctor values are only the fallback
