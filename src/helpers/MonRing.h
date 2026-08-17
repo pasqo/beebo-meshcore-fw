@@ -261,6 +261,18 @@ enum : uint8_t {
   EVENT_ACK_TIMEOUT = 21,   // DM/ACK side, no ACK within deadline (checkAckTableTimeouts())
   EVENT_ECHO_SUCCESS = 22,  // flood-echo side, rebroadcast heard (SimpleMeshTables::hasSeen())
   EVENT_ECHO_TIMEOUT = 23,  // flood-echo side, echo window elapsed (checkEchoTimeouts())
+  // beebo: temporary diagnostic for the transport-independent GET_PREFS_TLV
+  // stall investigation (BUGS.md 2026-08-16) -- Beebo::loop() times each of
+  // its top-level segments and logs one of these whenever a single loop()
+  // iteration takes longer than LOOP_STALL_THRESHOLD_MS (Beebo.cpp), so a
+  // captured MonRing trace shows exactly which segment was running during a
+  // real-world multi-second stall instead of guessing from source alone.
+  //   data[0]    = segment_id -- which segment (see Beebo.cpp's
+  //                LOOP_SEG_* enum) took the longest within this iteration
+  //   data[1:3]  = that segment's own duration_ms (u16 LE)
+  //   data[3:5]  = total loop() iteration duration_ms (u16 LE)
+  //   data[5:12] = reserved
+  EVENT_LOOP_STALL = 24,
 };
 
 // ---- TXCONFIRM_*: verdict enum used ONLY for internal bookkeeping now
