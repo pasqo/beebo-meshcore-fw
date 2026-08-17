@@ -476,6 +476,43 @@ bool Beebo::tlvSetName(Beebo* self, uint8_t role, const uint8_t* in, size_t len)
   return true;
 }
 
+// beebo: role-parameterized access to companion's own default flood-scope
+// name+key (see PREFS_TLV_DEFAULT_SCOPE_NAME/_KEY's own comment in
+// Beebo.h). Text half -- strlen-based, same shape as tlvGetName/tlvSetName
+// above.
+int Beebo::tlvGetDefaultScopeName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+  const char* name = self->role_state_store[role].prefs.default_scope_name;
+  size_t n = strnlen(name, sizeof(self->role_state_store[role].prefs.default_scope_name) - 1);
+  if (n > max_len) n = max_len;
+  memcpy(out, name, n);
+  return (int)n;
+}
+bool Beebo::tlvSetDefaultScopeName(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
+  BeeboRoleState& slot = self->role_state_store[role];
+  if (len > sizeof(slot.prefs.default_scope_name) - 1) len = sizeof(slot.prefs.default_scope_name) - 1;
+  memcpy(slot.prefs.default_scope_name, in, len);
+  slot.prefs.default_scope_name[len] = 0;
+  persistRoleSlot(self, role, slot);
+  return true;
+}
+// beebo: key half -- a raw 16-byte TransportKey, not text. Fixed-length,
+// no strlen/NUL-termination (the key can legitimately contain a 0x00
+// byte) -- callers on the CLI side must read/write this via get_raw(),
+// never get_str()'s UTF-8 decode.
+int Beebo::tlvGetDefaultScopeKey(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+  size_t n = sizeof(self->role_state_store[role].prefs.default_scope_key);
+  if (n > max_len) n = max_len;
+  memcpy(out, self->role_state_store[role].prefs.default_scope_key, n);
+  return (int)n;
+}
+bool Beebo::tlvSetDefaultScopeKey(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
+  BeeboRoleState& slot = self->role_state_store[role];
+  if (len != sizeof(slot.prefs.default_scope_key)) return false;  // ERR_CODE_ILLEGAL_ARG via the caller
+  memcpy(slot.prefs.default_scope_key, in, len);
+  persistRoleSlot(self, role, slot);
+  return true;
+}
+
 const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_REPEAT_MODE,            TLV_U32,    tlvGetRepeatMode,            tlvSetRepeatMode,            nullptr, nullptr },
   { PREFS_TLV_TXDELAY_FACTOR,         TLV_FLOAT,  tlvGetTxDelayFactor,         tlvSetTxDelayFactor,         nullptr, nullptr },
@@ -526,6 +563,8 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_RADIO_SF,       TLV_U32,   tlvGetRadioSf,      tlvSetRadioSf,      nullptr, nullptr },
   { PREFS_TLV_RADIO_CR,       TLV_U32,   tlvGetRadioCr,      tlvSetRadioCr,      nullptr, nullptr },
   { PREFS_TLV_RADIO_TXPOWER,  TLV_U32,   tlvGetRadioTxpower, tlvSetRadioTxpower, nullptr, nullptr },
+  { PREFS_TLV_DEFAULT_SCOPE_NAME, TLV_STRING, nullptr, nullptr, tlvGetDefaultScopeName, tlvSetDefaultScopeName },
+  { PREFS_TLV_DEFAULT_SCOPE_KEY,  TLV_STRING, nullptr, nullptr, tlvGetDefaultScopeKey,  tlvSetDefaultScopeKey },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 

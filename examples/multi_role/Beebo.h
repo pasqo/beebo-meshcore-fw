@@ -1128,6 +1128,21 @@ private:
     PREFS_TLV_RADIO_SF = 47,       // NodePrefs.sf, 7-12
     PREFS_TLV_RADIO_CR = 48,       // NodePrefs.cr, 5-8
     PREFS_TLV_RADIO_TXPOWER = 49,  // int8_t dbm (NodePrefs.tx_power_dbm)
+    // beebo: companion's own default flood-scope name+key
+    // (NodePrefs.default_scope_name/_key) -- role-parameterized access
+    // alongside every other companion.node.* field, unlike the legacy
+    // CMD_GET/SET_DEFAULT_FLOOD_SCOPE opcode these two fields used to be
+    // exclusively reachable through, which only ever answers for whichever
+    // role is currently live (and is refused outright while repeater is
+    // live -- see the companion-only-command refusal list in
+    // handleCmdFrame()). That legacy opcode is left untouched for backward
+    // compatibility with older apps; these two TLV fields are the CLI's own
+    // primary path now (companion_settings.py's _get_default_scope/
+    // _set_default_scope). KEY is a raw 16-byte TransportKey, not text --
+    // its own tlvGet/tlvSet don't use strlen, unlike every other
+    // TLV_STRING field here.
+    PREFS_TLV_DEFAULT_SCOPE_NAME = 50,  // string, up to 30 chars (NodePrefs.default_scope_name)
+    PREFS_TLV_DEFAULT_SCOPE_KEY = 51,   // raw 16 bytes, not text (NodePrefs.default_scope_key)
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1262,6 +1277,10 @@ private:
   static bool tlvSetRadioCr(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRadioTxpower(Beebo* self, uint8_t role);
   static bool tlvSetRadioTxpower(Beebo* self, uint8_t role, uint32_t raw);
+  static int tlvGetDefaultScopeName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetDefaultScopeName(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
+  static int tlvGetDefaultScopeKey(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetDefaultScopeKey(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
 
   // Encodes every field above into out (caller-sized) as [key][len][value]
   // triplets, returns bytes written. Decodes one triplet from in[pos..],
