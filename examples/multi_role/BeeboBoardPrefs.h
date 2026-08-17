@@ -59,5 +59,16 @@ struct BeeboBoardPrefs {
   uint16_t batt_sample_period_secs = 0;  // board.battery.sample_period
   uint16_t batt_sample_window_secs = 0;  // board.battery.sample_window
   uint16_t batt_charged_mv = 0;          // battery.charged_mv (no settings-tree leaf yet)
-  uint16_t idle_margin_ms = 0;           // board.state.idle_margin
+  // beebo: SETTINGS_HIERARCHY_UNIFICATION.md -- board.state.idle_margin
+  // removed as a settings-tree leaf/PREFS_TLV field (radioIsIdle() now
+  // always uses the compiled IDLE_MARGIN_DEFAULT_MS constant, never this
+  // field). The field itself stays, unused, rather than being deleted --
+  // DataStore.cpp's loadBeeboBoardPrefs()/saveBeeboBoardPrefs() read/write
+  // it at a fixed positional file offset with nothing declared after it,
+  // so keeping the field (dead weight, a few bytes of RAM) preserves that
+  // offset for every other field with zero migration risk, versus
+  // resizing the on-disk format for a field that was never the last one
+  // in every persistence path touching it (the /beebo_companion legacy
+  // migration tail in particular has real fields after this one).
+  uint16_t idle_margin_ms = 0;
 };

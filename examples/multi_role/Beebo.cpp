@@ -1401,9 +1401,10 @@ void Beebo::clampRadioPrefs() {
   if (_board.batt_charged_mv == 0) {
     _board.batt_charged_mv = BATT_FULL_MV_DEFAULT;  // beebo: default charged-voltage threshold
   }
-  if (_board.idle_margin_ms == 0) {
-    _board.idle_margin_ms = IDLE_MARGIN_DEFAULT_MS;  // beebo: default idle margin
-  }
+  // beebo: idle_margin_ms's own "0 = default" seeding used to happen here --
+  // removed along with the field's last live consumer (radioIsIdle() now
+  // always uses IDLE_MARGIN_DEFAULT_MS directly, see its own comment) --
+  // no point seeding a field nothing reads anymore.
   // beebo: dedup_window_ms has NO "0 = default" resolution, unlike every
   // field above -- 0 is a real, literal value here (disables live-eviction
   // counting entirely, see SimpleMeshTables.h's setDedupWindowMs()
@@ -1494,13 +1495,15 @@ void Beebo::initMonRing() {
 // still recovering) and skewing the trend classifier. Also worth capturing
 // into the Vbat history trace itself so we can chart Vbat against idle/busy
 // state and tune IDLE_MARGIN from real recovery data instead of guessing --
-// starting point of 100ms, to be retuned once real recovery traces are in --
-// see NodePrefs.idle_margin_ms / IDLE_MARGIN_DEFAULT_MS (BattTrend.h) for the
-// runtime-overridable version.
+// starting point of 100ms, to be retuned once real recovery traces are in.
+// beebo: SETTINGS_HIERARCHY_UNIFICATION.md -- always IDLE_MARGIN_DEFAULT_MS
+// (BattTrend.h) now, no longer runtime-overridable via
+// board.state.idle_margin (removed as a settings-tree leaf/PREFS_TLV field
+// -- see BeeboBoardPrefs.h's idle_margin_ms comment for why the struct
+// field itself stays, unused, rather than being deleted outright).
 bool Beebo::radioIsIdle() const {
-  uint32_t margin = _board.idle_margin_ms > 0 ? _board.idle_margin_ms : IDLE_MARGIN_DEFAULT_MS;
   return !_radio->isReceiving() && !isTransmitting()
-         && millisHasNowPassed(_last_radio_active_ms + margin);
+         && millisHasNowPassed(_last_radio_active_ms + IDLE_MARGIN_DEFAULT_MS);
 }
 
 RadioRecord Beebo::buildRadioRecord() {
@@ -2533,12 +2536,6 @@ bool Beebo::tlvSetBattChargedMv(Beebo* self, uint8_t role, uint32_t raw) {
   return persistBoardField(self, self->_board.batt_charged_mv, raw);
 }
 
-uint32_t Beebo::tlvGetIdleMargin(Beebo* self, uint8_t role) {
-  return self->_board.idle_margin_ms;
-}
-bool Beebo::tlvSetIdleMargin(Beebo* self, uint8_t role, uint32_t raw) {
-  return persistBoardField(self, self->_board.idle_margin_ms, raw);
-}
 
 // beebo: companion's own write-side counterparts to the role-generic
 // accessors above / BEEBO_CMD_GET_COMPANION_* above -- fixes the mirror-image write gap
@@ -5997,8 +5994,6 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %s", _board.batt_present == 2 ? "yes" : (_board.batt_present == 1 ? "no" : "unknown"));
     } else if (memcmp(key, "battery.charged_mv", 18) == 0) {
       sprintf(reply, "> %u", _board.batt_charged_mv);
-    } else if (memcmp(key, "board.state.idle_margin", 23) == 0) {
-      sprintf(reply, "> %u", _board.idle_margin_ms);
     } else if (memcmp(key, "guest.password", 14) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
       sprintf(reply, "> %s", _role_state->prefs.guest_password);
@@ -6258,11 +6253,13 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       // longer holds, so this needs an explicit interceptor same as "lat"/
       // "lon" got for the analogous reason. Reuses tlvSetAdcMultiplier()
       // so the clamp/live-apply/persist logic lives in exactly one place.
-      // (adc.resolution/battery.*/board.state.idle_margin have no
-      // upstream CommonCLI.cpp equivalent at all -- unlike adc.multiplier,
-      // they were never reachable by "set" over a text-CLI CommonLink
-      // session before or after this change, so no interceptor is needed
-      // for them here.)
+      // (adc.resolution/battery.* have no upstream CommonCLI.cpp
+      // equivalent at all -- unlike adc.multiplier, they were never
+      // reachable by "set" over a text-CLI CommonLink session before or
+      // after this change, so no interceptor is needed for them here.
+      // board.state.idle_margin used to be in this same no-SET-equivalent
+      // group -- removed as a settings-tree leaf entirely, see
+      // radioIsIdle()'s comment.)
       float v = atof(&key[15]);
       uint32_t raw; memcpy(&raw, &v, 4);
       tlvSetAdcMultiplier(this, this->_board.role, raw);

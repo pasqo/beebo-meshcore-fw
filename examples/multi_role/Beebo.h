@@ -1069,7 +1069,11 @@ private:
     PREFS_TLV_BATT_SAMPLE_PERIOD = 33, // secs
     PREFS_TLV_BATT_SAMPLE_WINDOW = 34, // secs
     PREFS_TLV_BATT_CHARGED_MV = 35,
-    PREFS_TLV_IDLE_MARGIN = 36,        // ms
+    // 36 was PREFS_TLV_IDLE_MARGIN -- retired, SETTINGS_HIERARCHY_UNIFICATION.md
+    // (idle_margin_ms is IDLE_MARGIN_DEFAULT_MS-only now, see radioIsIdle()
+    // and BeeboBoardPrefs.h's field comment). Not reused for a new field --
+    // this table's keys are hand-assigned, never reused after retirement,
+    // same convention CMD/RESP sub-ids follow in protocol.yaml.
     // beebo: companion-only NodePrefs fields (see BUGS.md's write-gap
     // note) -- always meaningful only via role=NODE_ROLE_COMPANION, same
     // as the individual SET_COMPANION_* opcodes they replace. Registering
@@ -1259,8 +1263,6 @@ private:
   static bool tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetBattChargedMv(Beebo* self, uint8_t role);
   static bool tlvSetBattChargedMv(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetIdleMargin(Beebo* self, uint8_t role);
-  static bool tlvSetIdleMargin(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetManualAddContacts(Beebo* self, uint8_t role);
   static bool tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAutoaddConfig(Beebo* self, uint8_t role);
