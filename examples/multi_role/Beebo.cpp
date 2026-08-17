@@ -4240,13 +4240,19 @@ void Beebo::handleCmdFrame(size_t len) {
     // paginated: out_frame[2] carries next_index (== PREFS_TLV_FIELD_COUNT
     // when this page reached the end) for the caller to request the next
     // page with, same "keep calling until done" shape as GET_MONRING/
-    // GET_NEIGHBORS. WiFi/USB's larger getMaxSendFrameSize() (BULK_XFER)
-    // means they get the whole table in one page in practice.
+    // GET_NEIGHBORS. Page cap must track _app_max_tx (the size this app
+    // actually negotiated via CMD_SET_XFER_CAPS), not the transport's raw
+    // getMaxSendFrameSize() -- a BULK_XFER-capable transport (WiFi/USB) can
+    // physically carry up to MAX_SEND_FRAME_SIZE, but an app that never
+    // negotiated stays capped at its own frame-size limit (e.g. meshcore-py's
+    // hardcoded 300-byte parser ceiling), and silently drops anything larger
+    // with no error visible to the caller. Same pattern GET_MONRING already
+    // uses at _app_max_tx below.
     uint8_t start_index = (sub_len >= 3) ? sub[2] : 0;
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_PREFS_TLV;
     size_t next_index = 0;
-    size_t page_cap = _serial->getMaxSendFrameSize();
+    size_t page_cap = _app_max_tx;
     if (page_cap > MAX_SEND_FRAME_SIZE) page_cap = MAX_SEND_FRAME_SIZE;  // out_frame is only sized for this much
     int n = encodePrefsTlv(resolveRoleByte(sub[1]), start_index, &out_frame[3], page_cap - 3, &next_index);
     out_frame[2] = (next_index >= PREFS_TLV_FIELD_COUNT) ? 0xFF : (uint8_t)next_index;
