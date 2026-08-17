@@ -1115,6 +1115,19 @@ private:
     // immediately, same as every other field in this table -- no need to
     // also touch actual LoRa radio state.
     PREFS_TLV_COMPANION_REPEAT = 44,
+    // beebo: LoRa modulation params -- role-generic BeeboBasePrefs fields,
+    // same "mirror into hardware only if role == live" convention as
+    // PREFS_TLV_RADIO_FEM_RXGAIN/PREFS_TLV_RADIO_RXGAIN above. The legacy
+    // stock CMD_SET_RADIO_PARAMS/CMD_SET_RADIO_TX_POWER opcodes stay the
+    // only wire path for these fields with no role selector at all (an
+    // old/non-beebo companion app has no way to know a role even exists);
+    // these keys are additive, giving `beebo`'s own CLI a role-explicit
+    // path the legacy opcodes structurally can't offer.
+    PREFS_TLV_RADIO_FREQ = 45,     // float, MHz (NodePrefs.freq)
+    PREFS_TLV_RADIO_BW = 46,       // float, kHz (NodePrefs.bw)
+    PREFS_TLV_RADIO_SF = 47,       // NodePrefs.sf, 7-12
+    PREFS_TLV_RADIO_CR = 48,       // NodePrefs.cr, 5-8
+    PREFS_TLV_RADIO_TXPOWER = 49,  // int8_t dbm (NodePrefs.tx_power_dbm)
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1239,6 +1252,16 @@ private:
   static bool tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetCompanionRepeat(Beebo* self, uint8_t role);
   static bool tlvSetCompanionRepeat(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRadioFreq(Beebo* self, uint8_t role);
+  static bool tlvSetRadioFreq(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRadioBw(Beebo* self, uint8_t role);
+  static bool tlvSetRadioBw(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRadioSf(Beebo* self, uint8_t role);
+  static bool tlvSetRadioSf(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRadioCr(Beebo* self, uint8_t role);
+  static bool tlvSetRadioCr(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRadioTxpower(Beebo* self, uint8_t role);
+  static bool tlvSetRadioTxpower(Beebo* self, uint8_t role, uint32_t raw);
 
   // Encodes every field above into out (caller-sized) as [key][len][value]
   // triplets, returns bytes written. Decodes one triplet from in[pos..],

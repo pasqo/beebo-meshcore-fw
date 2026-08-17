@@ -521,6 +521,11 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_OWNER_PASSWORD,    TLV_STRING, nullptr, nullptr, tlvGetOwnerPasswordSetStr,    tlvSetOwnerPassword },
   { PREFS_TLV_MONRING_EVENT_MASK, TLV_U32,   tlvGetMonringEventMask, tlvSetMonringEventMask, nullptr, nullptr },
   { PREFS_TLV_COMPANION_REPEAT,   TLV_U32,   tlvGetCompanionRepeat,  tlvSetCompanionRepeat,  nullptr, nullptr },
+  { PREFS_TLV_RADIO_FREQ,     TLV_FLOAT, tlvGetRadioFreq,    tlvSetRadioFreq,    nullptr, nullptr },
+  { PREFS_TLV_RADIO_BW,       TLV_FLOAT, tlvGetRadioBw,      tlvSetRadioBw,      nullptr, nullptr },
+  { PREFS_TLV_RADIO_SF,       TLV_U32,   tlvGetRadioSf,      tlvSetRadioSf,      nullptr, nullptr },
+  { PREFS_TLV_RADIO_CR,       TLV_U32,   tlvGetRadioCr,      tlvSetRadioCr,      nullptr, nullptr },
+  { PREFS_TLV_RADIO_TXPOWER,  TLV_U32,   tlvGetRadioTxpower, tlvSetRadioTxpower, nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 

@@ -2375,6 +2375,97 @@ bool Beebo::tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
+// beebo: LoRa modulation params -- role-generic NodePrefs fields, same
+// mirror-into-hardware-only-if-live convention as radio_fem_rxgain/
+// radio_rxgain above. Range checks mirror CMD_SET_RADIO_PARAMS's own
+// (Hz-based there; these fields are already stored in the prefs' own
+// units -- MHz/kHz -- so the bounds are that same range divided by 1000).
+// Unlike CMD_SET_RADIO_PARAMS (which rewrites freq/bw/sf/cr atomically in
+// one opcode), each of these is set independently -- re-sending all four
+// current values to radio_driver.setParams() on every one of them (rather
+// than tracking "did anything actually change") is deliberately the same
+// unconditional resend set_radio()/_set_one() has always done; the radio
+// driver re-applying identical params it already has is a no-op in
+// practice, and matching that existing shape means no new "did this
+// actually change" bug can be introduced here.
+uint32_t Beebo::tlvGetRadioFreq(Beebo* self, uint8_t role) {
+  uint32_t raw; float v = self->role_state_store[role].prefs.freq;
+  memcpy(&raw, &v, 4);
+  return raw;
+}
+bool Beebo::tlvSetRadioFreq(Beebo* self, uint8_t role, uint32_t raw) {
+  float v; memcpy(&v, &raw, 4);
+  if (v < 150.0f || v > 2500.0f) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.freq = v;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role) {
+    radio_driver.setParams(slot.prefs.freq, slot.prefs.bw, slot.prefs.sf, slot.prefs.cr);
+  }
+  return true;
+}
+
+uint32_t Beebo::tlvGetRadioBw(Beebo* self, uint8_t role) {
+  uint32_t raw; float v = self->role_state_store[role].prefs.bw;
+  memcpy(&raw, &v, 4);
+  return raw;
+}
+bool Beebo::tlvSetRadioBw(Beebo* self, uint8_t role, uint32_t raw) {
+  float v; memcpy(&v, &raw, 4);
+  if (v < 7.0f || v > 500.0f) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.bw = v;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role) {
+    radio_driver.setParams(slot.prefs.freq, slot.prefs.bw, slot.prefs.sf, slot.prefs.cr);
+  }
+  return true;
+}
+
+uint32_t Beebo::tlvGetRadioSf(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.sf;
+}
+bool Beebo::tlvSetRadioSf(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw < 5 || raw > 12) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.sf = (uint8_t)raw;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role) {
+    radio_driver.setParams(slot.prefs.freq, slot.prefs.bw, slot.prefs.sf, slot.prefs.cr);
+  }
+  return true;
+}
+
+uint32_t Beebo::tlvGetRadioCr(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.cr;
+}
+bool Beebo::tlvSetRadioCr(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw < 5 || raw > 8) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.cr = (uint8_t)raw;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role) {
+    radio_driver.setParams(slot.prefs.freq, slot.prefs.bw, slot.prefs.sf, slot.prefs.cr);
+  }
+  return true;
+}
+
+uint32_t Beebo::tlvGetRadioTxpower(Beebo* self, uint8_t role) {
+  int8_t v = self->role_state_store[role].prefs.tx_power_dbm;
+  return (uint32_t)(int32_t)v;
+}
+bool Beebo::tlvSetRadioTxpower(Beebo* self, uint8_t role, uint32_t raw) {
+  int8_t v = (int8_t)(int32_t)raw;
+  if (v < -9 || v > MAX_LORA_TX_POWER) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.tx_power_dbm = v;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role) {
+    radio_driver.setTxPower(slot.prefs.tx_power_dbm);
+  }
+  return true;
+}
+
 // beebo: BOARD_BATTERY_PREFS.md -- these seven all address self->_board
 // (BeeboBoardPrefs), not role_state_store[role].prefs, and always apply
 // live/persist regardless of `role`: there's one physical VBAT ADC/
