@@ -46,16 +46,72 @@ bool DualModeSerialInterface::feedTextByte(int c, uint8_t dest[], size_t max_len
 // comment on why). A short write here silently truncates the frame with no
 // way for the host to recover: its own byte-parser just waits forever for
 // bytes that were never sent, stalling the command for its full timeout.
-// Retry the remainder until the whole buffer is out; this can only ever
-// under-run if the peripheral itself stops accepting bytes entirely (already
-// a lost-connection condition handled elsewhere), not from a transient
-// backlog draining at normal USB speed.
+// Retry the remainder until the whole buffer is out.
+//
+// beebo: CONFIG_TINYUSB_CDC_TX_BUFSIZE is only 64 bytes on this core (no
+// Arduino-level setTxBufferSize to raise it, per the comment above) -- any
+// reply bigger than that (every beebo reply past a trivial OK/ERR: a
+// 176-byte GET_STATS page, up to a 2048-byte BULK_XFER page) needs many
+// retry iterations here, each one only able to push whatever room has
+// opened up in that 64-byte ring since the last try.
+//
+// Two distinct failure modes were found here, both via a live wire capture
+// (host-side TX/RX byte trace) of a real `no_event_received` repro:
+//
+// 1. A never-yielding busy-spin on a *partial* write (n > 0 but n < len)
+//    can starve whatever drains the TX ring of the CPU time it needs (that
+//    draining work happens off the loop()/Arduino task on this core),
+//    turning what should be a few sub-millisecond USB packet transfers into
+//    a stall lasting hundreds of ms -- confirmed via MonRing's
+//    EVENT_LOOP_STALL diagnostic: captured LOOP_SEG_ROLE_LOOP (loopRepeater(),
+//    which calls writeFrame() via checkSerialInterface()) blocking
+//    304-603ms. Fixed by yield()ing every iteration that still made
+//    progress, letting that draining work actually run between retries.
+//
+// 2. A *zero* return (peripheral momentarily not accepting ANY bytes) used
+//    to `break` immediately, on the very first occurrence, silently
+//    abandoning the rest of the frame -- exactly the truncation this
+//    function's own top comment warns about, on the assumption that a zero
+//    return only happens for "the peripheral stops accepting bytes
+//    entirely (already a lost-connection condition)". That assumption is
+//    wrong: a live capture caught a real frame (168 bytes) that stopped
+//    dead at 104 bytes with no further bytes EVER arriving, while the next
+//    request 15s later (the host's own retry) got a complete, correct
+//    reply -- proof the peripheral recovered fine and this was a momentary,
+//    not permanent, refusal. Fixed by retrying through zero returns too,
+//    the same as partial ones, up to ZERO_WRITE_GIVEUP_MS of continuous
+//    zero-returns before finally giving up (a bound still needed for an
+//    actually-lost connection, e.g. USB physically unplugged mid-transfer).
+// beebo: 200ms was found insufficient by live repro -- a real wire capture
+// caught a frame stopping dead at 104 of a declared 168 bytes, with the
+// remaining bytes never arriving, well past that window. No caller of
+// writeFrame() can recover from a short write once the length header is
+// already on the wire (that header commits to a length before this
+// function even starts on the body -- see writeFrame() below), and every
+// caller except two (both now fixed to compare against the full requested
+// length, not just non-zero) silently ignores writeFrame()'s return value
+// entirely. So the only real backstop against a corrupted, un-recoverable
+// frame is making the give-up threshold generous enough that it's a rare,
+// genuine-disconnect-only event -- a multi-second loop() delay here is a
+// far better outcome than a truncated frame, which costs the client its
+// full protocol timeout (15s) with no way to recover at all.
+static const uint32_t ZERO_WRITE_GIVEUP_MS = 3000;
+
 static size_t writeAll(Stream* serial, const uint8_t* buf, size_t len) {
   size_t written = 0;
+  uint32_t zero_since_ms = 0;
   while (written < len) {
     size_t n = serial->write(buf + written, len - written);
-    if (n == 0) break;   // peripheral not accepting bytes at all -- give up
+    if (n == 0) {
+      uint32_t now = millis();
+      if (zero_since_ms == 0) zero_since_ms = now;
+      if (now - zero_since_ms >= ZERO_WRITE_GIVEUP_MS) break;  // sustained refusal -- treat as lost connection
+      yield();
+      continue;
+    }
+    zero_since_ms = 0;
     written += n;
+    if (written < len) yield();  // let TX-draining work run before the next retry
   }
   return written;
 }

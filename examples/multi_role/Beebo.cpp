@@ -881,6 +881,7 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   _app_stream = false;
   if (_monread.active) monring.resumeAfterRead();  // abandoned mid-stream: don't leave capture paused
   _monread.active = false;
+  _statread.active = false;
   clearPendingReqs();
   next_ack_idx = 0;
   ack_overflow_count = 0;
@@ -2595,6 +2596,7 @@ void Beebo::handleCmdFrame(size_t len) {
     _app_stream = false;
     if (_monread.active) monring.resumeAfterRead();  // abandoned mid-stream: don't leave capture paused
     _monread.active = false;
+    _statread.active = false;
 
     int i = 0;
     out_frame[i++] = RESP_CODE_DEVICE_INFO;
@@ -3722,36 +3724,44 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&out_frame[i], &monring_count, 4); i += 4;
       memcpy(&out_frame[i], &monring_cap, 4); i += 4;
       _serial->writeFrame(out_frame, i);
-    } else if (stats_type == STATS_TYPE_TRANSPORT) {
+    } else if (stats_type == STATS_TYPE_TRANSPORT || stats_type == STATS_TYPE_PROFILE) {
       // Paginated fetch: optional 2-byte LE start offset in cmd_frame[2..3].
-      // Response: [STATS][TRANSPORT][total LE16][offset LE16][events...]
+      // Response: [STATS][type][total LE16][offset LE16][events...]
+      //
+      // beebo: same page-size/streaming uplevel as BEEBO_CMD_GET_MONRING --
+      // a full ring is small (TLOG_MAX_EVENTS records) but was always paged
+      // at the legacy 176-byte MAX_FRAME_SIZE with one command round trip
+      // per page (e.g. ~57 round trips for a 1024-event ring), unlike
+      // GET_MONRING which already rides _app_max_tx/_app_stream once
+      // negotiated via SET_XFER_CAPS. Every extra round trip is a fresh
+      // chance to hit the rare single-command USB stall this was chasing;
+      // fewer, bigger, self-driving pages cuts that exposure directly.
+      // If the app negotiated streaming, a bare offset==0 request just arms
+      // the loop pump (see checkSerialInterface()) instead of replying
+      // immediately -- same shape as BEEBO_CMD_GET_MONRING's _monread. An
+      // explicit offset!=0 (a pre-streaming app, or an app that decided not
+      // to negotiate) always gets the legacy single-page reply.
       uint16_t offset = (len >= 4) ? (cmd_frame[2] | ((uint16_t)cmd_frame[3] << 8)) : 0;
       // Mark the read boundary once per fetch (first page) so the next debuglog
       // clearly shows which events are new.
-      if (offset == 0) transport_log.log(TLOG_DEBUGLOG_READ);
+      if (stats_type == STATS_TYPE_TRANSPORT && offset == 0) transport_log.log(TLOG_DEBUGLOG_READ);
+      if (_app_stream && offset == 0) {
+        _statread.active = true;
+        _statread.kind = stats_type;
+        _statread.offset = 0;
+        return;
+      }
       int i = 0;
       out_frame[i++] = RESP_CODE_STATS;
-      out_frame[i++] = STATS_TYPE_TRANSPORT;
+      out_frame[i++] = stats_type;
       int hdr = i;
       i += 4;  // reserve total + offset
       uint16_t total = 0;
-      i += transport_log.serialize(&out_frame[i], MAX_FRAME_SIZE - i, offset, &total);
-      out_frame[hdr + 0] = total & 0xFF;
-      out_frame[hdr + 1] = (total >> 8) & 0xFF;
-      out_frame[hdr + 2] = offset & 0xFF;
-      out_frame[hdr + 3] = (offset >> 8) & 0xFF;
-      _serial->writeFrame(out_frame, i);
-    } else if (stats_type == STATS_TYPE_PROFILE) {
-      // Same paginated shape as STATS_TYPE_TRANSPORT, over profile_log
-      // (command-latency spans) instead of transport_log (connection churn).
-      uint16_t offset = (len >= 4) ? (cmd_frame[2] | ((uint16_t)cmd_frame[3] << 8)) : 0;
-      int i = 0;
-      out_frame[i++] = RESP_CODE_STATS;
-      out_frame[i++] = STATS_TYPE_PROFILE;
-      int hdr = i;
-      i += 4;  // reserve total + offset
-      uint16_t total = 0;
-      i += profile_log.serialize(&out_frame[i], MAX_FRAME_SIZE - i, offset, &total);
+      size_t page_cap = _app_max_tx;   // larger paged frames if negotiated (else 176)
+      if (stats_type == STATS_TYPE_TRANSPORT)
+        i += transport_log.serialize(&out_frame[i], page_cap - i, offset, &total);
+      else
+        i += profile_log.serialize(&out_frame[i], page_cap - i, offset, &total);
       out_frame[hdr + 0] = total & 0xFF;
       out_frame[hdr + 1] = (total >> 8) & 0xFF;
       out_frame[hdr + 2] = offset & 0xFF;
@@ -3963,7 +3973,7 @@ void Beebo::handleCmdFrame(size_t len) {
       // exist in this binary rather than silently setting _board.role (and
       // so isRepeater()/isCompanion()) to an uncompiled value.
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (isOTAActive() || _monread.active) {
+    } else if (isOTAActive() || _monread.active || _statread.active) {
       // beebo: refuse a role switch mid-OTA or mid bulk-transfer -- both
       // sessions carry state (ota_partition/ota_handle, _monread's
       // after_seq/next cursor) that a role switch has no way to preserve
@@ -4851,7 +4861,7 @@ void Beebo::checkSerialInterface() {
   // any frame that arrives anyway rather than letting it abort the stream
   // and leave capture paused. The stream's own disconnect/reset paths are
   // the only things allowed to end it early (see CMD_DEVICE_QUERY handling).
-  if (_monread.active) len = 0;
+  if (_monread.active || _statread.active) len = 0;
   if (len > 0) {
     // beebo: USB's DualModeSerialInterface delivers a
     // raw text-CLI line through this same checkRecvFrame() call, decided
@@ -4951,7 +4961,12 @@ void Beebo::checkSerialInterface() {
       // one empty terminator (header only, no records) so the client's stream
       // loop ends, then let capture resume.
       int n = fillMonRingFrame(out_frame, 0, 0, &returned, false, _monread.reset);
-      if (_serial->writeFrame(out_frame, n) > 0) {
+      // beebo: must be `== (size_t)n`, not `> 0` -- writeFrame() can return a
+      // short (but nonzero) count on a partial write (see writeAll()'s own
+      // comment in DualModeSerialInterface.cpp), which `> 0` would wrongly
+      // treat as a fully-sent frame and advance past data that never
+      // actually made it onto the wire.
+      if (_serial->writeFrame(out_frame, n) == (size_t)n) {
         monring.resumeAfterRead();
         _monread.active = false;
       }
@@ -4964,7 +4979,8 @@ void Beebo::checkSerialInterface() {
       size_t xport_cap = _serial->getMaxSendFrameSize();
       if (xport_cap < page_cap) page_cap = xport_cap;
       int n = fillMonRingFrame(out_frame, _monread.after_seq, page_cap, &returned, _monread.first_page, _monread.reset);
-      if (_serial->writeFrame(out_frame, n) > 0) {
+      // beebo: `== (size_t)n`, not `> 0` -- see the sibling check above.
+      if (_serial->writeFrame(out_frame, n) == (size_t)n) {
         _monread.first_page = false;
         // returned==0 here would mean nothing left to send before reaching
         // `next` (shouldn't happen while paused, but guard against it too).
@@ -4974,6 +4990,48 @@ void Beebo::checkSerialInterface() {
         } else {
           _monread.after_seq += returned;
         }
+      }
+    }
+  } else if (_statread.active && !_serial->isWriteBusy()) {
+    // beebo: stream a GET_STATS(TRANSPORT/PROFILE) ring the same way
+    // _monread streams GET_MONRING -- one page per loop, paced by the
+    // transport accepting the write, so radio RX keeps being serviced.
+    // Terminates on an empty/short page (offset reaches total), same stop
+    // condition the legacy paginated reply already used.
+    size_t page_cap = _app_max_tx;
+    size_t xport_cap = _serial->getMaxSendFrameSize();
+    if (xport_cap < page_cap) page_cap = xport_cap;
+    int i = 0;
+    out_frame[i++] = RESP_CODE_STATS;
+    out_frame[i++] = _statread.kind;
+    int hdr = i;
+    i += 4;  // reserve total + offset
+    uint16_t total = 0;
+    size_t body_cap = page_cap > (size_t)i ? page_cap - i : 0;
+    // beebo: serialize() returns bytes written, not records -- divide by the
+    // per-record wire size to get the record count the offset/total fields
+    // (and the client's own pagination) are actually counted in. Confirmed
+    // live: using the raw byte count here overshoots `total` (a record
+    // count) after a single page, ending the stream 9x/8x too early.
+    const int per_event = (_statread.kind == STATS_TYPE_TRANSPORT) ? 9 : 8;
+    int body_n = (_statread.kind == STATS_TYPE_TRANSPORT)
+        ? transport_log.serialize(&out_frame[i], body_cap, _statread.offset, &total)
+        : profile_log.serialize(&out_frame[i], body_cap, _statread.offset, &total);
+    int n_records = body_n / per_event;
+    i += body_n;
+    out_frame[hdr + 0] = total & 0xFF;
+    out_frame[hdr + 1] = (total >> 8) & 0xFF;
+    out_frame[hdr + 2] = _statread.offset & 0xFF;
+    out_frame[hdr + 3] = (_statread.offset >> 8) & 0xFF;
+    // beebo: `== (size_t)i`, not `> 0` -- writeFrame() can short-write (see
+    // DualModeSerialInterface.cpp's writeAll()); treating that as success
+    // would advance the offset past data that never made it onto the wire.
+    if (_serial->writeFrame(out_frame, i) == (size_t)i) {
+      uint16_t new_offset = _statread.offset + (uint16_t)n_records;
+      if (n_records == 0 || new_offset >= total) {
+        _statread.active = false;
+      } else {
+        _statread.offset = new_offset;
       }
     }
   //} else if (!_serial->isWriteBusy()) {
@@ -6161,7 +6219,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       }
       // beebo: same OTA/bulk-transfer guard as BEEBO_CMD_SET_NODE_ROLE --
       // see that handler's comment.
-      if (isOTAActive() || _monread.active) {
+      if (isOTAActive() || _monread.active || _statread.active) {
         strcpy(reply, "ERR: busy (OTA or bulk transfer in progress)");
         return;
       }

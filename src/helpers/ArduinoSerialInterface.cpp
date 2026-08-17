@@ -28,16 +28,40 @@ bool ArduinoSerialInterface::isWriteBusy() const {
 // comment on why). A short write here silently truncates the frame with no
 // way for the host to recover: its own byte-parser just waits forever for
 // bytes that were never sent, stalling the command for its full timeout.
-// Retry the remainder until the whole buffer is out; this can only ever
-// under-run if the peripheral itself stops accepting bytes entirely (already
-// a lost-connection condition handled elsewhere), not from a transient
-// backlog draining at normal USB speed.
+// Retry the remainder until the whole buffer is out.
+//
+// beebo: same fix as DualModeSerialInterface.cpp's own writeAll() (see its
+// comment for the full writeup, including the live wire-capture evidence
+// for both failure modes below) -- CONFIG_TINYUSB_CDC_TX_BUFSIZE is only 64
+// bytes on this core, so any non-trivial reply needs several retries here.
+// Two fixes: (1) yield() on every iteration that still made progress, so a
+// never-yielding busy-spin can't starve whatever drains the TX buffer of
+// the CPU time it needs; (2) retry through a *zero*-byte return too instead
+// of giving up on the very first one -- a zero return can be a momentary
+// refusal, not necessarily a lost connection, and giving up immediately
+// silently truncates the frame. This copy isn't on multi_role's own code
+// path (Beebo.h uses DualModeSerialInterface, not this class) but is live
+// for companion_radio and any other board still using ArduinoSerialInterface
+// directly, so it gets the identical fix.
+// beebo: see DualModeSerialInterface.cpp's own writeAll() comment for why
+// this is 3000ms, not a short window -- same reasoning applies here.
+static const uint32_t ZERO_WRITE_GIVEUP_MS = 3000;
+
 static size_t writeAll(Stream* serial, const uint8_t* buf, size_t len) {
   size_t written = 0;
+  uint32_t zero_since_ms = 0;
   while (written < len) {
     size_t n = serial->write(buf + written, len - written);
-    if (n == 0) break;   // peripheral not accepting bytes at all -- give up
+    if (n == 0) {
+      uint32_t now = millis();
+      if (zero_since_ms == 0) zero_since_ms = now;
+      if (now - zero_since_ms >= ZERO_WRITE_GIVEUP_MS) break;  // sustained refusal -- treat as lost connection
+      yield();
+      continue;
+    }
+    zero_since_ms = 0;
     written += n;
+    if (written < len) yield();  // let TX-draining work run before the next retry
   }
   return written;
 }

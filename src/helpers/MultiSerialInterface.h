@@ -188,11 +188,18 @@ public:
 
       // Locked: poll only the active transport.
       size_t n = _subs[_active].iface->checkRecvFrame(dest, max_len);
-      if (n > 0) { _activity++; return n; }   // beebo: RX frame from app
+      if (n > 0) { _activity++; _disconnect_since_ms = 0; return n; }   // beebo: RX frame from app
 
       if (!subConnected(_active)) {
-        transport_log.log(TLOG_MULTI_LOST, _subs[_active].type);
-        release(_active);
+        uint32_t now = millis();
+        if (_disconnect_since_ms == 0) _disconnect_since_ms = now;
+        if (now - _disconnect_since_ms >= DISCONNECT_DEBOUNCE_MS) {
+          transport_log.log(TLOG_MULTI_LOST, _subs[_active].type);
+          release(_active);
+          _disconnect_since_ms = 0;
+        }
+      } else {
+        _disconnect_since_ms = 0;
       }
       return 0;
     }
@@ -212,4 +219,17 @@ public:
 
 private:
   uint32_t _activity = 0;   // beebo: TX+RX frame counter for transport-activity LED
+  // beebo: debounce for subConnected() flapping (see checkRecvFrame) -- 0
+  // means "not currently observing a disconnect reading". A real, sustained
+  // disconnect (cable pulled) still gets caught, just DISCONNECT_DEBOUNCE_MS
+  // slower; a transient one-poll blip (e.g. HWCDC's `connected` flag
+  // dropping momentarily on a USB_SERIAL_JTAG_INTR_BUS_RESET the peripheral
+  // itself self-recovers from) no longer immediately tears down and
+  // discards an in-flight session over it -- confirmed via a raw
+  // (asyncio-free) pyserial repro that a reply frame's declared length and
+  // actually-delivered length can mismatch (168 declared, 104 delivered,
+  // remainder never arriving) with the loss traced to exactly this
+  // immediate-release path, not to any host-side code.
+  uint32_t _disconnect_since_ms = 0;
+  static const uint32_t DISCONNECT_DEBOUNCE_MS = 300;
 };
