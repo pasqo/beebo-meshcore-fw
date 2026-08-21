@@ -4172,12 +4172,13 @@ void Beebo::handleCmdFrame(size_t len) {
       // real "region default <name>" handler exactly (handleRegionCmd's own
       // putRegion() fallback), not SET_REGION_HOME's stricter ERR_CODE_NOT_FOUND.
       RegionEntry* entry = region_map.findByName(name);
+      PutRegionError put_err = PUT_REGION_OK;
       if (entry == NULL) {
-        entry = region_map.putRegion(name, 0);  // auto-create under wildcard root
+        entry = region_map.putRegion(name, 0, 0, &put_err);  // auto-create under wildcard root
         if (entry) entry->flags = 0;  // allow-flood
       }
       if (entry == NULL) {
-        writeErrFrame(ERR_CODE_TABLE_FULL);
+        writeErrFrame(put_err == PUT_REGION_ILLEGAL_NAME ? ERR_CODE_ILLEGAL_ARG : ERR_CODE_TABLE_FULL);
       } else {
         region_map.setDefaultRegion(entry);
         region_map.save(_store->getPrimaryFS(), "/beebo_regions");
@@ -4214,9 +4215,10 @@ void Beebo::handleCmdFrame(size_t len) {
     if (parent == NULL) {
       writeErrFrame(ERR_CODE_NOT_FOUND);   // named parent doesn't exist
     } else {
-      RegionEntry* region = region_map.putRegion(name, parent->id);
+      PutRegionError put_err = PUT_REGION_OK;
+      RegionEntry* region = region_map.putRegion(name, parent->id, 0, &put_err);
       if (region == NULL) {
-        writeErrFrame(ERR_CODE_TABLE_FULL);
+        writeErrFrame(put_err == PUT_REGION_ILLEGAL_NAME ? ERR_CODE_ILLEGAL_ARG : ERR_CODE_TABLE_FULL);
       } else {
         region->flags = 0;   // CommonCLI's own post-put reset: flood-allowed by default
         region_map.save(_store->getPrimaryFS(), "/beebo_regions");
@@ -4275,6 +4277,24 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(payload, &sub[1], payload_len);
     payload[payload_len] = 0;
 
+    // beebo: a chain must be all-or-nothing. putRegion() commits each
+    // segment (num_regions++) the instant it succeeds, so a failure on a
+    // *later* segment (bad jump target, empty name/jump, table full) used
+    // to leave every earlier segment permanently in the table -- the
+    // command as a whole reports an error, giving the caller no reason to
+    // think anything was created, while num_regions quietly grows on every
+    // retry of a chain with a typo further down it. created_ids tracks
+    // every segment actually created (not re-parented -- putRegion()
+    // reuses an existing entry by name without incrementing num_regions,
+    // and reparenting an existing entry is never this command's own leak
+    // to roll back) so a failure can undo them, last-created first --
+    // always safe since a segment's parent is always an entry created
+    // earlier in this same chain (or pre-existing), never a later one, so
+    // nothing still has a leftover entry as its parent by the time this
+    // walks back to it.
+    uint16_t created_ids[MAX_REGION_ENTRIES];
+    int created_count = 0;
+
     RegionEntry* cursor = &region_map.getWildcard();
     int err_code = 0;
     char* p = payload;
@@ -4297,9 +4317,17 @@ void Beebo::handleCmdFrame(size_t len) {
       if (*name == '\0') { err_code = ERR_CODE_ILLEGAL_ARG; break; }
       if (jump && *jump == '\0') { err_code = ERR_CODE_ILLEGAL_ARG; break; }
 
-      RegionEntry* r = region_map.putRegion(name, cursor->id);
-      if (r == NULL) { err_code = ERR_CODE_TABLE_FULL; break; }
+      int count_before = region_map.getCount();
+      PutRegionError put_err = PUT_REGION_OK;
+      RegionEntry* r = region_map.putRegion(name, cursor->id, 0, &put_err);
+      if (r == NULL) {
+        err_code = put_err == PUT_REGION_ILLEGAL_NAME ? ERR_CODE_ILLEGAL_ARG : ERR_CODE_TABLE_FULL;
+        break;
+      }
       r->flags = 0;   // flood-allowed by default, same as SET_REGION_PUT
+      if (region_map.getCount() > count_before && created_count < MAX_REGION_ENTRIES) {
+        created_ids[created_count++] = r->id;
+      }
 
       if (jump) {
         RegionEntry* j = region_map.findByNamePrefix(jump);
@@ -4310,6 +4338,10 @@ void Beebo::handleCmdFrame(size_t len) {
       }
     }
     if (err_code) {
+      for (int i = created_count - 1; i >= 0; i--) {
+        RegionEntry* r = region_map.findById(created_ids[i]);
+        if (r != NULL) region_map.removeRegion(*r);
+      }
       writeErrFrame(err_code);
     } else {
       region_map.save(_store->getPrimaryFS(), "/beebo_regions");

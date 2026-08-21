@@ -987,15 +987,28 @@ static char* splitNameJump(char* tok) {
   return nullptr;
 }
 
-static bool processRegionDefSegment(RegionMap* map, char* tok, RegionEntry** cursor, char* reply) {
+// out_created_id is set to the id putRegion() actually created (a new
+// entry, num_regions incremented) or left at 0 (the wildcard's id, never
+// a real segment's) when putRegion() instead re-parented an existing
+// entry found by name -- only a genuinely-new entry is this command's
+// own leak to roll back on a later segment's failure.
+static bool processRegionDefSegment(RegionMap* map, char* tok, RegionEntry** cursor,
+                                     uint16_t* out_created_id, char* reply) {
   char* jump = splitNameJump(tok);
   char* name = skipSpaces(tok);
   if (*name == '\0') { snprintf(reply, 160, "Err - empty name"); return false; }
   if (jump && *jump == '\0') { snprintf(reply, 160, "Err - empty jump"); return false; }
 
-  RegionEntry* r = map->putRegion(name, (*cursor)->id);
-  if (r == NULL) { snprintf(reply, 160, "Err - put failed: %s", name); return false; }
+  int count_before = map->getCount();
+  PutRegionError put_err = PUT_REGION_OK;
+  RegionEntry* r = map->putRegion(name, (*cursor)->id, 0, &put_err);
+  if (r == NULL) {
+    snprintf(reply, 160, put_err == PUT_REGION_ILLEGAL_NAME
+             ? "Err - illegal region name: %s" : "Err - region table full: %s", name);
+    return false;
+  }
   r->flags = 0;
+  if (map->getCount() > count_before) *out_created_id = r->id;
 
   if (jump) {
     RegionEntry* j = map->findByNamePrefix(jump);
@@ -1017,9 +1030,24 @@ void CommonCLI::handleRegionCmd(char* command, char* reply) {
     rtrimSpaces(payload);
     if (*payload == '\0') { snprintf(reply, 160, "Err - empty def"); return; }
 
+    // A chain is all-or-nothing -- see processRegionDefSegment's own
+    // comment on why only genuinely-new segments are tracked here, and
+    // why undoing them last-created-first is always safe.
+    uint16_t created_ids[MAX_REGION_ENTRIES];
+    int created_count = 0;
+
     RegionEntry* cursor = &_region_map->getWildcard();
     for (char* tok; (tok = takeToken(&payload)) != nullptr; ) {
-      if (!processRegionDefSegment(_region_map, tok, &cursor, reply)) return;
+      uint16_t created_id = 0;
+      bool ok = processRegionDefSegment(_region_map, tok, &cursor, &created_id, reply);
+      if (created_id != 0 && created_count < MAX_REGION_ENTRIES) created_ids[created_count++] = created_id;
+      if (!ok) {
+        for (int i = created_count - 1; i >= 0; i--) {
+          RegionEntry* r = _region_map->findById(created_ids[i]);
+          if (r != NULL) _region_map->removeRegion(*r);
+        }
+        return;
+      }
     }
     _region_map->exportTo(reply, 160);
     return;
@@ -1083,8 +1111,9 @@ void CommonCLI::handleRegionCmd(char* command, char* reply) {
       sprintf(reply, " default scope is now <null>");
     } else {
       auto def = _region_map->findByNamePrefix(parts[2]);
+      PutRegionError put_err = PUT_REGION_OK;
       if (def == NULL) {
-        def = _region_map->putRegion(parts[2], 0);  // auto-create the default region
+        def = _region_map->putRegion(parts[2], 0, 0, &put_err);  // auto-create the default region
       }
       if (def) {
         def->flags = 0;   // make sure allow flood enabled
@@ -1092,6 +1121,8 @@ void CommonCLI::handleRegionCmd(char* command, char* reply) {
         _callbacks->onDefaultRegionChanged(def);
         _callbacks->saveRegions();  // persist in one atomic step
         sprintf(reply, " default scope is now %s", def->name);
+      } else if (put_err == PUT_REGION_ILLEGAL_NAME) {
+        snprintf(reply, 160, "Err - illegal region name: %s", parts[2]);
       } else {
         strcpy(reply, "Err - region table full");
       }
@@ -1104,9 +1135,10 @@ void CommonCLI::handleRegionCmd(char* command, char* reply) {
     if (parent == NULL) {
       strcpy(reply, "Err - unknown parent");
     } else {
-      auto region = _region_map->putRegion(parts[2], parent->id);
+      PutRegionError put_err = PUT_REGION_OK;
+      auto region = _region_map->putRegion(parts[2], parent->id, 0, &put_err);
       if (region == NULL) {
-        strcpy(reply, "Err - unable to put");
+        strcpy(reply, put_err == PUT_REGION_ILLEGAL_NAME ? "Err - illegal region name" : "Err - region table full");
       } else {
         region->flags = 0;   // New default: enable flood
         strcpy(reply, "OK - (flood allowed)");

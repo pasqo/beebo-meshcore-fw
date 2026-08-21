@@ -144,20 +144,32 @@ bool RegionMap::save(FILESYSTEM* _fs, const char* path) {
   return false;  // failed
 }
 
-RegionEntry* RegionMap::putRegion(const char* name, uint16_t parent_id, uint16_t id) {
+RegionEntry* RegionMap::putRegion(const char* name, uint16_t parent_id, uint16_t id,
+                                  PutRegionError* out_err) {
+  if (out_err) *out_err = PUT_REGION_OK;
+
   const char* sp = name;  // check for illegal name chars
   while (*sp) {
-    if (!is_name_char(*sp)) return NULL;   // error
+    if (!is_name_char(*sp)) {   // error
+      if (out_err) *out_err = PUT_REGION_ILLEGAL_NAME;
+      return NULL;
+    }
     sp++;
   }
 
   auto region = findByName(name);
   if (region) {
-    if (region->id == parent_id) return NULL;   // ERROR: invalid parent!
+    if (region->id == parent_id) {   // ERROR: invalid parent!
+      if (out_err) *out_err = PUT_REGION_ILLEGAL_NAME;
+      return NULL;
+    }
 
     region->parent = parent_id;   // re-parent / move this region in the hierarchy
   } else {
-    if (id == 0 && num_regions >= MAX_REGION_ENTRIES) return NULL;  // full!
+    if (id == 0 && num_regions >= MAX_REGION_ENTRIES) {  // full!
+      if (out_err) *out_err = PUT_REGION_TABLE_FULL;
+      return NULL;
+    }
 
     region = &regions[num_regions++];   // alloc new RegionEntry
     region->flags = REGION_DENY_FLOOD;     // DENY by default

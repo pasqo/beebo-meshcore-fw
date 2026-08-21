@@ -20,6 +20,17 @@ struct RegionEntry {
   bool isWildcard() const { return id == 0; }
 };
 
+// beebo: putRegion() can fail for two unrelated reasons -- an illegal
+// name character, or a genuinely full table -- and callers need to tell
+// them apart to report the right error code instead of a misleading
+// ERR_CODE_TABLE_FULL for what's actually a bad name (see BUGS.md's
+// region-table entry for the real-world cost of not distinguishing
+// these: a client-side display-placeholder string fed back as a "region
+// name" got rejected for illegal characters, but the resulting
+// ERR_CODE_TABLE_FULL sent debugging down a completely wrong path
+// chasing a table leak that never existed).
+enum PutRegionError { PUT_REGION_OK = 0, PUT_REGION_ILLEGAL_NAME, PUT_REGION_TABLE_FULL };
+
 class RegionMap {
   TransportKeyStore* _store;
   uint16_t next_id, home_id, default_id;
@@ -37,7 +48,11 @@ public:
   bool load(FILESYSTEM* _fs, const char* path=NULL);
   bool save(FILESYSTEM* _fs, const char* path=NULL);
 
-  RegionEntry* putRegion(const char* name, uint16_t parent_id, uint16_t id = 0);
+  // out_err, when given, is set to PUT_REGION_OK on success or the
+  // specific failure reason on a NULL return -- existing call sites that
+  // pass nullptr (the default) are unaffected.
+  RegionEntry* putRegion(const char* name, uint16_t parent_id, uint16_t id = 0,
+                        PutRegionError* out_err = nullptr);
   RegionEntry* findMatch(mesh::Packet* packet, uint8_t mask);
   RegionEntry& getWildcard() { return wildcard; }
   RegionEntry* findByName(const char* name);
