@@ -71,6 +71,18 @@ public:
 
   void begin(int port);
 
+  // beebo: re-bind the listening socket to the current STA network
+  // interface. enable()'s own `if (_isEnabled) return;` guard makes it a
+  // no-op for this -- WiFi.disconnect()/WiFi.begin()/WiFi.reconnect() (the
+  // live-creds-change and auto-reconnect paths in Beebo.cpp) never flip
+  // _isEnabled, so enable() is never re-entered, and the WiFiServer bound
+  // at the *previous* association is left orphaned: it keeps accepting a
+  // TCP handshake at the IP layer (still routable, still ESTABLISHED) but
+  // server.available() never hands the app a live client again. Call this
+  // from the STA's got-IP handler after any reassociation, not just the
+  // first one.
+  void rebind() { if (_port > 0) server.begin(_port); }
+
   // BaseSerialInterface methods
   void enable() override;
   void disable() override;

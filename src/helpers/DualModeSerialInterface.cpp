@@ -11,6 +11,23 @@ void DualModeSerialInterface::disable() {
   _isEnabled = false;
 }
 
+// Discard whatever accumulated in the hardware RX buffer while this sub sat
+// unpolled and locked out by another active session -- MultiSerialInterface
+// never calls checkRecvFrame() on a non-active sub, so nothing in that
+// buffer was ever parsed, acknowledged, or replied to. It's either the
+// trailing/incomplete remains of a connection attempt the client already
+// gave up on (the exact case we intend to make fail), or one it's still
+// mid-retry on -- either way the client got no response and will detect the
+// failure on its own; nothing here is an established, in-flight exchange
+// that this would silently cut off. Left undrained, the first stale byte
+// gets misread as a fresh command once polling resumes: a '<' starts a
+// phantom binary-frame wait, anything else drops into MODE_TEXT and gets
+// echoed back out the port by feedTextByte().
+void DualModeSerialInterface::discardStaleRx() {
+  while (_serial->available()) _serial->read();
+}
+
+
 bool DualModeSerialInterface::isConnected() const {
   return true;   // no way of knowing, so assume yes
 }

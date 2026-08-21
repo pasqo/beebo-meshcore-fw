@@ -5425,6 +5425,12 @@ void Beebo::loopTransports() {
               _sta_got_ip = true;
               WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
               _wifi_needs_reconnect = false;
+              // Re-bind the listening socket: any reassociation (this is
+              // the STA's very first one here, but the same handler fires
+              // on every later one too) leaves a WiFiServer bound before
+              // it orphaned -- see SerialWifiInterface::rebind()'s own
+              // comment.
+              wifi_interface.rebind();
           }
       });
       WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
@@ -5515,6 +5521,9 @@ void Beebo::loopTransports() {
                 _sta_got_ip = true;
                 WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
                 _wifi_needs_reconnect = false;
+                // See SerialWifiInterface::rebind()'s own comment -- this
+                // handler fires on every reassociation, not just the first.
+                wifi_interface.rebind();
             }
         });
       }

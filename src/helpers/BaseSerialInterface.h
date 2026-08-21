@@ -58,6 +58,15 @@ public:
   virtual void disconnectActive() { disable(); enable(); }
   virtual bool isEnabled() const = 0;
 
+  // beebo: drop whatever's sitting in this transport's hardware RX buffer
+  // without touching enabled/parser state. For a byte-stream transport
+  // (DualModeSerialInterface) that just stopped being polled -- either it
+  // was the active sub and its session ended, or it sat locked out the
+  // whole time another sub was active -- anything still buffered was never
+  // parsed/acknowledged, so it's stale by construction. No-op default for
+  // transports with no such buffer to leak stale bytes from.
+  virtual void discardStaleRx() { }
+
   virtual bool isConnected() const = 0;
 
   // beebo: TLOG_XPORT_* id of whichever sub-transport currently holds the

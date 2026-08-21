@@ -64,16 +64,26 @@ class MultiSerialInterface : public BaseSerialInterface {
   void release(int prev) {
     transport_log.log(TLOG_MULTI_RELEASE, _subs[prev].type);
     // Reset the released sub's own byte-parser state: a session can end
-    // mid-frame (host closes the port between test runs, or an exclusive
-    // transport preempts a non-exclusive one -- see checkRecvFrame's two
-    // call sites below), leaving the parser expecting the rest of a frame
-    // that's never coming. Left alone, the sub's *next* session has its
-    // opening bytes consumed as that phantom frame's payload instead of
-    // parsed as new commands -- a desync that persists (and can cascade)
-    // until the stray byte count happens to complete on its own.
+    // mid-frame (host closes the port between test runs), leaving the
+    // parser expecting the rest of a frame that's never coming. Left alone,
+    // the sub's *next* session has its opening bytes consumed as that
+    // phantom frame's payload instead of parsed as new commands -- a
+    // desync that persists (and can cascade) until the stray byte count
+    // happens to complete on its own.
     _subs[prev].iface->disable();
     _subs[prev].iface->enable();
     _active = -1;
+
+    // Every other sub went unpolled -- checkRecvFrame() is called only on
+    // whichever sub is _active -- for as long as this session held the
+    // lock, so anything sitting in a byte-stream sub's hardware RX buffer
+    // (a connection attempt that never got a reply) is stale by
+    // construction. Drop it now rather than letting the next poll cycle
+    // misread it as a fresh command. Covers the released sub too, since
+    // disable()/enable() above resets parser state but not the underlying
+    // hardware buffer.
+    for (int i = 0; i < _count; i++) _subs[i].iface->discardStaleRx();
+
     if (!_enabled) return;
     if (!_subs[prev].exclusive) return;
     for (int i = 0; i < _count; i++) {
@@ -170,9 +180,24 @@ public:
     if (!_enabled) return 0;
 
     if (_active >= 0) {
-      // If the owner is non-exclusive (USB monitor), let an exclusive
-      // transport preempt it: poll the exclusive subs and hand over on
-      // a frame so WiFi/BLE are never starved by the cable staying up.
+      // Exclusivity is a contract between the two *real* transports, TCP
+      // and BLE -- those are strictly, symmetrically mutually exclusive:
+      // neither can ever take the session from the other. A second
+      // connection attempt against an active exclusive session just goes
+      // unpolled until that session releases on its own (disconnect/
+      // timeout) -- see release()'s discardStaleRx() call for why bytes
+      // that pile up on an unpolled sub in the meantime are safe to drop.
+      //
+      // USB was never part of that contract: it's registered non-exclusive
+      // because it's a monitor/debug conduit, not a second real companion
+      // session, so it holds no exclusivity claim for TCP/BLE to contend
+      // with. When the owner is USB, an incoming TCP/BLE connection just
+      // takes the session directly -- not "kicking" a peer, since USB
+      // was never a peer in the exclusivity sense. This also sidesteps a
+      // real problem: USB's own disconnect signal (connected_fn/
+      // (bool)Serial) can lag well behind the host actually closing the
+      // port, and a real TCP/BLE connection attempt has no reason to sit
+      // blocked behind that lag.
       if (!_subs[_active].exclusive) {
         for (int i = 0; i < _count; i++) {
           if (i == _active || !_subs[i].exclusive || !_subs[i].iface->isEnabled()) continue;
