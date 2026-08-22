@@ -180,37 +180,18 @@ public:
     if (!_enabled) return 0;
 
     if (_active >= 0) {
-      // Exclusivity is a contract between the two *real* transports, TCP
-      // and BLE -- those are strictly, symmetrically mutually exclusive:
-      // neither can ever take the session from the other. A second
-      // connection attempt against an active exclusive session just goes
-      // unpolled until that session releases on its own (disconnect/
-      // timeout) -- see release()'s discardStaleRx() call for why bytes
-      // that pile up on an unpolled sub in the meantime are safe to drop.
+      // Whichever transport is active -- exclusive or not -- holds the
+      // session until it releases on its own (disconnect debounce below),
+      // never preempted by an incoming connection on another transport. A
+      // second connection attempt just goes unpolled until then -- see
+      // release()'s discardStaleRx() call for why bytes that pile up on an
+      // unpolled sub in the meantime are safe to drop. The `exclusive` flag
+      // only governs power-management coexistence (lockOn()/release()
+      // above): USB stays powered and enabled regardless of who else is
+      // locked in, so it remains available as a monitor/debug conduit, but
+      // it is never displaced mid-session by BLE/WiFi locking in, and it
+      // never displaces them either.
       //
-      // USB was never part of that contract: it's registered non-exclusive
-      // because it's a monitor/debug conduit, not a second real companion
-      // session, so it holds no exclusivity claim for TCP/BLE to contend
-      // with. When the owner is USB, an incoming TCP/BLE connection just
-      // takes the session directly -- not "kicking" a peer, since USB
-      // was never a peer in the exclusivity sense. This also sidesteps a
-      // real problem: USB's own disconnect signal (connected_fn/
-      // (bool)Serial) can lag well behind the host actually closing the
-      // port, and a real TCP/BLE connection attempt has no reason to sit
-      // blocked behind that lag.
-      if (!_subs[_active].exclusive) {
-        for (int i = 0; i < _count; i++) {
-          if (i == _active || !_subs[i].exclusive || !_subs[i].iface->isEnabled()) continue;
-          size_t n = _subs[i].iface->checkRecvFrame(dest, subRecvLimit(i, max_len));
-          if (n > 0) {
-            release(_active);
-            lockOn(i);
-            _activity++;   // beebo: RX frame from app
-            return n;
-          }
-        }
-      }
-
       // Locked: poll only the active transport.
       size_t n = _subs[_active].iface->checkRecvFrame(dest, max_len);
       if (n > 0) { _activity++; _disconnect_since_ms = 0; return n; }   // beebo: RX frame from app
