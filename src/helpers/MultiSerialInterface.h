@@ -74,15 +74,17 @@ class MultiSerialInterface : public BaseSerialInterface {
     _subs[prev].iface->enable();
     _active = -1;
 
-    // Every other sub went unpolled -- checkRecvFrame() is called only on
-    // whichever sub is _active -- for as long as this session held the
-    // lock, so anything sitting in a byte-stream sub's hardware RX buffer
-    // (a connection attempt that never got a reply) is stale by
-    // construction. Drop it now rather than letting the next poll cycle
-    // misread it as a fresh command. Covers the released sub too, since
-    // disable()/enable() above resets parser state but not the underlying
-    // hardware buffer.
-    for (int i = 0; i < _count; i++) _subs[i].iface->discardStaleRx();
+    // Only the released sub's own hardware RX buffer can hold a stale
+    // phantom-frame remnant from the session that just ended -- disable()/
+    // enable() above resets parser state but not the underlying hardware
+    // buffer, so that remnant needs an explicit discard too. An unrelated
+    // sub may have a brand-new connection attempt's opening bytes sitting
+    // in its own buffer right now (this sub going unpolled while another
+    // held the lock doesn't mean whatever arrived on it is stale); sweeping
+    // every sub here used to wipe that out too, stalling a same-moment
+    // reconnect on another transport until the client's own retry recovered
+    // it a couple seconds later.
+    _subs[prev].iface->discardStaleRx();
 
     if (!_enabled) return;
     if (!_subs[prev].exclusive) return;
@@ -120,10 +122,7 @@ public:
   void disconnectActive() override {
     if (_active < 0) return;
     transport_log.log(TLOG_MULTI_DISCONNECT, _subs[_active].type);
-    int prev = _active;
-    _subs[prev].iface->disable();
-    _subs[prev].iface->enable();
-    release(prev);
+    release(_active);   // beebo: release() already does its own disable()/enable() cycle
   }
   bool isEnabled() const override { return _enabled; }
 
