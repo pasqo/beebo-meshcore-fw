@@ -83,10 +83,31 @@
 // rise just tracks a higher peak and stays CHARGED. A fall only exits to
 // DISCHARGING once it drops back below charged_mv -- a dip that's still
 // above the threshold is ripple near the top, not a real discharge, so it
-// stays CHARGED (tracking the dip, not the stale peak). INIT gets the same
-// charged_mv check as CHARGING, so booting (or returning from PLUGGED)
-// already at/above the threshold reports CHARGED immediately instead of
-// waiting on a dir>0 edge that will never come.
+// stays CHARGED. INIT gets the same charged_mv check as CHARGING, so
+// booting (or returning from PLUGGED) already at/above the threshold
+// reports CHARGED immediately instead of waiting on a dir>0 edge that will
+// never come.
+//
+// beebo: the CHARGED exit is a bare absolute-threshold check
+// (new_mv <= charged_mv), NOT gated on dir<0 like every other transition
+// here -- deliberately, unlike CHARGING/DISCHARGING's own edge-confirmed
+// exits. ref_mv is never updated while state stays CHARGED (there's
+// nothing to track it against exit-wise), so it's still pinned at
+// whatever peak first crossed charged_mv; on a slow multi-hour decline
+// that peak-relative delta does eventually blow past the hysteresis
+// margin same as any real edge would, but requiring that confirmation at
+// all is the wrong test for CHARGED specifically -- unlike CHARGING/
+// DISCHARGING, which track a moving peak/trough every sample and so
+// always have a fresh dir to confirm against, CHARGED has no such
+// reference to move, so gating its exit behind "one more hysteresis-sized
+// single-step edge, happening to land in the sampling window that
+// triggers this call" is an availability bug waiting to happen, not a
+// real ripple-rejection guard (the threshold comparison alone already
+// rejects ripple: a dip that's still above charged_mv fails the
+// comparison and stays CHARGED regardless of dir). A confirmed-elsewhere
+// case: a node observed stuck reporting CHARGED for 22+ hours while idle
+// voltage fell ~150mV past charged_mv, sampled correctly and continuously
+// throughout (see BUGS.md 2026-08-23).
 //
 // batt_present (NodePrefs.batt_present, see BATT_PRESENT_* above) replaces
 // what used to be a fixed absolute-voltage "is this plugged in?" threshold.
@@ -145,13 +166,16 @@ inline uint8_t classifyBattTrend(
       break;
 
     case BATT_STATE_CHARGED:
-      // Only exit (besides PLUGGED) is a real fall back below charged_mv --
-      // a dip that's still above the threshold is just ripple near the top
-      // and stays CHARGED (tracked, not ignored, so a further fall from
-      // there is still measured against the dip, not the old peak).
+      // Only exit (besides PLUGGED) is falling back at/below charged_mv --
+      // a bare absolute-threshold check, not gated on dir<0 like every
+      // other transition here (see the long comment above this function
+      // for why: ref_mv is pinned at the entry peak and never moves while
+      // staying CHARGED, so requiring a fresh hysteresis-sized edge against
+      // that stale peak can indefinitely miss a real, slow decline that's
+      // already well past the threshold).
       if (batt_present == BATT_PRESENT_NO) {
         state = BATT_STATE_PLUGGED;
-      } else if (dir < 0 && new_mv <= charged_mv) {
+      } else if (new_mv <= charged_mv) {
         ref_mv = new_mv;
         state = BATT_STATE_DISCHARGING;
       }

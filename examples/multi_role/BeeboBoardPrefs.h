@@ -58,7 +58,9 @@ struct BeeboBoardPrefs {
   uint8_t batt_present = 0;          // board.battery.present
   uint16_t batt_sample_period_secs = 0;  // board.battery.sample_period
   uint16_t batt_sample_window_secs = 0;  // board.battery.sample_window
-  uint16_t batt_charged_mv = 0;          // battery.charged_mv (no settings-tree leaf yet)
+  uint16_t batt_charged_mv = 0;          // classifyBattTrend()'s charged_mv override -- internal
+                                          // firmware tuning only, no PREFS_TLV/settings-tree leaf
+                                          // (deliberately, not "not yet wired" -- see BattTrend.h)
   // beebo: SETTINGS_HIERARCHY_UNIFICATION.md -- board.state.idle_margin
   // removed as a settings-tree leaf/PREFS_TLV field (radioIsIdle() now
   // always uses the compiled IDLE_MARGIN_DEFAULT_MS constant, never this

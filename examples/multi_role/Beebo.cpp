@@ -2530,13 +2530,6 @@ bool Beebo::tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw) {
   return persistBoardField(self, self->_board.batt_sample_window_secs, raw);
 }
 
-uint32_t Beebo::tlvGetBattChargedMv(Beebo* self, uint8_t role) {
-  return self->_board.batt_charged_mv;
-}
-bool Beebo::tlvSetBattChargedMv(Beebo* self, uint8_t role, uint32_t raw) {
-  return persistBoardField(self, self->_board.batt_charged_mv, raw);
-}
-
 
 // beebo: companion's own write-side counterparts to the role-generic
 // accessors above / BEEBO_CMD_GET_COMPANION_* above -- fixes the mirror-image write gap
@@ -6091,8 +6084,6 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", _board.batt_sample_window_secs);
     } else if (memcmp(key, "battery.present", 15) == 0) {
       sprintf(reply, "> %s", _board.batt_present == 2 ? "yes" : (_board.batt_present == 1 ? "no" : "unknown"));
-    } else if (memcmp(key, "battery.charged_mv", 18) == 0) {
-      sprintf(reply, "> %u", _board.batt_charged_mv);
     } else if (memcmp(key, "guest.password", 14) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
       sprintf(reply, "> %s", _role_state->prefs.guest_password);

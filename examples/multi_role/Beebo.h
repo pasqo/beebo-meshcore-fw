@@ -1068,7 +1068,11 @@ private:
     PREFS_TLV_BATT_PRESENT = 32,
     PREFS_TLV_BATT_SAMPLE_PERIOD = 33, // secs
     PREFS_TLV_BATT_SAMPLE_WINDOW = 34, // secs
-    PREFS_TLV_BATT_CHARGED_MV = 35,
+    // 35 was PREFS_TLV_BATT_CHARGED_MV -- retired, never had a CLI-side
+    // caller (no settings-tree leaf, no text-CLI set path either -- see
+    // BattTrend.h's charged_mv parameter, which stays purely a compiled
+    // constant/internal firmware tuning knob, not an operator-facing
+    // setting). Not reused for a new field.
     // 36 was PREFS_TLV_IDLE_MARGIN -- retired, SETTINGS_HIERARCHY_UNIFICATION.md
     // (idle_margin_ms is IDLE_MARGIN_DEFAULT_MS-only now, see radioIsIdle()
     // and BeeboBoardPrefs.h's field comment). Not reused for a new field --
@@ -1261,8 +1265,6 @@ private:
   static bool tlvSetBattSamplePeriod(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetBattSampleWindow(Beebo* self, uint8_t role);
   static bool tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetBattChargedMv(Beebo* self, uint8_t role);
-  static bool tlvSetBattChargedMv(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetManualAddContacts(Beebo* self, uint8_t role);
   static bool tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAutoaddConfig(Beebo* self, uint8_t role);

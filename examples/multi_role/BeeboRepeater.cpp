@@ -548,7 +548,6 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_BATT_PRESENT,        TLV_U32, tlvGetBattPresent,       tlvSetBattPresent,       nullptr, nullptr },
   { PREFS_TLV_BATT_SAMPLE_PERIOD,  TLV_U32, tlvGetBattSamplePeriod,  tlvSetBattSamplePeriod,  nullptr, nullptr },
   { PREFS_TLV_BATT_SAMPLE_WINDOW,  TLV_U32, tlvGetBattSampleWindow,  tlvSetBattSampleWindow,  nullptr, nullptr },
-  { PREFS_TLV_BATT_CHARGED_MV,     TLV_U32, tlvGetBattChargedMv,     tlvSetBattChargedMv,     nullptr, nullptr },
   { PREFS_TLV_MANUAL_ADD_CONTACTS, TLV_U32, tlvGetManualAddContacts, tlvSetManualAddContacts, nullptr, nullptr },
   { PREFS_TLV_AUTOADD_CONFIG,      TLV_U32, tlvGetAutoaddConfig,     tlvSetAutoaddConfig,     nullptr, nullptr },
   { PREFS_TLV_REPEATER_PASSWORD, TLV_STRING, nullptr, nullptr, tlvGetRepeaterPasswordSetStr, tlvSetRepeaterPassword },
