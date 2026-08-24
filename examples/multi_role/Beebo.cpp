@@ -1759,6 +1759,20 @@ void Beebo::applyRoleSwitchPrefs() {
   // bring-up-before-teardown logic applies it -- the transport carrying
   // the role-switch command itself is never yanked mid-reply.
   _transport_config_pending = true;
+  // beebo: that bring-up logic only acts on an off->on transition
+  // (`tcp_on && !_wifi_up`/`ble_on && !_ble_up`) -- exactly right for a
+  // plain CMD_SET_TRANSPORT_CONFIG toggle, where "still on" really does
+  // mean "nothing to do", but wrong for a role switch: wifi_ssid/wifi_pwd
+  // and the BLE PIN are each role's own independent copy
+  // (SETTINGS_HIERARCHY_UNIFICATION), so a transport that stays enabled
+  // across the switch can still be running the *other* role's now-stale
+  // credentials with nothing left to ever refresh them -- filed after a
+  // station needed a manual reboot to get TCP working again post-switch
+  // (BUGS.md 2026-08-24); not confirmed as the exact cause there, but a
+  // real gap regardless. This flag tells that same consumer to also force
+  // a fresh rejoin/PIN-reapply for a transport that was already up, not
+  // just bring up one that wasn't.
+  _role_switch_transport_refresh_pending = true;
 }
 
 // beebo: re-read persisted prefs from flash and re-apply the radio-affecting
@@ -3899,8 +3913,26 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
   } else if (sub[0] == BEEBO_CMD_GET_BATT_STATE) {
-    out_frame[0] = RESP_CODE_OK;
+    // beebo: on-demand classify while still INIT (CLI: "UNKNOWN"), so a
+    // caller doesn't have to wait on updateBattTrend()'s own due timer
+    // (see its _batt_boot_settled comment) to learn a voltage already
+    // known right now. Uses local scratch variables, NOT
+    // _cached_batt_mv/_batt_state -- writing straight into those raced
+    // the very next periodic loop() sample, whose ADC jitter could
+    // immediately trip classifyBattTrend()'s ungated CHARGED-exit check
+    // (see that function's own comment) and flip a boundary-voltage
+    // CHARGED right back to DISCHARGING. Keeping this local means it can
+    // never disturb the periodic sampler's real state.
     uint32_t value = _batt_state;
+    if (_batt_state == BATT_STATE_INIT && radioIsIdle()) {
+      uint16_t mv = board.getBattMilliVolts();
+      uint16_t scratch_ref = mv;
+      uint8_t scratch_state = BATT_STATE_INIT;
+      value = classifyBattTrend(mv, scratch_ref, scratch_state,
+                                 _board.batt_present, _board.adc_resolution_bits,
+                                 BATT_FULL_MV);
+    }
+    out_frame[0] = RESP_CODE_OK;
     memcpy(&out_frame[1], &value, 4);
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_BATT_STATE && sub_len >= 2) {
@@ -4893,16 +4925,20 @@ void Beebo::checkSerialInterface() {
                     || (cmd_frame[0] == CMD_GET_STATS && len >= 2
                         && (cmd_frame[1] == STATS_TYPE_TRANSPORT || cmd_frame[1] == STATS_TYPE_PROFILE)));
     if (trace) {
-      transport_log.log(TLOG_CMD_RECV, (uint8_t)cmd_frame[0]);
       // (cmd<<8)|sub so CMD_BEEBO sub-commands (OTA/WiFi/RF measurement/…)
       // and CMD_GET_STATS sub-types are distinguishable, unlike TLOG_CMD_*'s
-      // 1-byte outer-command-only detail. Only these two commands' second
+      // old 1-byte outer-command-only detail. Only these two commands' second
       // byte is actually a sub-id; every other command's byte[1] is just
       // payload data (e.g. SET_RADIO_TX_POWER's power value), so folding it
       // in unconditionally would fragment their stats across many ids.
+      // Also fed into transport_log.log() below (TransportLog.h's `detail`
+      // is a full int32_t, plenty of room) so `beebo monitor transport`
+      // shows the real sub-command instead of a generic "BEEBO"/"GET_STATS"
+      // row for every one of these -- see debuglog.py's BEEBO_CMD_NAMES.
       uint16_t prof_id = (uint16_t)cmd_frame[0] << 8;
       if (len >= 2 && (cmd_frame[0] == CMD_BEEBO || cmd_frame[0] == CMD_GET_STATS))
         prof_id |= cmd_frame[1];
+      transport_log.log(TLOG_CMD_RECV, prof_id);
       PROFILE_SCOPE(prof_id);
       // beebo: MON_COMMAND (MonRing.h) -- deliberately narrower than
       // `trace`: excludes every routine/repeated read path (all of
@@ -4919,7 +4955,7 @@ void Beebo::checkSerialInterface() {
                 cmd_frame[1] == BEEBO_CMD_GET_PREFS_TLV));
       if (command_run_eligible) appendCommandRunEvent(prof_id);
       handleCmdFrame(len);
-      transport_log.log(TLOG_CMD_DONE, (uint8_t)cmd_frame[0]);
+      transport_log.log(TLOG_CMD_DONE, prof_id);
     } else {
       handleCmdFrame(len);
     }
@@ -5480,6 +5516,12 @@ void Beebo::loopTransports() {
   // BLE and TCP are mutually exclusive at the session level (MultiSerialInterface),
   // but both interface objects may exist and be brought fully up/down here.
   if (consumeTransportConfigPending()) {
+    // beebo: only true right after a role switch (see
+    // applyRoleSwitchPrefs()'s own comment) -- forces the blocks below to
+    // also refresh a transport that stays enabled across the switch, not
+    // just bring up one that was off, since wifi_ssid/wifi_pwd/ble_pin are
+    // each role's own independent copy.
+    bool role_switch_refresh = consumeRoleSwitchTransportRefreshPending();
     bool ble_on = _role_state->prefs.ble_enabled != 0;
     bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0';
     bool usb_on = _role_state->prefs.usb_enabled != 0;
@@ -5506,6 +5548,17 @@ void Beebo::loopTransports() {
       }
       ble_interface.enable();
       _ble_up = true;
+    } else if (ble_on && role_switch_refresh) {
+      // beebo: BLE stayed enabled across a role switch -- ble_pin is each
+      // role's own independent copy, so refresh it live even though
+      // nothing about ble_enabled itself changed (see
+      // applyRoleSwitchPrefs()'s comment). The advertised device name
+      // (node_name) is role-scoped too, but changing it needs a full
+      // stack reinit (deinitRadio()/initRadio() -- see SerialBLEInterface
+      // ::begin()'s own comment), which would drop any bonded/active
+      // connection -- not forced here, only the PIN, which
+      // SerialBLEInterface::setPinCode() can update without a reinit.
+      ble_interface.setPinCode(getBLEPin());
     }
 
     if (tcp_on && !_wifi_up) {
@@ -5543,6 +5596,21 @@ void Beebo::loopTransports() {
         wifi_interface.enable();
       }
       _wifi_up = true;
+    } else if (tcp_on && role_switch_refresh) {
+      // beebo: TCP stayed enabled across a role switch -- wifi_ssid/
+      // wifi_pwd are each role's own independent copy, so force a real
+      // rejoin with this role's own credentials rather than assuming the
+      // existing association is still correct (see
+      // applyRoleSwitchPrefs()'s comment). Same disconnect-before-begin
+      // sequencing as _wifi_creds_reconnect_pending's own consumer below,
+      // for the same reason: a plain WiFi.begin() while already
+      // associated isn't a reliable way to force a fresh join.
+      WIFI_DEBUG_PRINTLN("Role switch: re-joining WiFi with this role's own credentials...");
+      _wifi_needs_reconnect = false;
+      _sta_got_ip = false;
+      WiFi.disconnect();
+      WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
+      WiFi.setSleep(false);
     }
 
     if (usb_on && !_usb_up) {

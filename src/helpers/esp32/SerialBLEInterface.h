@@ -26,7 +26,8 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
     uint8_t buf[MAX_FRAME_SIZE];
   };
 
-  #define FRAME_QUEUE_SIZE  4
+  // beebo: bumped 4->6 -- see SerialWifiInterface.h's matching comment.
+  #define FRAME_QUEUE_SIZE  6
   int recv_queue_len;
   Frame recv_queue[FRAME_QUEUE_SIZE];
   int send_queue_len;
@@ -105,7 +106,7 @@ public:
   size_t checkRecvFrame(uint8_t dest[], size_t max_len) override;
 
   // beebo: lifetime counts of writeFrame()/onWrite() silently dropping a
-  // frame because send_queue/recv_queue (FRAME_QUEUE_SIZE=4) was full.
+  // frame because send_queue/recv_queue (FRAME_QUEUE_SIZE=6) was full.
   uint32_t getSendQueueFullCount() const { return _send_queue_full_count; }
   uint32_t getRecvQueueFullCount() const { return _recv_queue_full_count; }
 };

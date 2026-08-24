@@ -26,8 +26,8 @@
 #define TLOG_WIFI_SESSION_OFF 9
 #define TLOG_WIFI_POWER_ON   10
 #define TLOG_WIFI_POWER_OFF  11
-#define TLOG_CMD_RECV        12   // detail = command byte (companion frame received)
-#define TLOG_CMD_DONE        13   // detail = command byte (handler returned)
+#define TLOG_CMD_RECV        12   // detail = (cmd_frame[0]<<8)|cmd_frame[1] for CMD_BEEBO/CMD_GET_STATS (their second byte is a real sub-id), else just cmd_frame[0] (companion frame received)
+#define TLOG_CMD_DONE        13   // detail = same (cmd<<8)|sub encoding as TLOG_CMD_RECV (handler returned)
 #define TLOG_WIFI_STA_DISCONNECTED 14   // detail = disconnect reason code
 #define TLOG_WIFI_STA_GOT_IP       15   // station (re)associated and got an IP; detail = the IPv4 address, packed MSB-first (octet1<<24 | octet2<<16 | octet3<<8 | octet4)
 #define TLOG_BLE_CONNECT           16   // BLE GATT link up (onConnect callback)

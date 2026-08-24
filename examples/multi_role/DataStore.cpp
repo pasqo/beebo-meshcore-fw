@@ -432,6 +432,19 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
         // right after monring_config, with no mask present.
         if (file.available() >= (int)sizeof(_prefs.monring_event_mask)) {
           file.read((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
+          // beebo: ble_pin -- unlike companion's own NodePrefs fold-in
+          // (loadBeeboCompanionPrefs()), this was never wired into
+          // /beebo_repeater's own field list at all, so repeater.node.ble.pin
+          // wrote fine to RAM/flushed via the dirty-bit path but silently
+          // reverted to 0 ("unset") on every reboot (BUGS.md 2026-08-24).
+          // Appended here rather than inserted alongside companion's
+          // matching field so an existing file saved before this fix isn't
+          // misread -- tail-guarded the same way monring_event_mask above
+          // is, defaulting to 0 (unset) rather than misreading a foreign
+          // byte range past a shorter old-format file's actual end.
+          if (file.available() >= (int)sizeof(_prefs.ble_pin)) {
+            file.read((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));
+          }
         }
       }
     }
@@ -459,6 +472,8 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));
     file.write((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));
     file.write((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
+    // beebo: ble_pin -- see loadBeeboRepeaterPrefs()'s matching comment.
+    file.write((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));
 
     file.close();
   }

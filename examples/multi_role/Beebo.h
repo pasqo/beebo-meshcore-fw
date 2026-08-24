@@ -696,6 +696,19 @@ private:
     _transport_config_pending = false;
     return v;
   }
+  // Returns true (once) when applyRoleSwitchPrefs() ran; loop()'s transport-
+  // management block uses this alongside consumeTransportConfigPending() to
+  // force a fresh WiFi rejoin / BLE PIN reapply for a transport that stays
+  // enabled across the switch, not just one transitioning off->on -- see
+  // applyRoleSwitchPrefs()'s own comment for why the plain enabled-bitmask
+  // check alone isn't enough here (each role's WiFi creds/BLE PIN are their
+  // own independent copy, so "still on" doesn't mean "still the right
+  // creds"). Resets the flag on read.
+  bool consumeRoleSwitchTransportRefreshPending() {
+    bool v = _role_switch_transport_refresh_pending;
+    _role_switch_transport_refresh_pending = false;
+    return v;
+  }
 
   // beebo: transport ownership -- moved in from main.cpp so Beebo is a
   // genuinely self-contained multi-role/multi-transport mesh class (its own
@@ -1457,6 +1470,7 @@ private:
   // reconnect only happens after nothing is depending on the old session.
   bool _wifi_creds_reconnect_pending = false;
   bool _transport_config_pending = false;
+  bool _role_switch_transport_refresh_pending = false;
   unsigned long dirty_contacts_expiry;
 
   RadioRecord buildRadioRecord();  // beebo: snapshot current radio config, shared by initMonRing()/logRxRaw()/logTx()/logTxFail()/monring.clear() sites

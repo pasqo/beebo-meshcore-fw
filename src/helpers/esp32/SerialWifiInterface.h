@@ -45,7 +45,14 @@ class SerialWifiInterface : public BaseSerialInterface {
   uint8_t _recv_body_buf[OTA_FRAME_SIZE];
   size_t _recv_body_len = 0;
 
-  #define FRAME_QUEUE_SIZE  4
+  // beebo: bumped 4->6 (not 8 -- each send_queue slot is MAX_SEND_FRAME_SIZE
+  // bytes, 2048 under BULK_XFER, so 8 overflows DRAM by ~5KB) -- absorbs a
+  // short burst of outbound frames (several RX packets forwarded to the app
+  // back-to-back, or a bulk page reply) without dropping via
+  // link_tx_queue_full. Doesn't fix a genuinely slow/stalled client or WiFi
+  // link, which still eventually fills a bigger queue too (see MonRing.h's
+  // EVENT_LINK_TX_QUEUE_FULL).
+  #define FRAME_QUEUE_SIZE  6
   int recv_queue_len;
   Frame recv_queue[FRAME_QUEUE_SIZE];
   int send_queue_len;
@@ -100,7 +107,7 @@ public:
   void resetReceivedFrameHeader();
 
   // beebo: lifetime count of writeFrame() silently dropping a frame because
-  // send_queue (FRAME_QUEUE_SIZE=4) was full. No recv-side equivalent -- WiFi
+  // send_queue (FRAME_QUEUE_SIZE=6) was full. No recv-side equivalent -- WiFi
   // reads one frame directly off the TCP stream rather than through a fixed
   // recv_queue the way BLE's onWrite() does.
   uint32_t getSendQueueFullCount() const { return _send_queue_full_count; }
