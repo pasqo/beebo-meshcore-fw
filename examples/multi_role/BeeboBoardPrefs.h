@@ -58,19 +58,8 @@ struct BeeboBoardPrefs {
   uint8_t batt_present = 0;          // board.battery.present
   uint16_t batt_sample_period_secs = 0;  // board.battery.sample_period
   uint16_t batt_sample_window_secs = 0;  // board.battery.sample_window
-  uint16_t batt_charged_mv = 0;          // classifyBattTrend()'s charged_mv override -- internal
-                                          // firmware tuning only, no PREFS_TLV/settings-tree leaf
-                                          // (deliberately, not "not yet wired" -- see BattTrend.h)
-  // beebo: SETTINGS_HIERARCHY_UNIFICATION.md -- board.state.idle_margin
-  // removed as a settings-tree leaf/PREFS_TLV field (radioIsIdle() now
-  // always uses the compiled IDLE_MARGIN_DEFAULT_MS constant, never this
-  // field). The field itself stays, unused, rather than being deleted --
-  // DataStore.cpp's loadBeeboBoardPrefs()/saveBeeboBoardPrefs() read/write
-  // it at a fixed positional file offset with nothing declared after it,
-  // so keeping the field (dead weight, a few bytes of RAM) preserves that
-  // offset for every other field with zero migration risk, versus
-  // resizing the on-disk format for a field that was never the last one
-  // in every persistence path touching it (the /beebo_companion legacy
-  // migration tail in particular has real fields after this one).
-  uint16_t idle_margin_ms = 0;
+  // Unused. Kept only to preserve DataStore.cpp's fixed on-disk byte
+  // offsets for every field declared after them.
+  uint16_t unused_0 = 0;  // was batt_charged_mv -- classifyBattTrend() always uses BATT_FULL_MV
+  uint16_t unused_1 = 0;  // was idle_margin_ms -- radioIsIdle() always uses IDLE_MARGIN_MS
 };

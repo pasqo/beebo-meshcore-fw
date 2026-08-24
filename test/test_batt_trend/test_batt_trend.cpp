@@ -4,7 +4,7 @@
 namespace {
 
 constexpr uint8_t ADC_12BIT = 12;
-constexpr uint16_t CHARGED_MV = BATT_FULL_MV_DEFAULT;  // 4200
+constexpr uint16_t CHARGED_MV = BATT_FULL_MV;  // 4200
 
 struct Trend {
   uint16_t ref_mv;

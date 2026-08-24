@@ -1306,17 +1306,6 @@ void Beebo::begin() {
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
 
   beginTransports();
-
-  // beebo: SETTINGS_ISOLATION follow-up -- begin()'s own work above (now
-  // including the eager per-role loadRoleState() calls for every
-  // compiled-in role) runs after Mesh::begin() already started Dispatcher's
-  // 8-second "stuck out of
-  // RX mode" watchdog clock (radio_nonrx_start, stamped at the top of
-  // Dispatcher::begin()). Re-stamp it here, once begin() is fully done and
-  // about to hand off to loop(), so that clock measures actual post-boot
-  // radio behaviour instead of being partly consumed by this function's own
-  // (unavoidably synchronous) setup work -- see resetRxTimeoutClock()'s own
-  // comment in Dispatcher.h.
   resetRxTimeoutClock();
 }
 
@@ -1399,13 +1388,6 @@ void Beebo::clampRadioPrefs() {
   if (_board.adc_resolution_bits != 10 && _board.adc_resolution_bits != 12) {
     _board.adc_resolution_bits = 12;  // beebo: default resolution
   }
-  if (_board.batt_charged_mv == 0) {
-    _board.batt_charged_mv = BATT_FULL_MV_DEFAULT;  // beebo: default charged-voltage threshold
-  }
-  // beebo: idle_margin_ms's own "0 = default" seeding used to happen here --
-  // removed along with the field's last live consumer (radioIsIdle() now
-  // always uses IDLE_MARGIN_DEFAULT_MS directly, see its own comment) --
-  // no point seeding a field nothing reads anymore.
   // beebo: dedup_window_ms has NO "0 = default" resolution, unlike every
   // field above -- 0 is a real, literal value here (disables live-eviction
   // counting entirely, see SimpleMeshTables.h's setDedupWindowMs()
@@ -1497,14 +1479,10 @@ void Beebo::initMonRing() {
 // into the Vbat history trace itself so we can chart Vbat against idle/busy
 // state and tune IDLE_MARGIN from real recovery data instead of guessing --
 // starting point of 100ms, to be retuned once real recovery traces are in.
-// beebo: SETTINGS_HIERARCHY_UNIFICATION.md -- always IDLE_MARGIN_DEFAULT_MS
-// (BattTrend.h) now, no longer runtime-overridable via
-// board.state.idle_margin (removed as a settings-tree leaf/PREFS_TLV field
-// -- see BeeboBoardPrefs.h's idle_margin_ms comment for why the struct
-// field itself stays, unused, rather than being deleted outright).
+// Always IDLE_MARGIN_MS (BattTrend.h) -- not runtime-overridable.
 bool Beebo::radioIsIdle() const {
   return !_radio->isReceiving() && !isTransmitting()
-         && millisHasNowPassed(_last_radio_active_ms + IDLE_MARGIN_DEFAULT_MS);
+         && millisHasNowPassed(_last_radio_active_ms + IDLE_MARGIN_MS);
 }
 
 RadioRecord Beebo::buildRadioRecord() {
@@ -5106,7 +5084,7 @@ uint16_t Beebo::updateBattTrend(bool force_read) {
         }
         _batt_state = classifyBattTrend(new_batt_mv, _cached_batt_mv, _batt_state,
                                          _board.batt_present, _board.adc_resolution_bits,
-                                         _board.batt_charged_mv > 0 ? _board.batt_charged_mv : BATT_FULL_MV_DEFAULT);
+                                         BATT_FULL_MV);
       }
     }
   }

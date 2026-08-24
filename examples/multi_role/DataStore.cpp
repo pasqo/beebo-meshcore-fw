@@ -75,11 +75,10 @@ bool DataStore::migrateLegacyIdentity(uint8_t role, mesh::LocalIdentity &identit
   return true;
 }
 
-// beebo: SETTINGS_ISOLATION -- read-only seed from stock companion_radio's
-// files. Never writes /new_prefs or /node_prefs, never deletes either --
-// unlike upstream's own /node_prefs -> /new_prefs migration (which does
-// both), this is a one-time read into beebo's own /beebo_companion, and
-// stock's files must survive a future reflash back to stock untouched.
+// Read-only seed from stock companion_radio's files. Never writes
+// /new_prefs or /node_prefs, never deletes either -- a one-time read into
+// beebo's own /beebo_companion, so stock's files survive a future reflash
+// back to stock untouched.
 void DataStore::loadLegacyNodePrefs(BeeboPrefs& prefs, double& node_lat, double& node_lon) {
   if (_fs->exists("/new_prefs")) {
     loadPrefsInt("/new_prefs", prefs, node_lat, node_lon);
@@ -128,13 +127,12 @@ void DataStore::loadPrefsInt(const char *filename, BeeboPrefs& _prefs, double& n
   }
 }
 
-// beebo: SETTINGS_ISOLATION -- /beebo_companion now also carries NodePrefs
-// (companion's radio/node settings) folded in after BeeboCompanionPrefs's
-// own fields, so companion settings no longer touch /new_prefs at all
-// after the one-time seed (see Beebo::begin()). Returns true if the file
-// already held a fully migrated copy (BeeboCompanionPrefs's own fields
-// AND the NodePrefs tail) -- false means the caller should seed NodePrefs
-// via loadLegacyNodePrefs().
+// /beebo_companion carries NodePrefs (companion's radio/node settings)
+// folded in after BeeboCompanionPrefs's own fields, so companion settings
+// never touch /new_prefs after the one-time seed (see Beebo::begin()).
+// Returns true if the file already held a fully migrated copy
+// (BeeboCompanionPrefs's own fields AND the NodePrefs tail) -- false means
+// the caller should seed NodePrefs via loadLegacyNodePrefs().
 //
 // Deliberately NOT gated on plain file existence: /beebo_companion
 // predates this fold-in (BeeboCompanionPrefs was already a shipped,
@@ -143,8 +141,7 @@ void DataStore::loadPrefsInt(const char *filename, BeeboPrefs& _prefs, double& n
 // dedup_window_ms, with no NodePrefs tail at all. Treating "exists" as
 // "fully migrated" would silently read past EOF into the node.* fields
 // (Arduino's File::read() is a no-op past EOF, leaving them at whatever
-// the RAM defaults already were) -- the same class of bug that broke
-// gatto's WiFi in a past migration attempt (COMMONCLI_TEXT_DISPATCH.md).
+// the RAM defaults already were, silently wrong rather than a load error).
 // file.available() after the known old-format fields is what actually
 // distinguishes old-format from new-format, with no version byte needed.
 bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _board, double& node_lat, double& node_lon) {
@@ -158,21 +155,14 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
     file.read((uint8_t *)&_prefs.tcp_enabled, sizeof(_prefs.tcp_enabled));                         // 130
     file.read((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));                         // 131
     file.read((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));                   // 132
-    // beebo: BOARD_BATTERY_PREFS.md -- these seven now read into `_board`
-    // (BeeboBoardPrefs), not `_prefs` (BeeboBasePrefs no longer declares
-    // them) -- same board-scoped legacy-tail-read role as _board.role/
-    // board_password/board_name below/above: a genuine migration seed
-    // when /beebo_board predates these fields, an inert echo of the
-    // already-authoritative /beebo_board value otherwise (see
-    // saveBeeboCompanionPrefs() below and Beebo::begin()'s migration
-    // ordering comment). Byte offsets/order unchanged from before.
+    // these seven read into `_board` (BeeboBoardPrefs), not `_prefs` -- fixed offsets.
     file.read((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));                   // 133
     file.read((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs)); // 137
     file.read((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));                       // 139
     file.read((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));         // 140
     file.read((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs)); // 141
-    file.read((uint8_t *)&_board.batt_charged_mv, sizeof(_board.batt_charged_mv));                 // 143
-    file.read((uint8_t *)&_board.idle_margin_ms, sizeof(_board.idle_margin_ms));                   // 145
+    file.read((uint8_t *)&_board.unused_0, sizeof(_board.unused_0));                 // 143
+    file.read((uint8_t *)&_board.unused_1, sizeof(_board.unused_1));                   // 145
     file.read((uint8_t *)&_board.role, sizeof(_board.role));                                       // 147 -- was node_role
     file.read((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));                 // 148
     // next: 152 -- NodePrefs (now BeeboPrefs's 14 SharedPrefs + 11 distilled
@@ -210,12 +200,10 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
       file.read((uint8_t *)&_prefs.autoadd_max_hops, sizeof(_prefs.autoadd_max_hops));
       file.read((uint8_t *)_prefs.default_scope_name, sizeof(_prefs.default_scope_name));
       file.read((uint8_t *)_prefs.default_scope_key, sizeof(_prefs.default_scope_key));
-      // next: board_password folded in from here (was owner_password) --
-      // only present in a post-owner-password-field file (SETTINGS_ISOLATION
-      // follow-up), same has_node_prefs-style hazard as the NodePrefs
-      // fold-in above: an already-migrated file from before this field
-      // existed ends right after default_scope_key, with no
-      // board_password blob at all.
+      // next: board_password folded in from here -- same has_node_prefs-style
+      // hazard as the NodePrefs fold-in above: an already-migrated file from
+      // before this field existed ends right after default_scope_key, with
+      // no board_password blob at all.
       if (file.available() >= (int)sizeof(_board.board_password)) {
         file.read((uint8_t *)_board.board_password, sizeof(_board.board_password));
         // next: board_name folded in from here -- same tail-hazard as
@@ -260,19 +248,14 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.tcp_enabled, sizeof(_prefs.tcp_enabled));                         // 130
     file.write((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));                         // 131
     file.write((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));                   // 132
-    // beebo: BOARD_BATTERY_PREFS.md -- written from `_board` now, see
-    // loadBeeboCompanionPrefs() above. Permanent inert echo into
-    // /beebo_companion's legacy tail slot, same as _board.role/
-    // board_password/board_name -- keeps this file's on-disk layout byte-
-    // for-byte unchanged forever, so every field after this point stays
-    // correctly aligned regardless of firmware vintage.
+    // written from `_board` now, see loadBeeboCompanionPrefs() above.
     file.write((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));                   // 133
     file.write((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs)); // 137
     file.write((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));                       // 139
     file.write((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));         // 140
     file.write((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs)); // 141
-    file.write((uint8_t *)&_board.batt_charged_mv, sizeof(_board.batt_charged_mv));                 // 143
-    file.write((uint8_t *)&_board.idle_margin_ms, sizeof(_board.idle_margin_ms));                   // 145
+    file.write((uint8_t *)&_board.unused_0, sizeof(_board.unused_0));                 // 143
+    file.write((uint8_t *)&_board.unused_1, sizeof(_board.unused_1));                   // 145
     file.write((uint8_t *)&_board.role, sizeof(_board.role));                                       // 147 -- was node_role
     file.write((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));                 // 148
     // next: 152 -- NodePrefs folded in from here, see loadBeeboCompanionPrefs()
@@ -313,17 +296,9 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
   }
 }
 
-// beebo: BeeboPrefs unification Part 1 -- BeeboBoardPrefs's own file
-// (role, board_password, board_name), genuinely untouched by the
-// role-switch park/load handoff. Loaded first at boot, before either
-// role's own file -- see Beebo::begin(). Plain existence used to be enough
-// here (this file was new as of that refactor, no older/shorter format to
-// distinguish from a fully-migrated one) -- as of BOARD_BATTERY_PREFS.md
-// that's no longer true: a /beebo_board written before adc_multiplier/
-// adc_resolution_bits/batt_present/batt_sample_period_secs/
-// batt_sample_window_secs/batt_charged_mv/idle_margin_ms existed ends
-// right after board_name, same tail-hazard shape as loadBeeboCompanionPrefs/
-// loadBeeboRepeaterPrefs. Returns false (not just "file missing") in that
+// A /beebo_board written before the battery/ADC fields existed ends right
+// after board_name -- has_battery_fields below distinguishes that from a
+// fully-migrated file. Returns false (not just "file missing") in that
 // case too, so Beebo::begin() knows to persist the just-migrated values
 // (seeded from whichever of /beebo_companion's or /beebo_repeater's own
 // legacy tail loaded them into `_prefs` during loadRoleState()) --
@@ -336,13 +311,13 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
   file.read((uint8_t *)_prefs.board_password, sizeof(_prefs.board_password));  // 1
   file.read((uint8_t *)_prefs.board_name, sizeof(_prefs.board_name));          // 17
   // next: 49 -- adc_multiplier/adc_resolution_bits/batt_present/
-  // batt_sample_period_secs/batt_sample_window_secs/batt_charged_mv/
-  // idle_margin_ms folded in from here. Only present in a post-fold-in
-  // file -- an older /beebo_board ends right here.
+  // batt_sample_period_secs/batt_sample_window_secs/unused_0/unused_1
+  // folded in from here. Only present in a post-fold-in file -- an older
+  // /beebo_board ends right here.
   size_t battery_fields_len = sizeof(_prefs.adc_multiplier) + sizeof(_prefs.adc_resolution_bits)
     + sizeof(_prefs.batt_present) + sizeof(_prefs.batt_sample_period_secs)
-    + sizeof(_prefs.batt_sample_window_secs) + sizeof(_prefs.batt_charged_mv)
-    + sizeof(_prefs.idle_margin_ms);
+    + sizeof(_prefs.batt_sample_window_secs) + sizeof(_prefs.unused_0)
+    + sizeof(_prefs.unused_1);
   bool has_battery_fields = (size_t)file.available() >= battery_fields_len;
   if (has_battery_fields) {
     file.read((uint8_t *)&_prefs.adc_multiplier, sizeof(_prefs.adc_multiplier));           // 49
@@ -350,8 +325,8 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
     file.read((uint8_t *)&_prefs.batt_present, sizeof(_prefs.batt_present));               // 54
     file.read((uint8_t *)&_prefs.batt_sample_period_secs, sizeof(_prefs.batt_sample_period_secs)); // 55
     file.read((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs)); // 57
-    file.read((uint8_t *)&_prefs.batt_charged_mv, sizeof(_prefs.batt_charged_mv));         // 59
-    file.read((uint8_t *)&_prefs.idle_margin_ms, sizeof(_prefs.idle_margin_ms));           // 61
+    file.read((uint8_t *)&_prefs.unused_0, sizeof(_prefs.unused_0));         // 59
+    file.read((uint8_t *)&_prefs.unused_1, sizeof(_prefs.unused_1));           // 61
     // next: 63
   }
   file.close();
@@ -364,26 +339,25 @@ void DataStore::saveBeeboBoardPrefs(const BeeboBoardPrefs& _prefs) {
     file.write((uint8_t *)&_prefs.role, sizeof(_prefs.role));                     // 0
     file.write((uint8_t *)_prefs.board_password, sizeof(_prefs.board_password));  // 1
     file.write((uint8_t *)_prefs.board_name, sizeof(_prefs.board_name));          // 17
-    // next: 49 -- BOARD_BATTERY_PREFS.md, see loadBeeboBoardPrefs()
+    // next: 49 -- see loadBeeboBoardPrefs()
     file.write((uint8_t *)&_prefs.adc_multiplier, sizeof(_prefs.adc_multiplier));           // 49
     file.write((uint8_t *)&_prefs.adc_resolution_bits, sizeof(_prefs.adc_resolution_bits)); // 53
     file.write((uint8_t *)&_prefs.batt_present, sizeof(_prefs.batt_present));               // 54
     file.write((uint8_t *)&_prefs.batt_sample_period_secs, sizeof(_prefs.batt_sample_period_secs)); // 55
     file.write((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs)); // 57
-    file.write((uint8_t *)&_prefs.batt_charged_mv, sizeof(_prefs.batt_charged_mv));         // 59
-    file.write((uint8_t *)&_prefs.idle_margin_ms, sizeof(_prefs.idle_margin_ms));           // 61
+    file.write((uint8_t *)&_prefs.unused_0, sizeof(_prefs.unused_0));         // 59
+    file.write((uint8_t *)&_prefs.unused_1, sizeof(_prefs.unused_1));           // 61
     // next: 63
     file.close();
   }
 }
 
-// beebo: SETTINGS_ISOLATION -- same old-format-vs-new-format hazard as
-// loadBeeboCompanionPrefs() above: /beebo_repeater predates the ComPrefs
-// fold-in (BeeboRepeaterPrefs was already a shipped 4-byte dedup_window_ms
-// file), so a real device's existing file ends right after that field,
-// with no ComPrefs blob at all. Detect via file.available(), not plain
-// existence, or the com_prefs blob silently never gets populated from the
-// file (com_prefs keeps whatever the ctor/previous-boot RAM state was).
+// Same old-format-vs-new-format hazard as loadBeeboCompanionPrefs() above:
+// a real device's existing /beebo_repeater can end right after
+// dedup_window_ms, with no ComPrefs blob at all. Detect via
+// file.available(), not plain existence, or the com_prefs blob silently
+// never gets populated from the file (com_prefs keeps whatever the
+// ctor/previous-boot RAM state was).
 bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _board, void* com_prefs, size_t com_prefs_len) {
   bool has_com_prefs = false;
   File file = openRead(_fs, "/beebo_repeater");
@@ -395,25 +369,20 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
     if (has_com_prefs) {
       file.read((uint8_t *)com_prefs, com_prefs_len);                                // 4, raw ComPrefs blob
       // next: BeeboBasePrefs's remaining fields folded in from here --
-      // repeater's own independent copy of every BeeboBasePrefs field
-      // (SETTINGS_REFACTOR.md Part 1; before this refactor only
-      // dedup_window_ms had a repeater-side value at all). Tail-guarded,
-      // same has_com_prefs-style hazard as above: a file saved before
-      // this fold-in ends right after the ComPrefs blob, with none of
-      // these fields present.
+      // repeater's own independent copy of every BeeboBasePrefs field.
+      // Tail-guarded, same has_com_prefs-style hazard as above: a file
+      // saved before this fold-in ends right after the ComPrefs blob,
+      // with none of these fields present.
       if (file.available() > 0) {
         file.read((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));
-        // beebo: BOARD_BATTERY_PREFS.md -- these seven now read into
-        // `_board`, not `_prefs` -- same legacy-tail-seed/inert-echo role
-        // as loadBeeboCompanionPrefs()'s own `_board` reads. Byte
-        // offsets/order unchanged from before.
+        // these seven read into `_board`, not `_prefs` -- fixed offsets, see loadBeeboCompanionPrefs().
         file.read((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));
         file.read((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));
         file.read((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));
         file.read((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs));
         file.read((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs));
-        file.read((uint8_t *)&_board.batt_charged_mv, sizeof(_board.batt_charged_mv));
-        file.read((uint8_t *)&_board.idle_margin_ms, sizeof(_board.idle_margin_ms));
+        file.read((uint8_t *)&_board.unused_0, sizeof(_board.unused_0));
+        file.read((uint8_t *)&_board.unused_1, sizeof(_board.unused_1));
         file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
         file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
         file.read((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));
@@ -443,16 +412,14 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((const uint8_t *)com_prefs, com_prefs_len);                            // 4, raw ComPrefs blob
     // next: BeeboBasePrefs's remaining fields, see loadBeeboRepeaterPrefs()
     file.write((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));
-    // beebo: BOARD_BATTERY_PREFS.md -- written from `_board` now, see
-    // loadBeeboRepeaterPrefs() above. Permanent inert echo, same rationale
-    // as saveBeeboCompanionPrefs()'s own `_board` writes.
+    // written from `_board`, see loadBeeboRepeaterPrefs() above.
     file.write((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));
     file.write((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));
     file.write((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));
     file.write((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs));
     file.write((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs));
-    file.write((uint8_t *)&_board.batt_charged_mv, sizeof(_board.batt_charged_mv));
-    file.write((uint8_t *)&_board.idle_margin_ms, sizeof(_board.idle_margin_ms));
+    file.write((uint8_t *)&_board.unused_0, sizeof(_board.unused_0));
+    file.write((uint8_t *)&_board.unused_1, sizeof(_board.unused_1));
     file.write((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
     file.write((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
     file.write((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));

@@ -1073,11 +1073,11 @@ private:
     // BattTrend.h's charged_mv parameter, which stays purely a compiled
     // constant/internal firmware tuning knob, not an operator-facing
     // setting). Not reused for a new field.
-    // 36 was PREFS_TLV_IDLE_MARGIN -- retired, SETTINGS_HIERARCHY_UNIFICATION.md
-    // (idle_margin_ms is IDLE_MARGIN_DEFAULT_MS-only now, see radioIsIdle()
-    // and BeeboBoardPrefs.h's field comment). Not reused for a new field --
-    // this table's keys are hand-assigned, never reused after retirement,
-    // same convention CMD/RESP sub-ids follow in protocol.yaml.
+    // 36 was PREFS_TLV_IDLE_MARGIN -- retired, radioIsIdle() always uses
+    // IDLE_MARGIN_MS (BattTrend.h), never runtime-configurable. Not reused
+    // for a new field -- this table's keys are hand-assigned, never reused
+    // after retirement, same convention CMD/RESP sub-ids follow in
+    // protocol.yaml.
     // beebo: companion-only NodePrefs fields (see BUGS.md's write-gap
     // note) -- always meaningful only via role=NODE_ROLE_COMPANION, same
     // as the individual SET_COMPANION_* opcodes they replace. Registering

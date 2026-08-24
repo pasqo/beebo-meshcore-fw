@@ -38,20 +38,21 @@
 // "plugged" check above: that one is about telling a real battery apart from
 // no battery at all, where voltage alone can't work; this is a physical
 // constant of the chemistry once we know a battery IS present, so a
-// calibrated absolute threshold is meaningful here. Runtime-overridable via
-// NodePrefs.batt_charged_mv (0 = this default).
-#ifndef BATT_FULL_MV_DEFAULT
-  #define BATT_FULL_MV_DEFAULT 4200  // mV
+// calibrated absolute threshold is meaningful here. Build-flag overridable
+// only (-D BATT_FULL_MV=<mv>), no runtime override.
+#ifndef BATT_FULL_MV
+  #define BATT_FULL_MV 4200  // mV
 #endif
 
-// beebo: default margin (ms) radioIsIdle() waits past the last RX/TX before
-// calling the radio quiet -- keeps the periodic Vbat sample from landing mid
-// RX/TX or too soon after, while an IR-drop sag is still recovering, and
-// skewing the trend classifier. Runtime-overridable via NodePrefs.idle_margin_ms
-// (0 = this default); companion_radio and simple_repeater each keep their own
-// NodePrefs, so this constant lives here so the two can't drift.
-#ifndef IDLE_MARGIN_DEFAULT_MS
-  #define IDLE_MARGIN_DEFAULT_MS 100
+// margin (ms) radioIsIdle() waits past the last RX/TX before calling the
+// radio quiet -- keeps the periodic Vbat sample from landing mid RX/TX or
+// too soon after, while an IR-drop sag is still recovering, and skewing
+// the trend classifier. Build-flag overridable only (-D
+// IDLE_MARGIN_MS=<ms>), no runtime override; companion_radio and
+// simple_repeater each keep their own NodePrefs, so this constant lives
+// here so the two can't drift.
+#ifndef IDLE_MARGIN_MS
+  #define IDLE_MARGIN_MS 100
 #endif
 
 // Classifies a new battery reading with an explicit switch(state) transition
@@ -123,7 +124,7 @@ inline uint8_t classifyBattTrend(
   uint8_t& state,
   uint8_t batt_present,
   uint8_t adc_resolution_bits,
-  uint16_t charged_mv = BATT_FULL_MV_DEFAULT
+  uint16_t charged_mv = BATT_FULL_MV
 ) {
   int32_t hysteresis_mv = (adc_resolution_bits == 12)
                            ? BATT_TREND_HYSTERESIS_MV_12BIT : BATT_TREND_HYSTERESIS_MV_10BIT;
