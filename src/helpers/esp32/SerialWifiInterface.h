@@ -60,6 +60,13 @@ class SerialWifiInterface : public BaseSerialInterface {
   int _send_off;   // bytes of the head send frame (3-byte header + body) already written
   uint32_t _send_queue_full_count = 0;
 
+  // beebo: the original eviction bug this class guards against (a live
+  // session silently replaced by a second peer's connect racing in via the
+  // listen backlog) is fully explained by the accept-race itself, not by
+  // client.connected() blipping -- checkRecvFrame()'s `if (deviceConnected)`
+  // guard alone is sufficient, since deviceConnected only clears once the
+  // socket is genuinely gone. No debounce needed here.
+
   void clearBuffers() { recv_queue_len = 0; send_queue_len = 0; _send_off = 0; _recv_body_len = 0; }
 
 protected:
@@ -93,6 +100,7 @@ public:
   // BaseSerialInterface methods
   void enable() override;
   void disable() override;
+  void resetParserState() override;
   bool isEnabled() const override { return _isEnabled; }
 
   bool isConnected() const override;

@@ -67,6 +67,17 @@ public:
   // transports with no such buffer to leak stale bytes from.
   virtual void discardStaleRx() { }
 
+  // beebo: reset per-session parser/buffer state (byte-parser position,
+  // queued frames, ...) without a real enable/disable transition -- used by
+  // MultiSerialInterface::release() purely to leave a released sub's parser
+  // clean for its next session, distinct from an actual power/enabled-state
+  // change. Previously this reused disable()+enable() for the same effect,
+  // but that also logs a real transport disable/enable event and (for
+  // SerialWifiInterface) needlessly tears down and rebinds the listen
+  // socket -- neither of which reflects anything that actually happened.
+  // No-op default for transports with no such state to reset.
+  virtual void resetParserState() { }
+
   virtual bool isConnected() const = 0;
 
   // beebo: TLOG_XPORT_* id of whichever sub-transport currently holds the

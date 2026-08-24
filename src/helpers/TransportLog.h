@@ -15,14 +15,20 @@
 // just the raw 512KB SRAM figure): 62KB free before this bump, 53KB after.
 #define TLOG_MAX_EVENTS 1024
 
-#define TLOG_MULTI_LOCK       1
-#define TLOG_MULTI_RELEASE    2
-#define TLOG_MULTI_DISCONNECT 3
-#define TLOG_MULTI_LOST       4
+// beebo: the app-level companion session, transport-agnostic (whichever of
+// BLE/USB/TCP wins the MultiSerialInterface lock) -- named APP_SESSION_* to
+// stay distinct from TLOG_WIFI_SESSION_ON/OFF below (that pair is the raw
+// TCP socket's own connected state, one layer down: a socket can go through
+// several ON/OFF cycles, or none at all if the TCP layer already dropped
+// out, without ever mapping to a real APP_SESSION_START/END here).
+#define TLOG_APP_SESSION_START            1
+#define TLOG_APP_SESSION_END_RELEASED     2
+#define TLOG_APP_SESSION_END_DISCONNECT   3
+#define TLOG_APP_SESSION_END_LOST         4
 #define TLOG_WIFI_ENABLE      5
 #define TLOG_WIFI_DISABLE     6
-#define TLOG_WIFI_CLIENT_NEW  7
-#define TLOG_WIFI_SESSION_ON  8
+#define TLOG_WIFI_CLIENT_NEW  7   // detail = (remote_port << 1) | (deviceConnected ? 1 : 0) at accept time
+#define TLOG_WIFI_SESSION_ON  8   // detail = the now-live client's remote port
 #define TLOG_WIFI_SESSION_OFF 9
 #define TLOG_WIFI_POWER_ON   10
 #define TLOG_WIFI_POWER_OFF  11
@@ -34,7 +40,7 @@
 #define TLOG_BLE_DISCONNECT        17   // BLE GATT link down (onDisconnect callback)
 #define TLOG_DEBUGLOG_READ         18   // marker: debuglog was fetched (boundary)
 #define TLOG_COEX_PREFER_WIFI      19   // esp_coex_preference_set(PREFER_WIFI); detail = esp_err_t
-#define TLOG_WIFI_CLIENT_REJECTED  20   // a second peer's TCP connect was accepted at the OS level (WiFiServer's backlog) while a live session was already locked in -- rejected instead of preempting it
+#define TLOG_WIFI_CLIENT_REJECTED  20   // a second peer's TCP connect was accepted at the OS level (WiFiServer's backlog) while a live session was already locked in -- rejected instead of preempting it; detail = the rejected client's remote port
 
 // Stable transport type ids, logged as the `detail` of MULTI_* events so the
 // transport is identifiable regardless of registration order (which varies with

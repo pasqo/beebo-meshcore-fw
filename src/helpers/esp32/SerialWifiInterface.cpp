@@ -66,11 +66,26 @@ void SerialWifiInterface::resetReceivedFrameHeader() {
   received_frame_header.length = 0;
 }
 
+void SerialWifiInterface::resetParserState() {
+  // beebo: same buffer/parser reset disable()+enable() used to achieve as
+  // a side effect, without the transport-log noise or the pointless
+  // listen-socket teardown+rebind -- see BaseSerialInterface.h's own
+  // comment on resetParserState(). _isEnabled is deliberately left alone:
+  // this is only ever called on a sub that's currently the active,
+  // already-enabled session, so it was never meaningfully "disabled".
+  if (deviceConnected) {
+    client.stop();
+    deviceConnected = false;
+  }
+  clearBuffers();
+  resetReceivedFrameHeader();
+}
+
 size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
   // check if new client connected
   auto newClient = server.available();
   if (newClient) {
-    if (deviceConnected && client.connected()) {
+    if (deviceConnected) {
       // beebo: a genuinely live session is already locked in (e.g. a
       // phone app) -- WiFiServer's listen backlog (default 4, see
       // WiFiServer's own ctor) lets a second peer (the CLI, or the same
@@ -80,10 +95,27 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
       // back here used to silently kill the live session out from under
       // it every time a second peer's connect raced in -- reject the new
       // one outright instead of preempting a session that's still alive.
-      transport_log.log(TLOG_WIFI_CLIENT_REJECTED);
+      // beebo: detail = the rejected client's remote port -- lets a trace
+      // distinguish a genuine second peer from a duplicate/retransmitted
+      // accept of the SAME connection the live session is already on (same
+      // port would show up twice), by comparing against the port
+      // TLOG_WIFI_SESSION_ON logged for the live session.
+      transport_log.log(TLOG_WIFI_CLIENT_REJECTED, newClient.remotePort());
       newClient.stop();
     } else {
-      transport_log.log(TLOG_WIFI_CLIENT_NEW, deviceConnected ? 1 : 0);
+      // beebo: the real first event of an app-level session -- logged as
+      // the very first thing in the accept path, ahead of TCP new client/
+      // session ON below and MultiSerialInterface::lockOn() (which only
+      // runs later, once a first frame has actually been parsed).
+      transport_log.log(TLOG_APP_SESSION_START, TLOG_XPORT_TCP);
+      // beebo: detail packs the new client's remote port (bits 1+) with
+      // whether deviceConnected was still true at accept time (bit 0) --
+      // the latter flags the case this guard can't otherwise catch: the
+      // OLD client's connected() had already gone false (so this wasn't a
+      // rejected preemption), but deviceConnected itself hadn't been
+      // updated yet. Same port-comparison use as TLOG_WIFI_CLIENT_REJECTED
+      // above.
+      transport_log.log(TLOG_WIFI_CLIENT_NEW, (newClient.remotePort() << 1) | (deviceConnected ? 1 : 0));
       deviceConnected = false;
       client.stop();
       clearBuffers();
@@ -96,17 +128,18 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
 
   if (client.connected()) {
     if (!deviceConnected) {
-      transport_log.log(TLOG_WIFI_SESSION_ON);
+      // beebo: detail = the newly-live client's remote port, so a later
+      // TLOG_WIFI_CLIENT_NEW/REJECTED can be matched against the session
+      // it raced with -- see those events' own comments above.
+      transport_log.log(TLOG_WIFI_SESSION_ON, client.remotePort());
       deviceConnected = true;
     }
-  } else {
-    if (deviceConnected) {
-      client.stop();
-      deviceConnected = false;
-      clearBuffers();
-      resetReceivedFrameHeader();
-      transport_log.log(TLOG_WIFI_SESSION_OFF);
-    }
+  } else if (deviceConnected) {
+    client.stop();
+    deviceConnected = false;
+    clearBuffers();
+    resetReceivedFrameHeader();
+    transport_log.log(TLOG_WIFI_SESSION_OFF);
   }
 
   if (deviceConnected) {
@@ -247,5 +280,5 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
 }
 
 bool SerialWifiInterface::isConnected() const {
-  return deviceConnected;  //pServer != NULL && pServer->getConnectedCount() > 0;
+  return deviceConnected;
 }
