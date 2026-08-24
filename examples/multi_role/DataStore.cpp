@@ -13,6 +13,36 @@ static File openWrite(FILESYSTEM* fs, const char* filename) {
 void DataStore::begin() {
   // init 'blob store' support
   _fs->mkdir("/bl");
+
+  // Load /beebo_abi first, before any other persisted file -- an absent
+  // file leaves every _abi field at its all-zero default, which every
+  // load*Prefs() below treats as "predates this mechanism".
+  File file = openRead(_fs, "/beebo_abi");
+  if (file) {
+    file.read((uint8_t *)&_abi.board_prefs_version, sizeof(_abi.board_prefs_version));
+    file.read((uint8_t *)&_abi.companion_prefs_version, sizeof(_abi.companion_prefs_version));
+    file.read((uint8_t *)&_abi.repeater_prefs_version, sizeof(_abi.repeater_prefs_version));
+    file.read((uint8_t *)&_abi.prefs_tlv_abi_version, sizeof(_abi.prefs_tlv_abi_version));
+    file.read((uint8_t *)_abi.tool_version, sizeof(_abi.tool_version));
+    file.read((uint8_t *)&_abi.saved_at, sizeof(_abi.saved_at));
+    file.close();
+  }
+}
+
+void DataStore::saveAbi() {
+  strncpy(_abi.tool_version, FIRMWARE_VERSION, sizeof(_abi.tool_version) - 1);
+  _abi.tool_version[sizeof(_abi.tool_version) - 1] = '\0';
+  _abi.saved_at = (uint32_t)_clock->getCurrentTime();
+  File file = openWrite(_fs, "/beebo_abi");
+  if (file) {
+    file.write((uint8_t *)&_abi.board_prefs_version, sizeof(_abi.board_prefs_version));
+    file.write((uint8_t *)&_abi.companion_prefs_version, sizeof(_abi.companion_prefs_version));
+    file.write((uint8_t *)&_abi.repeater_prefs_version, sizeof(_abi.repeater_prefs_version));
+    file.write((uint8_t *)&_abi.prefs_tlv_abi_version, sizeof(_abi.prefs_tlv_abi_version));
+    file.write((uint8_t *)_abi.tool_version, sizeof(_abi.tool_version));
+    file.write((uint8_t *)&_abi.saved_at, sizeof(_abi.saved_at));
+    file.close();
+  }
 }
 
 #include <SPIFFS.h>
@@ -155,17 +185,25 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
     file.read((uint8_t *)&_prefs.tcp_enabled, sizeof(_prefs.tcp_enabled));                         // 130
     file.read((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));                         // 131
     file.read((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));                   // 132
-    // these seven read into `_board` (BeeboBoardPrefs), not `_prefs` -- fixed offsets.
-    file.read((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));                   // 133
-    file.read((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs)); // 137
-    file.read((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));                       // 139
-    file.read((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));         // 140
-    file.read((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs)); // 141
-    file.read((uint8_t *)&_board.unused_0, sizeof(_board.unused_0));                 // 143
-    file.read((uint8_t *)&_board.unused_1, sizeof(_board.unused_1));                   // 145
-    file.read((uint8_t *)&_board.role, sizeof(_board.role));                                       // 147 -- was node_role
-    file.read((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));                 // 148
-    // next: 152 -- NodePrefs (now BeeboPrefs's 14 SharedPrefs + 11 distilled
+    if (_abi.companion_prefs_version < COMPANION_PREFS_VERSION) {
+      // Legacy layout only -- role/adc_multiplier/adc_resolution_bits/
+      // batt_present/batt_sample_period_secs/batt_sample_window_secs used
+      // to be echoed here from `_board`, purely as a one-time migration
+      // seed for a pre-/beebo_board device. /beebo_board is the sole
+      // authoritative store for these once companion_prefs_version reaches
+      // COMPANION_PREFS_VERSION -- see BeeboAbi.h.
+      file.read((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));
+      file.read((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs));
+      file.read((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));
+      file.read((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));
+      file.read((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs));
+      uint16_t discard;  // was batt_charged_mv, idle_margin_ms -- BeeboAbi.h
+      file.read((uint8_t *)&discard, sizeof(discard));
+      file.read((uint8_t *)&discard, sizeof(discard));
+      file.read((uint8_t *)&_board.role, sizeof(_board.role));  // was node_role
+    }
+    file.read((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));
+    // NodePrefs (now BeeboPrefs's 14 SharedPrefs + 11 distilled
     // fields) folded in from here, own layout independent of both stock's
     // /new_prefs byte layout and CommonCLI.h's repeater NodePrefs -- only
     // this function and saveBeeboCompanionPrefs() below need to agree on
@@ -200,35 +238,29 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
       file.read((uint8_t *)&_prefs.autoadd_max_hops, sizeof(_prefs.autoadd_max_hops));
       file.read((uint8_t *)_prefs.default_scope_name, sizeof(_prefs.default_scope_name));
       file.read((uint8_t *)_prefs.default_scope_key, sizeof(_prefs.default_scope_key));
-      // next: board_password folded in from here -- same has_node_prefs-style
-      // hazard as the NodePrefs fold-in above: an already-migrated file from
-      // before this field existed ends right after default_scope_key, with
-      // no board_password blob at all.
-      if (file.available() >= (int)sizeof(_board.board_password)) {
-        file.read((uint8_t *)_board.board_password, sizeof(_board.board_password));
-        // next: board_name folded in from here -- same tail-hazard as
-        // board_password above: a file saved before this field existed
-        // ends right after board_password, with no board_name blob at all.
-        if (file.available() >= (int)sizeof(_board.board_name)) {
-          file.read((uint8_t *)_board.board_name, sizeof(_board.board_name));
-          // next: node_lat/node_lon (BeeboBasePrefs's PREFS-mode
-          // advert_loc_policy coordinate) folded in from here -- same
-          // tail-hazard as board_password/board_name above: a file saved
-          // before these fields existed ends right after board_name, with
-          // no coords blob at all. Distinct from the node_lat/node_lon
-          // out-params read earlier in this same function (those are the
-          // SHARE-mode sensors.node_lat/lon register, an unrelated field).
-          if (file.available() >= (int)(sizeof(_prefs.node_lat) + sizeof(_prefs.node_lon))) {
-            file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
-            file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
-            // next: monring_event_mask folded in from here -- same
-            // tail-hazard as node_lat/node_lon above: a file saved before
-            // this field existed ends right after node_lon, with no mask
-            // present.
-            if (file.available() >= (int)sizeof(_prefs.monring_event_mask)) {
-              file.read((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
-            }
+      if (_abi.companion_prefs_version < COMPANION_PREFS_VERSION) {
+        // Legacy layout only -- board_password/board_name were echoed
+        // here too; same one-time-seed rationale as the block above.  An
+        // already-migrated file from before these fields existed ends
+        // right after default_scope_key/board_password respectively, with
+        // no blob at all -- hence the nested availability checks.
+        if (file.available() >= (int)sizeof(_board.board_password)) {
+          file.read((uint8_t *)_board.board_password, sizeof(_board.board_password));
+          if (file.available() >= (int)sizeof(_board.board_name)) {
+            file.read((uint8_t *)_board.board_name, sizeof(_board.board_name));
           }
+        }
+      }
+      // node_lat/node_lon (BeeboBasePrefs's PREFS-mode advert_loc_policy
+      // coordinate) -- distinct from the node_lat/node_lon out-params read
+      // earlier in this function (those are the SHARE-mode
+      // sensors.node_lat/lon register, an unrelated field). A file below
+      // COMPANION_PREFS_VERSION may still predate these too.
+      if (file.available() >= (int)(sizeof(_prefs.node_lat) + sizeof(_prefs.node_lon))) {
+        file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
+        file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
+        if (file.available() >= (int)sizeof(_prefs.monring_event_mask)) {
+          file.read((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
         }
       }
     }
@@ -248,17 +280,11 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.tcp_enabled, sizeof(_prefs.tcp_enabled));                         // 130
     file.write((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));                         // 131
     file.write((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));                   // 132
-    // written from `_board` now, see loadBeeboCompanionPrefs() above.
-    file.write((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));                   // 133
-    file.write((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs)); // 137
-    file.write((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));                       // 139
-    file.write((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));         // 140
-    file.write((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs)); // 141
-    file.write((uint8_t *)&_board.unused_0, sizeof(_board.unused_0));                 // 143
-    file.write((uint8_t *)&_board.unused_1, sizeof(_board.unused_1));                   // 145
-    file.write((uint8_t *)&_board.role, sizeof(_board.role));                                       // 147 -- was node_role
-    file.write((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));                 // 148
-    // next: 152 -- NodePrefs folded in from here, see loadBeeboCompanionPrefs()
+    // role/board_password/board_name/battery-ADC fields are no longer
+    // echoed here -- /beebo_board is their sole store as of
+    // COMPANION_PREFS_VERSION (BeeboAbi.h).
+    file.write((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));
+    // NodePrefs folded in from here, see loadBeeboCompanionPrefs()
     file.write((uint8_t *)&_prefs.airtime_factor, sizeof(_prefs.airtime_factor));
     file.write((uint8_t *)_prefs.node_name, sizeof(_prefs.node_name));
     file.write((uint8_t *)&node_lat, sizeof(node_lat));
@@ -286,14 +312,14 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.autoadd_max_hops, sizeof(_prefs.autoadd_max_hops));
     file.write((uint8_t *)_prefs.default_scope_name, sizeof(_prefs.default_scope_name));
     file.write((uint8_t *)_prefs.default_scope_key, sizeof(_prefs.default_scope_key));
-    file.write((uint8_t *)_board.board_password, sizeof(_board.board_password));
-    file.write((uint8_t *)_board.board_name, sizeof(_board.board_name));
     file.write((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
     file.write((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
     file.write((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
 
     file.close();
   }
+  _abi.companion_prefs_version = COMPANION_PREFS_VERSION;
+  saveAbi();
 }
 
 // A /beebo_board written before the battery/ADC fields existed ends right
@@ -311,13 +337,14 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
   file.read((uint8_t *)_prefs.board_password, sizeof(_prefs.board_password));  // 1
   file.read((uint8_t *)_prefs.board_name, sizeof(_prefs.board_name));          // 17
   // next: 49 -- adc_multiplier/adc_resolution_bits/batt_present/
-  // batt_sample_period_secs/batt_sample_window_secs/unused_0/unused_1
-  // folded in from here. Only present in a post-fold-in file -- an older
-  // /beebo_board ends right here.
+  // batt_sample_period_secs/batt_sample_window_secs folded in from here.
+  // Only present in a post-fold-in file -- an older /beebo_board ends
+  // right here. A file below BOARD_PREFS_VERSION additionally carries two
+  // now-dropped fields right after batt_sample_window_secs (BeeboAbi.h).
   size_t battery_fields_len = sizeof(_prefs.adc_multiplier) + sizeof(_prefs.adc_resolution_bits)
     + sizeof(_prefs.batt_present) + sizeof(_prefs.batt_sample_period_secs)
-    + sizeof(_prefs.batt_sample_window_secs) + sizeof(_prefs.unused_0)
-    + sizeof(_prefs.unused_1);
+    + sizeof(_prefs.batt_sample_window_secs);
+  if (_abi.board_prefs_version < BOARD_PREFS_VERSION) battery_fields_len += 2 * sizeof(uint16_t);
   bool has_battery_fields = (size_t)file.available() >= battery_fields_len;
   if (has_battery_fields) {
     file.read((uint8_t *)&_prefs.adc_multiplier, sizeof(_prefs.adc_multiplier));           // 49
@@ -325,9 +352,11 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
     file.read((uint8_t *)&_prefs.batt_present, sizeof(_prefs.batt_present));               // 54
     file.read((uint8_t *)&_prefs.batt_sample_period_secs, sizeof(_prefs.batt_sample_period_secs)); // 55
     file.read((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs)); // 57
-    file.read((uint8_t *)&_prefs.unused_0, sizeof(_prefs.unused_0));         // 59
-    file.read((uint8_t *)&_prefs.unused_1, sizeof(_prefs.unused_1));           // 61
-    // next: 63
+    if (_abi.board_prefs_version < BOARD_PREFS_VERSION) {
+      uint16_t discard;
+      file.read((uint8_t *)&discard, sizeof(discard));
+      file.read((uint8_t *)&discard, sizeof(discard));
+    }
   }
   file.close();
   return has_battery_fields;
@@ -345,11 +374,10 @@ void DataStore::saveBeeboBoardPrefs(const BeeboBoardPrefs& _prefs) {
     file.write((uint8_t *)&_prefs.batt_present, sizeof(_prefs.batt_present));               // 54
     file.write((uint8_t *)&_prefs.batt_sample_period_secs, sizeof(_prefs.batt_sample_period_secs)); // 55
     file.write((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs)); // 57
-    file.write((uint8_t *)&_prefs.unused_0, sizeof(_prefs.unused_0));         // 59
-    file.write((uint8_t *)&_prefs.unused_1, sizeof(_prefs.unused_1));           // 61
-    // next: 63
     file.close();
   }
+  _abi.board_prefs_version = BOARD_PREFS_VERSION;
+  saveAbi();
 }
 
 // Same old-format-vs-new-format hazard as loadBeeboCompanionPrefs() above:
@@ -375,14 +403,22 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
       // with none of these fields present.
       if (file.available() > 0) {
         file.read((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));
-        // these seven read into `_board`, not `_prefs` -- fixed offsets, see loadBeeboCompanionPrefs().
-        file.read((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));
-        file.read((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));
-        file.read((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));
-        file.read((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs));
-        file.read((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs));
-        file.read((uint8_t *)&_board.unused_0, sizeof(_board.unused_0));
-        file.read((uint8_t *)&_board.unused_1, sizeof(_board.unused_1));
+        if (_abi.repeater_prefs_version < REPEATER_PREFS_VERSION) {
+          // Legacy layout only -- adc_multiplier/adc_resolution_bits/
+          // batt_present/batt_sample_period_secs/batt_sample_window_secs
+          // used to be echoed here from `_board`, purely as a one-time
+          // migration seed for a pre-/beebo_board device. /beebo_board is
+          // the sole authoritative store for these once
+          // repeater_prefs_version reaches REPEATER_PREFS_VERSION.
+          file.read((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));
+          file.read((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));
+          file.read((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));
+          file.read((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs));
+          file.read((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs));
+          uint16_t discard;  // was batt_charged_mv, idle_margin_ms -- BeeboAbi.h
+          file.read((uint8_t *)&discard, sizeof(discard));
+          file.read((uint8_t *)&discard, sizeof(discard));
+        }
         file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
         file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
         file.read((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));
@@ -412,14 +448,8 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((const uint8_t *)com_prefs, com_prefs_len);                            // 4, raw ComPrefs blob
     // next: BeeboBasePrefs's remaining fields, see loadBeeboRepeaterPrefs()
     file.write((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));
-    // written from `_board`, see loadBeeboRepeaterPrefs() above.
-    file.write((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));
-    file.write((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));
-    file.write((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));
-    file.write((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs));
-    file.write((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs));
-    file.write((uint8_t *)&_board.unused_0, sizeof(_board.unused_0));
-    file.write((uint8_t *)&_board.unused_1, sizeof(_board.unused_1));
+    // battery-ADC fields are no longer echoed here -- /beebo_board is
+    // their sole store as of REPEATER_PREFS_VERSION (BeeboAbi.h).
     file.write((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
     file.write((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
     file.write((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));
@@ -429,10 +459,11 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));
     file.write((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));
     file.write((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
-    // next: 4 + com_prefs_len + BeeboBasePrefs's remaining-field bytes
 
     file.close();
   }
+  _abi.repeater_prefs_version = REPEATER_PREFS_VERSION;
+  saveAbi();
 }
 
 void DataStore::loadContacts(DataStoreHost* host) {

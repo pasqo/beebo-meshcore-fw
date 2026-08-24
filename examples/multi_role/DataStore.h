@@ -4,6 +4,7 @@
 #include <helpers/ContactInfo.h>
 #include <helpers/ChannelDetails.h>
 #include "BeeboBoardPrefs.h"
+#include "BeeboAbi.h"
 
 // beebo: BeeboPrefs unification (SETTINGS_REFACTOR.md Part 1) -- forward
 // declared only. DataStore.h takes it exclusively by reference/pointer, and
@@ -27,12 +28,19 @@ class DataStore {
   FILESYSTEM* _fsExtra;
   mesh::RTCClock* _clock;
   IdentityStore identity_store;
+  BeeboAbi _abi;
 
   void loadPrefsInt(const char *filename, BeeboPrefs& prefs, double& node_lat, double& node_lon);
+  void saveAbi();  // stamps tool_version/saved_at and persists _abi as-is
 
 public:
   DataStore(FILESYSTEM& fs, mesh::RTCClock& clock);
   void begin();
+  // Loaded once in begin(), before any other file -- see BeeboAbi.h. Each
+  // save*Prefs() below bumps its own file's version field and persists it;
+  // callers needing prefs_tlv_abi_version (e.g. to report it over
+  // GET_PREFS_TLV) read it from here.
+  const BeeboAbi& getAbi() const { return _abi; }
   bool formatFileSystem();
   FILESYSTEM* getPrimaryFS() const { return _fs; }
   FILESYSTEM* getSecondaryFS() const { return _fsExtra; }
@@ -69,53 +77,49 @@ public:
   // existed, since /beebo_companion predates this fold-in and a real
   // device's existing file is old-format (no NodePrefs tail at all). False
   // means the caller should seed via loadLegacyNodePrefs().
-  // beebo: SETTINGS_REFACTOR.md Part 3 -- `board` is the legacy tail-read/
-  // write of role/board_password/board_name, and (BOARD_BATTERY_PREFS.md)
-  // adc_multiplier/adc_resolution_bits/batt_present/batt_sample_period_secs/
-  // batt_sample_window_secs/batt_charged_mv/idle_margin_ms, still folded
-  // into /beebo_companion's on-disk layout (unchanged wire format) purely
-  // as a one-time migration seed for a pre-/beebo_board device, or a
-  // device whose /beebo_board predates these seven battery/ADC fields --
-  // they all live in BeeboBoardPrefs now (Beebo.h's `_board`), not
-  // BeeboPrefs, so this function needs its own reference to populate/
-  // persist them at the same byte offsets as before.
+  // `board` is only written by this function on a device below
+  // COMPANION_PREFS_VERSION (BeeboAbi.h): role/board_password/board_name/
+  // battery-ADC fields used to be echoed into /beebo_companion's own
+  // on-disk layout too, read back here as a one-time migration seed for a
+  // pre-/beebo_board device. /beebo_board is the sole authoritative store
+  // for them once companion_prefs_version reaches COMPANION_PREFS_VERSION
+  // -- this function no longer reads or writes them at all past that
+  // point, `board` stays untouched.
   bool loadBeeboCompanionPrefs(BeeboPrefs& prefs, BeeboBoardPrefs& board, double& node_lat, double& node_lon);
   void saveBeeboCompanionPrefs(const BeeboPrefs& prefs, const BeeboBoardPrefs& board, double node_lat, double node_lon);
-  // beebo: BeeboPrefs unification Part 1 -- BeeboBoardPrefs's own file
-  // (role, board_password, board_name, and as of BOARD_BATTERY_PREFS.md
-  // the seven battery/ADC fields), genuinely untouched by the role-switch
-  // park/load handoff, distinct from /beebo_companion and /beebo_repeater.
-  // Loaded first at boot (Beebo::begin()), before either role's own file,
-  // so the role to activate is known up front. Returns true if
-  // /beebo_board already existed -- false means either these three fields
-  // predate this file entirely (they used to be persisted as a tail
-  // fold-in of /beebo_companion), or the file exists but predates the
-  // seven battery/ADC fields (see this function's own file.available()
-  // tail check) -- either way the caller should treat whatever
-  // loadBeeboCompanionPrefs's/loadBeeboRepeaterPrefs's own legacy
-  // tail-read left in `board`'s fields as the one-time migration seed,
-  // then call saveBeeboBoardPrefs() once (after both roles have loaded --
-  // see Beebo::begin()'s own comment on this ordering) to persist it.
+  // BeeboBoardPrefs's own file (role, board_password, board_name, and the
+  // battery/ADC fields) -- the sole authoritative store for all of them,
+  // genuinely untouched by the role-switch park/load handoff, distinct
+  // from /beebo_companion and /beebo_repeater. Loaded first at boot
+  // (Beebo::begin()), before either role's own file, so the role to
+  // activate is known up front. Returns true if /beebo_board already
+  // existed -- false means either these fields predate this file entirely
+  // (a pre-refactor device) or the file predates the battery/ADC fields;
+  // either way the caller should treat whatever loadBeeboCompanionPrefs's/
+  // loadBeeboRepeaterPrefs's own legacy tail-read left in `board`'s fields
+  // as the one-time migration seed, then call saveBeeboBoardPrefs() once
+  // (after both roles have loaded -- see Beebo::begin()'s own comment on
+  // this ordering) to persist it.
   bool loadBeeboBoardPrefs(BeeboBoardPrefs& prefs);
   void saveBeeboBoardPrefs(const BeeboBoardPrefs& prefs);
-  // beebo: SETTINGS_ISOLATION -- ComPrefs (CommonCLI.h's own struct,
-  // aliased in Beebo.h, inherited by BeeboPrefs only when
-  // BEEBO_ENABLE_REPEATER_ROLE is set) folds into /beebo_repeater alongside
-  // BeeboPrefs's own dedup_window_ms (BeeboBasePrefs), but as a raw
-  // sizeof-blob rather than field-by-field -- DataStore.cpp never needs to
-  // know ComPrefs's field layout at all, so CommonCLI.h stays the single
-  // source of truth for that struct's shape and CommonCLI.cpp never needs
-  // touching. Caller passes static_cast<[const] ComPrefs*>(&prefs) and
-  // sizeof(ComPrefs) for com_prefs/com_prefs_len. Returns true if
-  // /beebo_repeater already existed (so the caller knows whether a
-  // one-time seed from /com_prefs, via CommonCLI's own loadPrefs(), is
-  // needed). Same "existence isn't enough" caveat as
-  // loadBeeboCompanionPrefs() -- /beebo_repeater predates the ComPrefs
-  // fold-in too. `board` (BOARD_BATTERY_PREFS.md) is the same legacy
-  // tail-read/write role as loadBeeboCompanionPrefs's own `board` param --
-  // repeater's file independently persisted its own copy of the seven
-  // battery/ADC fields before this change, so it needs the same seed/echo
-  // access.
+  // ComPrefs (CommonCLI.h's own struct, aliased in Beebo.h, inherited by
+  // BeeboPrefs only when BEEBO_ENABLE_REPEATER_ROLE is set) folds into
+  // /beebo_repeater alongside BeeboPrefs's own dedup_window_ms
+  // (BeeboBasePrefs), but as a raw sizeof-blob rather than field-by-field
+  // -- DataStore.cpp never needs to know ComPrefs's field layout at all,
+  // so CommonCLI.h stays the single source of truth for that struct's
+  // shape and CommonCLI.cpp never needs touching. Caller passes
+  // static_cast<[const] ComPrefs*>(&prefs) and sizeof(ComPrefs) for
+  // com_prefs/com_prefs_len. Returns true if /beebo_repeater already
+  // existed (so the caller knows whether a one-time seed from
+  // /com_prefs, via CommonCLI's own loadPrefs(), is needed). Same
+  // "existence isn't enough" caveat as loadBeeboCompanionPrefs() --
+  // /beebo_repeater predates the ComPrefs fold-in too. `board` is only
+  // written by this function on a device below REPEATER_PREFS_VERSION,
+  // same one-time migration-seed role as loadBeeboCompanionPrefs's own
+  // `board` param -- /beebo_board is the sole authoritative store for the
+  // battery/ADC fields once repeater_prefs_version reaches
+  // REPEATER_PREFS_VERSION.
   bool loadBeeboRepeaterPrefs(BeeboPrefs& prefs, BeeboBoardPrefs& board, void* com_prefs, size_t com_prefs_len);
   void saveBeeboRepeaterPrefs(const BeeboPrefs& prefs, const BeeboBoardPrefs& board, const void* com_prefs, size_t com_prefs_len);
   void loadContacts(DataStoreHost* host);

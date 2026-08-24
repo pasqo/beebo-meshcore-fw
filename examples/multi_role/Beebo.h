@@ -1068,23 +1068,13 @@ private:
     PREFS_TLV_BATT_PRESENT = 32,
     PREFS_TLV_BATT_SAMPLE_PERIOD = 33, // secs
     PREFS_TLV_BATT_SAMPLE_WINDOW = 34, // secs
-    // 35 was PREFS_TLV_BATT_CHARGED_MV -- retired, never had a CLI-side
-    // caller (no settings-tree leaf, no text-CLI set path either -- see
-    // BattTrend.h's charged_mv parameter, which stays purely a compiled
-    // constant/internal firmware tuning knob, not an operator-facing
-    // setting). Not reused for a new field.
-    // 36 was PREFS_TLV_IDLE_MARGIN -- retired, radioIsIdle() always uses
-    // IDLE_MARGIN_MS (BattTrend.h), never runtime-configurable. Not reused
-    // for a new field -- this table's keys are hand-assigned, never reused
-    // after retirement, same convention CMD/RESP sub-ids follow in
-    // protocol.yaml.
-    // beebo: companion-only NodePrefs fields (see BUGS.md's write-gap
-    // note) -- always meaningful only via role=NODE_ROLE_COMPANION, same
-    // as the individual SET_COMPANION_* opcodes they replace. Registering
-    // them here also gives these two fields a real GET for the first
-    // time (the old SET-only opcodes had none; the CLI's own get() for
-    // these settings deliberately keeps reading self_info instead, per
-    // its own comment, unrelated to this).
+    // 35, 36: retired, do not reuse -- a device or CLI install still on
+    // older firmware would apply the old field's meaning to whatever a
+    // reused key now sends, silently, with no error.
+    // beebo: companion-only NodePrefs fields -- always meaningful only via
+    // role=NODE_ROLE_COMPANION. The CLI's own get() for these settings
+    // deliberately keeps reading self_info instead, per its own comment,
+    // unrelated to this.
     PREFS_TLV_MANUAL_ADD_CONTACTS = 37,
     PREFS_TLV_AUTOADD_CONFIG = 38,
     // beebo: repeater-only ComPrefs password fields -- always
