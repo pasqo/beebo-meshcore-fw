@@ -882,6 +882,8 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   if (_monread.active) monring.resumeAfterRead();  // abandoned mid-stream: don't leave capture paused
   _monread.active = false;
   _statread.active = false;
+  _neighread.active = false;
+  _pathread.active = false;
   clearPendingReqs();
   next_ack_idx = 0;
   ack_overflow_count = 0;
@@ -2582,6 +2584,8 @@ void Beebo::handleCmdFrame(size_t len) {
     if (_monread.active) monring.resumeAfterRead();  // abandoned mid-stream: don't leave capture paused
     _monread.active = false;
     _statread.active = false;
+    _neighread.active = false;
+    _pathread.active = false;
 
     int i = 0;
     out_frame[i++] = RESP_CODE_DEVICE_INFO;
@@ -2618,6 +2622,8 @@ void Beebo::handleCmdFrame(size_t len) {
     MESH_DEBUG_PRINTLN("App %s connected", app_name);
 
     _iter_started = false; // stop any left-over ContactsIterator
+    _neighread.active = false; // stop any left-over GET_NEIGHBORS stream
+    _pathread.active = false;  // stop any left-over GET_ADVERT_PATHS stream
     int i = 0;
     out_frame[i++] = RESP_CODE_SELF_INFO;
     // beebo: the app-facing transport (BLE/WiFi/USB)
@@ -4490,37 +4496,27 @@ void Beebo::handleCmdFrame(size_t len) {
     writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_NEIGHBORS) {
     // beebo: stream the direct (zero-hop) neighbour table. START (count + our
-    // current clock, so the app can age each heard_timestamp), one NEIGHBOR
-    // frame each, then END. Bounded (MAX_NEIGHBOURS), so sent inline.
-    uint32_t count = 0;
-    for (int i = 0; i < MAX_NEIGHBOURS; i++) if (neighbours[i].heard_timestamp) count++;
-    int n = 0;
-    out_frame[n++] = RESP_CODE_BEEBO;
-    out_frame[n++] = BEEBO_RESP_NEIGHBORS_START;
-    memcpy(&out_frame[n], &count, 4); n += 4;
-    uint32_t now = getRTCClock()->getCurrentTime();
-    memcpy(&out_frame[n], &now, 4); n += 4;
-    _serial->writeFrame(out_frame, n);
-    for (int i = 0; i < MAX_NEIGHBOURS; i++) {
-      NeighbourInfo* nb = &neighbours[i];
-      if (!nb->heard_timestamp) continue;
-      int j = 0;
-      out_frame[j++] = RESP_CODE_BEEBO;
-      out_frame[j++] = BEEBO_RESP_NEIGHBOR;
-      memcpy(&out_frame[j], nb->pubkey, PUB_KEY_SIZE); j += PUB_KEY_SIZE;
-      out_frame[j++] = nb->pubkey_len;                      // full (32) vs partial prefix
-      out_frame[j++] = (uint8_t)nb->snr;                    // x4, signed
-      out_frame[j++] = nb->type;                            // ADV_TYPE_*
-      memcpy(&out_frame[j], &nb->heard_timestamp, 4); j += 4;
-      memcpy(&out_frame[j], &nb->advert_timestamp, 4); j += 4;
-      memcpy(&out_frame[j], &nb->lat, 4); j += 4;
-      memcpy(&out_frame[j], &nb->lon, 4); j += 4;
-      StrHelper::strzcpy((char*)&out_frame[j], nb->name, 32); j += 32;
-      _serial->writeFrame(out_frame, j);
+    // current clock, so the app can age each heard_timestamp) is sent here;
+    // one NEIGHBOR frame per loop() tick then follows, paced against
+    // isWriteBusy() the same way the contacts iterator is (see
+    // appendLinkQueueDropEvents' _neighread branch below) -- MAX_NEIGHBOURS
+    // (16) entries dumped inline in one round trip could overflow the
+    // transport's 6-slot send_queue in a single burst otherwise.
+    if (_neighread.active) {
+      writeErrFrame(ERR_CODE_BAD_STATE); // stream already busy
+    } else {
+      uint32_t count = 0;
+      for (int i = 0; i < MAX_NEIGHBOURS; i++) if (neighbours[i].heard_timestamp) count++;
+      int n = 0;
+      out_frame[n++] = RESP_CODE_BEEBO;
+      out_frame[n++] = BEEBO_RESP_NEIGHBORS_START;
+      memcpy(&out_frame[n], &count, 4); n += 4;
+      uint32_t now = getRTCClock()->getCurrentTime();
+      memcpy(&out_frame[n], &now, 4); n += 4;
+      _serial->writeFrame(out_frame, n);
+      _neighread.active = true;
+      _neighread.index = 0;
     }
-    out_frame[0] = RESP_CODE_BEEBO;
-    out_frame[1] = BEEBO_RESP_END_OF_NEIGHBORS;
-    _serial->writeFrame(out_frame, 2);
   } else if (sub[0] == BEEBO_CMD_SET_NEIGHBOR_REMOVE && sub_len >= 3) {
     // beebo: mirrors CommonCLI's text-CLI 'neighbor.remove <hex>' -- prunes
     // one direct-neighbour table entry (RAM-only; re-populated as adverts
@@ -4754,33 +4750,26 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_GET_ADVERT_PATHS) {
     // beebo: bulk counterpart to upstream's single-pubkey CMD_GET_ADVERT_PATH
     // -- advert_paths[] only ever holds ADVERT_PATH_TABLE_SIZE=16 entries
-    // total, so streaming the whole thing in one round trip (same
-    // START/entry/END shape as BEEBO_CMD_GET_NEIGHBORS) and matching
-    // pubkey_prefix locally client-side is strictly better than one
-    // CMD_GET_ADVERT_PATH per contact -- see protocol.yaml.
-    uint32_t count = 0;
-    for (int i = 0; i < ADVERT_PATH_TABLE_SIZE; i++) if (advert_paths[i].recv_timestamp) count++;
-    int n = 0;
-    out_frame[n++] = RESP_CODE_BEEBO;
-    out_frame[n++] = BEEBO_RESP_ADVERT_PATHS_START;
-    memcpy(&out_frame[n], &count, 4); n += 4;
-    _serial->writeFrame(out_frame, n);
-    for (int i = 0; i < ADVERT_PATH_TABLE_SIZE; i++) {
-      AdvertPath* p = &advert_paths[i];
-      if (!p->recv_timestamp) continue;
-      int j = 0;
-      out_frame[j++] = RESP_CODE_BEEBO;
-      out_frame[j++] = BEEBO_RESP_ADVERT_PATH;
-      memcpy(&out_frame[j], p->pubkey_prefix, sizeof(p->pubkey_prefix)); j += sizeof(p->pubkey_prefix);
-      StrHelper::strzcpy((char*)&out_frame[j], p->name, sizeof(p->name)); j += sizeof(p->name);
-      memcpy(&out_frame[j], &p->recv_timestamp, 4); j += 4;
-      out_frame[j++] = p->path_len;
-      j += mesh::Packet::writePath(&out_frame[j], p->path, p->path_len);
-      _serial->writeFrame(out_frame, j);
+    // total, so streaming the whole thing (same START/entry/END shape as
+    // BEEBO_CMD_GET_NEIGHBORS) and matching pubkey_prefix locally
+    // client-side is strictly better than one CMD_GET_ADVERT_PATH per
+    // contact -- see protocol.yaml. START is sent here; one ADVERT_PATH
+    // frame per loop() tick then follows, paced against isWriteBusy() the
+    // same way GET_NEIGHBORS/contacts are, rather than dumped inline in one
+    // burst that could overflow the transport's 6-slot send_queue.
+    if (_pathread.active) {
+      writeErrFrame(ERR_CODE_BAD_STATE); // stream already busy
+    } else {
+      uint32_t count = 0;
+      for (int i = 0; i < ADVERT_PATH_TABLE_SIZE; i++) if (advert_paths[i].recv_timestamp) count++;
+      int n = 0;
+      out_frame[n++] = RESP_CODE_BEEBO;
+      out_frame[n++] = BEEBO_RESP_ADVERT_PATHS_START;
+      memcpy(&out_frame[n], &count, 4); n += 4;
+      _serial->writeFrame(out_frame, n);
+      _pathread.active = true;
+      _pathread.index = 0;
     }
-    out_frame[0] = RESP_CODE_BEEBO;
-    out_frame[1] = BEEBO_RESP_END_OF_ADVERT_PATHS;
-    _serial->writeFrame(out_frame, 2);
   } else if (sub[0] == BEEBO_CMD_GET_PUBLIC_KEY && sub_len >= 2) {
     // beebo: PER_ROLE_IDENTITY -- self_info only ever reflects the live
     // role's self_id, so companion.public_key/repeater.public_key read
@@ -5072,6 +5061,60 @@ void Beebo::checkSerialInterface() {
       } else {
         _statread.offset = new_offset;
       }
+    }
+  } else if (_neighread.active && !_serial->isWriteBusy()) {
+    // beebo: stream GET_NEIGHBORS one entry per loop, same pacing as the
+    // contacts iterator above.
+    NeighbourInfo* nb = NULL;
+    while (_neighread.index < MAX_NEIGHBOURS) {
+      nb = &neighbours[_neighread.index++];
+      if (nb->heard_timestamp) break;
+      nb = NULL;
+    }
+    if (nb != NULL) {
+      int j = 0;
+      out_frame[j++] = RESP_CODE_BEEBO;
+      out_frame[j++] = BEEBO_RESP_NEIGHBOR;
+      memcpy(&out_frame[j], nb->pubkey, PUB_KEY_SIZE); j += PUB_KEY_SIZE;
+      out_frame[j++] = nb->pubkey_len;                      // full (32) vs partial prefix
+      out_frame[j++] = (uint8_t)nb->snr;                    // x4, signed
+      out_frame[j++] = nb->type;                            // ADV_TYPE_*
+      memcpy(&out_frame[j], &nb->heard_timestamp, 4); j += 4;
+      memcpy(&out_frame[j], &nb->advert_timestamp, 4); j += 4;
+      memcpy(&out_frame[j], &nb->lat, 4); j += 4;
+      memcpy(&out_frame[j], &nb->lon, 4); j += 4;
+      StrHelper::strzcpy((char*)&out_frame[j], nb->name, 32); j += 32;
+      _serial->writeFrame(out_frame, j);
+    } else { // EOF
+      out_frame[0] = RESP_CODE_BEEBO;
+      out_frame[1] = BEEBO_RESP_END_OF_NEIGHBORS;
+      _serial->writeFrame(out_frame, 2);
+      _neighread.active = false;
+    }
+  } else if (_pathread.active && !_serial->isWriteBusy()) {
+    // beebo: stream GET_ADVERT_PATHS one entry per loop, same pacing as
+    // GET_NEIGHBORS/contacts above.
+    AdvertPath* p = NULL;
+    while (_pathread.index < ADVERT_PATH_TABLE_SIZE) {
+      p = &advert_paths[_pathread.index++];
+      if (p->recv_timestamp) break;
+      p = NULL;
+    }
+    if (p != NULL) {
+      int j = 0;
+      out_frame[j++] = RESP_CODE_BEEBO;
+      out_frame[j++] = BEEBO_RESP_ADVERT_PATH;
+      memcpy(&out_frame[j], p->pubkey_prefix, sizeof(p->pubkey_prefix)); j += sizeof(p->pubkey_prefix);
+      StrHelper::strzcpy((char*)&out_frame[j], p->name, sizeof(p->name)); j += sizeof(p->name);
+      memcpy(&out_frame[j], &p->recv_timestamp, 4); j += 4;
+      out_frame[j++] = p->path_len;
+      j += mesh::Packet::writePath(&out_frame[j], p->path, p->path_len);
+      _serial->writeFrame(out_frame, j);
+    } else { // EOF
+      out_frame[0] = RESP_CODE_BEEBO;
+      out_frame[1] = BEEBO_RESP_END_OF_ADVERT_PATHS;
+      _serial->writeFrame(out_frame, 2);
+      _pathread.active = false;
     }
   //} else if (!_serial->isWriteBusy()) {
   //  checkConnections();    // TODO - deprecate the 'Connections' stuff

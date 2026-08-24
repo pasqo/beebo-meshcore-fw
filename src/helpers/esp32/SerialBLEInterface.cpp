@@ -260,7 +260,14 @@ size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
 #define  BLE_WRITE_MIN_INTERVAL   60
 
 bool SerialBLEInterface::isWriteBusy() const {
-  return millis() < _last_write + BLE_WRITE_MIN_INTERVAL;   // still too soon to start another write?
+  // beebo: two independent reasons to hold off the producer -- the
+  // BLE_WRITE_MIN_INTERVAL timer paces notify() calls to what the BLE stack
+  // can issue, and the queue-depth check (same back-pressure as
+  // SerialWifiInterface::isWriteBusy()) catches the case where the real
+  // link is draining slower than that timer assumes, so a burst (e.g.
+  // GET_CONTACTS) doesn't silently overflow the 6-slot send_queue.
+  return millis() < _last_write + BLE_WRITE_MIN_INTERVAL   // still too soon to start another write?
+    || send_queue_len >= FRAME_QUEUE_SIZE - 1;
 }
 
 size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {

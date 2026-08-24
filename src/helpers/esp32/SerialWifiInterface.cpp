@@ -54,7 +54,14 @@ size_t SerialWifiInterface::writeFrame(const uint8_t src[], size_t len) {
 }
 
 bool SerialWifiInterface::isWriteBusy() const {
-  return false;
+  // beebo: back-pressure the producer (e.g. the contacts-iterator loop in
+  // Beebo.cpp, gated on !isWriteBusy() before enqueuing each frame) against
+  // the actual TCP drain rate -- checkRecvFrame()'s send_queue drain stalls
+  // on EAGAIN whenever the client's TCP window fills, but a stub that always
+  // returned false let the producer keep enqueuing every loop tick regardless,
+  // overflowing the 6-slot queue within a burst (e.g. GET_CONTACTS) instead of
+  // pacing to it.
+  return send_queue_len >= FRAME_QUEUE_SIZE - 1;
 }
 
 bool SerialWifiInterface::hasReceivedFrameHeader() {

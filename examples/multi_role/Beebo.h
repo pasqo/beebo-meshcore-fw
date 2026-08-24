@@ -1619,6 +1619,8 @@ private:
   bool     _app_stream;   // app accepts back-to-back streamed bulk reads
   struct { bool active; uint32_t after_seq; uint32_t next; bool first_page; bool reset; } _monread;  // in-flight monitor-ring stream
   struct { bool active; uint8_t kind; uint16_t offset; } _statread;  // in-flight GET_STATS (TRANSPORT/PROFILE) ring stream
+  struct { bool active; int index; } _neighread;  // in-flight GET_NEIGHBORS stream
+  struct { bool active; int index; } _pathread;   // in-flight GET_ADVERT_PATHS stream
 
   struct Frame {
     uint8_t len;
