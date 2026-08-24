@@ -34,6 +34,7 @@
 #define TLOG_BLE_DISCONNECT        17   // BLE GATT link down (onDisconnect callback)
 #define TLOG_DEBUGLOG_READ         18   // marker: debuglog was fetched (boundary)
 #define TLOG_COEX_PREFER_WIFI      19   // esp_coex_preference_set(PREFER_WIFI); detail = esp_err_t
+#define TLOG_WIFI_CLIENT_REJECTED  20   // a second peer's TCP connect was accepted at the OS level (WiFiServer's backlog) while a live session was already locked in -- rejected instead of preempting it
 
 // Stable transport type ids, logged as the `detail` of MULTI_* events so the
 // transport is identifiable regardless of registration order (which varies with

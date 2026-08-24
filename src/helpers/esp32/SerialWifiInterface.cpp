@@ -70,14 +70,28 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
   // check if new client connected
   auto newClient = server.available();
   if (newClient) {
-    transport_log.log(TLOG_WIFI_CLIENT_NEW, deviceConnected ? 1 : 0);
-    deviceConnected = false;
-    client.stop();
-    clearBuffers();
-    resetReceivedFrameHeader();
+    if (deviceConnected && client.connected()) {
+      // beebo: a genuinely live session is already locked in (e.g. a
+      // phone app) -- WiFiServer's listen backlog (default 4, see
+      // WiFiServer's own ctor) lets a second peer (the CLI, or the same
+      // phone reconnecting) complete its TCP handshake at the OS level
+      // independently of which client the app is currently servicing, so
+      // unconditionally swapping to whatever server.available() hands
+      // back here used to silently kill the live session out from under
+      // it every time a second peer's connect raced in -- reject the new
+      // one outright instead of preempting a session that's still alive.
+      transport_log.log(TLOG_WIFI_CLIENT_REJECTED);
+      newClient.stop();
+    } else {
+      transport_log.log(TLOG_WIFI_CLIENT_NEW, deviceConnected ? 1 : 0);
+      deviceConnected = false;
+      client.stop();
+      clearBuffers();
+      resetReceivedFrameHeader();
 
-    client = newClient;
-    client.setNoDelay(true);
+      client = newClient;
+      client.setNoDelay(true);
+    }
   }
 
   if (client.connected()) {
