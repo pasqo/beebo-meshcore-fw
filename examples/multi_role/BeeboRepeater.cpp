@@ -395,7 +395,7 @@ bool Beebo::tlvSetDedupWindow(Beebo* self, uint8_t role, uint32_t raw) {
   // SETTING_* key -- see MonRing.h's enum comment. Placed here (inside the
   // tlv setter) rather than the command handler so it fires from every
   // entry point uniformly, same as node_role's own appendSettingChangedEvent
-  // call living inside setNodeRole() rather than each of its callers.
+  // call living inside requestNodeRoleSwitch() rather than each of its callers.
   BeeboRoleState& slot = self->role_state_store[role];
   self->appendSettingChangedEvent(PREFS_TLV_DEDUP_WINDOW,
                                    slot.prefs.dedup_window_ms, raw, EVENT_SOURCE_BINARY);

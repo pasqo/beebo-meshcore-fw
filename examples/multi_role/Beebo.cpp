@@ -972,8 +972,9 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
 
 // beebo: the per-role state store -- loads/migrates/generates role's
 // identity into its own resident role_state_store[role].identity slot.
-// Does NOT touch self_id -- callers mirror self_id explicitly once the
-// role becomes (or stays) live (begin(), setNodeRole()). Splitting the
+// Does NOT touch self_id -- begin() mirrors self_id explicitly once the
+// live role is known at boot (a runtime switch never repoints self_id --
+// it always reboots instead, see requestNodeRoleSwitch()). Splitting the
 // mirror out lets this run for a role that ISN'T currently live (eager
 // per-role boot loading, loadRoleState() below) without clobbering self_id
 // mid-load.
@@ -1207,10 +1208,10 @@ void Beebo::begin() {
     // seed when /beebo_board predates these fields, an inert echo of the
     // already-authoritative /beebo_board value otherwise") -- that claim only
     // holds if /beebo_companion's tail is actually kept in sync with
-    // /beebo_board on every write, which it isn't: setNodeRole() (a live
-    // node.role switch) updates _board.role in RAM but never persists it to
-    // either file, so /beebo_companion's tail can carry an arbitrarily old
-    // role byte from whenever it was last flushed. board_existed true means
+    // /beebo_board on every write, which it isn't: requestNodeRoleSwitch()
+    // persists a role change to /beebo_board immediately, but never to
+    // /beebo_companion's own legacy tail copy, so that tail can carry an
+    // arbitrarily old role byte from whenever it was last flushed. board_existed true means
     // /beebo_board is the real authoritative file here, so undo that clobber
     // by re-reading it now -- the same fix reloadPrefs() already gets for
     // free by ordering its own loadBeeboBoardPrefs() call after
@@ -1237,7 +1238,7 @@ void Beebo::begin() {
   // by role (BeeboCompanion.cpp/BeeboRepeater.cpp) so a companion boot
   // does exactly what companion_radio's own begin() does, no more.
   // beebo: isCompanion()/isRepeater() are mutually exclusive (see
-  // setNodeRole()), so exactly one of these runs. Kept as two plain ifs
+  // requestNodeRoleSwitch()), so exactly one of these runs. Kept as two plain ifs
   // (not else-if) rather than folded into one call, so line coverage shows
   // each role's boot path was actually exercised.
 #if BEEBO_ENABLE_COMPANION_ROLE
@@ -1739,42 +1740,6 @@ void Beebo::writeDirtyPrefs() {
     _store->saveBeeboBoardPrefs(_board);
     _board_dirty = false;
   }
-}
-
-// beebo: the per-role state store -- the role-switch repoint handoff,
-// called from setNodeRole() right after repointing _role_state at the
-// incoming role's already-resident slot (see that function's own comment
-// for why no disk round trip is needed anymore -- this replaces the old
-// parkAndLoadRolePrefs() park/load dance). Re-applies whatever radio/
-// transport-affecting fields just changed as part of the repoint, same as
-// the old function did after its own load step.
-void Beebo::applyRoleSwitchPrefs() {
-  clampRadioPrefs();
-  applyRadioPrefs();
-  pushActiveDedupWindow();
-
-  // beebo: re-apply live transport state gracefully -- ble_enabled/
-  // tcp_enabled/usb_enabled may have just changed as part of the repoint.
-  // Don't slam the new transport state straight into hardware; mark the
-  // same transport-config-pending condition CMD_SET_TRANSPORT_CONFIG
-  // already sets, so consumeTransportConfigPending()'s existing graceful
-  // bring-up-before-teardown logic applies it -- the transport carrying
-  // the role-switch command itself is never yanked mid-reply.
-  _transport_config_pending = true;
-  // beebo: that bring-up logic only acts on an off->on transition
-  // (`tcp_on && !_wifi_up`/`ble_on && !_ble_up`) -- exactly right for a
-  // plain CMD_SET_TRANSPORT_CONFIG toggle, where "still on" really does
-  // mean "nothing to do", but wrong for a role switch: wifi_ssid/wifi_pwd
-  // and the BLE PIN are each role's own independent copy
-  // (SETTINGS_HIERARCHY_UNIFICATION), so a transport that stays enabled
-  // across the switch can still be running the *other* role's now-stale
-  // credentials with nothing left to ever refresh them -- filed after a
-  // station needed a manual reboot to get TCP working again post-switch
-  // (BUGS.md 2026-08-24); not confirmed as the exact cause there, but a
-  // real gap regardless. This flag tells that same consumer to also force
-  // a fresh rejoin/PIN-reapply for a transport that was already up, not
-  // just bring up one that wasn't.
-  _role_switch_transport_refresh_pending = true;
 }
 
 // beebo: re-read persisted prefs from flash and re-apply the radio-affecting
@@ -3977,65 +3942,25 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&out_frame[1], &value, 4);
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_NODE_ROLE && sub_len >= 2) {
-    // beebo: hot switch, takes effect immediately (every
-    // role-conditional call site just reads _board.role live; see
-    // the advert-on-role-switch behavior). Before actually flipping the role, flush
-    // any pending contacts/ACL write under the *old* role first: the
-    // periodic dirty_contacts_expiry flush branches on _board.role at
-    // flush time, so a write scheduled under the old role but flushed
-    // after the switch would silently go through the new role's logic
-    // (wrong data, wrong file) and the real pending write would be lost.
-    if (sub[1] != NODE_ROLE_COMPANION && sub[1] != NODE_ROLE_REPEATER) {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (!isNodeRoleBuiltIn(sub[1])) {
-      // beebo: STATIC_ROLE_BUILDS -- a static-role build only has one half of
-      // multi_role compiled in; refuse a switch to a role that doesn't
-      // exist in this binary rather than silently setting _board.role (and
-      // so isRepeater()/isCompanion()) to an uncompiled value.
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (isOTAActive() || _monread.active || _statread.active) {
-      // beebo: refuse a role switch mid-OTA or mid bulk-transfer -- both
-      // sessions carry state (ota_partition/ota_handle, _monread's
-      // after_seq/next cursor) that a role switch has no way to preserve
-      // or safely abandon; better to reject and let the caller retry once
-      // the in-flight session finishes.
-      writeErrFrame(ERR_CODE_BAD_STATE);
-    } else if (sub[1] != _board.role) {
-      if (dirty_contacts_expiry) {
-#if BEEBO_ENABLE_REPEATER_ROLE
-        if (isRepeater()) acl.save(_store->getPrimaryFS());
-        else
-#endif
-        if (isCompanion()) saveContacts();
-        dirty_contacts_expiry = 0;
-      }
-      // beebo: a role switch invalidates any in-flight companion request/
-      // ACK bookkeeping -- pending_login/status/telemetry/discovery/req
-      // and expected_ack_table entries were all set up expecting the
-      // *old* role's handlers to resolve them; leaving them set lets a
-      // late reply resolve against post-switch state instead.
-      clearPendingReqs();
-      memset(expected_ack_table, 0, sizeof(expected_ack_table));
-      next_ack_idx = 0;
-      ack_overflow_count = 0;
-      setNodeRole(sub[1], EVENT_SOURCE_BINARY);
-      savePrefs();
-      // beebo: the per-role state store -- both roles' state (ACL/
-      // region/prefs/identity) is loaded once per boot, eagerly, into their
-      // own resident role_state_store[] slot (see loadRoleState(), called
-      // from begin()); setNodeRole() above just repoints _role_state, no
-      // per-switch disk reload needed. Advert timers are still (re-)armed
-      // unconditionally on every switch into repeater, since they're live
-      // session state, not persisted load state -- a stale deadline from a
-      // much earlier load/switch must never fire immediately.
-      if (sub[1] == NODE_ROLE_REPEATER) {
-        updateAdvertTimer();
-        updateFloodAdvertTimer();
-      }
-      pushActiveDedupWindow();
-      writeOKFrame();
-    } else {
-      writeOKFrame();  // no-op: already this role
+    // beebo: always reboots on an actual change -- see
+    // requestNodeRoleSwitch()'s own comment. The ack is written before the
+    // reboot so the transport carrying this command gets to deliver it.
+    switch (requestNodeRoleSwitch(sub[1], EVENT_SOURCE_BINARY)) {
+      case NODE_ROLE_SWITCH_ERR_ARG:
+      case NODE_ROLE_SWITCH_ERR_BUILTIN:
+        writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+        break;
+      case NODE_ROLE_SWITCH_ERR_BUSY:
+        writeErrFrame(ERR_CODE_BAD_STATE);
+        break;
+      case NODE_ROLE_SWITCH_NOOP:
+        writeOKFrame();
+        break;
+      case NODE_ROLE_SWITCH_REBOOTING:
+        writeOKFrame();
+        delay(1000);
+        board.reboot();  // doesn't return
+        break;
     }
   // beebo: multi_role -- ComPrefs (/com_prefs) field accessors, same
   // GET/SET-pair-per-field convention as the NodePrefs accessors above
@@ -5231,7 +5156,7 @@ void Beebo::loop() {
   // even though repeater now also has per-tick advert-timer content that
   // must run after checkSerialInterface(), not before it (see loopRepeater()).
   // beebo: isCompanion()/isRepeater() are mutually exclusive (see
-  // setNodeRole()), so exactly one of these runs; the `|| isCompanion()`
+  // requestNodeRoleSwitch()), so exactly one of these runs; the `|| isCompanion()`
   // in loopRepeater()'s skip_radio arg is now always false in practice but
   // kept as a defensive no-op. Kept as two plain ifs (not else-if) for the
   // same line-coverage reason as begin()'s dispatch above.
@@ -5514,12 +5439,6 @@ void Beebo::loopTransports() {
   // BLE and TCP are mutually exclusive at the session level (MultiSerialInterface),
   // but both interface objects may exist and be brought fully up/down here.
   if (consumeTransportConfigPending()) {
-    // beebo: only true right after a role switch (see
-    // applyRoleSwitchPrefs()'s own comment) -- forces the blocks below to
-    // also refresh a transport that stays enabled across the switch, not
-    // just bring up one that was off, since wifi_ssid/wifi_pwd/ble_pin are
-    // each role's own independent copy.
-    bool role_switch_refresh = consumeRoleSwitchTransportRefreshPending();
     bool ble_on = _role_state->prefs.ble_enabled != 0;
     bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0';
     bool usb_on = _role_state->prefs.usb_enabled != 0;
@@ -5546,17 +5465,6 @@ void Beebo::loopTransports() {
       }
       ble_interface.enable();
       _ble_up = true;
-    } else if (ble_on && role_switch_refresh) {
-      // beebo: BLE stayed enabled across a role switch -- ble_pin is each
-      // role's own independent copy, so refresh it live even though
-      // nothing about ble_enabled itself changed (see
-      // applyRoleSwitchPrefs()'s comment). The advertised device name
-      // (node_name) is role-scoped too, but changing it needs a full
-      // stack reinit (deinitRadio()/initRadio() -- see SerialBLEInterface
-      // ::begin()'s own comment), which would drop any bonded/active
-      // connection -- not forced here, only the PIN, which
-      // SerialBLEInterface::setPinCode() can update without a reinit.
-      ble_interface.setPinCode(getBLEPin());
     }
 
     if (tcp_on && !_wifi_up) {
@@ -5594,21 +5502,6 @@ void Beebo::loopTransports() {
         wifi_interface.enable();
       }
       _wifi_up = true;
-    } else if (tcp_on && role_switch_refresh) {
-      // beebo: TCP stayed enabled across a role switch -- wifi_ssid/
-      // wifi_pwd are each role's own independent copy, so force a real
-      // rejoin with this role's own credentials rather than assuming the
-      // existing association is still correct (see
-      // applyRoleSwitchPrefs()'s comment). Same disconnect-before-begin
-      // sequencing as _wifi_creds_reconnect_pending's own consumer below,
-      // for the same reason: a plain WiFi.begin() while already
-      // associated isn't a reliable way to force a fresh join.
-      WIFI_DEBUG_PRINTLN("Role switch: re-joining WiFi with this role's own credentials...");
-      _wifi_needs_reconnect = false;
-      _sta_got_ip = false;
-      WiFi.disconnect();
-      WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
-      WiFi.setSleep(false);
     }
 
     if (usb_on && !_usb_up) {
@@ -6288,47 +6181,25 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       if (strcmp(value, "companion") == 0) new_role = NODE_ROLE_COMPANION;
       else if (strcmp(value, "repeater") == 0) new_role = NODE_ROLE_REPEATER;
       else { strcpy(reply, "ERR: must be companion or repeater"); return; }
-      if (!isNodeRoleBuiltIn(new_role)) {
-        // beebo: STATIC_ROLE_BUILDS -- see isNodeRoleBuiltIn()'s comment.
-        strcpy(reply, "ERR: role not built into this firmware");
-        return;
+      // beebo: always reboots on an actual change -- see
+      // requestNodeRoleSwitch()'s own comment. No ack is sent in that case,
+      // same as the "reboot"/"poweroff" text commands above.
+      switch (requestNodeRoleSwitch(new_role, EVENT_SOURCE_TEXT_CLI)) {
+        case NODE_ROLE_SWITCH_ERR_BUILTIN:
+          // beebo: STATIC_ROLE_BUILDS -- see isNodeRoleBuiltIn()'s comment.
+          strcpy(reply, "ERR: role not built into this firmware");
+          break;
+        case NODE_ROLE_SWITCH_ERR_BUSY:
+          strcpy(reply, "ERR: busy (OTA or bulk transfer in progress)");
+          break;
+        case NODE_ROLE_SWITCH_NOOP:
+        case NODE_ROLE_SWITCH_ERR_ARG:  // unreachable: value already validated above
+          strcpy(reply, "OK");
+          break;
+        case NODE_ROLE_SWITCH_REBOOTING:
+          board.reboot();  // doesn't return
+          break;
       }
-      // beebo: same OTA/bulk-transfer guard as BEEBO_CMD_SET_NODE_ROLE --
-      // see that handler's comment.
-      if (isOTAActive() || _monread.active || _statread.active) {
-        strcpy(reply, "ERR: busy (OTA or bulk transfer in progress)");
-        return;
-      }
-      // beebo: same old-role dirty-write flush as BEEBO_CMD_SET_NODE_ROLE
-      // (see that handler's comment) -- this text path must not skip it.
-      if (new_role != _board.role) {
-        if (dirty_contacts_expiry) {
-#if BEEBO_ENABLE_REPEATER_ROLE
-          if (isRepeater()) acl.save(_store->getPrimaryFS());
-          else
-#endif
-          if (isCompanion()) saveContacts();
-          dirty_contacts_expiry = 0;
-        }
-        // beebo: same pending-req/ACK invalidation as BEEBO_CMD_SET_NODE_ROLE
-        // -- see that handler's comment.
-        clearPendingReqs();
-        memset(expected_ack_table, 0, sizeof(expected_ack_table));
-        next_ack_idx = 0;
-        ack_overflow_count = 0;
-        setNodeRole(new_role, EVENT_SOURCE_TEXT_CLI);
-        savePrefs();
-        // beebo: same eager-loaded-at-boot/repoint-on-switch model as
-        // BEEBO_CMD_SET_NODE_ROLE -- see that handler's comment. Advert
-        // timers still (re-)armed unconditionally on every switch into
-        // repeater.
-        if (new_role == NODE_ROLE_REPEATER) {
-          updateAdvertTimer();
-          updateFloodAdvertTimer();
-        }
-        pushActiveDedupWindow();
-      }
-      strcpy(reply, "OK");
     } else if (memcmp(key, "multi.acks ", 11) == 0) {
       // beebo: repeater keeps its own independent copy -- repeater's own
       // independent value, mirroring "af"/"rxdelay"'s get-side branch above.

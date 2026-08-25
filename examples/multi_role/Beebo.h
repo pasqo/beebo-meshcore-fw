@@ -585,9 +585,10 @@ public:
   // comment for the one field (default_scope_name/key) that needed a
   // DataStore-layer fix rather than a routing fix, and why.
   //
-  // Also marks board_dirty -- setNodeRole() callers (role lives in
-  // BeeboBoardPrefs, its own /beebo_board file) rely on this generic
-  // savePrefs() call right after setNodeRole() to persist the new role.
+  // Also marks board_dirty -- role lives in BeeboBoardPrefs, its own
+  // /beebo_board file (requestNodeRoleSwitch() persists a role change
+  // itself, directly and unconditionally, rather than through this
+  // policy-gated path -- see its own comment for why).
   // This is also the sole implementation of CommonCLICallbacks::savePrefs()
   // (fw/src/helpers/CommonCLI.h) -- the callback every stock CommonCLI.cpp
   // SET handler (`cli`, repeater-only per its own comment above) calls
@@ -696,20 +697,6 @@ private:
     _transport_config_pending = false;
     return v;
   }
-  // Returns true (once) when applyRoleSwitchPrefs() ran; loop()'s transport-
-  // management block uses this alongside consumeTransportConfigPending() to
-  // force a fresh WiFi rejoin / BLE PIN reapply for a transport that stays
-  // enabled across the switch, not just one transitioning off->on -- see
-  // applyRoleSwitchPrefs()'s own comment for why the plain enabled-bitmask
-  // check alone isn't enough here (each role's WiFi creds/BLE PIN are their
-  // own independent copy, so "still on" doesn't mean "still the right
-  // creds"). Resets the flag on read.
-  bool consumeRoleSwitchTransportRefreshPending() {
-    bool v = _role_switch_transport_refresh_pending;
-    _role_switch_transport_refresh_pending = false;
-    return v;
-  }
-
   // beebo: transport ownership -- moved in from main.cpp so Beebo is a
   // genuinely self-contained multi-role/multi-transport mesh class (its own
   // NodePrefs already hardcode ble_enabled/tcp_enabled/usb_enabled, so it was
@@ -811,12 +798,15 @@ private:
   // beebo: the per-role state store -- one BeeboRoleState per compiled-in
   // role (see BeeboRoleState.h), each loaded once at boot (loadRoleState(),
   // called from begin() for every compiled-in role) and kept resident for
-  // the rest of the session. _role_state points at whichever slot is
-  // currently live; begin() repoints it (and mirrors self_id/cli's prefs
-  // pointer) once role detection has settled, and setNodeRole() repoints it
-  // again on every runtime role switch -- no save-then-reload file round
-  // trip either time, since both roles' state is already resident. The
-  // in-class initializer below (&role_state_store[NODE_ROLE_DEFAULT]) is only a
+  // the rest of the session, so companion.*/repeater.* settings stay
+  // independently readable/writable regardless of which role is live (see
+  // the role-parameterized GET/SET_<ITEM>(role) handlers below). _role_state
+  // points at whichever slot is currently live; begin() repoints it (and
+  // mirrors self_id/cli's prefs pointer) once role detection has settled.
+  // A runtime role switch (requestNodeRoleSwitch()) never repoints it --
+  // switching roles always reboots, so the next boot's begin() picks the
+  // new live slot instead. The in-class initializer below
+  // (&role_state_store[NODE_ROLE_DEFAULT]) is only a
   // placeholder for the brief window before begin() computes the real live
   // slot; it must still resolve before `cli`'s own member initializer runs
   // a few members down (which takes &_role_state->prefs) -- in-class
@@ -855,7 +845,7 @@ private:
   // is cheap enough that there's no performance case for caching it, and
   // reading _board.role directly means there's no second copy left to
   // drift -- mutually exclusive by construction (node_role is a strict
-  // either/or, see setNodeRole()/isNodeRoleBuiltIn()).
+  // either/or, see requestNodeRoleSwitch()/isNodeRoleBuiltIn()).
   bool isRepeater() const { return _board.role == NODE_ROLE_REPEATER; }
   bool isCompanion() const { return _board.role == NODE_ROLE_COMPANION; }
   // beebo: PER_ROLE_IDENTITY -- defined in Beebo.cpp (needs radio_new_identity(),
@@ -873,37 +863,10 @@ private:
   // currently live. Called once per compiled-in role from begin() (eager
   // per-role boot load). Defined in Beebo.cpp.
   void loadRoleState(uint8_t role);
-  // beebo: the role-switch handoff -- both
-  // roles' state is already resident (loadRoleState(), called once per
-  // compiled-in role at boot), so a switch is just a repoint: flush the
-  // outgoing role's dirty state to its own file (same flushDirtyPrefs()
-  // every other mutation already goes through, still routed by the
-  // still-outgoing _board.role at this point), then repoint _role_state at
-  // the incoming role's already-loaded slot and mirror its identity into
-  // self_id and cli's own prefs pointer (CommonCLI::setPrefs() -- see that
-  // method's own comment for why cli needs an explicit rebind here).
-  void setNodeRole(uint8_t role, uint8_t source) {
-    if (role != _board.role) {
-      appendSettingChangedEvent(SETTING_NODE_ROLE, _board.role, role, source);
-      flushDirtyPrefs();
-      _role_state = &role_state_store[role];
-      self_id = _role_state->identity;
-#if BEEBO_ENABLE_REPEATER_ROLE
-      cli.setPrefs(&_role_state->prefs);
-#endif
-      applyRoleSwitchPrefs();
-    }
-    _board.role = role;
-  }
-  // beebo: the per-role state store -- re-applies radio/transport-
-  // affecting prefs after setNodeRole() repoints _role_state at the
-  // incoming role's slot. Defined in Beebo.cpp (needs
-  // consumeTransportConfigPending()'s machinery already available there).
-  void applyRoleSwitchPrefs();
   // beebo: true if `role` is actually compiled
-  // into this binary. Callers of setNodeRole() that accept a role from the
-  // outside (SET_NODE_ROLE, `node.role` text command) must check this
-  // first: a static-role build has no acl/region_map/anon_limiter
+  // into this binary. Callers of requestNodeRoleSwitch() that accept a role
+  // from the outside (SET_NODE_ROLE, `node.role` text command) must check
+  // this first: a static-role build has no acl/region_map/anon_limiter
   // (repeater) or no contact/channel/message store (companion), so ending
   // up with _board.role set to an uncompiled half would make isRepeater()/
   // isCompanion() dereference members that don't exist. Also false for any
@@ -919,6 +882,54 @@ private:
 #endif
     return role == NODE_ROLE_COMPANION || role == NODE_ROLE_REPEATER;
   }
+  // beebo: a role switch always reboots (rather than the old live repoint
+  // between both already-resident role_state_store[] slots) -- a role's own
+  // NodePrefs/ComPrefs/identity is never touched by the switch itself, only
+  // _board.role, so there's nothing to repoint or re-apply live; the next
+  // boot's begin()/loadRoleState() picks the new role's already-loaded slot
+  // up naturally. Flushes the outgoing role's own dirty non-prefs state
+  // (contacts/ACL) and unconditionally persists the new _board.role before
+  // returning REBOOTING -- the caller sends its own protocol-appropriate ack
+  // and then calls board.reboot(); this never touches _role_state/self_id/
+  // cli's prefs pointer, since none of those need to survive to the reboot.
+  enum NodeRoleSwitchResult : uint8_t {
+    NODE_ROLE_SWITCH_NOOP,          // already this role
+    NODE_ROLE_SWITCH_ERR_ARG,       // not NODE_ROLE_COMPANION/NODE_ROLE_REPEATER
+    NODE_ROLE_SWITCH_ERR_BUILTIN,   // role not compiled into this binary
+    NODE_ROLE_SWITCH_ERR_BUSY,      // OTA or bulk-transfer session in progress
+    NODE_ROLE_SWITCH_REBOOTING,     // persisted -- caller acks, then board.reboot()
+  };
+  NodeRoleSwitchResult requestNodeRoleSwitch(uint8_t role, uint8_t source) {
+    if (role != NODE_ROLE_COMPANION && role != NODE_ROLE_REPEATER) return NODE_ROLE_SWITCH_ERR_ARG;
+    if (!isNodeRoleBuiltIn(role)) return NODE_ROLE_SWITCH_ERR_BUILTIN;
+    if (role == _board.role) return NODE_ROLE_SWITCH_NOOP;
+    // beebo: refuse mid-OTA/mid-bulk-transfer -- both carry state
+    // (ota_partition/ota_handle, _monread/_statread's cursor) a reboot has
+    // no way to preserve; better to reject and let the caller retry once
+    // the in-flight session finishes.
+    if (isOTAActive() || _monread.active || _statread.active) return NODE_ROLE_SWITCH_ERR_BUSY;
+
+    appendSettingChangedEvent(SETTING_NODE_ROLE, _board.role, role, source);
+    if (dirty_contacts_expiry) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+      if (isRepeater()) acl.save(_store->getPrimaryFS());
+      else
+#endif
+      if (isCompanion()) saveContacts();
+      dirty_contacts_expiry = 0;
+    }
+    _board.role = role;
+    // beebo: unconditional, bypassing _save_prefs/batch policy (like
+    // commitPrefs()) -- the new role must survive the reboot regardless of
+    // autosave state. Only the board file, not _role_state->prefs: the
+    // in-RAM prefs haven't changed, and writeDirtyPrefs() routes a dirty
+    // _role_state->prefs write by reading _board.role, which now says the
+    // new role while _role_state still points at the outgoing role's slot
+    // -- writing that combination would corrupt the new role's prefs file.
+    _store->saveBeeboBoardPrefs(_board);
+    _board_dirty = false;
+    return NODE_ROLE_SWITCH_REBOOTING;
+  }
   // Resolves a wire role byte, mapping the NODE_ROLE_LIVE sentinel to
   // _board.role -- every GET/SET_<ITEM>(role) handler below runs its
   // requested role byte through this before validating/using it, so a
@@ -929,7 +940,7 @@ private:
   }
   // beebo: called right after
   // DataStore::loadPrefs() writes _board.role directly from persisted
-  // storage (begin() and reloadPrefs()), which bypasses setNodeRole()'s
+  // storage (begin() and reloadPrefs()), which bypasses requestNodeRoleSwitch()'s
   // isNodeRoleBuiltIn() check. A device previously flashed with multi_role
   // (or the other static-role build, or older firmware with a persisted
   // COPEATER=2) can have a persisted node_role this binary doesn't support
@@ -1470,7 +1481,6 @@ private:
   // reconnect only happens after nothing is depending on the old session.
   bool _wifi_creds_reconnect_pending = false;
   bool _transport_config_pending = false;
-  bool _role_switch_transport_refresh_pending = false;
   unsigned long dirty_contacts_expiry;
 
   RadioRecord buildRadioRecord();  // beebo: snapshot current radio config, shared by initMonRing()/logRxRaw()/logTx()/logTxFail()/monring.clear() sites
@@ -1497,7 +1507,7 @@ private:
   // beebo: setters (not plain field writes) so every call site -- binary
   // CMD_BEEBO opcode and USB/mesh-admin text CLI alike -- logs an
   // SettingRecord (MON_SETTING) through the same path, same reasoning as
-  // setNodeRole() above.
+  // requestNodeRoleSwitch() above.
   void setTuneEnabled(bool on, uint8_t source) {
     if (on != _tune_enabled) {
       appendSettingChangedEvent(SETTING_TUNE_ENABLED, _tune_enabled ? 1 : 0, on ? 1 : 0, source);
@@ -1543,7 +1553,7 @@ private:
   uint32_t _last_link_tx_queue_full = 0;
   uint32_t _last_link_rx_queue_full = 0;
   void appendLinkQueueDropEvents();
-  // beebo: log one MON_SETTING record. Called from setNodeRole()/
+  // beebo: log one MON_SETTING record. Called from requestNodeRoleSwitch()/
   // setTuneEnabled()/setTuneAppliedMask() below so every path that mutates
   // one of these (binary CMD_BEEBO opcode, USB/mesh-admin text CLI) logs
   // consistently through one place, rather than instrumenting each call
