@@ -5192,37 +5192,7 @@ uint16_t Beebo::updateBattTrend(bool force_read) {
   return new_batt_mv;
 }
 
-// beebo: temporary diagnostic for the transport-independent GET_PREFS_TLV
-// stall investigation (BUGS.md 2026-08-16, MonRing.h's EVENT_LOOP_STALL) --
-// one id per Beebo::loop() segment below, in the same order they run, so a
-// captured trace's data[0] segment_id maps straight back to source.
-enum {
-  LOOP_SEG_OTA_TIMEOUT = 0,
-  LOOP_SEG_ROLE_LOOP = 1,        // loopCompanion()/loopRepeater() -- includes checkSerialInterface()
-  LOOP_SEG_ECHO_TIMEOUTS = 2,
-  LOOP_SEG_OTA_REBOOT = 3,
-  LOOP_SEG_BATT_TREND = 4,
-  LOOP_SEG_SLOWSTAT = 5,         // getStorageUsedKb() + temperatureRead()
-  LOOP_SEG_LINK_QUEUE_DROPS = 6,
-  LOOP_SEG_TUNE_TICK = 7,
-  LOOP_SEG_DIRTY_SAVE = 8,       // acl.save()/saveContacts()
-  LOOP_SEG_TRANSPORTS = 9,       // loopTransports()
-  LOOP_SEG_COUNT = 10,
-};
-static const uint32_t LOOP_STALL_THRESHOLD_MS = 200;
-
 void Beebo::loop() {
-  uint32_t __loop_start_ms = millis();
-  uint32_t __loop_seg_t0 = __loop_start_ms;
-  uint8_t __loop_worst_seg = 0;
-  uint16_t __loop_worst_ms = 0;
-  auto __loop_mark = [&](uint8_t seg) {
-    uint32_t now = millis();
-    uint16_t dur = (uint16_t)min<uint32_t>(now - __loop_seg_t0, 0xFFFFu);
-    if (dur >= __loop_worst_ms) { __loop_worst_ms = dur; __loop_worst_seg = seg; }
-    __loop_seg_t0 = now;
-  };
-
   // beebo: a host that Ctrl-C's or crashes mid-transfer never sends
   // OTA_END, so ota_partition (and therefore isOTAActive()/skip_radio/
   // ota_priority) would otherwise stay latched forever with no way back
@@ -5236,7 +5206,6 @@ void Beebo::loop() {
     ota_partition = NULL;
     ota_priority = false;
   }
-  __loop_mark(LOOP_SEG_OTA_TIMEOUT);
 
   // beebo: CMD_OTA_BEGIN's priority flag asks us to skip a radio dispatch
   // pass entirely while the transfer is active, so checkSerialInterface()
@@ -5272,7 +5241,6 @@ void Beebo::loop() {
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (isRepeater()) loopRepeater(skip_radio || isCompanion());
 #endif
-  __loop_mark(LOOP_SEG_ROLE_LOOP);
 
   // beebo: flood-echo side of the
   // pass/fail fix, role-agnostic (both companion self-originated sends and
@@ -5283,7 +5251,6 @@ void Beebo::loop() {
   if (!skip_radio) {
     ((SimpleMeshTables*)getTables())->checkEchoTimeouts();
   }
-  __loop_mark(LOOP_SEG_ECHO_TIMEOUTS);
 
   // beebo: go through board.reboot()/rebootWithTime() rather than a bare
   // esp_restart() so the RTC time gets persisted
@@ -5298,7 +5265,6 @@ void Beebo::loop() {
     if (_ota_restart_ts) board.rebootWithTime(_ota_restart_ts);
     else board.reboot();
   }
-  __loop_mark(LOOP_SEG_OTA_REBOOT);
 
   // beebo: refresh the cached battery reading — the ADC read blocks for
   // ~10-12ms (see _cached_batt_mv), and voltage moves slowly enough that a
@@ -5307,7 +5273,6 @@ void Beebo::loop() {
   // monring.sampleEnv in logRxRaw/logTx/logTxFail), so a config or noise/heap
   // change is always attributed to the right packet rather than lagging a poll.
   updateBattTrend();
-  __loop_mark(LOOP_SEG_BATT_TREND);
 
   // beebo: refresh the slow-stat caches off the hot path — getStorageUsedKb() is
   // a live FS block-scan and getMCUTemperature() averages four ~76 ms sensor
@@ -5323,7 +5288,6 @@ void Beebo::loop() {
     int16_t sample = (int16_t)(temperatureRead() * 10);
     _mcu_temp_scaled = (int16_t)((3 * (int32_t)_mcu_temp_scaled + sample) / 4);
   }
-  __loop_mark(LOOP_SEG_SLOWSTAT);
 
   // beebo: cheap every-tick check (a couple of integer compares) -- not
   // role-gated, since the node's BLE/WiFi link congestion applies regardless
@@ -5331,7 +5295,6 @@ void Beebo::loop() {
   // queue-full drops are immediate hooks now
   // (logFaultEvent()/logTxQueueFull()/logRxQueueFull()), not polled here.
   appendLinkQueueDropEvents();
-  __loop_mark(LOOP_SEG_LINK_QUEUE_DROPS);
 
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: Phase A dynamic-tuning optimizer tick (see TuneController.h /
@@ -5365,7 +5328,6 @@ void Beebo::loop() {
     }
   }
 #endif
-  __loop_mark(LOOP_SEG_TUNE_TICK);
 
   // is there are pending dirty contacts/ACL write needed?
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
@@ -5376,25 +5338,9 @@ void Beebo::loop() {
     if (isCompanion()) saveContacts();
     dirty_contacts_expiry = 0;
   }
-  __loop_mark(LOOP_SEG_DIRTY_SAVE);
 
   loopTransports();
-  __loop_mark(LOOP_SEG_TRANSPORTS);
 
-  // beebo: temporary diagnostic (see LOOP_SEG_* above) -- log once per
-  // iteration whose worst single segment exceeded LOOP_STALL_THRESHOLD_MS,
-  // so a captured MonRing trace pins down exactly which segment ran during a
-  // real-world multi-second GET_PREFS_TLV-class stall.
-  if (__loop_worst_ms >= LOOP_STALL_THRESHOLD_MS && monring.enabled() && monring.allocated()) {
-    uint16_t total_ms = (uint16_t)min<uint32_t>(millis() - __loop_start_ms, 0xFFFFu);
-    EventRecord rec;
-    memset(&rec, 0, sizeof(rec));
-    rec.event_type = EVENT_LOOP_STALL;
-    rec.data[0] = __loop_worst_seg;
-    memcpy(&rec.data[1], &__loop_worst_ms, 2);
-    memcpy(&rec.data[3], &total_ms, 2);
-    monring.appendEvent(rec, (uint32_t)getRTCClock()->getCurrentTime());
-  }
 #ifdef P_LORA_TX_LED
   updateStatusLed();
 #endif
