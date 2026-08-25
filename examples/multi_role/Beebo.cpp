@@ -1905,20 +1905,24 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   memcpy(&out[i], &mesh_rx_queue_full, 4); i += 4;
   memcpy(&out[i], &link_tx_queue_full, 4); i += 4;
   memcpy(&out[i], &link_rx_queue_full, 4); i += 4;
-  // beebo: QoS (delivery quality, what
-  // the tuning optimizer maximizes) and SoH (is this node's own
-  // infrastructure intact) computed fresh from the same lifetime counters
-  // above, every header request -- not gated by tuning being enabled or
-  // role, unlike the repeater-only tuning tick's own reward computation
-  // (which now delegates to the same MonRing::computeQos() this uses, see
+  // beebo: QoS ("confirm ratio" -- delivery quality, what the tuning
+  // optimizer maximizes) and SoH (is this node's own infrastructure
+  // intact) computed fresh from the same lifetime counters above, every
+  // header request -- not gated by tuning being enabled or role, unlike
+  // the repeater-only tuning tick's own reward computation (which now
+  // delegates to the same MonRing::computeQos() this uses, see
   // TuneController.h). 0-10000 scaled, same convention as TuneRecord.
-  // reward_before.
+  // reward_before. ros_count is the companion raw-volume half of the
+  // goodput reward redesign (DYNAMIC_OPTIMIZER_PLAN.md, 2026-08-24) -- QoS
+  // alone can't tell a node routing 1 packet/hour at 100% from one routing
+  // 1000/hour at 100%, this can. rx_drop is no longer part of QoS's
+  // denominator (see MonRing::computeQos()'s own comment) -- it remains a
+  // SoH input only, via the counters already gathered above.
   MonRing::QosStats qos_stats;
   qos_stats.ack_success_count = getAckSuccessCount();
   qos_stats.ack_timeout_count = getAckTimeoutCount();
   qos_stats.echo_attempt_count = ((SimpleMeshTables*)getTables())->getEchoAttemptCount();
   qos_stats.echo_success_count = ((SimpleMeshTables*)getTables())->getEchoSuccessCount();
-  qos_stats.rx_drop_count = rx_pool_exhausted + rx_parse_error + mesh_tx_queue_full + mesh_rx_queue_full;
   MonRing::SohStats soh_stats;
   soh_stats.tx_pool_full_count = _tx_pool_full_count;
   soh_stats.rx_pool_exhausted_count = rx_pool_exhausted;
@@ -1958,8 +1962,10 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   memcpy(&out[i], &_loop_no_fwd_count, 4); i += 4;
   uint16_t qos = MonRing::computeQos(qos_stats);
   uint16_t soh = MonRing::computeSoh(soh_stats);
+  uint32_t ros_count = MonRing::computeRos(qos_stats);
   memcpy(&out[i], &qos, 2); i += 2;
   memcpy(&out[i], &soh, 2); i += 2;
+  memcpy(&out[i], &ros_count, 4); i += 4;
   int rec_hdr = i;
   i += 2;  // reserve returned-count (total: real + injected)
   int injected_hdr = i;
@@ -5347,8 +5353,6 @@ void Beebo::loop() {
     tx_stats.ack_timeout_count = getAckTimeoutCount();
     tx_stats.echo_attempt_count = ((SimpleMeshTables*)getTables())->getEchoAttemptCount();
     tx_stats.echo_success_count = ((SimpleMeshTables*)getTables())->getEchoSuccessCount();
-    tx_stats.rx_drop_count = monring.rxPoolExhaustedCount() + monring.rxParseErrorCount() +
-                              _mgr->getTxQueueFullCount() + _mgr->getRxQueueFullCount();
     TuneController::Decision decision = tune_controller.tick(
       monring, (uint32_t)getRTCClock()->getCurrentTime(), current_values, tx_stats, _tune_applied_mask);
     if (decision.should_apply) {

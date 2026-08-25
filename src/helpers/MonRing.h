@@ -1103,16 +1103,33 @@ public:
 
   // ---- Live objective functions: QoS (what the tuning optimizer maximizes)
   // and SoH (is the node's own infrastructure intact) -- DYNAMIC_OPTIMIZER_
-  // PLAN.md item 10. Deliberately two DIFFERENT numbers, not two views of
-  // the same one: a node can be perfectly healthy (SoH 100%) while its
-  // delivery quality is mediocre for reasons entirely outside its own
-  // control (RF noise, topology, a neighbor's own congestion) -- QoS
-  // reflects that outcome, SoH doesn't conflate it with "something is wrong
-  // with THIS node." Both are computed fresh on every call from the same
-  // lifetime counters the event catalog (see beebo-cli docs) already
-  // tracks -- nothing new is captured, this is pure arithmetic over
-  // existing diagnostics, same spirit as TuneController::txConfirmReward()
-  // (which QoS *is* -- see below).
+  // PLAN.md item 10, reward redesigned per the same plan's "goodput" section
+  // (2026-08-24): QoS alone (a confirmed/attempted RATIO) is structurally
+  // blind to routing VOLUME, and specifically blind to any parameter (radio
+  // txpower, FEM LNA, RX boosted gain) whose main effect is on how many
+  // packets are receivable/forwardable at all rather than the ratio's
+  // ability to confirm ones already attempted -- see 802.11 rate-adaptation
+  // (SampleRate/Minstrel: expected throughput = attempt_rate x P(success),
+  // never P(success) alone) for the precedent. `computeQos()` below is now
+  // scoped to pure link-confirmation-quality ("confirm ratio") -- rx_drop
+  // is deliberately no longer part of its denominator (that capacity signal
+  // is SoH's job, see SohStats below) -- and `computeRos()` reports
+  // the companion raw-volume half. Both are exported side by side; a single
+  // combined goodput-style reward (ros_count, baseline-normalized, times
+  // confirm ratio) is the target shape once the decision-window gate's
+  // per-window deltas exist -- this step ships the two ingredients on
+  // lifetime counters first, not yet the combined/normalized product.
+  //
+  // QoS and SoH remain two DIFFERENT numbers, not two views of the same
+  // one: a node can be perfectly healthy (SoH 100%) while its delivery
+  // quality is mediocre for reasons entirely outside its own control (RF
+  // noise, topology, a neighbor's own congestion) -- QoS reflects that
+  // outcome, SoH doesn't conflate it with "something is wrong with THIS
+  // node." Both are computed fresh on every call from the same lifetime
+  // counters the event catalog (see beebo-cli docs) already tracks --
+  // nothing new is captured, this is pure arithmetic over existing
+  // diagnostics, same spirit as TuneController::txConfirmReward() (which
+  // QoS *is* -- see below).
 
   // QoS inputs -- identical shape to TuneController::TxConfirmStats
   // (TuneController.h delegates its txConfirmReward() here so there is only
@@ -1122,21 +1139,39 @@ public:
     uint32_t ack_timeout_count;
     uint32_t echo_attempt_count;
     uint32_t echo_success_count;
-    uint32_t rx_drop_count;   // rx_pool_full + rx_parse_error + tx_queue_full + rx_queue_full
   };
 
-  // QoS = confirmed-delivered / attempted, 0-10000 scaled (0-100.00%). 0
-  // (not a meaningful "0% success") when there's no exposure yet
-  // (denominator 0). Same lifetime-cumulative-counter caveat as everywhere
+  // QoS ("confirm ratio") = confirmed-delivered / attempted, 0-10000 scaled
+  // (0-100.00%). 0 (not a meaningful "0% success") when there's no exposure
+  // yet (denominator 0). Deliberately does NOT include rx_drop (pool-
+  // exhausted/parse-error/queue-full) in the denominator -- that's a
+  // capacity-fault signal already tracked by SoH below, and folding it in
+  // here conflated "this link's confirmations are weak" with "this node is
+  // dropping traffic for unrelated internal-resource reasons," which also
+  // structurally hid any parameter (radio txpower/RX gain) whose effect is
+  // mostly on routed volume rather than this ratio -- see the class-level
+  // comment above. Same lifetime-cumulative-counter caveat as everywhere
   // else this pattern is used: early history dominates, less responsive to
   // recent conditions as the denominator grows over uptime.
   static uint16_t computeQos(const QosStats &s) {
     uint32_t numerator = s.ack_success_count + s.echo_success_count;
     uint32_t denominator = s.ack_success_count + s.ack_timeout_count +
-                            s.echo_attempt_count + s.rx_drop_count;
+                            s.echo_attempt_count;
     if (denominator == 0) return 0;
     uint32_t scaled = (numerator * 10000UL) / denominator;
     return (uint16_t)(scaled > 10000UL ? 10000UL : scaled);
+  }
+
+  // Raw routing volume: total confirmed-delivered count (DM ACKs + flood
+  // echoes), lifetime. The companion half of the goodput reward -- QoS
+  // alone can't distinguish a node routing 1 packet/hour at 100% from one
+  // routing 1000/hour at 100%; this is the number that can. Not yet
+  // normalized against a rolling baseline (that needs the decision-window
+  // gate's per-window deltas -- see DYNAMIC_OPTIMIZER_PLAN.md) or combined
+  // with QoS into a single scalar -- exported alongside it for now so
+  // `beebo check`/`beebo monitor` can show both while that design lands.
+  static uint32_t computeRos(const QosStats &s) {
+    return s.ack_success_count + s.echo_success_count;
   }
 
   // SoH inputs -- every lifetime counter that represents THIS node's own

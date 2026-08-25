@@ -17,19 +17,19 @@ struct RingFixture {
 // Lifetime TxConfirmStats snapshot -- ack_success/ack_timeout/echo_attempt/
 // echo_success, same cumulative-since-boot shape the real counters have
 // (BaseChatMesh::getAckSuccessCount()/getAckTimeoutCount(), SimpleMeshTables::
-// getEchoAttemptCount()/getEchoSuccessCount()). rx_drop_count defaults to 0
-// (no rx-side degradation) -- zero-initialize the whole struct first so
-// adding a field to TxConfirmStats can never again leave a member here as
-// uninitialized stack garbage.
+// getEchoAttemptCount()/getEchoSuccessCount()). No rx_drop_count field
+// anymore (removed in the goodput reward redesign, DYNAMIC_OPTIMIZER_PLAN.md,
+// 2026-08-24 -- capacity drops are SoH's concern, not this confirm-ratio
+// reward's) -- zero-initialize the whole struct first so adding a field to
+// TxConfirmStats can never again leave a member here as uninitialized stack
+// garbage.
 TuneController::TxConfirmStats stats(uint32_t ack_success, uint32_t ack_timeout,
-                                     uint32_t echo_attempt, uint32_t echo_success,
-                                     uint32_t rx_drop = 0) {
+                                     uint32_t echo_attempt, uint32_t echo_success) {
   TuneController::TxConfirmStats s = {};
   s.ack_success_count = ack_success;
   s.ack_timeout_count = ack_timeout;
   s.echo_attempt_count = echo_attempt;
   s.echo_success_count = echo_success;
-  s.rx_drop_count = rx_drop;
   return s;
 }
 

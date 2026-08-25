@@ -27,14 +27,21 @@
 // blended into one rate:
 //
 //   reward = (ack_success + rpt) /
-//            (ack_success + ack_timeout + echo_flood + rx_drop)
+//            (ack_success + ack_timeout + echo_flood)
 //
-// rx_drop (pool-exhausted + parse-error + send/rx-queue-full lifetime counts,
-// see TxConfirmStats::rx_drop_count below) is folded into the denominator
-// only, so a node dropping traffic anywhere in the RX/relay pipeline --
-// degraded capacity, independent of how its own TX is doing -- pulls every
-// param's reward down, including the RX-side knobs (rx_delay_base,
-// agc_reset_interval, interference_threshold) most able to respond to it.
+// This is a pure link-confirmation-quality RATIO ("confirm ratio" --
+// DYNAMIC_OPTIMIZER_PLAN.md's "goodput" reward redesign, 2026-08-24), no
+// longer widened by rx_drop (pool-exhausted/parse-error/queue-full) the way
+// an earlier revision did -- that capacity signal is SoH's job (see
+// MonRing::SohStats), and folding it into this ratio's denominator hid the
+// effect of any parameter (radio txpower, RX/FEM gain) whose main effect is
+// on routing VOLUME rather than this ratio: this reward alone is still
+// structurally blind to a node routing 1 packet/hour at 100% vs. 1000/hour
+// at 100%. MonRing::computeRos() is the companion raw-volume half;
+// a combined goodput-style reward (ros_count, baseline-normalized,
+// times this ratio) is the target shape once the decision-window gate's
+// per-window deltas exist. This class still only computes the ratio half
+// for now -- see the plan's Step 1 progress list for what's staged next.
 //
 // Both halves are proper 0/1-per-attempt indicators, not just any count that
 // happened to be lying around:
@@ -154,27 +161,21 @@ public:
   // Lifetime counters the caller reads fresh every tick (companion
   // BaseChatMesh::getAckSuccessCount()/getAckTimeoutCount(), mesh-wide
   // SimpleMeshTables::getEchoSuccessCount()/getEchoAttemptCount()) -- see
-  // txConfirmReward() below for how they combine into one reward.
-  // echo_attempt_count deliberately excludes direct-routed self-tx (see
-  // SimpleMeshTables::markSelfTx()) -- those are fully covered by
+  // txConfirmReward() below for how they combine into the confirm-ratio
+  // reward. echo_attempt_count deliberately excludes direct-routed self-tx
+  // (see SimpleMeshTables::markSelfTx()) -- those are fully covered by
   // ack_success_count/ack_timeout_count instead.
-  // rx_drop_count folds in MonRing::rxPoolExhaustedCount() +
-  // rxParseErrorCount() (receptions dropped before a Packet even existed to
-  // route -- packet pool exhausted / malformed frame) PLUS
-  // PacketManager::getTxQueueFullCount() + getRxQueueFullCount() (a Packet
-  // DID exist but a fixed-size send_queue/rx_queue was full when this node
-  // tried to actually forward/process it -- see StaticPoolPacketManager).
-  // Added to the reward denominator only (never the numerator): a node
-  // dropping traffic anywhere in this pipeline has degraded RX/relay
-  // capacity regardless of how its TX confirmations are doing, and
-  // rx_delay_base/agc_reset_interval/interference_threshold are exactly the
-  // knobs this penalty should be steering -- see txConfirmReward() below.
+  // No rx_drop_count field here anymore (removed in the goodput reward
+  // redesign, DYNAMIC_OPTIMIZER_PLAN.md, 2026-08-24) -- capacity drops
+  // (pool-exhausted/parse-error/queue-full) are SoH's job, not this ratio's;
+  // folding them in here also hid the effect of volume-sensitive parameters
+  // (radio txpower, RX/FEM gain) this ratio can't see regardless. Same
+  // shape as MonRing::QosStats by construction (see txConfirmReward()).
   struct TxConfirmStats {
     uint32_t ack_success_count;
     uint32_t ack_timeout_count;
     uint32_t echo_attempt_count;
     uint32_t echo_success_count;
-    uint32_t rx_drop_count;
   };
 
   void begin() {
@@ -296,7 +297,7 @@ private:
   // same shape by construction).
   static uint16_t txConfirmReward(const TxConfirmStats &s) {
     MonRing::QosStats qs{s.ack_success_count, s.ack_timeout_count,
-                          s.echo_attempt_count, s.echo_success_count, s.rx_drop_count};
+                          s.echo_attempt_count, s.echo_success_count};
     return MonRing::computeQos(qs);
   }
 

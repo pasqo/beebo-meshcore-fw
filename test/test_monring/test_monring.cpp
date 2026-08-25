@@ -877,31 +877,47 @@ TEST(MonRing, EventCountDecrementsOnEviction) {
 }
 
 // --------------------------------------------------------------------------
-// QoS / SoH objective functions (DYNAMIC_OPTIMIZER_PLAN.md item 10)
+// QoS / SoH objective functions (DYNAMIC_OPTIMIZER_PLAN.md item 10, reward
+// redesigned into a "confirm ratio" (QoS) + raw "routed count" pair per the
+// plan's goodput reward redesign, 2026-08-24 -- see MonRing.h's comments)
 // --------------------------------------------------------------------------
 
 TEST(MonRing, ComputeQosNoExposureIsZeroNotUndefined) {
-  MonRing::QosStats s{0, 0, 0, 0, 0};
+  MonRing::QosStats s{0, 0, 0, 0};
   EXPECT_EQ(0u, MonRing::computeQos(s));
 }
 
 TEST(MonRing, ComputeQosAllConfirmedIsFullScore) {
-  MonRing::QosStats s{10, 0, 0, 0, 0};  // 10 ack successes, nothing else
+  MonRing::QosStats s{10, 0, 0, 0};  // 10 ack successes, nothing else
   EXPECT_EQ(10000u, MonRing::computeQos(s));
 }
 
 TEST(MonRing, ComputeQosHalfConfirmedIsHalfScore) {
-  MonRing::QosStats s{5, 5, 0, 0, 0};  // 5 success, 5 timeout
+  MonRing::QosStats s{5, 5, 0, 0};  // 5 success, 5 timeout
   EXPECT_EQ(5000u, MonRing::computeQos(s));
 }
 
-TEST(MonRing, ComputeQosRxDropOnlyHurtsDenominator) {
-  // rx_drop_count widens the denominator without ever contributing to the
-  // numerator -- a node dropping RX/relay traffic can't inflate its own QoS.
-  MonRing::QosStats with_drop{5, 0, 0, 0, 5};
-  MonRing::QosStats without_drop{5, 0, 0, 0, 0};
-  EXPECT_EQ(5000u, MonRing::computeQos(with_drop));
-  EXPECT_EQ(10000u, MonRing::computeQos(without_drop));
+TEST(MonRing, ComputeRosSumsAckAndEchoSuccess) {
+  // The goodput reward's raw-volume half -- deliberately NOT a ratio, and
+  // deliberately NOT touched by ack_timeout/echo_attempt (those widen QoS's
+  // denominator, not this count).
+  MonRing::QosStats s{5, 100, 50, 3};  // 5 ack + 3 echo successes = 8 routed
+  EXPECT_EQ(8u, MonRing::computeRos(s));
+}
+
+TEST(MonRing, ComputeRosZeroWhenNothingConfirmed) {
+  MonRing::QosStats s{0, 10, 20, 0};  // plenty of attempts, no confirmations
+  EXPECT_EQ(0u, MonRing::computeRos(s));
+}
+
+TEST(MonRing, ComputeQosIsBlindToVolumeByDesign) {
+  // The exact gap the goodput redesign documents: a node confirming 1/1 and
+  // one confirming 1000/1000 score identically on QoS alone -- ros_count
+  // is what distinguishes them (see the two tests above).
+  MonRing::QosStats low_volume{1, 0, 0, 0};
+  MonRing::QosStats high_volume{1000, 0, 0, 0};
+  EXPECT_EQ(MonRing::computeQos(low_volume), MonRing::computeQos(high_volume));
+  EXPECT_NE(MonRing::computeRos(low_volume), MonRing::computeRos(high_volume));
 }
 
 TEST(MonRing, ComputeSohNoActivityIsFullScoreNotUnhealthy) {
@@ -931,7 +947,7 @@ TEST(MonRing, QosAndSohAreIndependentAxes) {
   // while QoS is mediocre for reasons outside its control (e.g. a lot of
   // ACK timeouts from real RF conditions, not resource exhaustion).
   MonRing::SohStats soh{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /*rx_activity=*/1000, /*tx_activity=*/500};
-  MonRing::QosStats qos{2, 8, 0, 0, 0};  // mostly timeouts -- poor delivery
+  MonRing::QosStats qos{2, 8, 0, 0};  // mostly timeouts -- poor delivery
   EXPECT_EQ(10000u, MonRing::computeSoh(soh));  // fully healthy
   EXPECT_EQ(2000u, MonRing::computeQos(qos));   // but only 20% QoS
 }
