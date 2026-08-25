@@ -1155,11 +1155,19 @@ public:
   // recent conditions as the denominator grows over uptime.
   static uint16_t computeQos(const QosStats &s) {
     uint32_t numerator = s.ack_success_count + s.echo_success_count;
-    uint32_t denominator = s.ack_success_count + s.ack_timeout_count +
-                            s.echo_attempt_count;
+    uint32_t denominator = computeQosExposure(s);
     if (denominator == 0) return 0;
     uint32_t scaled = (numerator * 10000UL) / denominator;
     return (uint16_t)(scaled > 10000UL ? 10000UL : scaled);
+  }
+
+  // computeQos()'s denominator, exported on its own so a caller (`beebo
+  // check`) can tell "zero confirmable attempts yet" (exposure 0) apart
+  // from "confirmable attempts happened and none succeeded" (exposure > 0,
+  // qos still 0) -- computeQos() alone collapses both to the same 0%,
+  // which reads as a real delivery failure even on a freshly-booted node.
+  static uint32_t computeQosExposure(const QosStats &s) {
+    return s.ack_success_count + s.ack_timeout_count + s.echo_attempt_count;
   }
 
   // Raw routing volume: total confirmed-delivered count (DM ACKs + flood

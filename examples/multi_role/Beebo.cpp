@@ -1963,9 +1963,14 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   uint16_t qos = MonRing::computeQos(qos_stats);
   uint16_t soh = MonRing::computeSoh(soh_stats);
   uint32_t ros_count = MonRing::computeRos(qos_stats);
+  // beebo: confirmable-attempt count behind qos's ratio -- lets the CLI
+  // tell "no exposure yet" apart from "attempts happened, none succeeded"
+  // (both read as qos=0 otherwise). See MonRing::computeQosExposure().
+  uint32_t qos_exposure = MonRing::computeQosExposure(qos_stats);
   memcpy(&out[i], &qos, 2); i += 2;
   memcpy(&out[i], &soh, 2); i += 2;
   memcpy(&out[i], &ros_count, 4); i += 4;
+  memcpy(&out[i], &qos_exposure, 4); i += 4;
   int rec_hdr = i;
   i += 2;  // reserve returned-count (total: real + injected)
   int injected_hdr = i;

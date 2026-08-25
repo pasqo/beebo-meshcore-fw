@@ -920,6 +920,22 @@ TEST(MonRing, ComputeQosIsBlindToVolumeByDesign) {
   EXPECT_NE(MonRing::computeRos(low_volume), MonRing::computeRos(high_volume));
 }
 
+TEST(MonRing, ComputeQosExposureIsZeroWhenNothingAttempted) {
+  MonRing::QosStats s{0, 0, 0, 0};
+  EXPECT_EQ(0u, MonRing::computeQosExposure(s));
+}
+
+TEST(MonRing, ComputeQosExposureDistinguishesNoAttemptsFromAllFailed) {
+  // The gap computeQos() alone can't see: both read as qos=0, but only one
+  // of them actually has confirmable attempts behind that 0%.
+  MonRing::QosStats no_attempts{0, 0, 0, 0};
+  MonRing::QosStats all_failed{0, 10, 0, 0};
+  EXPECT_EQ(0u, MonRing::computeQos(no_attempts));
+  EXPECT_EQ(0u, MonRing::computeQos(all_failed));
+  EXPECT_EQ(0u, MonRing::computeQosExposure(no_attempts));
+  EXPECT_EQ(10u, MonRing::computeQosExposure(all_failed));
+}
+
 TEST(MonRing, ComputeSohNoActivityIsFullScoreNotUnhealthy) {
   MonRing::SohStats s{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /*rx_activity=*/0, /*tx_activity=*/0};
   EXPECT_EQ(10000u, MonRing::computeSoh(s));
