@@ -24,7 +24,7 @@
 //     is the base"). Reading forward, the reader always hits the Sync that
 //     governs a record BEFORE the record itself.
 //
-// Reference records generalise the same rule: SYNC/RADIO/ENV each carry the
+// Reference records generalize the same rule: SYNC/RADIO/ENV each carry the
 // NEW state, stored immediately when the running state actually changes (one
 // row per real change, not one per read) — see _ensureSync()'s relatch and
 // noteRadio()/sampleEnv(). Records are therefore always written in causal
@@ -631,11 +631,11 @@ class MonRing {
   // (re)seed the three start-refs from them directly, without consuming a
   // ring slot.
   void _seed(uint32_t now, const RadioRecord &radio, const EnvRecord &env) {
-    _base = (now == 0) ? 1 : now;
+    _base = now;
     _radio = radio; _radio.kind = MON_RADIO; _radio.offset = 0; _radio_valid = true;
     _env   = env;   _env.kind   = MON_ENV;   _env.offset   = 0; _env_valid   = true;
 
-    memset(&start_sync, 0, sizeof(start_sync));
+    start_sync = SyncRecord{};
     start_sync.kind = MON_SYNC;
     start_sync.timestamp = _base;
     start_sync.abi_version = MONRING_ABI_VERSION;
@@ -696,13 +696,43 @@ class MonRing {
   uint32_t  _end_time = 0;
 
   // Called first by every append*/note*/sample* entry point. Latches a new
-  // base (and stores a SYNC record carrying it immediately) if none exists
-  // yet or the current epoch has run its course — forward semantics: "from
-  // here on this is the base", so SYNC always precedes anything using it.
-  void _ensureSync(uint32_t now) {
-    if (_base == 0 || now < _base || (now - _base) >= _sync_period) {
-      _base = (now == 0) ? 1 : now;
-      MonRecord r; memset(&r, 0, sizeof(r));
+  // base (and stores a SYNC record carrying it immediately) once the
+  // current epoch has run its course — forward semantics: "from here on
+  // this is the base", so SYNC always precedes anything using it. Returns
+  // the caller's own offset from whichever base is now current, so the
+  // caller never needs a separate call to compute it: every entry point
+  // calls this exactly once with the same `now` it stamps its own record
+  // with, immediately before building that record, so folding the offset
+  // computation in here removes a redundant `now - _base` (recomputed
+  // from scratch each time it was a separate call) and the two-call
+  // pattern every entry point otherwise had to repeat.
+  //
+  // beebo: no `_base == 0`/"never seeded" branch here -- every caller
+  // (append*/note*/sample*) already bails out on `_buf == nullptr` before
+  // reaching this, and `_buf` only becomes non-null via init(), which
+  // always seeds `_base` first via _seed(). So `_ensureSync()` can never
+  // actually run before `_base` holds a real value; a dead-code branch
+  // handling that case was removed 2026-08-25.
+  //
+  // `now - _base` is plain UNSIGNED subtraction, no signed reinterpretation
+  // needed: a real backward `now` never happens (within a session `_base`
+  // only ever comes from this same clock, a clock correction is only ever
+  // applied forward -- see CMD_SET_DEVICE_TIME's `secs >= curr` guard --
+  // and a reboot resets `_base`/`_next_seq` together via clear()/init()),
+  // and the real uint32 epoch rollover this clock will hit in 2106 is
+  // already handled correctly by plain modular subtraction (`now - _base`
+  // wraps to the true small elapsed value in that case, same as any other
+  // wrapping-counter difference) -- there is no case here where the
+  // difference needs a sign at all. And `now - _base` can never exceed
+  // ~3600 in any real build regardless (_sync_period is a fixed
+  // compile-time constant, setSyncPeriod() is test-only), nowhere close to
+  // uint16_t's range, so the narrowing cast on return is always exact,
+  // never a truncation.
+  uint16_t _ensureSync(uint32_t now) {
+    uint32_t elapsed = now - _base;
+    if (elapsed >= _sync_period) {
+      _base = now;
+      MonRecord r{};
       r.sync.kind = MON_SYNC;
       r.sync.timestamp = _base;
       r.sync.abi_version = MONRING_ABI_VERSION;
@@ -715,12 +745,9 @@ class MonRing {
       if (_sync_count == 0) start_sync = r.sync;
       _sync_count++;
       _store(r);
+      return 0;  // this record's own offset from the base it just latched
     }
-  }
-
-  uint16_t _offset(uint32_t now) const {
-    uint32_t d = (now < _base) ? 0 : now - _base;
-    return d > 0xFFFF ? 0xFFFF : (uint16_t)d;
+    return (uint16_t)elapsed;
   }
 
   // Raw append of a fully-formed record. Assigns the next seq, wraps the ring.
@@ -864,26 +891,24 @@ public:
   // was stored (ring disabled/unallocated).
   uint32_t appendRx(RxRecord rx, uint32_t now) {
     if (!enabled() || !(_config & MON_CAP_RX) || _buf == nullptr) return 0xFFFFFFFFu;
-    _ensureSync(now);
-    _end_time = now;
-    _rx_count++;
-    MonRecord r; memset(&r, 0, sizeof(r));
+    MonRecord r{};
     r.rx = rx;
     r.rx.kind = MON_RX;
-    r.rx.offset = _offset(now);
+    r.rx.offset = _ensureSync(now);
+    _end_time = now;
+    _rx_count++;
     return _store(r);
   }
 
   // Append one of our own transmissions (kind/offset stamped here).
   void appendTx(TxRecord tx, uint32_t now) {
     if (!enabled() || !(_config & MON_CAP_TX) || _buf == nullptr) return;
-    _ensureSync(now);
-    _end_time = now;
-    _tx_count++;
-    MonRecord r; memset(&r, 0, sizeof(r));
+    MonRecord r{};
     r.tx = tx;
     r.tx.kind = MON_TX;
-    r.tx.offset = _offset(now);
+    r.tx.offset = _ensureSync(now);
+    _end_time = now;
+    _tx_count++;
     _store(r);
   }
 
@@ -893,13 +918,12 @@ public:
   // idle vs forced reads) rather than a diffed reference like RADIO/ENV.
   void appendBatt(BattRecord batt, uint32_t now) {
     if (!enabled() || !(_config & MON_CAP_BATT) || _buf == nullptr) return;
-    _ensureSync(now);
-    _end_time = now;
-    _batt_count++;
-    MonRecord r; memset(&r, 0, sizeof(r));
+    MonRecord r{};
     r.batt = batt;
     r.batt.kind = MON_BATT;
-    r.batt.offset = _offset(now);
+    r.batt.offset = _ensureSync(now);
+    _end_time = now;
+    _batt_count++;
     _store(r);
   }
 
@@ -910,13 +934,12 @@ public:
   // param is promoted to live actuation.
   void appendTune(TuneRecord tune, uint32_t now) {
     if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
-    _ensureSync(now);
-    _end_time = now;
-    _tune_count++;
-    MonRecord r; memset(&r, 0, sizeof(r));
+    MonRecord r{};
     r.tune = tune;
     r.tune.kind = MON_TUNE;
-    r.tune.offset = _offset(now);
+    r.tune.offset = _ensureSync(now);
+    _end_time = now;
+    _tune_count++;
     _store(r);
   }
 
@@ -927,13 +950,12 @@ public:
   void appendEvent(EventRecord event, uint32_t now) {
     if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
     if (!(_event_type_mask & (1u << event.event_type))) return;
-    _ensureSync(now);
-    _end_time = now;
-    _event_count++;
-    MonRecord r; memset(&r, 0, sizeof(r));
+    MonRecord r{};
     r.event = event;
     r.event.kind = MON_EVENT;
-    r.event.offset = _offset(now);
+    r.event.offset = _ensureSync(now);
+    _end_time = now;
+    _event_count++;
     _store(r);
   }
 
@@ -942,13 +964,12 @@ public:
   // comment for why this has its own kind/struct but shares the capture bit.
   void appendSetting(SettingRecord setting, uint32_t now) {
     if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
-    _ensureSync(now);
-    _end_time = now;
-    _setting_count++;
-    MonRecord r; memset(&r, 0, sizeof(r));
+    MonRecord r{};
     r.setting = setting;
     r.setting.kind = MON_SETTING;
-    r.setting.offset = _offset(now);
+    r.setting.offset = _ensureSync(now);
+    _end_time = now;
+    _setting_count++;
     _store(r);
   }
 
@@ -956,13 +977,12 @@ public:
   // gating as appendSetting()/appendEvent() -- see MON_COMMAND's comment.
   void appendCommand(CommandRecord command, uint32_t now) {
     if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
-    _ensureSync(now);
-    _end_time = now;
-    _command_count++;
-    MonRecord r; memset(&r, 0, sizeof(r));
+    MonRecord r{};
     r.command = command;
     r.command.kind = MON_COMMAND;
-    r.command.offset = _offset(now);
+    r.command.offset = _ensureSync(now);
+    _end_time = now;
+    _command_count++;
     _store(r);
   }
 
@@ -977,13 +997,12 @@ public:
                    _radio.bw != radio.bw || _radio.cr != radio.cr ||
                    _radio.tx_power != radio.tx_power || _radio.flags != radio.flags;
     if (!changed) return;
-    _ensureSync(now);
     _radio = radio;
     _radio_valid = true;
-    MonRecord r; memset(&r, 0, sizeof(r));
+    MonRecord r{};
     r.radio = _radio;
     r.radio.kind = MON_RADIO;
-    r.radio.offset = _offset(now);
+    r.radio.offset = _ensureSync(now);
     _radio_count++;
     _store(r);
   }
@@ -999,13 +1018,12 @@ public:
                    _env.tx_queue != env.tx_queue || _env.err_flags != env.err_flags ||
                    _env.cad_busy_events != env.cad_busy_events;
     if (!changed) return;
-    _ensureSync(now);
     _env = env;
     _env_valid = true;
-    MonRecord r; memset(&r, 0, sizeof(r));
+    MonRecord r{};
     r.env = _env;
     r.env.kind = MON_ENV;
-    r.env.offset = _offset(now);
+    r.env.offset = _ensureSync(now);
     _env_count++;
     _store(r);
   }
@@ -1027,9 +1045,9 @@ public:
   // _store() across evictions.
   bool emitStartRef(uint8_t kind, MonRecord *dest) const {
     switch (kind) {
-      case MON_SYNC:  memset(dest, 0, sizeof(*dest)); dest->sync  = start_sync;  return true;
-      case MON_RADIO: memset(dest, 0, sizeof(*dest)); dest->radio = start_radio; return true;
-      case MON_ENV:   memset(dest, 0, sizeof(*dest)); dest->env   = start_env;   return true;
+      case MON_SYNC:  dest->sync  = start_sync;  return true;
+      case MON_RADIO: dest->radio = start_radio; return true;
+      case MON_ENV:   dest->env   = start_env;   return true;
       default: return false;
     }
   }

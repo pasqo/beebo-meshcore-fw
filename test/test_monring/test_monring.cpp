@@ -418,6 +418,28 @@ TEST(MonRing, EnsureSyncRelatchesAfterPeriodElapses) {
   EXPECT_EQ(MON_RX, out[3].kind);
 }
 
+TEST(MonRing, EnsureSyncHandlesUint32EpochRolloverAsAForwardRelatch) {
+  // beebo: plain unsigned `now - _base` modular subtraction already
+  // computes the correct small elapsed value across the real uint32 epoch
+  // rollover (7 Feb 2106) -- the wrapped difference IS the true elapsed
+  // time, same as any other wrapping-counter difference. Verifies that
+  // directly rather than assuming it.
+  RingFixture<8> f(0xFFFFFFFFu - 50);  // seeded 50s before the uint32 rollover
+  f.ring.setSyncPeriod(100);
+  f.ring.appendRx(makeRx(), 30);  // wrapped clock: 50s before rollover + 30s after = 80s elapsed
+  EXPECT_EQ(1u, f.ring.nextSeq());  // period (100) not elapsed yet: no relatch, still just seq0=RX
+
+  f.ring.appendRx(makeRx(), 60);  // 50 + 60 = 110s elapsed since base: relatch due
+  MonRecord out[8];
+  uint32_t returned = 0;
+  f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
+  ASSERT_EQ(3u, returned);
+  EXPECT_EQ(MON_RX, out[0].kind);
+  EXPECT_EQ(MON_SYNC, out[1].kind);
+  EXPECT_EQ(60u, out[1].sync.timestamp);  // relatched to the new (wrapped, small) `now`
+  EXPECT_EQ(MON_RX, out[2].kind);
+}
+
 TEST(MonRing, NoteRadioAndSampleEnvAreNoOpsWhenUnchanged) {
   RingFixture<8> f;
   f.ring.noteRadio(makeRadio(), 1000);

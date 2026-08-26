@@ -354,7 +354,7 @@ void Beebo::logRxDisposition(const mesh::Packet* pkt, uint8_t reason) {
 #ifdef RX_DISPOSITION
   if (pkt == NULL || reason == mesh::RX_DISP_PARSE_ERR) {
     uint32_t cum = monring.bumpRxDropCount(reason);
-    EventRecord rec; memset(&rec, 0, sizeof(rec));
+    EventRecord rec{};
     rec.event_type = (reason == mesh::RX_DISP_PARSE_ERR) ? EVENT_RX_PARSE_ERROR : EVENT_RX_POOL_FULL;
     memcpy(&rec.data[0], &cum, 4);
     monring.appendEvent(rec, (uint32_t)getRTCClock()->getCurrentTime());
@@ -370,8 +370,7 @@ void Beebo::onPacketDisposed(mesh::Packet* pkt) {
   // actually staged capture data for it.
 #ifdef RX_DISPOSITION
   if (pkt->_rx_logged) {
-    RxRecord rec;
-    memset(&rec, 0, sizeof(rec));
+    RxRecord rec{};
     rec.pkt_hash = pkt->_rx_hash;
     rec.snr = pkt->_snr;
     rec.rssi = pkt->_rx_rssi;
@@ -439,8 +438,7 @@ void Beebo::logTxFail(mesh::Packet* pkt, int len) {
 // TIMEOUT only -- see emitAckOverflowEvent() for the resource-exhaustion case.
 void Beebo::emitAckResultEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_ms) {
   if (!monring.enabled() || !monring.allocated()) return;
-  EventRecord rec;
-  memset(&rec, 0, sizeof(rec));
+  EventRecord rec{};
   rec.event_type = (verdict == TXCONFIRM_SUCCESS) ? EVENT_ACK_SUCCESS : EVENT_ACK_TIMEOUT;
   memcpy(&rec.data[1], &pkt_hash, 4);
   memcpy(&rec.data[5], &age_ms, 4);
@@ -453,8 +451,7 @@ void Beebo::emitAckResultEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_
 // happened).
 void Beebo::emitAckOverflowEvent(uint32_t pkt_hash, uint32_t age_ms) {
   if (!monring.enabled() || !monring.allocated()) return;
-  EventRecord rec;
-  memset(&rec, 0, sizeof(rec));
+  EventRecord rec{};
   rec.event_type = EVENT_ACK_OVERFLOW;
   memcpy(&rec.data[1], &pkt_hash, 4);
   memcpy(&rec.data[5], &age_ms, 4);
@@ -677,8 +674,7 @@ bool Beebo::allowPacketForward(const mesh::Packet* packet) {
 // count is the caller's own member field (_max_hop_no_fwd_count/etc.,
 // surfaced via the GET_MONRING header instead) -- not duplicated here.
 void Beebo::logForwardDenyEvent(uint8_t event_type, const mesh::Packet* packet) {
-  EventRecord rec;
-  memset(&rec, 0, sizeof(rec));
+  EventRecord rec{};
   rec.event_type = event_type;
   uint32_t pkt_hash = packet->calculateMonRingHash();
   memcpy(&rec.data[1], &pkt_hash, 4);
@@ -1489,8 +1485,7 @@ bool Beebo::radioIsIdle() const {
 }
 
 RadioRecord Beebo::buildRadioRecord() {
-  RadioRecord radio;
-  memset(&radio, 0, sizeof(radio));
+  RadioRecord radio{};
   radio.freq = (uint32_t)(_role_state->prefs.freq * 1000000.0f + 0.5f);
   radio.sf = _role_state->prefs.sf;
   radio.bw = (uint16_t)(_role_state->prefs.bw * 10.0f + 0.5f);
@@ -1511,8 +1506,7 @@ RadioRecord Beebo::buildRadioRecord() {
 // lost. Shared by the monring.sampleEnv() capture sites and the
 // monring.init()/monring.clear() call sites, same reason as buildRadioRecord().
 EnvRecord Beebo::buildEnvRecord() {
-  EnvRecord env;
-  memset(&env, 0, sizeof(env));
+  EnvRecord env{};
   env.noise_floor = (int8_t)_radio->getNoiseFloor();
   env.batt_mv = _cached_batt_mv;
   env.temp_c = (int8_t)(_mcu_temp_scaled / 10);
@@ -1595,8 +1589,7 @@ void Beebo::logFaultEvent(uint16_t bit) {
     default: return;  // unknown bit -- nothing to log
   }
   (*cumulative)++;
-  EventRecord rec;
-  memset(&rec, 0, sizeof(rec));
+  EventRecord rec{};
   rec.event_type = event_type;
   memcpy(&rec.data[0], cumulative, 4);
   monring.appendEvent(rec, (uint32_t)getRTCClock()->getCurrentTime());
@@ -1614,8 +1607,7 @@ void Beebo::logTxQueueFull(bool is_relay) {
 #ifdef RX_DISPOSITION
   if (is_relay || !monring.enabled() || !monring.allocated()) return;
   uint32_t cum = _mgr->getTxQueueFullCount();
-  EventRecord rec;
-  memset(&rec, 0, sizeof(rec));
+  EventRecord rec{};
   rec.event_type = EVENT_TX_QUEUE_FULL;
   memcpy(&rec.data[0], &cum, 4);
   monring.appendEvent(rec, (uint32_t)getRTCClock()->getCurrentTime());
@@ -1628,8 +1620,7 @@ void Beebo::logRxQueueFull() {
 #ifdef RX_DISPOSITION
   if (!monring.enabled() || !monring.allocated()) return;
   uint32_t cum = _mgr->getRxQueueFullCount();
-  EventRecord rec;
-  memset(&rec, 0, sizeof(rec));
+  EventRecord rec{};
   rec.event_type = EVENT_RX_QUEUE_FULL;
   memcpy(&rec.data[0], &cum, 4);
   monring.appendEvent(rec, (uint32_t)getRTCClock()->getCurrentTime());
@@ -1648,16 +1639,14 @@ void Beebo::appendLinkQueueDropEvents() {
   uint32_t link_rx = ble_interface.getRecvQueueFullCount();
 
   if (link_tx != _last_link_tx_queue_full) {
-    EventRecord rec;
-    memset(&rec, 0, sizeof(rec));
+    EventRecord rec{};
     rec.event_type = EVENT_LINK_TX_QUEUE_FULL;
     memcpy(&rec.data[0], &link_tx, 4);
     monring.appendEvent(rec, now);
     _last_link_tx_queue_full = link_tx;
   }
   if (link_rx != _last_link_rx_queue_full) {
-    EventRecord rec;
-    memset(&rec, 0, sizeof(rec));
+    EventRecord rec{};
     rec.event_type = EVENT_LINK_RX_QUEUE_FULL;
     memcpy(&rec.data[0], &link_rx, 4);
     monring.appendEvent(rec, now);
@@ -1671,8 +1660,7 @@ void Beebo::appendLinkQueueDropEvents() {
 // own convention) so this stays generic across bool/int/float settings
 // without a second encoding scheme.
 void Beebo::appendSettingChangedEvent(uint8_t setting_key, uint32_t old_raw, uint32_t new_raw, uint8_t source) {
-  SettingRecord rec;
-  memset(&rec, 0, sizeof(rec));
+  SettingRecord rec{};
   rec.setting = setting_key;
   rec.source = source;
   rec.old_value = old_raw;
@@ -1684,8 +1672,7 @@ void Beebo::appendSettingChangedEvent(uint8_t setting_key, uint32_t old_raw, uin
 // MonRing.h's comment and checkRecvFrame()'s inclusion filter (this
 // function itself does no filtering; the caller decides eligibility).
 void Beebo::appendCommandRunEvent(uint16_t command_id) {
-  CommandRecord rec;
-  memset(&rec, 0, sizeof(rec));
+  CommandRecord rec{};
   rec.source = EVENT_SOURCE_BINARY;
   memcpy(&rec.command[0], &command_id, 2);
   monring.appendCommand(rec, (uint32_t)getRTCClock()->getCurrentTime());
@@ -1697,8 +1684,7 @@ void Beebo::appendCommandRunEvent(uint16_t command_id) {
 // truncated (not padded beyond what memset already zeroed) to the 12 bytes
 // CommandRecord.command holds.
 void Beebo::appendTextCommandRunEvent(const char* label) {
-  CommandRecord rec;
-  memset(&rec, 0, sizeof(rec));
+  CommandRecord rec{};
   rec.source = EVENT_SOURCE_TEXT_CLI;
   size_t n = strlen(label);
   if (n > 12) n = 12;
@@ -5106,7 +5092,7 @@ uint16_t Beebo::updateBattTrend(bool force_read) {
 
   // beebo: chart every live read taken here -- idle vs busy (see radioIsIdle())
   // -- so the Vbat trace can be studied against IR-drop/USB-plug events.
-  BattRecord br; memset(&br, 0, sizeof(br));
+  BattRecord br{};
   br.batt_mv = new_batt_mv;
   if (idle_now) br.flags |= BATTREC_FLAG_IDLE;
   br.flags |= (_batt_state << BATTREC_STATE_SHIFT) & BATTREC_STATE_MASK;
