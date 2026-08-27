@@ -567,8 +567,8 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
       strcpy(reply, "Error, bad key");
     }
 #ifdef BEEBO_IDENTITY_GENERATE
-  } else if (memcmp(config, "identity.generate", 18) == 0
-             && (config[18] == 0 || config[18] == ' ')) {
+  } else if (memcmp(config, "identity.generate", 17) == 0
+             && (config[17] == 0 || config[17] == ' ')) {
     // beebo: dispatched via cli_set() (identity.py), which always sends
     // "set identity.generate <value>" even with value == "" -- so config
     // here is "identity.generate" possibly followed by a trailing space
@@ -588,7 +588,7 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     }
     _callbacks->saveIdentity(new_id);
     strcpy(reply, "OK, new pubkey: ");
-    mesh::Utils::toHex(&reply[17], new_id.pub_key, PUB_KEY_SIZE);
+    mesh::Utils::toHex(&reply[16], new_id.pub_key, PUB_KEY_SIZE);
 #endif
   } else if (memcmp(config, "name ", 5) == 0) {
     if (isValidName(&config[5])) {
