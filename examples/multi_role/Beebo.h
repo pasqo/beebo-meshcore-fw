@@ -857,6 +857,11 @@ private:
   // boot; a runtime role switch never calls this again, the target slot is
   // already resident.
   void loadIdentityForRole(uint8_t role);
+  // beebo: the random-generation + reserved-pubkey-hash-prefix retry loop
+  // loadIdentityForRole() runs on a missing identity file, factored out so
+  // CMD_GENERATE_IDENTITY (BEEBO_CMD_GENERATE_IDENTITY) can call it
+  // independently against a role whose identity already exists.
+  mesh::LocalIdentity generateFreshIdentity();
   // beebo: the per-role state store -- loads a compiled-in role's full
   // persisted state (identity, prefs, and for repeater: ACL/RegionMap) into
   // its own resident role_state_store[] slot, independent of which role is

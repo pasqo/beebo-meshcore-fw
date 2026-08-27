@@ -13,6 +13,15 @@
 #define BRIDGE_MAX_BAUD 115200
 #endif
 
+#ifdef BEEBO_IDENTITY_GENERATE
+// beebo: "set identity.generate" text-CLI parity for CMD_GENERATE_IDENTITY
+// (see protocol.yaml/Beebo::generateFreshIdentity()) -- radio_new_identity()
+// is declared per-board in target.h, not included here, so it's forward-
+// declared directly rather than pulling in a board header this shared file
+// otherwise has no use for.
+mesh::LocalIdentity radio_new_identity();
+#endif
+
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
   uint32_t n = 0;
@@ -557,6 +566,30 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     } else {
       strcpy(reply, "Error, bad key");
     }
+#ifdef BEEBO_IDENTITY_GENERATE
+  } else if (memcmp(config, "identity.generate", 18) == 0
+             && (config[18] == 0 || config[18] == ' ')) {
+    // beebo: dispatched via cli_set() (identity.py), which always sends
+    // "set identity.generate <value>" even with value == "" -- so config
+    // here is "identity.generate" possibly followed by a trailing space
+    // and nothing else, not always a bare "identity.generate".
+    // beebo: on-device fresh identity, always targets the repeater's own
+    // identity (CommonCLI is only reachable while repeater is the live
+    // role) -- mirrors loadIdentityForRole()'s missing-file fallback, just
+    // independently callable against an identity that already exists.
+    // saveIdentity() (Beebo::saveIdentity, BeeboRepeater.cpp) applies
+    // immediately (self_id + ACL shared secrets), no reboot needed, unlike
+    // prv.key above.
+    mesh::LocalIdentity new_id = radio_new_identity();
+    int count = 0;
+    while (count < 10 && (new_id.pub_key[0] == 0x00 || new_id.pub_key[0] == 0xFF)) {
+      new_id = radio_new_identity();
+      count++;
+    }
+    _callbacks->saveIdentity(new_id);
+    strcpy(reply, "OK, new pubkey: ");
+    mesh::Utils::toHex(&reply[17], new_id.pub_key, PUB_KEY_SIZE);
+#endif
   } else if (memcmp(config, "name ", 5) == 0) {
     if (isValidName(&config[5])) {
       StrHelper::strncpy(_prefs->node_name, &config[5], sizeof(_prefs->node_name));

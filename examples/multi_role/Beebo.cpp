@@ -1080,16 +1080,25 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
 // "_main" and end up with IDENTICAL keys instead of one migrated + one
 // fresh. _board.role (the resolved default/live role) is already settled
 // by the time begin() calls loadRoleState() for either role.
-void Beebo::loadIdentityForRole(uint8_t role) {
-  mesh::LocalIdentity& id = role_state_store[role].identity;
-  if (_store->loadRoleIdentity(role, id)) return;
-  if (role == _board.role && _store->migrateLegacyIdentity(role, id)) return;
-  id = radio_new_identity(); // create new random identity
+// beebo: shared by loadIdentityForRole()'s missing-file fallback and
+// CMD_GENERATE_IDENTITY (BEEBO_CMD_GENERATE_IDENTITY) -- the latter makes
+// this independently callable against a role whose identity file may
+// already exist, instead of only ever firing here on a missing one.
+mesh::LocalIdentity Beebo::generateFreshIdentity() {
+  mesh::LocalIdentity id = radio_new_identity(); // create new random identity
   int count = 0;
   while (count < 10 && (id.pub_key[0] == 0x00 || id.pub_key[0] == 0xFF)) { // reserved id hashes
     id = radio_new_identity();
     count++;
   }
+  return id;
+}
+
+void Beebo::loadIdentityForRole(uint8_t role) {
+  mesh::LocalIdentity& id = role_state_store[role].identity;
+  if (_store->loadRoleIdentity(role, id)) return;
+  if (role == _board.role && _store->migrateLegacyIdentity(role, id)) return;
+  id = generateFreshIdentity();
   _store->saveRoleIdentity(role, id);
 }
 
@@ -4814,6 +4823,40 @@ void Beebo::handleCmdFrame(size_t len) {
         _serial->writeFrame(out_frame, 2 + PUB_KEY_SIZE);
       }
     }
+  } else if (sub[0] == BEEBO_CMD_GENERATE_IDENTITY && sub_len >= 2) {
+#if ENABLE_PRIVATE_KEY_IMPORT
+    // beebo: same destructive-write capability class as CMD_IMPORT_PRIVATE_KEY
+    // (overwrites a role's identity), gated behind the same build flag.
+    uint8_t role = resolveRoleByte(sub[1]);
+    if (role != NODE_ROLE_COMPANION && role != NODE_ROLE_REPEATER) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      mesh::LocalIdentity id = generateFreshIdentity();
+      if (!_store->saveRoleIdentity(role, id)) {
+        writeErrFrame(ERR_CODE_FILE_IO_ERROR);
+      } else {
+        out_frame[0] = RESP_CODE_BEEBO;
+        out_frame[1] = BEEBO_RESP_PUBLIC_KEY;
+        memcpy(&out_frame[2], id.pub_key, PUB_KEY_SIZE);
+        _serial->writeFrame(out_frame, 2 + PUB_KEY_SIZE);
+        if (role == _board.role) {
+          role_state_store[role].identity = id;
+          self_id = id;
+          // re-load contacts, to invalidate ecdh shared_secrets (companion-
+          // only state, see begin()'s role guard) -- same as CMD_IMPORT_PRIVATE_KEY
+          if (isCompanion()) {
+            resetContacts();
+            _store->loadContacts(this);
+          }
+#if BEEBO_ENABLE_REPEATER_ROLE
+          if (isRepeater()) acl.load(_store->getPrimaryFS(), self_id);
+#endif
+        }
+      }
+    }
+#else
+    writeDisabledFrame();
+#endif
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
     // beebo: factory eFuse base MAC -- hardware-burned, stable across
     // reflashes/identity changes/role switches, unrelated to node.public_key
