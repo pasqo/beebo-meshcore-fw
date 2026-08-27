@@ -1702,6 +1702,12 @@ private:
   // regress an already-adverted neighbour back to unknown).
   void putNeighbour(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t advert_timestamp,
                     int8_t snr, uint8_t type, const char* name, int32_t lat, int32_t lon);
+  // beebo: any zero-hop peer-decrypted packet from a known contact is as good
+  // a neighbour sighting as an advert -- called from every companion-side
+  // onPeerDataRecv hook that resolves a ContactInfo (onMessageRecv/
+  // onCommandDataRecv/onSignedMessageRecv). Full pubkey is always known here
+  // (ContactInfo), unlike the 1-byte hash a discover response carries.
+  void refreshNeighbourFromContact(const ContactInfo& from, mesh::Packet* pkt);
 };
 
 extern Beebo beebo;

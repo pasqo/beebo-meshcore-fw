@@ -89,24 +89,30 @@ void SerialWifiInterface::resetParserState() {
 }
 
 size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
-  // check if new client connected
+  // beebo: refuse a second peer at the TCP/listen level instead of accepting
+  // it into the app and rejecting it afterward. The prior approach (accept
+  // via server.available(), then newClient.stop() when a session was already
+  // live) was seen to correlate with the LIVE client's own session dying
+  // shortly after a reject -- even though newClient.stop() never touches
+  // `client` directly, suggesting a lower-level ESP32 WiFiClient/lwIP
+  // interaction between two socket ops landing close together. Closing the
+  // listening socket entirely while a session is live sidesteps that
+  // interaction altogether: a stray connect attempt gets an immediate RST
+  // from the OS and never reaches server.available() at all. Re-opened here,
+  // at the top of the next call, once the session ends.
+  if (!deviceConnected && !server && _isEnabled && _port > 0) {
+    server.begin(_port);
+  }
+
+  // check if new client connected -- only reachable while server is
+  // listening, i.e. while no session is live (see above).
   auto newClient = server.available();
   if (newClient) {
     if (deviceConnected) {
-      // beebo: a genuinely live session is already locked in (e.g. a
-      // phone app) -- WiFiServer's listen backlog (default 4, see
-      // WiFiServer's own ctor) lets a second peer (the CLI, or the same
-      // phone reconnecting) complete its TCP handshake at the OS level
-      // independently of which client the app is currently servicing, so
-      // unconditionally swapping to whatever server.available() hands
-      // back here used to silently kill the live session out from under
-      // it every time a second peer's connect raced in -- reject the new
-      // one outright instead of preempting a session that's still alive.
-      // beebo: detail = the rejected client's remote port -- lets a trace
-      // distinguish a genuine second peer from a duplicate/retransmitted
-      // accept of the SAME connection the live session is already on (same
-      // port would show up twice), by comparing against the port
-      // TLOG_WIFI_SESSION_ON logged for the live session.
+      // beebo: defensive fallback only -- shouldn't happen now that the
+      // listening socket is closed for the duration of a live session, but
+      // keep rejecting outright (never preempt) in case a lwIP race still
+      // hands one back. detail = the rejected client's remote port.
       transport_log.log(TLOG_WIFI_CLIENT_REJECTED, newClient.remotePort());
       newClient.stop();
     } else {
@@ -130,6 +136,25 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
 
       client = newClient;
       client.setNoDelay(true);
+      // beebo: TCP keepalive, tuned for a LAN peer rather than lwIP's
+      // 2-hour internet-facing default -- the standard mechanism for
+      // detecting a peer that vanishes without a clean FIN/RST (crash, WiFi
+      // drop, cable pull, NAT mapping dropped): the OS itself probes and
+      // reports failure through the same connected()/errno path already in
+      // use, no app-level idle timer needed. This is what actually bounds
+      // how long the listening socket can stay closed (see server.end()
+      // below) if the live peer disappears silently -- without it, a
+      // session stuck in that state would keep the port deaf indefinitely.
+      // idle=10s, 3 probes 5s apart => a dead peer is detected within ~25s.
+      { int enable = 1;
+        client.setSocketOption(SOL_SOCKET, SO_KEEPALIVE, (const void*)&enable, sizeof(enable));
+        int keepidle = 10;
+        client.setSocketOption(IPPROTO_TCP, TCP_KEEPIDLE, (const void*)&keepidle, sizeof(keepidle));
+        int keepintvl = 5;
+        client.setSocketOption(IPPROTO_TCP, TCP_KEEPINTVL, (const void*)&keepintvl, sizeof(keepintvl));
+        int keepcnt = 3;
+        client.setSocketOption(IPPROTO_TCP, TCP_KEEPCNT, (const void*)&keepcnt, sizeof(keepcnt));
+      }
     }
   }
 
@@ -140,6 +165,7 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
       // it raced with -- see those events' own comments above.
       transport_log.log(TLOG_WIFI_SESSION_ON, client.remotePort());
       deviceConnected = true;
+      server.end();   // beebo: stop accepting new peers for the duration of this session
     }
   } else if (deviceConnected) {
     client.stop();
