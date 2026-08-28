@@ -623,7 +623,9 @@ public:
   // 'commit': force-write current RAM state once, whatever the policy says.
   // Deliberately unconditional rather than dirty-gated -- an explicit commit
   // is a user asking for the files to match RAM, including after a direct
-  // _role_state->prefs mutation that never called savePrefs().
+  // _role_state->prefs mutation that never called savePrefs(). Also
+  // satisfies CommonCLICallbacks::commitPrefs() (CommonCLI.h) -- same
+  // signature, no separate override needed.
   void commitPrefs() {
     _role_state->prefs.dirty = _board_dirty = true;
     writeDirtyPrefs();

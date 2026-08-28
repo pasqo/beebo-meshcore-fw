@@ -590,6 +590,47 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     strcpy(reply, "OK, new pubkey: ");
     mesh::Utils::toHex(&reply[16], new_id.pub_key, PUB_KEY_SIZE);
 #endif
+#ifdef BEEBO_SET_NODE
+  } else if (memcmp(config, "node ", 5) == 0) {
+    // beebo: IDENTITY_SWITCH text-CLI parity for CMD_SET_NODE -- always
+    // targets the repeater's own identity/name (CommonCLI is only
+    // reachable while repeater is the live role, same reasoning as
+    // identity.generate above), so no role parameter is needed. A local
+    // buffer sized for the worst case (name up to node_name's own 31
+    // visible chars + separator + a 128-char hex private key), not the
+    // shared `tmp` member (sized for PRV_KEY_SIZE*2 alone, too small once
+    // a name is combined into the same command) -- parseTextParts needs a
+    // mutable copy since it null-terminates in place. No reply -- the
+    // device reboots immediately, matching CMD_SET_NODE's own behavior.
+    char node_buf[sizeof(_prefs->node_name) + PRV_KEY_SIZE*2 + 2];
+    StrHelper::strncpy(node_buf, &config[5], sizeof(node_buf));
+    const char *parts[2];
+    int num = mesh::Utils::parseTextParts(node_buf, parts, 2, ' ');
+    if (num != 2) {
+      strcpy(reply, "Error, usage: set node <name> <privkey_hex>");
+    } else if (!isValidName(parts[0])) {
+      strcpy(reply, "Error, bad name");
+    } else {
+      uint8_t prv_key[PRV_KEY_SIZE];
+      bool success = mesh::Utils::fromHex(prv_key, PRV_KEY_SIZE, parts[1]);
+      if (!success || !mesh::LocalIdentity::validatePrivateKey(prv_key)) {
+        strcpy(reply, "Error, bad key");
+      } else {
+        mesh::LocalIdentity new_id;
+        new_id.readFrom(prv_key, PRV_KEY_SIZE);
+        _callbacks->saveIdentity(new_id);
+        StrHelper::strncpy(_prefs->node_name, parts[0], sizeof(_prefs->node_name));
+        // beebo: commitPrefs(), not savePrefs()/CommonCLI::savePrefs() --
+        // this reboots immediately next, with no chance for a normal
+        // deferred/autosave-gated flush to ever run first (same bug
+        // CMD_SET_NODE's own binary handler had, found and fixed via
+        // hardware verification -- see CommonCLICallbacks::commitPrefs()'s
+        // own comment in CommonCLI.h).
+        _callbacks->commitPrefs();
+        _board->reboot();  // doesn't return -- no reply, matches CMD_SET_NODE
+      }
+    }
+#endif
   } else if (memcmp(config, "name ", 5) == 0) {
     if (isValidName(&config[5])) {
       StrHelper::strncpy(_prefs->node_name, &config[5], sizeof(_prefs->node_name));

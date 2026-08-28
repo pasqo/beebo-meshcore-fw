@@ -68,6 +68,16 @@ struct NodePrefs { // persisted to file
 class CommonCLICallbacks {
 public:
   virtual void savePrefs() = 0;
+  // beebo: force-write current prefs regardless of autosave/dirty-flush
+  // policy or batch depth -- needed by any CommonCLI text command that
+  // reboots immediately afterward (IDENTITY_SWITCH's "set node"), which
+  // gets no chance to let a normal deferred flush run first. Default
+  // falls back to savePrefs() (every non-Beebo board/callback
+  // implementation has no separate deferred/immediate distinction);
+  // Beebo's own public commitPrefs() (Beebo.h) already has the exact
+  // matching signature, so it satisfies this override with no new code
+  // there.
+  virtual void commitPrefs() { savePrefs(); }
   virtual const char* getFirmwareVer() = 0;
   virtual const char* getBuildDate() = 0;
   virtual const char* getRole() = 0;

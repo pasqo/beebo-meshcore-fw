@@ -4857,6 +4857,63 @@ void Beebo::handleCmdFrame(size_t len) {
 #else
     writeDisabledFrame();
 #endif
+  } else if (sub[0] == BEEBO_CMD_SET_NODE && sub_len >= 3) {
+#if ENABLE_PRIVATE_KEY_IMPORT
+    // beebo: IDENTITY_SWITCH -- atomic import + name-set + role-switch-if-
+    // needed + reboot in one server-side call, so a host-side named-
+    // identity "switch" primitive doesn't have a partial-failure window
+    // between separate CMD_IMPORT_PRIVATE_KEY / SET_PREFS_TLV(KEY_NAME) /
+    // SET_NODE_ROLE round trips. Payload: [role:1][name_len:1]
+    // [name:name_len][privkey:64]. No reply -- the device restarts
+    // immediately, same as REBOOT_WITH_TIME.
+    uint8_t role = sub[1];
+    uint8_t name_len = sub[2];
+    if ((role != NODE_ROLE_COMPANION && role != NODE_ROLE_REPEATER)
+        || !isNodeRoleBuiltIn(role)
+        || sub_len != (size_t)(3 + name_len + 64)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else if (isOTAActive() || _monread.active || _statread.active) {
+      // beebo: checked before any write (same busy class
+      // requestNodeRoleSwitch() itself refuses) so a busy device is left
+      // completely untouched instead of ending up with a new identity but
+      // a role switch that got rejected.
+      writeErrFrame(ERR_CODE_BAD_STATE);
+    } else {
+      const uint8_t* name = &sub[3];
+      const uint8_t* prv = &sub[3 + name_len];
+      if (!mesh::LocalIdentity::validatePrivateKey(prv)) {
+        writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      } else {
+        mesh::LocalIdentity identity;
+        identity.readFrom(prv, 64);
+        if (!_store->saveRoleIdentity(role, identity)) {
+          writeErrFrame(ERR_CODE_FILE_IO_ERROR);
+        } else {
+          if (name_len > 0) {
+            tlvSetName(this, role, name, name_len);
+            // beebo: tlvSetName()/persistRoleSlot() only *immediately*
+            // writes flash for a non-live role -- for the live role it
+            // just marks role_state_store[role].prefs.dirty and defers to
+            // the normal save_prefs/batch flush cycle, which never runs
+            // here before the unconditional reboot below. Force it out
+            // now (same unconditional-write reasoning
+            // requestNodeRoleSwitch() itself uses for _board.role) so the
+            // name change actually survives the reboot instead of being
+            // silently lost.
+            if (role == _board.role) commitPrefs();
+          }
+          // beebo: ARG/BUILTIN/BUSY already ruled out above -- only NOOP
+          // (already this role) or REBOOTING (persisted) can come back
+          // here. Either way this call always reboots next, so the result
+          // itself needs no further handling.
+          requestNodeRoleSwitch(role, EVENT_SOURCE_BINARY);
+          board.reboot();  // doesn't return; no reply, matches REBOOT_WITH_TIME
+        }
+      }
+    }
+#else
+    writeDisabledFrame();
+#endif
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
     // beebo: factory eFuse base MAC -- hardware-burned, stable across
     // reflashes/identity changes/role switches, unrelated to node.public_key
