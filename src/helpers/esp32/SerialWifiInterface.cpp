@@ -32,6 +32,18 @@ void SerialWifiInterface::disable() {
     client.stop();
     deviceConnected = false;
   }
+  // beebo: same _listening footgun rebind()'s own comment documents --
+  // WiFiServer::begin() no-ops whenever _listening is already true, and
+  // only end() clears it. A live tcp-off transport switch calls disable()
+  // right before WiFi.mode(WIFI_OFF) tears the whole radio/netif down
+  // (Beebo.cpp's applyTransportConfig()), but without this end() call
+  // _listening stayed stuck true across that teardown -- a later
+  // tcp-on's enable() -> server.begin(_port) then no-op'd, leaving
+  // isListening()/WL_STATUS both reporting a healthy connection while the
+  // actual listening socket was dead underneath, so no TCP client could
+  // ever connect again. Found via hardware-testing a live tcp-off/tcp-on
+  // cycle (2026-08-31).
+  server.end();
   clearBuffers();
   resetReceivedFrameHeader();
 }

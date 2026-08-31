@@ -51,6 +51,21 @@
 // boot snapshot) -- folded into TLOG_XPORT_VAR_CHANGED below, which now
 // covers boot too (see that event's own comment for how).
 #define TLOG_XPORT_VAR_CHANGED     23   // one tracked variable's value, or a change to it -- see TLOG_XPORT_VAR_* below for detail's (id, old, new) layout
+// beebo: periodic low-level WiFi health sample, gated to every
+// WIFI_HEALTH_SAMPLE_MS while WiFi is up (loopTransports()) -- unlike
+// TLOG_XPORT_VAR_CHANGED's change-triggered vars above, none of which
+// moved during the TCP-reachability-degrades-after-a-live-switch bug
+// (BUGS.md 2026-08-31): the failure is invisible to every high-level
+// state flag Beebo already tracks, so this samples one level lower
+// (free heap, RSSI, channel) to catch a silent degradation those flags
+// don't see. WiFiServer exposes no public listening-socket fd, so this
+// can't read the listening socket's own SO_ERROR the way
+// TLOG_WIFI_SESSION_OFF already does for a live client's -- heap/RSSI
+// are what's actually reachable without patching the third-party
+// arduino-esp32 framework.
+// detail: bits 0-15 = free heap in KB (uint16), bits 16-23 = RSSI dBm
+// (int8, two's complement), bits 24-31 = WiFi channel (uint8).
+#define TLOG_WIFI_HEALTH           24
 // 24/25 never assigned -- an earlier attempt at dedicated BLE radio-power
 // events (initRadio()/deinitRadio()) was reverted 2026-08-31: _ble_up (and
 // its own TLOG_XPORT_VAR_BLE_UP tracking below) already transitions in
@@ -92,13 +107,11 @@
 #define TLOG_XPORT_VAR_WIFI_STARTED          9
 #define TLOG_XPORT_VAR_WIFI_UP               10
 #define TLOG_XPORT_VAR_WIFI_NEEDS_RECONNECT  11
-#define TLOG_XPORT_VAR_WIFI_TEARDOWN_PENDING 12
+#define TLOG_XPORT_VAR_TRANSPORT_SWITCH_PENDING 12   // beebo: whole ble/tcp/usb switch deferred until no live app session (was 3 separate per-transport teardown_pending vars)
 #define TLOG_XPORT_VAR_BLE_ADDED             13
 #define TLOG_XPORT_VAR_BLE_UP                14
-#define TLOG_XPORT_VAR_BLE_TEARDOWN_PENDING  15
 #define TLOG_XPORT_VAR_USB_ADDED             16
 #define TLOG_XPORT_VAR_USB_UP                17
-#define TLOG_XPORT_VAR_USB_TEARDOWN_PENDING  18
 #define TLOG_XPORT_VAR_WL_STATUS             20   // wl_status_t (WiFi.status())
 #define TLOG_XPORT_VAR_ACTIVE                23   // serial_interface.activeTransportType()
 #define TLOG_XPORT_VAR_WIFI_CREDS_RECONNECT_PENDING 25

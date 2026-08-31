@@ -739,22 +739,33 @@ private:
   // TCP). Stash the request here; loopTransports() performs it.
   volatile bool _wifi_needs_rebind = false;
 
-  // A live ble<->tcp switch queues its OK reply on whichever transport carried
-  // the command, but that transport's send_queue is only drained by a *later*
-  // checkRecvFrame() call -- if we tear it down in the same loop() iteration
-  // that queued the reply, the reply (and the caller's confirmation) is lost
-  // and they just see a hard disconnect. Deferred until that transport's own
-  // _serial->isConnected() (the aggregate MultiSerialInterface session, not
-  // any one sub-interface's own isConnected()) goes false -- either the
-  // client's own BEEBO_CMD_APP_DISCONNECT releasing the session immediately,
-  // or a natural drop via the debounce path (checkTransportsAndBoard() in
-  // Beebo.cpp).
-  bool _ble_teardown_pending = false;
-  bool _wifi_teardown_pending = false;
-  bool _usb_teardown_pending = false;
+  // A live ble/tcp/usb switch must not straddle a live app session -- not
+  // just for the teardown half (whose OK reply would otherwise be queued on
+  // a transport's send_queue that's only drained by a *later*
+  // checkRecvFrame() call, and lost if torn down in the same loop()
+  // iteration that queued it), but for the bring-up half too: bringing up
+  // the new radio (e.g. BLE) *before* the old one (WiFi) is torn down would
+  // put both on the air at once, exactly the BT+WiFi RF-coexistence overlap
+  // BLE/TCP's mutual exclusion exists to prevent. So the whole switch --
+  // bring-up and tear-down together -- is applied atomically, once, only
+  // once _serial->isConnected() (the aggregate MultiSerialInterface
+  // session, not any one sub-interface's own isConnected()) goes false --
+  // either the client's own BEEBO_CMD_APP_DISCONNECT releasing the session
+  // immediately, or a natural drop via the debounce path
+  // (checkTransportsAndBoard() in Beebo.cpp). Applied immediately instead,
+  // with no need to set this flag, if no session is live at the time the
+  // switch is requested.
+  bool _transport_switch_pending = false;
+
+  // beebo: TLOG_WIFI_HEALTH sample cadence -- see that event's own comment
+  // in TransportLog.h for why it exists (nothing else logged catches the
+  // TCP-reachability-degrades-after-a-live-switch bug, BUGS.md 2026-08-31).
+  unsigned long _last_wifi_health_sample_ms = 0;
+  static const uint32_t WIFI_HEALTH_SAMPLE_MS = 3000;
 
   void beginTransports();       // called from begin(): bring up transports per persisted prefs
-  void loopTransports();        // called from loop(): STA-event drain, reconnect, live provisioning/toggle, teardown timers
+  void loopTransports();        // called from loop(): STA-event drain, reconnect, live provisioning/toggle, deferred transport switch
+  void applyTransportConfig();  // brings ble/tcp/usb up or down to match currently-persisted prefs
 
   // Single WiFi.onEvent handler body, shared by every WiFi.onEvent() registration
   // site (beginTransports()'s boot-time TCP bring-up, and the two live-toggle
