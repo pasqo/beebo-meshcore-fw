@@ -7,6 +7,7 @@
 #include <helpers/ProfileLog.h>
 #include <helpers/BattTrend.h>
 #include "BeeboProtocol.h"
+#include "AdminSelfCommand.h"
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_mac.h>  // beebo: esp_efuse_mac_get_default() for BEEBO_CMD_GET_BOARD_ID
@@ -2691,6 +2692,22 @@ bool Beebo::tlvSetCompanionRepeat(Beebo* self, uint8_t role, uint32_t raw) {
   return persistScalarField(self, role, self->role_state_store[role].prefs.client_repeat, raw ? 1 : 0);
 }
 
+// beebo: runs an admin command locally against this device's own live role (the 'self'
+// sentinel -- see matchAdminSelfCommand() and plans/ADMIN_SELF_COMMAND.md), and delivers
+// the reply back to the app through the same queued-message path a real remote admin
+// reply from `target` would take (Beebo::onCommandDataRecv() -> queueMessage()), so the
+// app's UI sees an ordinary admin-command response with no special casing needed there.
+void Beebo::handleAdminSelfCommand(const ContactInfo& target, char* command) {
+  char reply[160];
+  reply[0] = 0;
+  uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
+  handleCommand(timestamp, command, reply);
+  int text_len = strlen(reply);
+  if (text_len > 0) {
+    queueMessage(target, TXT_TYPE_CLI_DATA, NULL, timestamp, NULL, 0, reply);
+  }
+}
+
 void Beebo::handleCmdFrame(size_t len) {
   if (cmd_frame[0] == CMD_DEVICE_QUERY && len >= 2) { // sent when app establishes connection
     app_target_ver = cmd_frame[1];                    // which version of protocol does app understand
@@ -2846,46 +2863,69 @@ void Beebo::handleCmdFrame(size_t len) {
     if (recipient && (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_CLI_DATA)) {
       char *text = (char *)&cmd_frame[i];
       int tlen = len - i;
-      uint32_t est_timeout;
       text[tlen] = 0; // ensure null
-      int result;
-      uint32_t expected_ack;
-      uint32_t tx_pkt_hash = 0;
-      if (txt_type == TXT_TYPE_CLI_DATA) {
-        msg_timestamp = getRTCClock()->getCurrentTimeUnique(); // Use node's RTC instead of app timestamp to avoid tripping replay protection
-        result = sendCommandData(*recipient, msg_timestamp, attempt, text, est_timeout);
-        expected_ack = 0; // no Ack expected
-      } else {
-        result = sendMessage(*recipient, msg_timestamp, attempt, text, expected_ack, est_timeout, &tx_pkt_hash);
-      }
-      // TODO: add expected ACK to table
-      if (result == MSG_SEND_FAILED) {
-        writeErrFrame(ERR_CODE_TABLE_FULL);
-      } else {
-        if (expected_ack) {
-          // beebo: if the slot we're
-          // about to reuse still has ack != 0, an earlier send hasn't been
-          // resolved success or failure yet (checkAckTableTimeouts() hasn't
-          // caught it) -- the table wrapped faster than EXPECTED_ACK_TABLE_SIZE
-          // sends could resolve, a real starvation event, not a no-op.
-          if (expected_ack_table[next_ack_idx].ack != 0) {
-            ack_overflow_count++;
-            emitAckOverflowEvent(expected_ack_table[next_ack_idx].tx_pkt_hash,
-                                  _ms->getMillis() - expected_ack_table[next_ack_idx].msg_sent);
-          }
-          expected_ack_table[next_ack_idx].msg_sent = _ms->getMillis(); // add to circular table
-          expected_ack_table[next_ack_idx].ack = expected_ack;
-          expected_ack_table[next_ack_idx].timeout_ms = est_timeout;
-          expected_ack_table[next_ack_idx].tx_pkt_hash = tx_pkt_hash;
-          expected_ack_table[next_ack_idx].contact = recipient;
-          next_ack_idx = (next_ack_idx + 1) % EXPECTED_ACK_TABLE_SIZE;
-        }
 
-        out_frame[0] = RESP_CODE_SENT;
-        out_frame[1] = (result == MSG_SEND_SENT_FLOOD) ? 1 : 0;
-        memcpy(&out_frame[2], &expected_ack, 4);
-        memcpy(&out_frame[6], &est_timeout, 4);
-        _serial->writeFrame(out_frame, 10);
+      char *self_rest = (txt_type == TXT_TYPE_CLI_DATA) ? matchAdminSelfCommand(text) : NULL;
+      if (self_rest) {
+        // beebo: 'self' sentinel (plans/ADMIN_SELF_COMMAND.md) -- run the admin command
+        // locally against this device's own live role instead of relaying it to
+        // <recipient>. Gated on hasAdminLogin(recipient) -- a real admin CMD_LOGIN to
+        // <recipient> succeeded at some point this boot session (persists like a
+        // cached password, no reachability requirement at self-command time -- see
+        // last_admin_login_pubkey's comment in Beebo.h for why hasConnectionTo()
+        // can't be used here instead).
+        if (!hasAdminLogin(recipient->id.pub_key)) {
+          writeErrFrame(ERR_CODE_BAD_STATE);
+        } else {
+          handleAdminSelfCommand(*recipient, self_rest);
+          out_frame[0] = RESP_CODE_SENT;
+          out_frame[1] = 0; // direct, not flood
+          uint32_t zero = 0;
+          memcpy(&out_frame[2], &zero, 4); // no ack expected
+          memcpy(&out_frame[6], &zero, 4); // no timeout
+          _serial->writeFrame(out_frame, 10);
+        }
+      } else {
+        uint32_t est_timeout;
+        int result;
+        uint32_t expected_ack;
+        uint32_t tx_pkt_hash = 0;
+        if (txt_type == TXT_TYPE_CLI_DATA) {
+          msg_timestamp = getRTCClock()->getCurrentTimeUnique(); // Use node's RTC instead of app timestamp to avoid tripping replay protection
+          result = sendCommandData(*recipient, msg_timestamp, attempt, text, est_timeout);
+          expected_ack = 0; // no Ack expected
+        } else {
+          result = sendMessage(*recipient, msg_timestamp, attempt, text, expected_ack, est_timeout, &tx_pkt_hash);
+        }
+        // TODO: add expected ACK to table
+        if (result == MSG_SEND_FAILED) {
+          writeErrFrame(ERR_CODE_TABLE_FULL);
+        } else {
+          if (expected_ack) {
+            // beebo: if the slot we're
+            // about to reuse still has ack != 0, an earlier send hasn't been
+            // resolved success or failure yet (checkAckTableTimeouts() hasn't
+            // caught it) -- the table wrapped faster than EXPECTED_ACK_TABLE_SIZE
+            // sends could resolve, a real starvation event, not a no-op.
+            if (expected_ack_table[next_ack_idx].ack != 0) {
+              ack_overflow_count++;
+              emitAckOverflowEvent(expected_ack_table[next_ack_idx].tx_pkt_hash,
+                                    _ms->getMillis() - expected_ack_table[next_ack_idx].msg_sent);
+            }
+            expected_ack_table[next_ack_idx].msg_sent = _ms->getMillis(); // add to circular table
+            expected_ack_table[next_ack_idx].ack = expected_ack;
+            expected_ack_table[next_ack_idx].timeout_ms = est_timeout;
+            expected_ack_table[next_ack_idx].tx_pkt_hash = tx_pkt_hash;
+            expected_ack_table[next_ack_idx].contact = recipient;
+            next_ack_idx = (next_ack_idx + 1) % EXPECTED_ACK_TABLE_SIZE;
+          }
+
+          out_frame[0] = RESP_CODE_SENT;
+          out_frame[1] = (result == MSG_SEND_SENT_FLOOD) ? 1 : 0;
+          memcpy(&out_frame[2], &expected_ack, 4);
+          memcpy(&out_frame[6], &est_timeout, 4);
+          _serial->writeFrame(out_frame, 10);
+        }
       }
     } else {
       writeErrFrame(recipient == NULL

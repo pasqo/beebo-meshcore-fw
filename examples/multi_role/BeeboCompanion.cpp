@@ -178,9 +178,9 @@ void Beebo::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packet
 #endif
   if (use_v3) {
     out_frame[i++] = RESP_CODE_CONTACT_MSG_RECV_V3;
-    out_frame[i++] = (int8_t)(pkt->getSNR() * 4);
+    out_frame[i++] = pkt ? (int8_t)(pkt->getSNR() * 4) : 0;
 #ifdef MSG_INCLUDE_RSSI
-    { int16_t rssi = (int16_t)pkt->getRSSI(); memcpy(&out_frame[i], &rssi, 2); i += 2; }
+    { int16_t rssi = pkt ? (int16_t)pkt->getRSSI() : 0; memcpy(&out_frame[i], &rssi, 2); i += 2; }
 #else
     out_frame[i++] = 0; // reserved1
     out_frame[i++] = 0; // reserved2
@@ -190,7 +190,9 @@ void Beebo::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packet
   }
   memcpy(&out_frame[i], from.id.pub_key, 6);
   i += 6; // just 6-byte prefix
-  uint8_t path_len = out_frame[i++] = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
+  // pkt == NULL: a locally-synthesized reply (Beebo::handleAdminSelfCommand()), not a real
+  // received packet -- report as a direct (non-flood) message, no path.
+  uint8_t path_len = out_frame[i++] = (pkt && pkt->isRouteFlood()) ? pkt->path_len : 0xFF;
   out_frame[i++] = txt_type;
   memcpy(&out_frame[i], &sender_timestamp, 4);
   i += 4;
@@ -398,6 +400,10 @@ void Beebo::onContactResponse(const ContactInfo &contact, const uint8_t *data, u
       uint16_t keep_alive_secs = ((uint16_t)data[5]) * 16;
       if (keep_alive_secs > 0) {
         startConnection(contact, keep_alive_secs);
+      }
+      if (data[6]) { // beebo: 'self' sentinel auth record -- admin-only (data[6] == is_admin),
+                     // see last_admin_login_pubkey's comment in Beebo.h.
+        memcpy(last_admin_login_pubkey, contact.id.pub_key, 6);
       }
       out_frame[i++] = PUSH_CODE_LOGIN_SUCCESS;
       out_frame[i++] = data[6]; // permissions (eg. is_admin)
