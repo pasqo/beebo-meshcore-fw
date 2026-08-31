@@ -719,11 +719,19 @@ private:
 
   bool _wifi_needs_reconnect = false;
   unsigned long _last_wifi_reconnect_attempt = 0;
-  bool _wifi_suspended = false;   // true while the WiFi radio is intentionally powered down (MULTI_TRANSPORT)
   // WiFi STA events fire in the event-loop task; stash them here and log to the
   // (non-thread-safe) debug ring from loop() to keep all ring writes single-context.
   volatile int  _sta_disc_reason = -1;   // >=0 when a STA disconnect needs logging
   volatile bool _sta_got_ip = false;     // true when a STA got-IP needs logging
+  // beebo: same deferral as _sta_got_ip above, for the same reason -- the
+  // WiFi event-task callback must not call wifi_interface.rebind() directly.
+  // rebind() does real WiFiServer work (server.end()/begin()), and
+  // SerialWifiInterface's `server` member is touched every loop() iteration
+  // from checkRecvFrame() on the main task; calling it cross-task raced the
+  // two and left the listener broken after every boot/reassociation
+  // (2026-08-30, found via a fresh flash going completely unresponsive over
+  // TCP). Stash the request here; loopTransports() performs it.
+  volatile bool _wifi_needs_rebind = false;
 
   // A live ble<->tcp switch queues its OK reply on whichever transport carried
   // the command, but that transport's send_queue is only drained by a *later*
@@ -740,6 +748,32 @@ private:
 
   void beginTransports();       // called from begin(): bring up transports per persisted prefs
   void loopTransports();        // called from loop(): STA-event drain, reconnect, live provisioning/toggle, teardown timers
+
+  // Single WiFi.onEvent handler body, shared by every WiFi.onEvent() registration
+  // site (beginTransports()'s boot-time TCP bring-up, and the two live-toggle
+  // paths in loopTransports() -- CMD_SET_WIFI_CREDS and CMD_SET_TRANSPORT_CONFIG).
+  // Each site used to carry its own copy of this logic; that let the boot-time
+  // copy silently drift out of sync (missing the wifi_interface.rebind() call
+  // the other two picked up later), so a device with TCP already enabled at
+  // boot -- the common case, since tcp_enabled is a persisted pref -- never
+  // rebound the listening socket after a reassociation at all. One body, one
+  // place to keep correct.
+  void _onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info);
+
+  // beebo: last-known value of every TLOG_XPORT_VAR_* tracked variable
+  // (TransportLog.h), indexed by var id. beginTransports() seeds every
+  // entry to -1 ("no previous value" -- see TLOG_XPORT_VAR_CHANGED's own
+  // comment) before the first _checkTransportStateChanges() call, so that
+  // call logs each var's real boot value as if it just "changed from -1" --
+  // one harness for both the boot baseline and every later change.
+  int16_t _last_xport_var[TLOG_XPORT_VAR_COUNT];
+
+  // beebo: re-checks every TLOG_XPORT_VAR_* variable against
+  // _last_xport_var and logs a TLOG_XPORT_VAR_CHANGED line for each one
+  // that differs, updating the stored value as it goes. Called once right
+  // after beginTransports() seeds _last_xport_var to -1 (so it reports the
+  // boot baseline), and once every loopTransports() tick thereafter.
+  void _checkTransportStateChanges();
 
 #ifdef P_LORA_TX_LED
   // beebo: status LED (PWM via analogWrite), level chosen each loop by

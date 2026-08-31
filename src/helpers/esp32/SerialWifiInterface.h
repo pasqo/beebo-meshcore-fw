@@ -95,7 +95,33 @@ public:
   // server.available() never hands the app a live client again. Call this
   // from the STA's got-IP handler after any reassociation, not just the
   // first one.
-  void rebind() { if (_port > 0) server.begin(_port); }
+  //
+  // A plain server.begin(_port) is not enough here: WiFiServer::begin()
+  // no-ops whenever _listening is already true (WiFiServer.cpp), and a
+  // reassociation never clears it -- only WiFiServer::end() does. Since the
+  // listener sits open in steady state (only end()'ed for the duration of
+  // a live session -- see checkRecvFrame()'s server.end() below), _listening
+  // is almost always still true when a reassociation happens, so the old
+  // begin()-only rebind() silently did nothing: the orphaned socket from
+  // before the reassociation stayed in place, later handing back a
+  // connection that accepts and exchanges one frame but is actually dead
+  // underneath (confirmed via a captured transport-log trace: a TCP session
+  // that ran CMD_APP_START through to CMD done, then dropped 3ms later --
+  // never reaching the client). end() first forces WiFiServer to close the
+  // old socket and open a fresh one against the current association.
+  //
+  // Skipped while deviceConnected: a live session already has the listener
+  // closed for its own exclusivity guarantee (see checkRecvFrame()'s
+  // comment on server.end() below) -- rebuilding it here would reopen the
+  // port mid-session. checkRecvFrame()'s own top-of-function reopen logic
+  // picks the listener back up once that session actually ends.
+  void rebind() { if (_port > 0 && !deviceConnected) { server.end(); server.begin(_port); } }
+
+  // beebo: raw listen-socket state (WiFiServer's own _listening, via its
+  // operator bool()) -- distinct from isEnabled()/isConnected() below, and
+  // exactly the piece of state rebind()'s no-op bug above turned out to
+  // hinge on. Exposed for transport-state dumps (Beebo::_logTransportState()).
+  bool isListening() { return (bool)server; }   // WiFiServer::operator bool() isn't const
 
   // BaseSerialInterface methods
   void enable() override;

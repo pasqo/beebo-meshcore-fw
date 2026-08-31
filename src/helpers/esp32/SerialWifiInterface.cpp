@@ -168,11 +168,20 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
       server.end();   // beebo: stop accepting new peers for the duration of this session
     }
   } else if (deviceConnected) {
+    // beebo: capture the socket's pending error (if any) before stop()
+    // closes the fd -- distinguishes a clean peer-initiated FIN (0) from a
+    // real error (e.g. ETIMEDOUT from the keepalive probes below timing
+    // out, ECONNRESET from a peer RST) so a later beebo monitor transport
+    // read can tell which one actually happened instead of guessing from
+    // elapsed time alone.
+    int sock_err = 0;
+    socklen_t sock_err_len = sizeof(sock_err);
+    getsockopt(client.fd(), SOL_SOCKET, SO_ERROR, &sock_err, &sock_err_len);
     client.stop();
     deviceConnected = false;
     clearBuffers();
     resetReceivedFrameHeader();
-    transport_log.log(TLOG_WIFI_SESSION_OFF);
+    transport_log.log(TLOG_WIFI_SESSION_OFF, sock_err);
   }
 
   if (deviceConnected) {

@@ -29,7 +29,7 @@
 #define TLOG_WIFI_DISABLE     6
 #define TLOG_WIFI_CLIENT_NEW  7   // detail = (remote_port << 1) | (deviceConnected ? 1 : 0) at accept time
 #define TLOG_WIFI_SESSION_ON  8   // detail = the now-live client's remote port
-#define TLOG_WIFI_SESSION_OFF 9
+#define TLOG_WIFI_SESSION_OFF 9   // detail = SO_ERROR read from the socket just before it was stop()'d (0 = clean peer FIN, no pending error; nonzero = an errno, e.g. ETIMEDOUT from the keepalive probes below timing out, or ECONNRESET from a peer RST)
 #define TLOG_WIFI_POWER_ON   10
 #define TLOG_WIFI_POWER_OFF  11
 #define TLOG_CMD_RECV        12   // detail = (cmd_frame[0]<<8)|cmd_frame[1] for CMD_BEEBO/CMD_GET_STATS (their second byte is a real sub-id), else just cmd_frame[0] (companion frame received)
@@ -41,6 +41,57 @@
 #define TLOG_DEBUGLOG_READ         18   // marker: debuglog was fetched (boundary)
 #define TLOG_COEX_PREFER_WIFI      19   // esp_coex_preference_set(PREFER_WIFI); detail = esp_err_t
 #define TLOG_WIFI_CLIENT_REJECTED  20   // a second peer's TCP connect was accepted at the OS level (WiFiServer's backlog) while a live session was already locked in -- rejected instead of preempting it; detail = the rejected client's remote port
+#define TLOG_CLOCK_SET             21   // RTC epoch changed via CMD_SET_DEVICE_TIME or the text-CLI "time" command; detail = new epoch seconds, so a reader can re-anchor every earlier event's millis() offset against the old epoch and every later one against the new
+// 22 retired 2026-08-30 (was TLOG_XPORT_STATE, a one-shot packed-bitfield
+// boot snapshot) -- folded into TLOG_XPORT_VAR_CHANGED below, which now
+// covers boot too (see that event's own comment for how).
+#define TLOG_XPORT_VAR_CHANGED     23   // one tracked variable's value, or a change to it -- see TLOG_XPORT_VAR_* below for detail's (id, old, new) layout
+
+// beebo: TLOG_XPORT_VAR_CHANGED's detail packs one variable's transition:
+// bits 0-7 = var id (TLOG_XPORT_VAR_* below), bits 8-15 = old value (0xFF =
+// no previous value -- see below), bits 16-23 = new value (each an 8-bit
+// int, plenty for every value here -- booleans are 0/1, wl_status is 0-6,
+// active is 0-3). Beebo::loopTransports() re-checks every one of these each
+// tick and logs a line the instant any of them differs from its last-known
+// value -- no need to wait for a session boundary or guess which moment to
+// snapshot; whatever changed shows up on its own, whenever it actually
+// happens. TLOG_XPORT_VAR_ACTIVE transitioning 0 <-> nonzero *is* session
+// start/end -- no separate tracking needed for that.
+//
+// The same mechanism also produces the boot baseline: Beebo::_last_xport_var
+// is seeded to -1 (0xFF once masked into the 8-bit old-value field) for
+// every var before the very first check, so that first check logs every
+// var's actual boot value as a "changed from 0xFF" line -- i.e. reads as
+// "this is its value" rather than a real transition (CLI side treats
+// old==0xFF as "no previous value" and renders just the new value). One
+// harness for both boot state and every later change, instead of two
+// separate event shapes to keep in sync (2026-08-30, replaced an earlier
+// two-shape design -- a one-shot packed-bitfield snapshot plus this event --
+// after the former proved awkward to position correctly and redundant with
+// this one; see git log for that history).
+#define TLOG_XPORT_VAR_WIFI_IFACE_ENABLED    0
+#define TLOG_XPORT_VAR_WIFI_IFACE_CONNECTED  1
+#define TLOG_XPORT_VAR_WIFI_LISTENING        2
+#define TLOG_XPORT_VAR_BLE_IFACE_ENABLED     3
+#define TLOG_XPORT_VAR_BLE_IFACE_CONNECTED   4
+#define TLOG_XPORT_VAR_USB_IFACE_ENABLED     5
+#define TLOG_XPORT_VAR_USB_IFACE_CONNECTED   6
+#define TLOG_XPORT_VAR_MULTI_ENABLED         7
+#define TLOG_XPORT_VAR_MULTI_CONNECTED       8
+#define TLOG_XPORT_VAR_WIFI_STARTED          9
+#define TLOG_XPORT_VAR_WIFI_UP               10
+#define TLOG_XPORT_VAR_WIFI_NEEDS_RECONNECT  11
+#define TLOG_XPORT_VAR_WIFI_TEARDOWN_PENDING 12
+#define TLOG_XPORT_VAR_BLE_ADDED             13
+#define TLOG_XPORT_VAR_BLE_UP                14
+#define TLOG_XPORT_VAR_BLE_TEARDOWN_PENDING  15
+#define TLOG_XPORT_VAR_USB_ADDED             16
+#define TLOG_XPORT_VAR_USB_UP                17
+#define TLOG_XPORT_VAR_USB_TEARDOWN_PENDING  18
+#define TLOG_XPORT_VAR_WL_STATUS             20   // wl_status_t (WiFi.status())
+#define TLOG_XPORT_VAR_ACTIVE                23   // serial_interface.activeTransportType()
+#define TLOG_XPORT_VAR_WIFI_CREDS_RECONNECT_PENDING 25
+#define TLOG_XPORT_VAR_COUNT                 26   // array size for Beebo::_last_xport_var[]
 
 // Stable transport type ids, logged as the `detail` of MULTI_* events so the
 // transport is identifiable regardless of registration order (which varies with
@@ -48,6 +99,23 @@
 #define TLOG_XPORT_BLE  1
 #define TLOG_XPORT_USB  2
 #define TLOG_XPORT_TCP  3
+
+// beebo: live echo of every TransportLog::log() call to Serial, named
+// TRANSPORT_DEBUG_LOGGING for consistency with the other per-subsystem
+// debug macros (WIFI_DEBUG_LOGGING, BLE_DEBUG_LOGGING, ...). Prints raw
+// (type, detail) rather than a decoded name -- unlike beebo/src/beebo/
+// debuglog.py's TLOG_NAMES table, there's no ARDUINO-side name lookup to
+// keep in sync here, and this is a live low-level trace read with
+// TransportLog.h's own TLOG_*/TLOG_XPORT_VAR_* defines open, not a
+// polished report. See kbase/DEBUGGING.md's tier-3 note on why this only
+// coexists cleanly with a companion session on BLE/TCP, not USB -- it
+// writes to the same Serial/USB-CDC wire usb_interface parses.
+#if TRANSPORT_DEBUG_LOGGING && ARDUINO
+  #include <Arduino.h>
+  #define TRANSPORT_DEBUG_PRINTLN(F, ...) Serial.printf("XPORT: " F "\n", ##__VA_ARGS__)
+#else
+  #define TRANSPORT_DEBUG_PRINTLN(...) {}
+#endif
 
 struct TransportEvent {
   uint32_t millis;
@@ -72,6 +140,8 @@ public:
 #endif
     _head = (_head + 1) % TLOG_MAX_EVENTS;
     if (_count < TLOG_MAX_EVENTS) _count++;
+
+    TRANSPORT_DEBUG_PRINTLN("type=%u detail=%ld", (unsigned)type, (long)detail);
   }
 
   uint16_t count() const { return _count; }

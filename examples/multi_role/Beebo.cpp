@@ -1419,6 +1419,64 @@ void Beebo::begin() {
 // so at least one transport is always up, regardless of what was actually
 // persisted (including a fresh/zeroed struct from an unformatted SPIFFS, or a
 // short-read pre-usb_enabled file).
+// beebo: see this method's own declaration comment in Beebo.h for why it's
+// one shared body instead of a copy inlined at each WiFi.onEvent() site.
+void Beebo::_onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    _sta_disc_reason = info.wifi_sta_disconnected.reason;
+    WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
+    _wifi_needs_reconnect = true;
+  } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+    _sta_got_ip = true;
+    WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
+    _wifi_needs_reconnect = false;
+    // Re-bind the listening socket: every reassociation (the STA's very
+    // first one after boot, and every later one -- auto-reconnect after a
+    // beacon timeout, a manual loopTransports() reconnect, a live creds
+    // change) leaves the previous WiFiServer orphaned -- see
+    // SerialWifiInterface::rebind()'s own comment. Deferred to loopTransports()
+    // on the main task -- see _wifi_needs_rebind's own comment in Beebo.h for
+    // why this can't call wifi_interface.rebind() directly from here.
+    _wifi_needs_rebind = true;
+  }
+}
+
+// beebo: see this method's own declaration comment in Beebo.h. Var ids are
+// defined once, alongside TLOG_XPORT_VAR_CHANGED itself, in TransportLog.h
+// -- keep the two in sync if a field is added or removed here.
+void Beebo::_checkTransportStateChanges() {
+  auto check = [this](int id, int val) {
+    if (_last_xport_var[id] != val) {
+      int32_t detail = id | ((_last_xport_var[id] & 0xFF) << 8) | ((val & 0xFF) << 16);
+      transport_log.log(TLOG_XPORT_VAR_CHANGED, detail);
+      _last_xport_var[id] = (int16_t)val;
+    }
+  };
+
+  check(TLOG_XPORT_VAR_WIFI_IFACE_ENABLED,    wifi_interface.isEnabled());
+  check(TLOG_XPORT_VAR_WIFI_IFACE_CONNECTED,  wifi_interface.isConnected());
+  check(TLOG_XPORT_VAR_WIFI_LISTENING,        wifi_interface.isListening());
+  check(TLOG_XPORT_VAR_BLE_IFACE_ENABLED,     ble_interface.isEnabled());
+  check(TLOG_XPORT_VAR_BLE_IFACE_CONNECTED,   ble_interface.isConnected());
+  check(TLOG_XPORT_VAR_USB_IFACE_ENABLED,     usb_interface.isEnabled());
+  check(TLOG_XPORT_VAR_USB_IFACE_CONNECTED,   usb_interface.isConnected());
+  check(TLOG_XPORT_VAR_MULTI_ENABLED,         serial_interface.isEnabled());
+  check(TLOG_XPORT_VAR_MULTI_CONNECTED,       serial_interface.isConnected());
+  check(TLOG_XPORT_VAR_WIFI_STARTED,          _wifi_started);
+  check(TLOG_XPORT_VAR_WIFI_UP,               _wifi_up);
+  check(TLOG_XPORT_VAR_WIFI_NEEDS_RECONNECT,  _wifi_needs_reconnect);
+  check(TLOG_XPORT_VAR_WIFI_TEARDOWN_PENDING, _wifi_teardown_pending);
+  check(TLOG_XPORT_VAR_BLE_ADDED,             _ble_added);
+  check(TLOG_XPORT_VAR_BLE_UP,                _ble_up);
+  check(TLOG_XPORT_VAR_BLE_TEARDOWN_PENDING,  _ble_teardown_pending);
+  check(TLOG_XPORT_VAR_USB_ADDED,             _usb_added);
+  check(TLOG_XPORT_VAR_USB_UP,                _usb_up);
+  check(TLOG_XPORT_VAR_USB_TEARDOWN_PENDING,  _usb_teardown_pending);
+  check(TLOG_XPORT_VAR_WL_STATUS,             (int)WiFi.status());
+  check(TLOG_XPORT_VAR_ACTIVE,                (int)serial_interface.activeTransportType());
+  check(TLOG_XPORT_VAR_WIFI_CREDS_RECONNECT_PENDING, _wifi_creds_reconnect_pending);
+}
+
 void Beebo::beginTransports() {
   bool ble_on = _role_state->prefs.ble_enabled != 0;
   bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0';
@@ -1443,17 +1501,7 @@ void Beebo::beginTransports() {
     board.setInhibitSleep(true);   // prevent sleep when WiFi is active
     WiFi.setAutoReconnect(true);
 
-    WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){
-        if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-            _sta_disc_reason = info.wifi_sta_disconnected.reason;
-            WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
-            _wifi_needs_reconnect = true;
-        } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-            _sta_got_ip = true;
-            WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
-            _wifi_needs_reconnect = false;
-        }
-    });
+    WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){ _onWifiStaEvent(event, info); });
 
     WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
     // BLE and TCP are mutually exclusive, so no BT + WiFi coexistence -- power
@@ -1467,6 +1515,9 @@ void Beebo::beginTransports() {
   }
 
   startInterface(serial_interface);
+
+  for (int i = 0; i < TLOG_XPORT_VAR_COUNT; i++) _last_xport_var[i] = -1;
+  _checkTransportStateChanges();   // logs every var's boot value as "changed from -1"
 }
 
 // beebo: clamp the radio-affecting prefs to sane ranges — shared by begin()
@@ -2978,6 +3029,7 @@ void Beebo::handleCmdFrame(size_t len) {
     uint32_t curr = getRTCClock()->getCurrentTime();
     if (secs >= curr) {
       getRTCClock()->setCurrentTime(secs);
+      transport_log.log(TLOG_CLOCK_SET, secs);
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
@@ -5519,6 +5571,13 @@ void Beebo::updateStatusLed() {
 // main.cpp's loop() (ran immediately after beebo.loop() returned there,
 // same relative order preserved by running last in loop() here).
 void Beebo::loopTransports() {
+  // Re-check every tracked transport variable and log a line for each one
+  // that changed since last tick -- see TLOG_XPORT_VAR_CHANGED's own
+  // comment in TransportLog.h. This one call covers session start/end too
+  // (via the "active" variable going 0 <-> nonzero), so no separate
+  // start/end hook is needed here.
+  _checkTransportStateChanges();
+
   // Drain WiFi STA events stashed by the (other-task) event handler into the
   // debug ring here, so all ring writes stay in the single loop() context.
   if (_sta_disc_reason >= 0) {
@@ -5536,10 +5595,13 @@ void Beebo::loopTransports() {
     transport_log.log(TLOG_WIFI_STA_GOT_IP, packed_ip);
     _sta_got_ip = false;
   }
+  if (_wifi_needs_rebind) {
+    _wifi_needs_rebind = false;
+    wifi_interface.rebind();
+  }
 
-  // Safely attempt to reconnect every 10 seconds if flagged (unless the WiFi radio
-  // was intentionally powered down because another transport owns the session).
-  if (!_wifi_suspended && _wifi_needs_reconnect && (millis() - _last_wifi_reconnect_attempt > 10000)) {
+  // Safely attempt to reconnect every 10 seconds if flagged.
+  if (_wifi_needs_reconnect && (millis() - _last_wifi_reconnect_attempt > 10000)) {
     WIFI_DEBUG_PRINTLN("Attempting manual WiFi reconnect...");
     WiFi.disconnect();
     WiFi.reconnect();
@@ -5559,23 +5621,7 @@ void Beebo::loopTransports() {
       _wifi_started = true;
       board.setInhibitSleep(true);
       WiFi.setAutoReconnect(true);
-      WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){
-          if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-              _sta_disc_reason = info.wifi_sta_disconnected.reason;
-              WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
-              _wifi_needs_reconnect = true;
-          } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-              _sta_got_ip = true;
-              WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
-              _wifi_needs_reconnect = false;
-              // Re-bind the listening socket: any reassociation (this is
-              // the STA's very first one here, but the same handler fires
-              // on every later one too) leaves a WiFiServer bound before
-              // it orphaned -- see SerialWifiInterface::rebind()'s own
-              // comment.
-              wifi_interface.rebind();
-          }
-      });
+      WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){ _onWifiStaEvent(event, info); });
       WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
       WiFi.setSleep(false);   // ble/tcp mutually exclusive → no BT coexistence → power-save off (reliable)
       wifi_interface.begin(TCP_PORT);
@@ -5655,20 +5701,7 @@ void Beebo::loopTransports() {
         // WiFi.onEvent() has no matching "off" and keeps appending a handler
         // to an internal list on every call -- register it only the first
         // time WiFi is ever brought up, not on every live re-enable.
-        WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){
-            if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-                _sta_disc_reason = info.wifi_sta_disconnected.reason;
-                WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
-                _wifi_needs_reconnect = true;
-            } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-                _sta_got_ip = true;
-                WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
-                _wifi_needs_reconnect = false;
-                // See SerialWifiInterface::rebind()'s own comment -- this
-                // handler fires on every reassociation, not just the first.
-                wifi_interface.rebind();
-            }
-        });
+        WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){ _onWifiStaEvent(event, info); });
       }
       WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
       // BLE and TCP are mutually exclusive, so no BT + WiFi coexistence -- power
@@ -6097,6 +6130,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     uint32_t curr = getRTCClock()->getCurrentTime();
     if (secs > curr) {
       getRTCClock()->setCurrentTime(secs);
+      transport_log.log(TLOG_CLOCK_SET, secs);
       uint32_t now = getRTCClock()->getCurrentTime();
       DateTime dt = DateTime(now);
       sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
