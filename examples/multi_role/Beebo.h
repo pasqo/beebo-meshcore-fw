@@ -743,14 +743,15 @@ private:
   // the command, but that transport's send_queue is only drained by a *later*
   // checkRecvFrame() call -- if we tear it down in the same loop() iteration
   // that queued the reply, the reply (and the caller's confirmation) is lost
-  // and they just see a hard disconnect. Defer the teardown a short beat so
-  // at least one more loop() pass gets a chance to flush it first.
+  // and they just see a hard disconnect. Deferred until that transport's own
+  // _serial->isConnected() (the aggregate MultiSerialInterface session, not
+  // any one sub-interface's own isConnected()) goes false -- either the
+  // client's own BEEBO_CMD_APP_DISCONNECT releasing the session immediately,
+  // or a natural drop via the debounce path (checkTransportsAndBoard() in
+  // Beebo.cpp).
   bool _ble_teardown_pending = false;
-  unsigned long _ble_teardown_time = 0;
   bool _wifi_teardown_pending = false;
-  unsigned long _wifi_teardown_time = 0;
   bool _usb_teardown_pending = false;
-  unsigned long _usb_teardown_time = 0;
 
   void beginTransports();       // called from begin(): bring up transports per persisted prefs
   void loopTransports();        // called from loop(): STA-event drain, reconnect, live provisioning/toggle, teardown timers

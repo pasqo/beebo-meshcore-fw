@@ -274,7 +274,17 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
   // Drain actual GATT link events captured in the BT-task callbacks into the
   // ring (main-loop context, so the ring stays single-writer).
   static uint8_t seen_up = 0, seen_down = 0;
-  while (seen_up != s_ble_link_up_cnt)   { transport_log.log(TLOG_BLE_CONNECT);    seen_up++; }
+  // beebo: TLOG_APP_SESSION_START logged here, alongside the link-up event --
+  // BLE has no separate app-level accept step the way TCP does (a raw socket
+  // accept ahead of any frame), the GATT connection itself IS the session,
+  // so this is BLE's equivalent of SerialWifiInterface's own accept-path log
+  // (see MultiSerialInterface.h's lockOn() comment for why it's logged here,
+  // not there).
+  while (seen_up != s_ble_link_up_cnt)   {
+    transport_log.log(TLOG_BLE_CONNECT);
+    transport_log.log(TLOG_APP_SESSION_START, TLOG_XPORT_BLE);
+    seen_up++;
+  }
   while (seen_down != s_ble_link_down_cnt) { transport_log.log(TLOG_BLE_DISCONNECT); seen_down++; }
 
   if (send_queue_len > 0   // first, check send queue

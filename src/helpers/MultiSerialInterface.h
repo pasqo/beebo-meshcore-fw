@@ -51,16 +51,25 @@ class MultiSerialInterface : public BaseSerialInterface {
     size_t m = _transports[i].iface->getMaxRecvFrameSize();
     return m < max_len ? m : max_len;
   }
-  // beebo: TLOG_APP_SESSION_START is logged by each transport itself, at the very
-  // first moment of its own accept (e.g. SerialWifiInterface logs it as the
+  // beebo: TLOG_APP_SESSION_START is logged by each transport itself, at the
+  // very first moment of its own accept (SerialWifiInterface logs it as the
   // first statement of its own accept-a-new-client branch, ahead of its own
-  // TCP new client/session ON) -- not here. This function only runs once a
-  // first frame has already been parsed (the arbitration decision), which
-  // is strictly later than the connection that produced it; logging the
-  // start marker here as well would either double it up or (an earlier,
-  // broken attempt at this) defer it a further tick past the transport's own
-  // connect-time events instead of preceding them.
+  // TCP new client/session ON; SerialBLEInterface logs it alongside its own
+  // GATT link-up event) -- not here, for those two. This function only runs
+  // once a first frame has already been parsed (the arbitration decision),
+  // which is strictly later than the connection that produced it; logging
+  // the start marker here as well would either double it up for them or (an
+  // earlier, broken attempt at this) defer it a further tick past the
+  // transport's own connect-time events instead of preceding them.
+  //
+  // USB has no accept-style event of its own to hook (no discrete "new
+  // client" moment -- Serial is just available or not), so it's the one
+  // exception: logged right here, gated to only the USB transport type so
+  // it can never double up with WiFi/BLE's own self-logged version above.
   void lockOn(int i) {
+    if (_transports[i].type == TLOG_XPORT_USB) {
+      transport_log.log(TLOG_APP_SESSION_START, TLOG_XPORT_USB);
+    }
     _active = i;
     if (!_transports[i].exclusive) return;
     for (int j = 0; j < _count; j++) {

@@ -25,13 +25,18 @@
 #define TLOG_APP_SESSION_END_RELEASED     2
 #define TLOG_APP_SESSION_END_DISCONNECT   3
 #define TLOG_APP_SESSION_END_LOST         4
-#define TLOG_WIFI_ENABLE      5
-#define TLOG_WIFI_DISABLE     6
+// 5 (TLOG_WIFI_ENABLE) and 6 (TLOG_WIFI_DISABLE) retired 2026-08-31 -- fully
+// duplicated by the generic TLOG_XPORT_VAR_WIFI_IFACE_ENABLED tracking
+// (fires on the exact same enable()/disable() transition, every tick, no
+// dedicated log call needed).
 #define TLOG_WIFI_CLIENT_NEW  7   // detail = (remote_port << 1) | (deviceConnected ? 1 : 0) at accept time
 #define TLOG_WIFI_SESSION_ON  8   // detail = the now-live client's remote port
 #define TLOG_WIFI_SESSION_OFF 9   // detail = SO_ERROR read from the socket just before it was stop()'d (0 = clean peer FIN, no pending error; nonzero = an errno, e.g. ETIMEDOUT from the keepalive probes below timing out, or ECONNRESET from a peer RST)
-#define TLOG_WIFI_POWER_ON   10
-#define TLOG_WIFI_POWER_OFF  11
+// 10 (TLOG_WIFI_POWER_ON) and 11 (TLOG_WIFI_POWER_OFF) retired 2026-08-31 --
+// never had a call site (dead since introduction). WiFi radio power is
+// already visible via TLOG_XPORT_VAR_WL_STATUS transitioning off its 255
+// (uninitialized) sentinel -- see TLOG_BLE_POWER_ON/OFF below for why BLE
+// needed a real dedicated pair instead.
 #define TLOG_CMD_RECV        12   // detail = (cmd_frame[0]<<8)|cmd_frame[1] for CMD_BEEBO/CMD_GET_STATS (their second byte is a real sub-id), else just cmd_frame[0] (companion frame received)
 #define TLOG_CMD_DONE        13   // detail = same (cmd<<8)|sub encoding as TLOG_CMD_RECV (handler returned)
 #define TLOG_WIFI_STA_DISCONNECTED 14   // detail = disconnect reason code
@@ -46,6 +51,12 @@
 // boot snapshot) -- folded into TLOG_XPORT_VAR_CHANGED below, which now
 // covers boot too (see that event's own comment for how).
 #define TLOG_XPORT_VAR_CHANGED     23   // one tracked variable's value, or a change to it -- see TLOG_XPORT_VAR_* below for detail's (id, old, new) layout
+// 24/25 never assigned -- an earlier attempt at dedicated BLE radio-power
+// events (initRadio()/deinitRadio()) was reverted 2026-08-31: _ble_up (and
+// its own TLOG_XPORT_VAR_BLE_UP tracking below) already transitions in
+// lockstep with every initRadio()/deinitRadio() call, so a discrete event
+// pair would have been an immediate duplicate, the same overlap just
+// removed from WIFI_ENABLE/DISABLE/POWER_ON/OFF above.
 
 // beebo: TLOG_XPORT_VAR_CHANGED's detail packs one variable's transition:
 // bits 0-7 = var id (TLOG_XPORT_VAR_* below), bits 8-15 = old value (0xFF =

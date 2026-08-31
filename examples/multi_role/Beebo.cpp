@@ -33,9 +33,9 @@
 // carried the command, but that transport's send_queue is only drained by a
 // *later* checkRecvFrame() call -- if we tear it down in the same loop()
 // iteration that queued the reply, the reply (and the caller's confirmation)
-// is lost and they just see a hard disconnect. Defer the teardown a short
-// beat so at least one more loop() pass gets a chance to flush it first.
-#define TRANSPORT_TEARDOWN_DELAY 150
+// is lost and they just see a hard disconnect. Teardown is deferred until
+// that transport's own isConnected() goes false (see
+// checkTransportsAndBoard() below), not a fixed delay.
 
 // beebo: battery charge-trend state machine (see loop()'s resample block);
 // BATT_STATE_*/BATT_SAMPLE_PERIOD_DEFAULT_SECS/classifyBattTrend() are shared with
@@ -2188,12 +2188,28 @@ uint32_t Beebo::tlvGetTransportConfig(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetTransportConfig(Beebo* self, uint8_t role, uint32_t raw) {
   BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.ble_enabled = (raw & 0xFF) ? 1 : 0;
-  slot.prefs.tcp_enabled = ((raw >> 8) & 0xFF) ? 1 : 0;
+  bool old_ble = slot.prefs.ble_enabled != 0;
+  bool old_tcp = slot.prefs.tcp_enabled != 0;
+  bool new_ble = (raw & 0xFF) != 0;
+  bool new_tcp = ((raw >> 8) & 0xFF) != 0;
   slot.prefs.usb_enabled = ((raw >> 16) & 0xFF) ? 1 : 0;
-  if (slot.prefs.ble_enabled && slot.prefs.tcp_enabled) {
-    slot.prefs.ble_enabled = 0;
+  if (new_ble && new_tcp) {
+    // Mutually exclusive -- clear whichever one this write didn't just turn
+    // on, so the caller's actual intent wins instead of a fixed tcp/ble
+    // preference (a caller toggling only one of the two, the common case,
+    // always sends the other back unchanged). If both are newly turning on
+    // in the same write, or neither changed (both already on -- a stale
+    // payload), fall back to keeping tcp.
+    bool ble_turning_on = new_ble && !old_ble;
+    bool tcp_turning_on = new_tcp && !old_tcp;
+    if (ble_turning_on && !tcp_turning_on) {
+      new_tcp = false;
+    } else {
+      new_ble = false;
+    }
   }
+  slot.prefs.ble_enabled = new_ble ? 1 : 0;
+  slot.prefs.tcp_enabled = new_tcp ? 1 : 0;
   bool remote_off = !slot.prefs.ble_enabled
       && !(slot.prefs.tcp_enabled && slot.prefs.wifi_ssid[0] != '\0');
   if (remote_off) slot.prefs.usb_enabled = 1;
@@ -5773,29 +5789,33 @@ void Beebo::loopTransports() {
     // replacement has had a chance to start coming up. Deferred rather than
     // immediate: if this very command arrived over the transport being torn
     // down, its OK reply is still sitting unflushed in that transport's send
-    // queue (see TRANSPORT_TEARDOWN_DELAY comment above) -- tearing down here
-    // would drop it and the caller would just see a hard disconnect.
-    if (!ble_on && _ble_up && !_ble_teardown_pending) {
-      _ble_teardown_pending = true;
-      _ble_teardown_time = millis() + TRANSPORT_TEARDOWN_DELAY;
-    }
-    if (!tcp_on && _wifi_up && !_wifi_teardown_pending) {
-      _wifi_teardown_pending = true;
-      _wifi_teardown_time = millis() + TRANSPORT_TEARDOWN_DELAY;
-    }
-    if (!usb_on && _usb_up && !_usb_teardown_pending) {
-      _usb_teardown_pending = true;
-      _usb_teardown_time = millis() + TRANSPORT_TEARDOWN_DELAY;
-    }
+    // queue -- tearing down here would drop it and the caller would just see
+    // a hard disconnect instead of its reply. Gated on _serial->isConnected()
+    // going false -- the aggregate MultiSerialInterface session, not any one
+    // sub-interface's own isConnected() -- which covers both the normal case
+    // (the client sends BEEBO_CMD_APP_DISCONNECT, handled elsewhere in
+    // loop() by calling _serial->disconnectActive(), which releases the
+    // locked session -- _active back to -1 -- immediately, well before any
+    // debounce) and a client that just drops off without a clean disconnect
+    // (MultiSerialInterface's own DISCONNECT_DEBOUNCE_MS path). Checking the
+    // aggregate also sidesteps a real footgun: usb_interface's own raw
+    // isConnected() is a stub that always returns true (no way to know
+    // otherwise), but MultiSerialInterface substitutes a real connected_fn
+    // for USB ((bool)Serial) when it arbitrates sessions, so _serial's view
+    // is accurate even for USB.
+    if (!ble_on && _ble_up) _ble_teardown_pending = true;
+    if (!tcp_on && _wifi_up) _wifi_teardown_pending = true;
+    if (!usb_on && _usb_up) _usb_teardown_pending = true;
   }
 
-  if (_ble_teardown_pending && millis() >= _ble_teardown_time) {
+  bool no_live_session = !_serial->isConnected();
+  if (_ble_teardown_pending && no_live_session) {
     _ble_teardown_pending = false;
     ble_interface.disable();
     ble_interface.deinitRadio();   // fully power down the BLE radio, not just stop advertising
     _ble_up = false;
   }
-  if (_wifi_teardown_pending && millis() >= _wifi_teardown_time) {
+  if (_wifi_teardown_pending && no_live_session) {
     _wifi_teardown_pending = false;
     wifi_interface.disable();
     _wifi_needs_reconnect = false;
@@ -5804,7 +5824,7 @@ void Beebo::loopTransports() {
     board.setInhibitSleep(false);
     _wifi_up = false;
   }
-  if (_usb_teardown_pending && millis() >= _usb_teardown_time) {
+  if (_usb_teardown_pending && no_live_session) {
     _usb_teardown_pending = false;
     usb_interface.disable();   // no radio to power down, unlike BLE/WiFi
     _usb_up = false;
