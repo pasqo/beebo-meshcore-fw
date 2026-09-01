@@ -4,6 +4,7 @@
 #include <Mesh.h>
 #include <SHA256.h>  // beebo: rxlog-compatible packet hash for the monitor ring
 #include <helpers/TransportLog.h>
+#include <helpers/DebugLog.h>
 #include <helpers/ProfileLog.h>
 #include <helpers/BattTrend.h>
 #include "BeeboProtocol.h"
@@ -12,6 +13,7 @@
 #include <esp_ota_ops.h>
 #include <esp_mac.h>  // beebo: esp_efuse_mac_get_default() for BEEBO_CMD_GET_BOARD_ID
 #include <esp_coexist.h>  // beebo: esp_coex_preference_set() -- see applyTransportConfig()'s BLE-teardown branch
+#include <esp_bt.h>  // beebo: esp_bt_controller_get_status() -- see applyTransportConfig()'s TLOG_BT_CONTROLLER_STATUS log call
 #if defined(ESP32)
 #include <WiFi.h>
 #endif
@@ -1463,7 +1465,17 @@ void Beebo::_checkTransportStateChanges() {
   check(TLOG_XPORT_VAR_USB_IFACE_ENABLED,     usb_interface.isEnabled());
   check(TLOG_XPORT_VAR_USB_IFACE_CONNECTED,   usb_interface.isConnected());
   check(TLOG_XPORT_VAR_MULTI_ENABLED,         serial_interface.isEnabled());
-  check(TLOG_XPORT_VAR_MULTI_CONNECTED,       serial_interface.isConnected());
+  bool multi_connected_now = serial_interface.isConnected();
+  // beebo: auto-disarm on session end (see BEEBO_CMD_DEBUG_LOG_ARM's own
+  // desc) -- deferred to the very end of this function, after every
+  // check() below, so the MULTI_CONNECTED/ACTIVE transitions this same
+  // disconnect causes still stream live before arming turns off. Disarming
+  // here first (as this used to) meant those two events -- part of every
+  // single disconnect, debug session's own included -- could never be
+  // observed live, only ever showing up in a later offline ring fetch.
+  bool session_just_ended =
+      _last_xport_var[TLOG_XPORT_VAR_MULTI_CONNECTED] == 1 && !multi_connected_now;
+  check(TLOG_XPORT_VAR_MULTI_CONNECTED,       multi_connected_now);
   check(TLOG_XPORT_VAR_WIFI_STARTED,          _wifi_started);
   check(TLOG_XPORT_VAR_WIFI_UP,               _wifi_up);
   check(TLOG_XPORT_VAR_WIFI_NEEDS_RECONNECT,  _wifi_needs_reconnect);
@@ -1475,6 +1487,9 @@ void Beebo::_checkTransportStateChanges() {
   check(TLOG_XPORT_VAR_WL_STATUS,             (int)WiFi.status());
   check(TLOG_XPORT_VAR_ACTIVE,                (int)serial_interface.activeTransportType());
   check(TLOG_XPORT_VAR_WIFI_CREDS_RECONNECT_PENDING, _wifi_creds_reconnect_pending);
+  if (session_just_ended) {
+    debug_log.setArmed(false);
+  }
 }
 
 void Beebo::beginTransports() {
@@ -1515,6 +1530,7 @@ void Beebo::beginTransports() {
   }
 
   startInterface(serial_interface);
+  debug_log.attach(_serial, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG);
 
   for (int i = 0; i < TLOG_XPORT_VAR_COUNT; i++) _last_xport_var[i] = -1;
   _checkTransportStateChanges();   // logs every var's boot value as "changed from -1"
@@ -5021,6 +5037,9 @@ void Beebo::handleCmdFrame(size_t len) {
 #else
     writeDisabledFrame();
 #endif
+  } else if (sub[0] == BEEBO_CMD_DEBUG_LOG_ARM && sub_len >= 2) {
+    debug_log.setArmed(sub[1] != 0);
+    writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
     // beebo: factory eFuse base MAC -- hardware-burned, stable across
     // reflashes/identity changes/role switches, unrelated to node.public_key
@@ -5791,6 +5810,7 @@ void Beebo::applyTransportConfig() {
     // slot for exactly this call with no call site until now.
     esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
     transport_log.log(TLOG_COEX_PREFER_WIFI, coex_err);
+    DEBUG_LOG("ble torn down, coex_err=%d, heap=%u", (int)coex_err, (unsigned)ESP.getFreeHeap());
   }
 
   if (tcp_on && !_wifi_up) {
@@ -5808,6 +5828,9 @@ void Beebo::applyTransportConfig() {
       // user-triggered transition (never a plain tcp-only cycle, which
       // never touches BLE) -- not a per-tick cost.
       delay(200);
+      esp_bt_controller_status_t bt_status = esp_bt_controller_get_status();
+      transport_log.log(TLOG_BT_CONTROLLER_STATUS, (int32_t)bt_status);
+      DEBUG_LOG("wifi bring-up after ble teardown, bt_status=%d, heap=%u", (int)bt_status, (unsigned)ESP.getFreeHeap());
     }
     board.setInhibitSleep(true);   // prevent sleep when WiFi is active
     WiFi.setAutoReconnect(true);

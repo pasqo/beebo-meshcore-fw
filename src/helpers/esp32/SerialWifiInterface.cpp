@@ -3,6 +3,7 @@
 #include <lwip/sockets.h>   // send(MSG_DONTWAIT) for the non-blocking queue drain
 #include <string.h>   // memcpy
 #include "../TransportLog.h"
+#include "../DebugLog.h"
 
 void SerialWifiInterface::begin(int port) {
   _port = port;
@@ -118,6 +119,12 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
   // from the OS and never reaches server.available() at all. Re-opened here,
   // at the top of the next call, once the session ends.
   if (!deviceConnected && !server && _isEnabled && _port > 0) {
+    // beebo: this branch firing at all means the listening socket had
+    // gone dead (WiFiServer::_listening false) on its own since the last
+    // poll, not through any code path Beebo itself requested -- see
+    // TLOG_WIFI_LISTEN_REARMED's own comment in TransportLog.h.
+    transport_log.log(TLOG_WIFI_LISTEN_REARMED);
+    DEBUG_LOG("listening socket was dead, rebuilding");
     server.begin(_port);
   }
 

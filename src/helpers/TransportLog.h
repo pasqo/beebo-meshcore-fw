@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "DebugLog.h"
 
 // Ring sized to capture a full interactive session (e.g. a measurement sweep
 // of ~40 commands = ~80 cmd recv/done events) for post-mortem fetch. Each
@@ -66,6 +67,28 @@
 // detail: bits 0-15 = free heap in KB (uint16), bits 16-23 = RSSI dBm
 // (int8, two's complement), bits 24-31 = WiFi channel (uint8).
 #define TLOG_WIFI_HEALTH           24
+// beebo: BT controller status (esp_bt_controller_status_t: 0=IDLE,
+// 1=INITED, 2=ENABLED) read right before WiFi bring-up starts in
+// applyTransportConfig(), only when a BLE teardown preceded it in the
+// same switch -- confirms whether BLEDevice::deinit() actually left the
+// controller IDLE (as it's supposed to) or stuck INITED/ENABLED, which
+// would mean it's still holding the shared RF path when WiFi comes up.
+// Added chasing the same TCP-reachability bug as TLOG_WIFI_HEALTH.
+#define TLOG_BT_CONTROLLER_STATUS  25
+// beebo: SerialWifiInterface::checkRecvFrame()'s own top-of-function
+// guard silently rebuilds the listening socket (`server.begin()`)
+// whenever it finds `!server` (WiFiServer::_listening false) while still
+// `_isEnabled` -- this event fires exactly when that guard actually
+// does something, i.e. the listening socket had gone dead on its own
+// since the last poll, not through any code path Beebo itself
+// requested. Directly tests whether the TCP-reachability bug's dead
+// listener is silently dying and being caught/rebuilt continuously
+// (this would fire repeatedly during a failure window) versus dying
+// once and never being noticed (this never fires at all, meaning the
+// death is invisible even to WiFiServer's own `_listening` flag). detail
+// unused (0) -- the record's own millis() timestamp is what matters,
+// same as TLOG_DEBUGLOG_READ's plain boundary marker.
+#define TLOG_WIFI_LISTEN_REARMED   26
 // 24/25 never assigned -- an earlier attempt at dedicated BLE radio-power
 // events (initRadio()/deinitRadio()) was reverted 2026-08-31: _ble_up (and
 // its own TLOG_XPORT_VAR_BLE_UP tracking below) already transitions in
@@ -166,6 +189,7 @@ public:
     if (_count < TLOG_MAX_EVENTS) _count++;
 
     TRANSPORT_DEBUG_PRINTLN("type=%u detail=%ld", (unsigned)type, (long)detail);
+    debug_log.logEvent(type, detail);
   }
 
   uint16_t count() const { return _count; }
