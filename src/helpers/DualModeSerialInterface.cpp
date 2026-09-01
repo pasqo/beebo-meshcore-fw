@@ -32,6 +32,18 @@ bool DualModeSerialInterface::isConnected() const {
   return true;   // no way of knowing, so assume yes
 }
 
+bool DualModeSerialInterface::pollRawControl(uint8_t& sub_id, uint8_t& data) {
+  if (_state != MODE_IDLE) return false;
+  if (_serial->peek() != RAW_MARKER) return false;
+  if (_serial->available() < 3) return false;   // wait for the rest to arrive, don't consume yet
+
+  _serial->read();   // the marker itself
+  sub_id = (uint8_t)_serial->read();
+  data = (uint8_t)_serial->read();
+  _last_byte_at = millis();
+  return true;
+}
+
 bool DualModeSerialInterface::isWriteBusy() const {
   return false;
 }
@@ -156,6 +168,43 @@ size_t DualModeSerialInterface::writeFrame(const uint8_t src[], size_t len) {
 
   if (writeAll(_serial, hdr, 3) < 3) return 0;
   return writeAll(_serial, src, len);
+}
+
+// beebo: single-attempt counterpart to writeFrame() above -- see this
+// method's own declaration comment in BaseSerialInterface.h for why
+// DebugLog needs this instead of writeFrame()'s retry-until-sent
+// writeAll(). The naive fix (just call write() once, no retry loop) turned
+// out not to be enough on real hardware: on the native USB-Serial-JTAG
+// peripheral (HWCDC.cpp), a single write() call itself blocks internally
+// (up to tx_timeout_ms, default 100ms) whenever its TX ring buffer is
+// full and isCDC_Connected() reads true -- and isCDC_Connected() gets
+// reasserted by any USB bus activity (HWCDC.cpp's own ISR sets
+// `connected = true` on every incoming packet), not by whether an
+// application is actually reading, so it stays "connected" for as long as
+// the cable is plugged in, host or no host reader. With DEBUG_LOG_ENABLE
+// on and nothing draining USB, the ring buffer fills once and stays full,
+// so every subsequent push -- one per TransportLog event, which includes
+// CMD_RECV/CMD_DONE for every companion command on *every* transport --
+// paid that ~100ms internally, back-to-back, on the same single-threaded
+// main loop that also services BLE/TCP: confirmed on real hardware as the
+// actual cause of TCP requests timing out while USB stayed responsive
+// (whichever session's own read() was the one draining bytes). The real
+// fix is availableForWrite() (Arduino's own non-blocking free-space
+// query, unaffected by the same isCDC_Connected() staleness since it
+// never calls the blocking retry path itself) -- skip the write
+// entirely, no attempt at all, once there isn't room, rather than call
+// write() and eat its internal stall.
+size_t DualModeSerialInterface::writeFrameBestEffort(const uint8_t src[], size_t len) {
+  if (_lastWasText || len > MAX_SEND_FRAME_SIZE) return 0;
+  if ((size_t)_serial->availableForWrite() < 3 + len) return 0;
+
+  uint8_t hdr[3];
+  hdr[0] = '>';
+  hdr[1] = (len & 0xFF);
+  hdr[2] = (len >> 8);
+
+  if (_serial->write(hdr, 3) < 3) return 0;
+  return _serial->write(src, len);
 }
 
 size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {

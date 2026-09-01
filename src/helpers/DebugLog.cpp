@@ -6,7 +6,17 @@
 DebugLog debug_log;
 
 void DebugLog::logf(const char* file, int line, const char* fmt, ...) {
-  if (!_armed || !_serial) return;
+  // beebo: no isConnected() gate -- DualModeSerialInterface::isConnected()
+  // is an unconditional `return true` stub (no real way to detect a host-
+  // side close on the native USB-Serial-JTAG peripheral, see that file's
+  // own comment), so it never actually prevented a push into the void.
+  // writeFrameBestEffort() below is what makes an unread push cheap now,
+  // not this check -- confirmed on real hardware that relying on
+  // isConnected() here let every push retry-block the main loop for up to
+  // ZERO_WRITE_GIVEUP_MS (3s) whenever nothing was draining the USB TX
+  // side, stalling completely unrelated traffic (BLE/TCP included) on
+  // every single TransportLog event while armed.
+  if (!_enabled || !_serial) return;
 
   const char* base = strrchr(file, '/');
   base = base ? base + 1 : file;
@@ -39,11 +49,11 @@ void DebugLog::logf(const char* file, int line, const char* fmt, ...) {
   if (n2 < 0) n2 = 0;
   size_t msg_len = (size_t)n + (size_t)((size_t)n2 < text_cap - n ? n2 : text_cap - n);
 
-  _serial->writeFrame(out, 8 + msg_len);
+  _serial->writeFrameBestEffort(out, 8 + msg_len);
 }
 
 void DebugLog::logEvent(uint8_t type, int32_t detail) {
-  if (!_armed || !_serial) return;
+  if (!_enabled || !_serial) return;   // see logf()'s own comment on isConnected()
 
   // beebo: frame = [resp_code:1][tlog_sub_id:1][millis:4 LE][type:1][detail:4 LE],
   // fixed 11 bytes -- always fits even the tightest (BLE) send cap, no
@@ -56,5 +66,5 @@ void DebugLog::logEvent(uint8_t type, int32_t detail) {
   out[6] = type;
   memcpy(&out[7], &detail, 4);
 
-  _serial->writeFrame(out, sizeof(out));
+  _serial->writeFrameBestEffort(out, sizeof(out));
 }

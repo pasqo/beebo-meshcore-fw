@@ -44,6 +44,16 @@ class DualModeSerialInterface : public BaseSerialInterface {
   bool feedTextByte(int c, uint8_t dest[], size_t max_len, size_t& outLen);
 
 public:
+  // beebo: fixed-format, session-less control byte -- [RAW_MARKER][sub_id]
+  // [data] -- recognized here, below and independent of both the framed-
+  // command/text-line state machine above and MultiSerialInterface's
+  // session arbitration entirely. Never '<' (0x3C, a real framed command)
+  // or '>' (0x3E, this transport's own reply marker), and never a byte any
+  // legitimate Serial.println() debug line would emit (those are always
+  // printable ASCII + CR/LF) -- see pollRawControl()'s own comment for why
+  // this exists and where it's called from.
+  static const uint8_t RAW_MARKER = 0x01;
+
   DualModeSerialInterface() { _isEnabled = false; _state = MODE_IDLE; _lastWasText = false; _last_byte_at = 0; }
 
   void begin(Stream& serial) {
@@ -61,8 +71,31 @@ public:
 
   bool isConnected() const override;
 
+  // beebo: called directly by Beebo::checkSerialInterface(), before
+  // _serial->checkRecvFrame() (the MultiSerialInterface aggregator) runs at
+  // all -- not through it, and not through this class's own checkRecvFrame()
+  // either. That matters for two reasons: (1) MultiSerialInterface only
+  // polls USB's checkRecvFrame() while USB is idle-polled or already the
+  // locked/active transport (MultiSerialInterface.h's own checkRecvFrame()
+  // comment) -- while a different transport (BLE/TCP) holds the session,
+  // USB's checkRecvFrame() is never invoked at all, so a raw control byte
+  // routed through it would simply never be seen; (2) even when it would be
+  // invoked, going through checkRecvFrame() means MultiSerialInterface's
+  // lockOn() fires and pins `_active` to USB for as long as the raw
+  // command's issuer keeps polling it, locking out every BLE/TCP connection
+  // attempt for that whole time -- exactly the side effect this bypasses.
+  // Only ever consumes bytes when _state == MODE_IDLE (no framed/text parse
+  // already in flight -- if one is, this defers entirely to the normal
+  // parser) and only once the full fixed-size frame has already arrived; a
+  // lone stray RAW_MARKER byte with nothing following it yet is left
+  // untouched (peeked, not consumed) rather than partially eaten, so it's
+  // still there to retry on the next call. Returns true and fills
+  // sub_id/data once a full raw frame was consumed.
+  bool pollRawControl(uint8_t& sub_id, uint8_t& data);
+
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
+  size_t writeFrameBestEffort(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[], size_t max_len) override;
   size_t getMaxRecvFrameSize() const override { return OTA_FRAME_SIZE; }
   // beebo: USB is at least as fast as WiFi (see rx_buf's own comment on the

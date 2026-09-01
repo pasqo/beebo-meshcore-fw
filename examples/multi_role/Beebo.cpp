@@ -1465,17 +1465,7 @@ void Beebo::_checkTransportStateChanges() {
   check(TLOG_XPORT_VAR_USB_IFACE_ENABLED,     usb_interface.isEnabled());
   check(TLOG_XPORT_VAR_USB_IFACE_CONNECTED,   usb_interface.isConnected());
   check(TLOG_XPORT_VAR_MULTI_ENABLED,         serial_interface.isEnabled());
-  bool multi_connected_now = serial_interface.isConnected();
-  // beebo: auto-disarm on session end (see BEEBO_CMD_DEBUG_LOG_ARM's own
-  // desc) -- deferred to the very end of this function, after every
-  // check() below, so the MULTI_CONNECTED/ACTIVE transitions this same
-  // disconnect causes still stream live before arming turns off. Disarming
-  // here first (as this used to) meant those two events -- part of every
-  // single disconnect, debug session's own included -- could never be
-  // observed live, only ever showing up in a later offline ring fetch.
-  bool session_just_ended =
-      _last_xport_var[TLOG_XPORT_VAR_MULTI_CONNECTED] == 1 && !multi_connected_now;
-  check(TLOG_XPORT_VAR_MULTI_CONNECTED,       multi_connected_now);
+  check(TLOG_XPORT_VAR_MULTI_CONNECTED,       serial_interface.isConnected());
   check(TLOG_XPORT_VAR_WIFI_STARTED,          _wifi_started);
   check(TLOG_XPORT_VAR_WIFI_UP,               _wifi_up);
   check(TLOG_XPORT_VAR_WIFI_NEEDS_RECONNECT,  _wifi_needs_reconnect);
@@ -1487,9 +1477,6 @@ void Beebo::_checkTransportStateChanges() {
   check(TLOG_XPORT_VAR_WL_STATUS,             (int)WiFi.status());
   check(TLOG_XPORT_VAR_ACTIVE,                (int)serial_interface.activeTransportType());
   check(TLOG_XPORT_VAR_WIFI_CREDS_RECONNECT_PENDING, _wifi_creds_reconnect_pending);
-  if (session_just_ended) {
-    debug_log.setArmed(false);
-  }
 }
 
 void Beebo::beginTransports() {
@@ -1530,7 +1517,7 @@ void Beebo::beginTransports() {
   }
 
   startInterface(serial_interface);
-  debug_log.attach(_serial, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG);
+  debug_log.attach(&usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG);
 
   for (int i = 0; i < TLOG_XPORT_VAR_COUNT; i++) _last_xport_var[i] = -1;
   _checkTransportStateChanges();   // logs every var's boot value as "changed from -1"
@@ -5037,9 +5024,17 @@ void Beebo::handleCmdFrame(size_t len) {
 #else
     writeDisabledFrame();
 #endif
-  } else if (sub[0] == BEEBO_CMD_DEBUG_LOG_ARM && sub_len >= 2) {
-    debug_log.setArmed(sub[1] != 0);
-    writeOKFrame();
+  } else if (sub[0] == BEEBO_CMD_DEBUG_LOG_ENABLE && sub_len >= 2) {
+    // beebo: DebugLog always targets usb_interface, so enabling it when USB
+    // transport isn't even up on this build (board.usb_enabled=0) would
+    // leave the stream with nowhere to go -- refuse instead of silently
+    // accepting.
+    if (!_usb_up) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+    } else {
+      debug_log.setEnabled(sub[1] != 0);
+      writeOKFrame();
+    }
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
     // beebo: factory eFuse base MAC -- hardware-burned, stable across
     // reflashes/identity changes/role switches, unrelated to node.public_key
@@ -5122,6 +5117,20 @@ void Beebo::saveContacts() {
 }
 
 void Beebo::checkSerialInterface() {
+  // beebo: raw-marker control byte, handled directly on usb_interface --
+  // below and independent of _serial (the MultiSerialInterface aggregator)
+  // entirely, so it works even while BLE/TCP holds the companion session,
+  // and never triggers MultiSerialInterface::lockOn() the way a real
+  // CMD_BEEBO frame over USB would (see pollRawControl()'s own comment).
+  // Fire-and-forget by design -- no OK/ERR reply, this sits below the
+  // app/session request-reply layer entirely.
+  uint8_t raw_sub, raw_data;
+  if (usb_interface.pollRawControl(raw_sub, raw_data)) {
+    if (raw_sub == BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) {
+      debug_log.setEnabled(raw_data != 0);
+    }
+  }
+
   size_t len = _serial->checkRecvFrame(cmd_frame, _serial->getMaxRecvFrameSize());
   // beebo: while a monring stream is active (capture paused for it), a
   // well-behaved client sends nothing else until the terminator page — drop
