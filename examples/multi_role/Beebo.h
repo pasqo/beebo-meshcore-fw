@@ -725,6 +725,19 @@ private:
 
   bool _wifi_needs_reconnect = false;
   unsigned long _last_wifi_reconnect_attempt = 0;
+  // beebo: set true immediately before any deliberate WiFi.disconnect() call
+  // that ISN'T meant to trigger the auto-reconnect machinery (teardown, a
+  // creds change re-joining right away) -- _onWifiStaEvent()'s DISCONNECTED
+  // branch checks and clears this instead of unconditionally setting
+  // _wifi_needs_reconnect, so our own intentional disconnects don't get
+  // mistaken for a real link loss. NOT set before the reconnect block's own
+  // WiFi.disconnect() (loopTransports()) -- that one really does want a
+  // subsequent disconnect to keep _wifi_needs_reconnect true so the retry
+  // loop continues until GOT_IP. Plain bool, not volatile: only ever
+  // written from the main loop() task, same as every other call-site flag
+  // here -- only _sta_disc_reason/_sta_got_ip/_wifi_needs_rebind below are
+  // volatile, since those are the ones the WiFi event task itself writes.
+  bool _wifi_disconnect_expected = false;
   // WiFi STA events fire in the event-loop task; stash them here and log to the
   // (non-thread-safe) debug ring from loop() to keep all ring writes single-context.
   volatile int  _sta_disc_reason = -1;   // >=0 when a STA disconnect needs logging

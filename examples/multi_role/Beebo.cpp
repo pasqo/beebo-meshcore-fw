@@ -1427,8 +1427,15 @@ void Beebo::begin() {
 void Beebo::_onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
     _sta_disc_reason = info.wifi_sta_disconnected.reason;
-    WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
-    _wifi_needs_reconnect = true;
+    if (_wifi_disconnect_expected) {
+      // beebo: our own deliberate WiFi.disconnect() call (teardown, or a
+      // creds change re-joining right away) -- see _wifi_disconnect_expected's
+      // own comment in Beebo.h for why this must not set _wifi_needs_reconnect.
+      _wifi_disconnect_expected = false;
+    } else {
+      WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
+      _wifi_needs_reconnect = true;
+    }
   } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
     _sta_got_ip = true;
     WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
@@ -5709,12 +5716,24 @@ void Beebo::loopTransports() {
     wifi_interface.rebind();
   }
 
-  // Safely attempt to reconnect every 10 seconds if flagged.
-  if (_wifi_needs_reconnect && (millis() - _last_wifi_reconnect_attempt > 10000)) {
-    WIFI_DEBUG_PRINTLN("Attempting manual WiFi reconnect...");
-    WiFi.disconnect();
-    WiFi.reconnect();
-    _last_wifi_reconnect_attempt = millis();
+  // Safely attempt to reconnect every 10 seconds if flagged. Also requires
+  // tcp_enabled/_wifi_up -- belt-and-suspenders alongside
+  // _wifi_disconnect_expected (see its own comment in Beebo.h): every
+  // deliberate WiFi.disconnect() call site is expected to suppress the
+  // stray reconnect flag at the source, but this direct state check means
+  // a future call site that forgets to do that still can't bring WiFi back
+  // up once tcp has genuinely been turned off (BUGS.md 2026-09-02) -- if
+  // the flag is stuck true with neither condition met, drop it instead of
+  // leaving it to fire the moment tcp is re-enabled for an unrelated reason.
+  if (_wifi_needs_reconnect) {
+    if (!_role_state->prefs.tcp_enabled || !_wifi_up) {
+      _wifi_needs_reconnect = false;
+    } else if (millis() - _last_wifi_reconnect_attempt > 10000) {
+      WIFI_DEBUG_PRINTLN("Attempting manual WiFi reconnect...");
+      WiFi.disconnect();
+      WiFi.reconnect();
+      _last_wifi_reconnect_attempt = millis();
+    }
   }
 
   // Live WiFi provisioning: start (or re-join) WiFi without rebooting after
@@ -5765,6 +5784,15 @@ void Beebo::loopTransports() {
     _wifi_creds_reconnect_pending = false;
     WIFI_DEBUG_PRINTLN("Re-joining WiFi with new credentials...");
     _wifi_needs_reconnect = false;   // the reconnect timer must not race this
+    // beebo: set right before the disconnect() call it's guarding, same
+    // reason and same race as applyTransportConfig()'s teardown block --
+    // this comment's own "must not race this" already named the problem,
+    // clearing the flag here was never actually enough on its own to stop
+    // it (BUGS.md 2026-09-02); WiFi.begin() below re-associates on the new
+    // creds regardless, so a genuine failure after that still sets
+    // _wifi_needs_reconnect via the normal path once _wifi_disconnect_expected
+    // is consumed.
+    _wifi_disconnect_expected = true;
     _sta_got_ip = false;
     WiFi.disconnect();
     WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
@@ -5846,8 +5874,24 @@ void Beebo::applyTransportConfig() {
   if (!tcp_on && _wifi_up) {
     wifi_interface.disable();
     _wifi_needs_reconnect = false;
+    // beebo: set right before the disconnect() call it's guarding -- see
+    // _wifi_disconnect_expected's own comment in Beebo.h. Clearing
+    // _wifi_needs_reconnect above is no longer the only thing standing
+    // between this deliberate teardown and a stray reconnect 10s later
+    // (BUGS.md 2026-09-02): WiFi.disconnect(true) itself fires an async
+    // STA_DISCONNECTED event that used to unconditionally re-set the flag
+    // true again, racing this clear.
+    _wifi_disconnect_expected = true;
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);   // fully power down the WiFi radio
+    // beebo: belt-and-suspenders alongside _wifi_disconnect_expected --
+    // ESP-IDF's own built-in auto-reconnect (WiFi.setAutoReconnect(true),
+    // set on every bring-up) has no matching "off" call anywhere else in
+    // this file, so it stays armed through this teardown; turning it off
+    // here closes the narrow window between WiFi.disconnect(true) and
+    // WiFi.mode(WIFI_OFF) where it could otherwise race a reconnect of its
+    // own. Re-enabled unconditionally on every bring-up path already.
+    WiFi.setAutoReconnect(false);
     board.setInhibitSleep(false);
     _wifi_up = false;
     wifi_torn_down = true;

@@ -119,11 +119,12 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
   // from the OS and never reaches server.available() at all. Re-opened here,
   // at the top of the next call, once the session ends.
   if (!deviceConnected && !server && _isEnabled && _port > 0) {
-    // beebo: this branch firing at all means the listening socket had
-    // gone dead (WiFiServer::_listening false) on its own since the last
-    // poll, not through any code path Beebo itself requested -- see
-    // TLOG_WIFI_LISTEN_REARMED's own comment in TransportLog.h.
-    transport_log.log(TLOG_WIFI_LISTEN_REARMED);
+    // beebo: covers both the deliberate reopen after Beebo's own session-
+    // exclusivity close above, and an uncommanded listener death -- either
+    // way, _checkTransportStateChanges() (Beebo.cpp) picks up the resulting
+    // wifi.listening 0 -> 1 transition on this same loop() tick and logs it,
+    // so no separate event is logged here (see TransportLog.h's retired
+    // TLOG_WIFI_LISTEN_ENABLED entry).
     DEBUG_LOG("listening socket was dead, rebuilding");
     server.begin(_port);
   }

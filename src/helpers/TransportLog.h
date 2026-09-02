@@ -81,20 +81,14 @@
 // would mean it's still holding the shared RF path when WiFi comes up.
 // Added chasing the same TCP-reachability bug as TLOG_WIFI_HEALTH.
 #define TLOG_BT_CONTROLLER_STATUS  25
-// beebo: SerialWifiInterface::checkRecvFrame()'s own top-of-function
-// guard silently rebuilds the listening socket (`server.begin()`)
-// whenever it finds `!server` (WiFiServer::_listening false) while still
-// `_isEnabled` -- this event fires exactly when that guard actually
-// does something, i.e. the listening socket had gone dead on its own
-// since the last poll, not through any code path Beebo itself
-// requested. Directly tests whether the TCP-reachability bug's dead
-// listener is silently dying and being caught/rebuilt continuously
-// (this would fire repeatedly during a failure window) versus dying
-// once and never being noticed (this never fires at all, meaning the
-// death is invisible even to WiFiServer's own `_listening` flag). detail
-// unused (0) -- the record's own millis() timestamp is what matters,
-// same as TLOG_DEBUGLOG_READ's plain boundary marker.
-#define TLOG_WIFI_LISTEN_REARMED   26
+// 26 (TLOG_WIFI_LISTEN_ENABLED) retired 2026-09-02 -- fully subsumed by
+// TLOG_XPORT_VAR_WIFI_LISTENING: checkSerialInterface() (and the
+// SerialWifiInterface::checkRecvFrame() dead-listener guard inside it)
+// always runs before loopTransports()'s _checkTransportStateChanges() in
+// the same loop() tick, so any transition this event would have reported
+// is already caught and logged as "XPORT wifi.listening 0 -> 1" by the
+// generic var-change tracker on the same tick -- confirmed via a real
+// capture where both fired 3ms apart for the same underlying change.
 // 24/25 never assigned -- an earlier attempt at dedicated BLE radio-power
 // events (initRadio()/deinitRadio()) was reverted 2026-08-31: _ble_up (and
 // its own TLOG_XPORT_VAR_BLE_UP tracking below) already transitions in
