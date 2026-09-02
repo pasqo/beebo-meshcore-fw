@@ -81,6 +81,30 @@
 // would mean it's still holding the shared RF path when WiFi comes up.
 // Added chasing the same TCP-reachability bug as TLOG_WIFI_HEALTH.
 #define TLOG_BT_CONTROLLER_STATUS  25
+// beebo: connected BLE central's own link-layer address (esp_bd_addr_t, 6
+// bytes) -- BLE's counterpart to TLOG_WIFI_STA_GOT_IP, so a trace identifies
+// *which* peer is on the link the same way an IP does for TCP. 48 bits
+// doesn't fit in one int32 detail, so it's two events logged back-to-back
+// (same millis tick) right alongside TLOG_BLE_CONNECT: HI carries the first
+// 2 bytes (bda[0..1]) packed MSB-first in the low 16 bits, LO carries the
+// last 4 bytes (bda[2..5]) packed MSB-first, matching TLOG_WIFI_STA_GOT_IP's
+// own octet packing.
+#define TLOG_BLE_CLIENT_ADDR_HI    27
+#define TLOG_BLE_CLIENT_ADDR_LO    28
+// beebo: periodic low-level BLE health sample, mirroring TLOG_WIFI_HEALTH --
+// triggered every BLE_HEALTH_SAMPLE_MS while the radio is enabled
+// (loopTransports() -> SerialBLEInterface::requestHealthSample()), same
+// gating as TLOG_WIFI_HEALTH's own _wifi_up (not a live app session).
+// Heap-only: RSSI is deliberately never read (always logged as 127,
+// SerialBLEInterface's BLE_RSSI_UNAVAILABLE) -- an earlier version issued
+// an async esp_ble_gap_read_rssi() here whenever a central was connected,
+// which raced applyTransportConfig()'s BLE teardown (an outstanding HCI
+// command during deinitRadio()) and reproduced as a hang + watchdog reboot
+// switching back to TCP after BLE (BUGS.md). See requestHealthSample()'s
+// own comment for the full race.
+// detail: bits 0-15 = free heap in KB (uint16), bits 16-23 = RSSI dBm
+// (int8, two's complement; always 127 -- see above).
+#define TLOG_BLE_HEALTH            29
 // 26 (TLOG_WIFI_LISTEN_ENABLED) retired 2026-09-02 -- fully subsumed by
 // TLOG_XPORT_VAR_WIFI_LISTENING: checkSerialInterface() (and the
 // SerialWifiInterface::checkRecvFrame() dead-listener guard inside it)

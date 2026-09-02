@@ -168,6 +168,7 @@ void SerialBLEInterface::onConnect(BLEServer* pServer) {
 void SerialBLEInterface::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
   BLE_DEBUG_PRINTLN("onConnect(), conn_id=%d, mtu=%d", param->connect.conn_id, pServer->getPeerMTU(param->connect.conn_id));
   last_conn_id = param->connect.conn_id;
+  memcpy(_remote_bda, param->connect.remote_bda, sizeof(_remote_bda));
   s_ble_link_up_cnt++;   // actual GATT link came up (logged from main loop)
 }
 
@@ -205,8 +206,18 @@ void SerialBLEInterface::onWrite(BLECharacteristic* pCharacteristic, esp_ble_gat
 
 // ---------- public methods
 
-void SerialBLEInterface::enable() { 
+void SerialBLEInterface::enable() {
   if (_isEnabled) return;
+  // beebo: MultiSerialInterface::release() unconditionally re-enables every
+  // other exclusive transport whenever any session ends -- including BLE
+  // after applyTransportConfig() has deliberately deinitRadio()'d it (pServer/
+  // pService set NULL, SerialBLEInterface.cpp's deinitRadio()). _isEnabled is
+  // already false by then too (disable() runs before deinitRadio() in
+  // applyTransportConfig()), so the guard above doesn't catch this case --
+  // pService->start() below would crash (LoadProhibited) on the null pointer.
+  // Reproduced on real hardware as a repeatable BLE<->TCP switch reboot
+  // (BUGS.md 2026-09-02), the mirror-image case of disable()'s own guard.
+  if (pServer == NULL) return;
 
   _isEnabled = true;
   clearBuffers();
@@ -224,6 +235,18 @@ void SerialBLEInterface::enable() {
 }
 
 void SerialBLEInterface::disable() {
+  // beebo: MultiSerialInterface::lockOn() calls disable() on every other
+  // exclusive transport whenever one wins the session-lock race -- if BLE
+  // was already disabled moments earlier by applyTransportConfig()'s own
+  // deliberate teardown (the common BLE->TCP live-switch case), this
+  // re-enters an already-torn-down BLE stack. pServer->getAdvertising()
+  // ->stop() then fails (esp_ble_gap_stop_advertising: rc=259) and
+  // pServer->disconnect(last_conn_id) crashes inside esp_ble_gatts_close()
+  // (LoadProhibited) -- reproduced on real hardware as a BLE->TCP switch
+  // reboot (BUGS.md 2026-09-02). enable() already guards the same way
+  // (see its own `if (_isEnabled) return;` above); disable() needs the
+  // identical guard.
+  if (!_isEnabled) return;
   _isEnabled = false;
 
   BLE_DEBUG_PRINTLN("SerialBLEInterface::disable");
@@ -282,6 +305,11 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
   // not there).
   while (seen_up != s_ble_link_up_cnt)   {
     transport_log.log(TLOG_BLE_CONNECT);
+    int32_t addr_hi = ((int32_t)_remote_bda[0] << 8) | (int32_t)_remote_bda[1];
+    int32_t addr_lo = ((int32_t)_remote_bda[2] << 24) | ((int32_t)_remote_bda[3] << 16)
+                     | ((int32_t)_remote_bda[4] << 8) | (int32_t)_remote_bda[5];
+    transport_log.log(TLOG_BLE_CLIENT_ADDR_HI, addr_hi);
+    transport_log.log(TLOG_BLE_CLIENT_ADDR_LO, addr_lo);
     transport_log.log(TLOG_APP_SESSION_START, TLOG_XPORT_BLE);
     seen_up++;
   }
@@ -350,4 +378,29 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
 
 bool SerialBLEInterface::isConnected() const {
   return deviceConnected;  //pServer != NULL && pServer->getConnectedCount() > 0;
+}
+
+void SerialBLEInterface::requestHealthSample() {
+  // beebo: gated on the radio being up, not on a central being connected --
+  // mirrors TLOG_WIFI_HEALTH's own gating (_wifi_up, not a live app
+  // session), so a heap reading is available the moment BLE is turned on,
+  // same as WiFi's.
+  //
+  // RSSI is deliberately NOT read here. esp_ble_gap_read_rssi() is async
+  // (result lands on the BT task via a GAP event, no synchronous getter
+  // exists on this stack the way WiFi.RSSI() does) -- an earlier version of
+  // this function issued that read whenever a central was connected, which
+  // raced applyTransportConfig()'s BLE teardown: loopTransports() calls
+  // this, then can call ble_interface.disable()+deinitRadio() later in the
+  // very same tick when a live BLE->TCP switch is being applied, tearing
+  // down the Bluedroid stack while an RSSI read could still be outstanding
+  // -- reproduced on real hardware as a hang + watchdog reboot on switching
+  // back to TCP after BLE (BUGS.md). Logging heap-only here removes the
+  // outstanding HCI command entirely, so there's nothing left to race.
+  if (!_isEnabled) return;
+  if (millis() - _last_health_sample_ms < BLE_HEALTH_SAMPLE_MS) return;
+  _last_health_sample_ms = millis();
+  uint16_t heap_kb = (uint16_t)(ESP.getFreeHeap() / 1024);
+  int32_t detail = (int32_t)heap_kb | ((int32_t)(uint8_t)BLE_RSSI_UNAVAILABLE << 16);
+  transport_log.log(TLOG_BLE_HEALTH, detail);
 }

@@ -5694,6 +5694,12 @@ void Beebo::loopTransports() {
     transport_log.log(TLOG_WIFI_HEALTH, detail);
   }
 
+  // beebo: periodic low-level BLE health sample -- see TLOG_BLE_HEALTH's own
+  // comment in TransportLog.h. Only kicks off the async RSSI read here; the
+  // actual TLOG_BLE_HEALTH log call happens later, once the result lands
+  // (drained from checkRecvFrame() -- see SerialBLEInterface.cpp).
+  ble_interface.requestHealthSample();
+
   // Drain WiFi STA events stashed by the (other-task) event handler into the
   // debug ring here, so all ring writes stay in the single loop() context.
   if (_sta_disc_reason >= 0) {
