@@ -29,7 +29,21 @@ void DualModeSerialInterface::discardStaleRx() {
 
 
 bool DualModeSerialInterface::isConnected() const {
-  return true;   // no way of knowing, so assume yes
+  // beebo: an idle-liveness inference, not a real hardware signal --
+  // there is no USB-level "the far side hung up" event for a client that
+  // dies without closing anything cleanly (crash, SIGKILL, cable pulled
+  // while the OS/hub side stays enumerated). ANDed into the USB
+  // connected_fn alongside (bool)Serial (Beebo.cpp's addInterface() calls
+  // -- HWCDC's own real SOF-based physical-disconnect detection, kept
+  // as-is) so either signal going false is enough to release a wedged
+  // session: (bool)Serial catches an actual unplug, this catches a
+  // process that went silent with the cable still attached. A byte
+  // arriving via any path updates _last_byte_at (enable(), the framed/
+  // text parser, pollRawControl()'s session-less raw control frame --
+  // see connect.py's periodic BEEBO_RAW_SUB_KEEPALIVE write during an
+  // otherwise-idle `beebo -i` session), so a genuinely idle-but-alive
+  // session never trips this on its own.
+  return millis() - _last_byte_at < USB_IDLE_TIMEOUT_MS;
 }
 
 bool DualModeSerialInterface::pollRawControl(uint8_t& sub_id, uint8_t& data) {

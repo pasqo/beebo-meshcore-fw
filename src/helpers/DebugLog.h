@@ -34,10 +34,19 @@
 // beebo: sub_id for the raw-marker control frame described above -- lives
 // here, not generated from protocol.yaml, since this is a distinct, lower
 // wire layer than CMD_BEEBO's sub-id space (protocol.yaml's PER_ROLE
-// generator is specific to that layer) and beebo dbglog is currently the
-// only raw-marker consumer. Room for more sub_ids here if that grows, per
-// this file's own attach()/setEnabled() comment above.
+// generator is specific to that layer). Room for more sub_ids here as
+// that grows, per this file's own attach()/setEnabled() comment above --
+// BEEBO_RAW_SUB_KEEPALIVE below is the first to actually use that room.
 #define BEEBO_RAW_SUB_DEBUG_LOG_ENABLE 1
+
+// beebo: fire-and-forget no-op -- Beebo::checkSerialInterface() does
+// nothing with it beyond what DualModeSerialInterface::pollRawControl()
+// already does for every raw control frame regardless of sub_id
+// (refreshing _last_byte_at). Lets a client keep an otherwise-idle USB
+// session's liveness timer alive (DualModeSerialInterface::
+// USB_IDLE_TIMEOUT_MS) without touching DEBUG_LOG_ENABLE's own on/off
+// state -- see connect.py's periodic keepalive during `beebo -i`.
+#define BEEBO_RAW_SUB_KEEPALIVE 2
 
 class DebugLog {
 public:

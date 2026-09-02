@@ -41,6 +41,17 @@ class DualModeSerialInterface : public BaseSerialInterface {
   // with real USB-stack latency.
   static const uint32_t RESYNC_TIMEOUT_MS = 3000;
 
+  // beebo: how long with no byte at all (any kind -- framed command, text
+  // line, or the session-less raw control frame) before isConnected()
+  // infers the far side is gone, not just quiet -- see isConnected()'s own
+  // comment. Generous relative to CommandHandler's own request/reply
+  // timeouts (connect.py's _CONNECT_HANDSHAKE_TIMEOUT_S=3.0/library
+  // default 15.0s) so a slow-but-alive exchange never trips it on its
+  // own; the CLI's periodic keepalive (BEEBO_RAW_SUB_KEEPALIVE, sent well
+  // under this interval during an idle `beebo -i` prompt) is what keeps a
+  // genuinely idle-but-alive session under it indefinitely.
+  static const uint32_t USB_IDLE_TIMEOUT_MS = 30000;
+
   bool feedTextByte(int c, uint8_t dest[], size_t max_len, size_t& outLen);
 
 public:

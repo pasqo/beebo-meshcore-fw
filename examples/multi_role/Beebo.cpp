@@ -1493,8 +1493,16 @@ void Beebo::beginTransports() {
 
   if (usb_on) {
     usb_interface.begin(Serial);
-    serial_interface.addInterface(&usb_interface, []() -> bool { return (bool)Serial; }, nullptr,
-                                  false, TLOG_XPORT_USB);  // non-exclusive: USB coexists with BLE/WiFi
+    // beebo: (bool)Serial (HWCDC's own SOF-based physical-disconnect
+    // detection) catches an actual unplug; usb_interface.isConnected()
+    // (an idle-liveness timeout, see its own comment) catches a client
+    // process that went silent -- crashed/SIGKILL'd/never sent
+    // CMD_APP_DISCONNECT -- with the cable still attached, which
+    // (bool)Serial alone can never see.
+    serial_interface.addInterface(
+      &usb_interface,
+      []() -> bool { return (bool)Serial && beebo.usb_interface.isConnected(); },
+      nullptr, false, TLOG_XPORT_USB);  // non-exclusive: USB coexists with BLE/WiFi
     _usb_added = true;
     _usb_up = true;
   }
@@ -5129,6 +5137,10 @@ void Beebo::checkSerialInterface() {
     if (raw_sub == BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) {
       debug_log.setEnabled(raw_data != 0);
     }
+    // BEEBO_RAW_SUB_KEEPALIVE: no action needed here -- pollRawControl()
+    // already refreshed usb_interface's _last_byte_at for any raw control
+    // frame regardless of sub_id, which is the only thing this one exists
+    // to do (see DebugLog.h's own comment).
   }
 
   size_t len = _serial->checkRecvFrame(cmd_frame, _serial->getMaxRecvFrameSize());
@@ -5874,8 +5886,12 @@ void Beebo::applyTransportConfig() {
   if (usb_on && !_usb_up) {
     if (!_usb_added) {
       usb_interface.begin(Serial);
-      serial_interface.addInterface(&usb_interface, []() -> bool { return (bool)Serial; },
-                                    nullptr, false, TLOG_XPORT_USB);
+      // beebo: see the other addInterface(&usb_interface, ...) call site's
+      // own comment for why this ANDs in usb_interface.isConnected().
+      serial_interface.addInterface(
+        &usb_interface,
+        []() -> bool { return (bool)Serial && beebo.usb_interface.isConnected(); },
+        nullptr, false, TLOG_XPORT_USB);
       _usb_added = true;
     }
     usb_interface.enable();
