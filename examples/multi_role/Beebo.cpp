@@ -12,7 +12,6 @@
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_mac.h>  // beebo: esp_efuse_mac_get_default() for BEEBO_CMD_GET_BOARD_ID
-#include <esp_coexist.h>  // beebo: esp_coex_preference_set() -- see applyTransportConfig()'s BLE-teardown branch
 #include <esp_bt.h>  // beebo: esp_bt_controller_get_status() -- see applyTransportConfig()'s TLOG_BT_CONTROLLER_STATUS log call
 #if defined(ESP32)
 #include <WiFi.h>
@@ -5803,8 +5802,89 @@ void Beebo::applyTransportConfig() {
   bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0';
   bool usb_on = _role_state->prefs.usb_enabled != 0;
 
+  // beebo: tear down whichever of BLE/TCP is turning off *before* bringing
+  // up whichever is turning on -- BLE and TCP share the single 2.4 GHz
+  // radio/coexistence controller and are meant to never both be
+  // physically active at once (see WiFi.setSleep(false)'s own comment
+  // below, and tlvSetTransportConfig()'s enforced mutual exclusion on the
+  // persisted prefs themselves). Processing "BLE fully (bring-up or
+  // teardown), then TCP fully" as two independent blocks (the original
+  // shape here) let a single same-call "BLE on + TCP off" switch reach
+  // ble_interface.begin() while _wifi_up was still true -- the WiFi-
+  // teardown code hadn't run yet, since it was sequenced after -- which
+  // reliably aborted inside ESP-IDF's coexistence layer
+  // (esp_bt_controller_enable() -> coex_enable() -> coex_core_enable()
+  // -> abort(), confirmed via a live hardware capture's symbol-resolved
+  // backtrace, BUGS.md's 2026-08-31 TCP reachability entry) instead of
+  // the peaceful hand-off the settle-delay/coex-preference mitigations
+  // below were written for. A teardown-pass-then-bring-up-pass ordering
+  // guarantees the two radios are never both up mid-switch, regardless of
+  // which direction the switch runs.
   bool ble_torn_down = false;
+  if (!ble_on && _ble_up) {
+    ble_interface.disable();
+    ble_interface.deinitRadio();   // fully power down the BLE radio, not just stop advertising
+    _ble_up = false;
+    ble_torn_down = true;
+    // beebo: NOT an esp_coex_preference_set() call -- BLE and TCP are
+    // strictly, always mutually exclusive here (tlvSetTransportConfig()
+    // enforces it on the persisted prefs, and this function now tears
+    // one down fully before bringing the other up), so there is never a
+    // moment where both radios are actually active and something needs
+    // arbitrating airtime between them. An earlier version of this fix
+    // called esp_coex_preference_set(ESP_COEX_PREFER_WIFI) here on the
+    // theory that the coexistence *arbiter* itself stayed BT-favoring
+    // after a teardown -- wrong framing (that API tunes contention
+    // between two simultaneously-active radios, which this design
+    // guarantees never happens) and it didn't fix the bug it was aimed
+    // at (BUGS.md 2026-08-31) anyway. See ble_on/!_ble_up below for the
+    // real fix once it was found via hardware repro.
+    DEBUG_LOG("ble torn down, heap=%u", (unsigned)ESP.getFreeHeap());
+  }
+
+  bool wifi_torn_down = false;
+  if (!tcp_on && _wifi_up) {
+    wifi_interface.disable();
+    _wifi_needs_reconnect = false;
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);   // fully power down the WiFi radio
+    board.setInhibitSleep(false);
+    _wifi_up = false;
+    wifi_torn_down = true;
+  }
+
   if (ble_on && !_ble_up) {
+    if (wifi_torn_down) {
+      // beebo: NOT esp_coex_preference_set() -- see the ble_torn_down
+      // block's own comment above for why that API doesn't apply here.
+      // Confirmed via hardware repro (2026-09-01, chasing the same
+      // BUGS.md 2026-08-31 bug this teardown-then-bring-up reorder was
+      // written for): reordering alone stopped the coex_core_enable()
+      // abort, but bringing BLE up right after WiFi.mode(WIFI_OFF) then
+      // failed with "BLE_INIT: Malloc failed" / BT_HCI status=0x7
+      // (memory capacity exceeded) despite ESP.getFreeHeap() reporting
+      // 60+KB free -- ESP.getFreeHeap() sums every capability including
+      // PSRAM, but the BT controller's own allocation
+      // (esp_bt_controller_init(), controller/bt.c) requires
+      // MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA memory specifically, which
+      // esp_wifi_deinit() (WiFi.mode(WIFI_OFF) -> Arduino's
+      // espWiFiStop() -> wifiLowLevelDeinit(), WiFiGeneric.cpp) frees
+      // back to the heap but not necessarily instantly or as one
+      // contiguous block. Logging the actual capability-specific numbers
+      // here (not just total free heap) so a still-open failure shows
+      // real evidence -- internal-RAM exhaustion/fragmentation vs.
+      // something else -- instead of another guessed mitigation.
+      delay(200);
+      DEBUG_LOG(
+        "wifi torn down, heap=%u internal_free=%u internal_largest=%u "
+        "dma_free=%u dma_largest=%u internal_total=%u",
+        (unsigned)ESP.getFreeHeap(),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA),
+        (unsigned)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    }
     if (!_ble_added) {
       ble_interface.begin(BLE_NAME_PREFIX, _role_state->prefs.node_name, getBLEPin());
       serial_interface.addInterface(&ble_interface, nullptr, nullptr, true, TLOG_XPORT_BLE);
@@ -5814,24 +5894,6 @@ void Beebo::applyTransportConfig() {
     }
     ble_interface.enable();
     _ble_up = true;
-  } else if (!ble_on && _ble_up) {
-    ble_interface.disable();
-    ble_interface.deinitRadio();   // fully power down the BLE radio, not just stop advertising
-    _ble_up = false;
-    ble_torn_down = true;
-    // beebo: nudge the coexistence arbiter back toward WiFi now that BT is
-    // fully torn down. Starting the BT controller (initRadio() above) can
-    // leave esp_wifi/esp_bt coexistence arbitration favoring BT even after
-    // BT is later deinitialized -- invisible to WiFi.status()/RSSI/heap
-    // (all stay normal), but it silently starves WiFi's TCP data plane.
-    // Found via hardware repro: a plain tcp-off/tcp-on cycle is always
-    // clean, but any cycle that brought BLE's radio up first reliably
-    // broke the *next* WiFi bring-up a few seconds later (BUGS.md
-    // 2026-08-31). TLOG_COEX_PREFER_WIFI existed as a prepared logging
-    // slot for exactly this call with no call site until now.
-    esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
-    transport_log.log(TLOG_COEX_PREFER_WIFI, coex_err);
-    DEBUG_LOG("ble torn down, coex_err=%d, heap=%u", (int)coex_err, (unsigned)ESP.getFreeHeap());
   }
 
   if (tcp_on && !_wifi_up) {
@@ -5874,13 +5936,6 @@ void Beebo::applyTransportConfig() {
       wifi_interface.enable();
     }
     _wifi_up = true;
-  } else if (!tcp_on && _wifi_up) {
-    wifi_interface.disable();
-    _wifi_needs_reconnect = false;
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);   // fully power down the WiFi radio
-    board.setInhibitSleep(false);
-    _wifi_up = false;
   }
 
   if (usb_on && !_usb_up) {

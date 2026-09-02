@@ -45,7 +45,13 @@
 #define TLOG_BLE_CONNECT           16   // BLE GATT link up (onConnect callback)
 #define TLOG_BLE_DISCONNECT        17   // BLE GATT link down (onDisconnect callback)
 #define TLOG_DEBUGLOG_READ         18   // marker: debuglog was fetched (boundary)
-#define TLOG_COEX_PREFER_WIFI      19   // esp_coex_preference_set(PREFER_WIFI); detail = esp_err_t
+// 19 retired 2026-09-01 (was TLOG_COEX_PREFER_WIFI, esp_coex_preference_set()
+// after a BLE teardown) -- wrong framing: that API arbitrates airtime
+// between two *simultaneously* active radios, which BLE/TCP's enforced
+// mutual exclusion here guarantees never happens, and it didn't fix the
+// bug it was aimed at anyway (BUGS.md 2026-08-31). The real fix was
+// reordering applyTransportConfig() to a teardown-pass-then-bring-up-pass
+// shape; see that function's own comment.
 #define TLOG_WIFI_CLIENT_REJECTED  20   // a second peer's TCP connect was accepted at the OS level (WiFiServer's backlog) while a live session was already locked in -- rejected instead of preempting it; detail = the rejected client's remote port
 #define TLOG_CLOCK_SET             21   // RTC epoch changed via CMD_SET_DEVICE_TIME or the text-CLI "time" command; detail = new epoch seconds, so a reader can re-anchor every earlier event's millis() offset against the old epoch and every later one against the new
 // 22 retired 2026-08-30 (was TLOG_XPORT_STATE, a one-shot packed-bitfield

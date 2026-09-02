@@ -4,6 +4,8 @@
 #include <Mesh.h>
 #include <SPIFFS.h>
 #include <esp_ota_ops.h>
+#include <esp_system.h>
+#include <esp_heap_caps.h>
 DataStore store(SPIFFS, rtc_clock);
 
 /* GLOBAL OBJECTS */
@@ -16,6 +18,33 @@ Beebo beebo(radio_driver, fast_rng, rtc_clock, tables, store);
 void halt() {
   while (1)
     ;
+}
+
+// beebo: printed unconditionally (plain Serial.println(), not DEBUG_LOG())
+// as the very first thing setup() does, before anything else can crash or
+// stall -- DEBUG_LOG_ENABLE is in-RAM firmware state that resets to
+// disabled on every boot, so a DEBUG_LOG() call this early would be
+// silently dropped, but raw Serial.println() text needs no enable/
+// handshake and is captured by both the standalone `dbglog` command and
+// --dbglog's raw-text decode regardless (kbase/DEBUGGING.md). Lets a
+// crash/watchdog/panic reset be told apart from a real power cycle from
+// the very next boot's own trace, without needing a live JTAG session
+// attached at the moment it happens (see BUGS.md's 2026-08-31 TCP
+// reachability entry, where this gap first mattered).
+static const char* reset_reason_str(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:   return "POWERON";
+    case ESP_RST_EXT:       return "EXT";
+    case ESP_RST_SW:        return "SW (esp_restart)";
+    case ESP_RST_PANIC:     return "PANIC";
+    case ESP_RST_INT_WDT:   return "INT_WDT";
+    case ESP_RST_TASK_WDT:  return "TASK_WDT";
+    case ESP_RST_WDT:       return "WDT (other)";
+    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP wake";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT";
+    case ESP_RST_SDIO:      return "SDIO";
+    default:                return "UNKNOWN";
+  }
 }
 
 void setup() {
@@ -37,6 +66,15 @@ void setup() {
   // replies are tiny (a few bytes) anyway, unlikely to be TX-bound.
   Serial.setRxBufferSize(OTA_FRAME_SIZE * 2);
   Serial.begin(921600);
+  {
+    esp_reset_reason_t r = esp_reset_reason();
+    Serial.printf("BOOT: reset_reason=%d (%s)\n", (int)r, reset_reason_str(r));
+    Serial.printf(
+      "BOOT: internal_total=%u internal_free=%u internal_largest=%u\n",
+      (unsigned)heap_caps_get_total_size(MALLOC_CAP_INTERNAL),
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  }
 
   board.begin();
 
