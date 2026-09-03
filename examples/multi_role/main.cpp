@@ -66,6 +66,17 @@ void setup() {
   // replies are tiny (a few bytes) anyway, unlikely to be TX-bound.
   Serial.setRxBufferSize(OTA_FRAME_SIZE * 2);
   Serial.begin(921600);
+  // beebo: a soft reboot (esp_restart(), e.g. from the `reboot`/`ota`
+  // commands) doesn't produce an OS-level USB hangup on the native
+  // USB-Serial-JTAG peripheral, so its hardware RX FIFO isn't guaranteed
+  // clear either -- bytes the host sent before the reset can still be
+  // sitting there once this fresh boot's Serial.begin() runs. Flush them
+  // right here, the earliest possible point, before any of the slower
+  // init below (board/radio/SPIFFS/store/beginTransports()) gives a host
+  // that already noticed we're back time to send something genuinely new
+  // -- flushing any later would risk discarding that legitimate traffic
+  // instead of just the stale bytes this is actually for.
+  while (Serial.available()) Serial.read();
   {
     esp_reset_reason_t r = esp_reset_reason();
     Serial.printf("BOOT: reset_reason=%d (%s)\n", (int)r, reset_reason_str(r));

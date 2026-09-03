@@ -6,18 +6,15 @@ void DualModeSerialInterface::enable() {
   _state = MODE_IDLE;
   rx_len = 0;
   _last_byte_at = millis();
-  // beebo: a soft reboot (esp_restart(), e.g. from the `reboot`/`ota`
-  // commands) doesn't produce an OS-level USB hangup on the native
-  // USB-Serial-JTAG peripheral (confirmed: the host-side connection
-  // survives across it), which means the peripheral's own hardware RX
-  // FIFO isn't guaranteed clear either -- bytes the host already sent
-  // before the reset (queued in hardware but not yet drained into this
-  // class's own byte-at-a-time reads) are still sitting there once this
-  // fresh boot's enable() runs. Left undrained, discardStaleRx()'s own
-  // comment describes exactly what happens next: the first stale byte
-  // gets misread as a fresh command, corrupting a well-formed handshake
-  // frame sent later. Flush them before this parser starts fresh.
-  discardStaleRx();
+  // beebo: no discardStaleRx() here -- for the boot path, main.cpp's own
+  // flush right after Serial.begin() (the earliest point the peripheral
+  // is live) already handles the stale-pre-reboot-bytes case this would
+  // otherwise cover, and flushing again this late risks discarding a
+  // legitimate byte a host that already noticed we're back sent in the
+  // meantime (see main.cpp's comment). For the other caller of enable()
+  // -- a live USB on/off settings toggle, Beebo.cpp's setTransportConfig()
+  // -- nothing is racing a reconnect at that point, so there's nothing
+  // stale to discard there either.
 }
 void DualModeSerialInterface::disable() {
   _isEnabled = false;
