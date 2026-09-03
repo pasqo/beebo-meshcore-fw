@@ -6,6 +6,18 @@ void DualModeSerialInterface::enable() {
   _state = MODE_IDLE;
   rx_len = 0;
   _last_byte_at = millis();
+  // beebo: a soft reboot (esp_restart(), e.g. from the `reboot`/`ota`
+  // commands) doesn't produce an OS-level USB hangup on the native
+  // USB-Serial-JTAG peripheral (confirmed: the host-side connection
+  // survives across it), which means the peripheral's own hardware RX
+  // FIFO isn't guaranteed clear either -- bytes the host already sent
+  // before the reset (queued in hardware but not yet drained into this
+  // class's own byte-at-a-time reads) are still sitting there once this
+  // fresh boot's enable() runs. Left undrained, discardStaleRx()'s own
+  // comment describes exactly what happens next: the first stale byte
+  // gets misread as a fresh command, corrupting a well-formed handshake
+  // frame sent later. Flush them before this parser starts fresh.
+  discardStaleRx();
 }
 void DualModeSerialInterface::disable() {
   _isEnabled = false;
@@ -25,6 +37,16 @@ void DualModeSerialInterface::disable() {
 // echoed back out the port by feedTextByte().
 void DualModeSerialInterface::discardStaleRx() {
   while (_serial->available()) _serial->read();
+}
+
+// See this method's own declaration comment in the header for why this
+// override exists at all -- resets exactly what enable() resets, minus
+// _isEnabled/_last_byte_at (this transport stays enabled and its idle-
+// liveness timer untouched; only the byte-parser's own mid-command state
+// is stale here).
+void DualModeSerialInterface::resetParserState() {
+  _state = MODE_IDLE;
+  rx_len = 0;
 }
 
 

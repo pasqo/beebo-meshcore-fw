@@ -79,6 +79,17 @@ public:
   void disable() override;
   bool isEnabled() const override { return _isEnabled; }
   void discardStaleRx() override;
+  // beebo: MultiSerialInterface::release() calls this on the released
+  // transport specifically to reset a byte-parser left mid-command when a
+  // session ends abruptly (see release()'s own comment) -- BaseSerialInterface's
+  // default is a no-op, which left this class's _state/rx_len/_frame_len
+  // never actually reset that way, so a session torn down while _state was
+  // MODE_TEXT/MODE_FRAMED_* (e.g. a companion handshake the client gave up
+  // on without ever sending CMD_APP_DISCONNECT, so this transport never
+  // even calls release() on its own) carried that same stale state into
+  // the next connection attempt on this transport, corrupting it from the
+  // very first byte.
+  void resetParserState() override;
 
   bool isConnected() const override;
 
