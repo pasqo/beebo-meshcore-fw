@@ -267,7 +267,7 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
           rec.flags |= (nlen & RXREC_FLAG_NBRLEN_MASK);
           // beebo: whoever transmitted the last hop to us is a genuine direct
           // RF neighbour, regardless of how many hops the packet has
-          // travelled overall or what it's carrying -- this is the dominant
+          // traveled overall or what it's carrying -- this is the dominant
           // real-world neighbour sighting (any relayed flood/direct traffic),
           // unlike the hops==0 payload-embedded-identity case below. Uses the
           // full hash_size (1-4 bytes), not the 3-byte cap the MonRing
@@ -1351,7 +1351,7 @@ void Beebo::begin() {
   if (isRepeater()) beginRepeater();
 #endif
 
-  // sanitise bad pref values
+  // sanitize bad pref values
   clampRadioPrefs();
 
   // beebo: seed the trend state once at boot from the just-loaded pref,
@@ -1424,30 +1424,19 @@ void Beebo::begin() {
 // short-read pre-usb_enabled file).
 // beebo: see this method's own declaration comment in Beebo.h for why it's
 // one shared body instead of a copy inlined at each WiFi.onEvent() site.
+// beebo: pure event recorder -- runs on the WiFi event-loop task, NOT the
+// main loop() task. Must NEVER write _btp_state (or call anything that
+// touches wifi_interface/ble_interface) directly: driveBtp() is the single
+// place that computes and applies every _btp_state transition, once per
+// tick, on the main task -- see its own comment and
+// plans/TRANSPORT_STATE_MACHINE.md. These volatile flags are drained as
+// driveBtp()'s got_ip/disc_reason inputs (and logged to the ring) from
+// loopTransports(), the only context that's safe to do either from.
 void Beebo::_onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
     _sta_disc_reason = info.wifi_sta_disconnected.reason;
-    if (_wifi_disconnect_expected) {
-      // beebo: our own deliberate WiFi.disconnect() call (teardown, or a
-      // creds change re-joining right away) -- see _wifi_disconnect_expected's
-      // own comment in Beebo.h for why this must not set _wifi_needs_reconnect.
-      _wifi_disconnect_expected = false;
-    } else {
-      WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
-      _wifi_needs_reconnect = true;
-    }
   } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
     _sta_got_ip = true;
-    WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
-    _wifi_needs_reconnect = false;
-    // Re-bind the listening socket: every reassociation (the STA's very
-    // first one after boot, and every later one -- auto-reconnect after a
-    // beacon timeout, a manual loopTransports() reconnect, a live creds
-    // change) leaves the previous WiFiServer orphaned -- see
-    // SerialWifiInterface::rebind()'s own comment. Deferred to loopTransports()
-    // on the main task -- see _wifi_needs_rebind's own comment in Beebo.h for
-    // why this can't call wifi_interface.rebind() directly from here.
-    _wifi_needs_rebind = true;
   }
 }
 
@@ -1472,17 +1461,10 @@ void Beebo::_checkTransportStateChanges() {
   check(TLOG_XPORT_VAR_USB_IFACE_CONNECTED,   usb_interface.isConnected());
   check(TLOG_XPORT_VAR_MULTI_ENABLED,         serial_interface.isEnabled());
   check(TLOG_XPORT_VAR_MULTI_CONNECTED,       serial_interface.isConnected());
-  check(TLOG_XPORT_VAR_WIFI_STARTED,          _wifi_started);
-  check(TLOG_XPORT_VAR_WIFI_UP,               _wifi_up);
-  check(TLOG_XPORT_VAR_WIFI_NEEDS_RECONNECT,  _wifi_needs_reconnect);
-  check(TLOG_XPORT_VAR_TRANSPORT_SWITCH_PENDING, _transport_switch_pending);
-  check(TLOG_XPORT_VAR_BLE_ADDED,             _ble_added);
-  check(TLOG_XPORT_VAR_BLE_UP,                _ble_up);
-  check(TLOG_XPORT_VAR_USB_ADDED,             _usb_added);
-  check(TLOG_XPORT_VAR_USB_UP,                _usb_up);
+  check(TLOG_XPORT_VAR_BTP_STATE,             (int)_btp_state);
+  check(TLOG_XPORT_VAR_USB_STATE,             (int)_usb_state);
   check(TLOG_XPORT_VAR_WL_STATUS,             (int)WiFi.status());
   check(TLOG_XPORT_VAR_ACTIVE,                (int)serial_interface.activeTransportType());
-  check(TLOG_XPORT_VAR_WIFI_CREDS_RECONNECT_PENDING, _wifi_creds_reconnect_pending);
 }
 
 void Beebo::beginTransports() {
@@ -1490,45 +1472,12 @@ void Beebo::beginTransports() {
   bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0';
   bool usb_on = _role_state->prefs.usb_enabled != 0;
 
-  if (ble_on) {
-    ble_interface.begin(BLE_NAME_PREFIX, _role_state->prefs.node_name, getBLEPin());
-    serial_interface.addInterface(&ble_interface, nullptr, nullptr, true, TLOG_XPORT_BLE);
-    _ble_added = true;
-    _ble_up = true;
-  }
-
-  if (usb_on) {
-    usb_interface.begin(Serial);
-    // beebo: (bool)Serial (HWCDC's own SOF-based physical-disconnect
-    // detection) catches an actual unplug; usb_interface.isConnected()
-    // (an idle-liveness timeout, see its own comment) catches a client
-    // process that went silent -- crashed/SIGKILL'd/never sent
-    // CMD_APP_DISCONNECT -- with the cable still attached, which
-    // (bool)Serial alone can never see.
-    serial_interface.addInterface(
-      &usb_interface,
-      []() -> bool { return (bool)Serial && beebo.usb_interface.isConnected(); },
-      nullptr, false, TLOG_XPORT_USB);  // non-exclusive: USB coexists with BLE/WiFi
-    _usb_added = true;
-    _usb_up = true;
-  }
-
-  if (tcp_on) {
-    board.setInhibitSleep(true);   // prevent sleep when WiFi is active
-    WiFi.setAutoReconnect(true);
-
-    WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){ _onWifiStaEvent(event, info); });
-
-    WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
-    // BLE and TCP are mutually exclusive, so no BT + WiFi coexistence -- power
-    // save can always be off so the station stays awake (eliminates the
-    // multi-second TCP latency/loss).
-    WiFi.setSleep(false);
-    wifi_interface.begin(TCP_PORT);
-    serial_interface.addInterface(&wifi_interface, nullptr, nullptr, true, TLOG_XPORT_TCP);
-    _wifi_started = true;
-    _wifi_up = true;
-  }
+  // beebo: boot bring-up reuses the exact same convergence logic as every
+  // later live toggle -- see driveBtp()/driveUsb()'s own comments and
+  // plans/TRANSPORT_STATE_MACHINE.md for the full design. No events/creds
+  // change/live BLE central are possible yet at this point in begin().
+  driveBtp(ble_on, tcp_on, false, false, false, false);
+  driveUsb(usb_on);
 
   startInterface(serial_interface);
   debug_log.attach(&usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG);
@@ -1649,7 +1598,7 @@ void Beebo::initMonRing() {
 // still recovering) and skewing the trend classifier. Also worth capturing
 // into the Vbat history trace itself so we can chart Vbat against idle/busy
 // state and tune IDLE_MARGIN from real recovery data instead of guessing --
-// starting point of 100ms, to be retuned once real recovery traces are in.
+// starting point of 100ms, to be re-tuned once real recovery traces are in.
 // Always IDLE_MARGIN_MS (BattTrend.h) -- not runtime-overridable.
 bool Beebo::radioIsIdle() const {
   return !_radio->isReceiving() && !isTransmitting()
@@ -1702,7 +1651,7 @@ EnvRecord Beebo::buildEnvRecord() {
 // -- the tuning optimizer only ever runs on a repeater (see loop()'s
 // `isRepeater() && _tune_enabled` gate), so this is never reached for a
 // companion. TUNE_INTERFERENCE_THRESHOLD never reaches here
-// (TuneController::isAppliable() excludes it from should_apply).
+// (TuneController::isApplicable() excludes it from should_apply).
 void Beebo::applyTuneDecision(uint8_t param_id, int16_t value) {
   switch (param_id) {
     case TUNE_RX_DELAY_BASE: {
@@ -2230,7 +2179,10 @@ bool Beebo::tlvSetTransportConfig(Beebo* self, uint8_t role, uint32_t raw) {
       && !(slot.prefs.tcp_enabled && slot.prefs.wifi_ssid[0] != '\0');
   if (remote_off) slot.prefs.usb_enabled = 1;
   persistRoleSlot(self, role, slot);
-  if (role == self->_board.role) self->_transport_config_pending = true;
+  // beebo: no separate "apply live" signal needed -- driveBtp()/driveUsb()
+  // read ble_enabled/tcp_enabled/usb_enabled straight from prefs every
+  // loopTransports() tick (just-persisted above), converging on their own
+  // the moment this returns.
   return true;
 }
 
@@ -4445,7 +4397,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // retry of a chain with a typo further down it. created_ids tracks
     // every segment actually created (not re-parented -- putRegion()
     // reuses an existing entry by name without incrementing num_regions,
-    // and reparenting an existing entry is never this command's own leak
+    // and re-parenting an existing entry is never this command's own leak
     // to roll back) so a failure can undo them, last-created first --
     // always safe since a segment's parent is always an entry created
     // earlier in this same chain (or pre-existing), never a later one, so
@@ -4592,7 +4544,7 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_GET_TUNE_APPLIED_MASK) {
     // beebo: per-param live-actuation promotion (RAM-only, default 0 =
     // every param observe-only -- see _tune_applied_mask's declaration and
-    // TuneController::Decision/isAppliable()).
+    // TuneController::Decision/isApplicable()).
     out_frame[0] = RESP_CODE_OK;
     memset(&out_frame[1], 0, 4);
     out_frame[1] = _tune_applied_mask;
@@ -5042,8 +4994,9 @@ void Beebo::handleCmdFrame(size_t len) {
     // beebo: DebugLog always targets usb_interface, so enabling it when USB
     // transport isn't even up on this build (board.usb_enabled=0) would
     // leave the stream with nowhere to go -- refuse instead of silently
-    // accepting.
-    if (!_usb_up) {
+    // accepting. XPORT_PENDING still counts as up: usb_interface itself
+    // hasn't been disabled yet, teardown is only deferred pending session end.
+    if (_usb_state == XPORT_OFF) {
       writeErrFrame(ERR_CODE_BAD_STATE);
     } else {
       debug_log.setEnabled(sub[1] != 0);
@@ -5680,12 +5633,12 @@ void Beebo::loopTransports() {
   _checkTransportStateChanges();
 
   // beebo: periodic low-level WiFi health sample -- see TLOG_WIFI_HEALTH's
-  // own comment in TransportLog.h. Gated on _wifi_up (not tcp_enabled --
-  // this is about the radio actually being live right now, same signal
-  // applyTransportConfig() itself uses) so it stays silent while WiFi is
-  // off, and unconditional on any session being live (RSSI/heap sampling
-  // never touches deviceConnected/the listening socket).
-  if (_wifi_up && millis() - _last_wifi_health_sample_ms >= WIFI_HEALTH_SAMPLE_MS) {
+  // own comment in TransportLog.h. Gated on _btp_state == BTP_TCP_UP (not
+  // tcp_enabled -- this is about the radio actually being live right now)
+  // so it stays silent while WiFi is off, and unconditional on any session
+  // being live (RSSI/heap sampling never touches deviceConnected/the
+  // listening socket).
+  if (_btp_state == BTP_TCP_UP && millis() - _last_wifi_health_sample_ms >= WIFI_HEALTH_SAMPLE_MS) {
     _last_wifi_health_sample_ms = millis();
     uint16_t heap_kb = (uint16_t)(ESP.getFreeHeap() / 1024);
     int8_t rssi = (int8_t)WiFi.RSSI();
@@ -5700,311 +5653,369 @@ void Beebo::loopTransports() {
   // (drained from checkRecvFrame() -- see SerialBLEInterface.cpp).
   ble_interface.requestHealthSample();
 
-  // Drain WiFi STA events stashed by the (other-task) event handler into the
-  // debug ring here, so all ring writes stay in the single loop() context.
-  if (_sta_disc_reason >= 0) {
-    // No (int8_t) truncation here -- esp_wifi disconnect reason codes go up
-    // to ~208 (e.g. BEACON_TIMEOUT=200, NO_AP_FOUND=201), which silently
-    // wrapped negative through an int8_t before `detail` was widened to
-    // int32_t for the IP-logging change above.
+  // ---- Gather this tick's inputs (no state mutation yet) -----------------
+  // WiFi STA events fire on a different task; _onWifiStaEvent() only ever
+  // stashes them (see its own comment) -- drain them here into local,
+  // single-tick inputs, logging to the ring in this same single-context
+  // pass. No (int8_t) truncation on the reason -- esp_wifi disconnect
+  // reason codes go up to ~208 (e.g. BEACON_TIMEOUT=200, NO_AP_FOUND=201).
+  bool got_ip = _sta_got_ip;
+  bool disconnected = _sta_disc_reason >= 0;
+  if (disconnected) {
     transport_log.log(TLOG_WIFI_STA_DISCONNECTED, _sta_disc_reason);
     _sta_disc_reason = -1;
   }
-  if (_sta_got_ip) {
+  if (got_ip) {
     IPAddress ip = WiFi.localIP();
     int32_t packed_ip = ((int32_t)ip[0] << 24) | ((int32_t)ip[1] << 16)
                        | ((int32_t)ip[2] << 8) | (int32_t)ip[3];
     transport_log.log(TLOG_WIFI_STA_GOT_IP, packed_ip);
     _sta_got_ip = false;
   }
-  if (_wifi_needs_rebind) {
-    _wifi_needs_rebind = false;
-    wifi_interface.rebind();
-  }
 
-  // Safely attempt to reconnect every 10 seconds if flagged. Also requires
-  // tcp_enabled/_wifi_up -- belt-and-suspenders alongside
-  // _wifi_disconnect_expected (see its own comment in Beebo.h): every
-  // deliberate WiFi.disconnect() call site is expected to suppress the
-  // stray reconnect flag at the source, but this direct state check means
-  // a future call site that forgets to do that still can't bring WiFi back
-  // up once tcp has genuinely been turned off (BUGS.md 2026-09-02) -- if
-  // the flag is stuck true with neither condition met, drop it instead of
-  // leaving it to fire the moment tcp is re-enabled for an unrelated reason.
-  if (_wifi_needs_reconnect) {
-    if (!_role_state->prefs.tcp_enabled || !_wifi_up) {
-      _wifi_needs_reconnect = false;
-    } else if (millis() - _last_wifi_reconnect_attempt > 10000) {
-      WIFI_DEBUG_PRINTLN("Attempting manual WiFi reconnect...");
-      WiFi.disconnect();
-      WiFi.reconnect();
-      _last_wifi_reconnect_attempt = millis();
-    }
-  }
-
-  // Live WiFi provisioning: start (or re-join) WiFi without rebooting after
-  // CMD_SET_WIFI_CREDS. (Define WIFI_CREDS_REBOOT at build time to reboot
-  // instead.) The flag is consumed unconditionally -- it used to be read
-  // behind `!_wifi_started && _role_state->prefs.tcp_enabled`, so a creds change that
-  // didn't match those conditions left it stuck true forever.
-  if (consumeWifiCredsPending()) {
-    if (!_role_state->prefs.tcp_enabled) {
-      // Nothing to do now: enabling TCP later brings WiFi up on these creds
-      // via the transport-config block below.
-    } else if (!_wifi_started) {
-      _wifi_started = true;
-      board.setInhibitSleep(true);
-      WiFi.setAutoReconnect(true);
-      WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){ _onWifiStaEvent(event, info); });
-      WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
-      WiFi.setSleep(false);   // ble/tcp mutually exclusive → no BT coexistence → power-save off (reliable)
-      wifi_interface.begin(TCP_PORT);
-      serial_interface.addInterface(&wifi_interface, nullptr, nullptr, true, TLOG_XPORT_TCP);
-      wifi_interface.enable();   // serial_interface already enabled; enable the new sub manually
-      _wifi_up = true;
-    } else if (_wifi_up) {
-      // Station already running on the OLD credentials -- nothing re-ran
-      // WiFi.begin(), so this used to need a reboot (or a tcp off/on toggle)
-      // to take effect. Re-joining with the new ones drops the WiFi
-      // association, which would tear down a TCP session still on the old
-      // network before its own OK reply to this very command is guaranteed
-      // delivered (the reply is queued before this runs, see
-      // BEEBO_CMD_SET_WIFI_CREDS's handler, but queued isn't delivered --
-      // the socket can still be reset out from under buffered bytes).
-      // Deferred instead of applied immediately: see the isConnected() check
-      // below, consumed once nothing is still connected over that session.
-      WIFI_DEBUG_PRINTLN("New WiFi credentials queued -- rejoining once the "
-                          "current session ends...");
-      _wifi_creds_reconnect_pending = true;
-    }
-    // else: _wifi_started but torn down (tcp off) -- the re-enable path
-    // calls WiFi.begin() with whatever is in _role_state->prefs, so these creds are
-    // already what it will use.
-  }
-
-  // beebo: the deferred half of the branch above -- runs every tick once
-  // armed, until the caller that requested new credentials (or anyone else
-  // still on the old network) has actually disconnected, so the reconnect
-  // never races an in-flight reply.
-  if (_wifi_creds_reconnect_pending && !wifi_interface.isConnected()) {
-    _wifi_creds_reconnect_pending = false;
-    WIFI_DEBUG_PRINTLN("Re-joining WiFi with new credentials...");
-    _wifi_needs_reconnect = false;   // the reconnect timer must not race this
-    // beebo: set right before the disconnect() call it's guarding, same
-    // reason and same race as applyTransportConfig()'s teardown block --
-    // this comment's own "must not race this" already named the problem,
-    // clearing the flag here was never actually enough on its own to stop
-    // it (BUGS.md 2026-09-02); WiFi.begin() below re-associates on the new
-    // creds regardless, so a genuine failure after that still sets
-    // _wifi_needs_reconnect via the normal path once _wifi_disconnect_expected
-    // is consumed.
-    _wifi_disconnect_expected = true;
-    _sta_got_ip = false;
-    WiFi.disconnect();
-    WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
-    WiFi.setSleep(false);
-  }
-
-  // Live BLE/TCP/USB toggle: apply a CMD_SET_TRANSPORT_CONFIG change without
-  // rebooting. The whole switch (bring-up and tear-down together) is
-  // deferred atomically until no app session is live -- see
-  // _transport_switch_pending's declaration for why bring-up can't jump
-  // ahead of tear-down here the way it used to. Applied right away if no
-  // session is live at request time; otherwise the check below picks it up
-  // once the live session ends.
-  if (consumeTransportConfigPending()) {
-    if (_serial->isConnected()) {
-      _transport_switch_pending = true;
-    } else {
-      applyTransportConfig();
-    }
-  }
-  if (_transport_switch_pending && !_serial->isConnected()) {
-    _transport_switch_pending = false;
-    applyTransportConfig();
-  }
-}
-
-// Brings ble/tcp/usb interfaces up or down to match whatever is currently
-// persisted in _role_state->prefs -- the single atomic apply step for a live
-// transport switch (see _transport_switch_pending's declaration for why
-// bring-up and tear-down must happen together, only once no app session is
-// live). Also used by loopTransports() for the immediate-apply path when a
-// switch is requested with no session live to wait for.
-void Beebo::applyTransportConfig() {
   bool ble_on = _role_state->prefs.ble_enabled != 0;
   bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0';
   bool usb_on = _role_state->prefs.usb_enabled != 0;
+  bool creds_changed = consumeWifiCredsPending();
+  bool ble_connected = ble_interface.isConnected();
 
-  // beebo: tear down whichever of BLE/TCP is turning off *before* bringing
-  // up whichever is turning on -- BLE and TCP share the single 2.4 GHz
-  // radio/coexistence controller and are meant to never both be
-  // physically active at once (see WiFi.setSleep(false)'s own comment
-  // below, and tlvSetTransportConfig()'s enforced mutual exclusion on the
-  // persisted prefs themselves). Processing "BLE fully (bring-up or
-  // teardown), then TCP fully" as two independent blocks (the original
-  // shape here) let a single same-call "BLE on + TCP off" switch reach
-  // ble_interface.begin() while _wifi_up was still true -- the WiFi-
-  // teardown code hadn't run yet, since it was sequenced after -- which
-  // reliably aborted inside ESP-IDF's coexistence layer
-  // (esp_bt_controller_enable() -> coex_enable() -> coex_core_enable()
-  // -> abort(), confirmed via a live hardware capture's symbol-resolved
-  // backtrace, BUGS.md's 2026-08-31 TCP reachability entry) instead of
-  // the peaceful hand-off the settle-delay/coex-preference mitigations
-  // below were written for. A teardown-pass-then-bring-up-pass ordering
-  // guarantees the two radios are never both up mid-switch, regardless of
-  // which direction the switch runs.
-  bool ble_torn_down = false;
-  if (!ble_on && _ble_up) {
-    ble_interface.disable();
-    ble_interface.deinitRadio();   // fully power down the BLE radio, not just stop advertising
-    _ble_up = false;
-    ble_torn_down = true;
-    // beebo: NOT an esp_coex_preference_set() call -- BLE and TCP are
-    // strictly, always mutually exclusive here (tlvSetTransportConfig()
-    // enforces it on the persisted prefs, and this function now tears
-    // one down fully before bringing the other up), so there is never a
-    // moment where both radios are actually active and something needs
-    // arbitrating airtime between them. An earlier version of this fix
-    // called esp_coex_preference_set(ESP_COEX_PREFER_WIFI) here on the
-    // theory that the coexistence *arbiter* itself stayed BT-favoring
-    // after a teardown -- wrong framing (that API tunes contention
-    // between two simultaneously-active radios, which this design
-    // guarantees never happens) and it didn't fix the bug it was aimed
-    // at (BUGS.md 2026-08-31) anyway. See ble_on/!_ble_up below for the
-    // real fix once it was found via hardware repro.
-    DEBUG_LOG("ble torn down, heap=%u", (unsigned)ESP.getFreeHeap());
+  // ---- Compute next state + apply outputs, one pass, one place ----------
+  driveBtp(ble_on, tcp_on, creds_changed, got_ip, disconnected, ble_connected);
+  driveUsb(usb_on);
+}
+
+// The single function that owns every BLE/TCP transition -- a proper Mealy
+// machine step: gather this tick's inputs (done by the caller, above),
+// compute the single next _btp_state from (current state, those inputs),
+// then apply exactly the one resulting side effect -- never the other way
+// around, and never split across another function or callback (see
+// _onWifiStaEvent()'s own comment). See plans/TRANSPORT_STATE_MACHINE.md
+// for the full state/event/transition table.
+//
+// BLE and TCP share one physical 2.4GHz radio and are mutually exclusive by
+// hardware/coexistence constraint, so _btp_state is ONE variable with no
+// value meaning "both up" -- not two flags kept in sync by caller-ordering
+// convention. *_PENDING (see Beebo.h's own comment) is what a config/creds
+// change becomes, as a real state, when the radio being torn down still has
+// a live app session on it -- not a side flag consulted before calling this
+// function.
+//
+// WiFi.begin()/ble_interface.enable() are only ever issued from within this
+// function (via bringUpBle_()/bringUpTcp_() below), on entry to a
+// *_STARTING state -- never re-issued while already STARTING or UP, which
+// is what eliminates the self-inflicted-de-auth bug this whole design exists
+// to fix (BUGS.md 2026-09-02): re-issuing esp_wifi_connect() while a
+// connection attempt is already in flight is a documented
+// ESP-IDF/Arduino-core anti-pattern that forces an implicit
+// disconnect+re-associate.
+//
+// Structure: switch on the CURRENT state; each case computes the single
+// next state from (that state, this tick's inputs) and performs exactly
+// the action(s) implied, ending in exactly one write to _btp_state (at the
+// bottom). teardownBleThen_()/teardownTcpThen_() below are shared by
+// several cases (every case that can reach a teardown) purely to avoid
+// tripling the coexistence-delay/bring-the-other-radio-up-immediately
+// logic -- they're still only ever invoked from within this switch, never
+// an independent second place computing state.
+void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
+                      bool got_ip, bool disconnected, bool ble_connected) {
+  // beebo: _serial is null until startInterface() runs (beginTransports()'s
+  // first driveBtp() call happens before that) -- no app session is
+  // possible that early regardless, so this is a correct guard, not a
+  // workaround.
+  bool session_live_on_ble = _serial && _serial->isConnected()
+      && serial_interface.activeTransportType() == TLOG_XPORT_BLE;
+  bool session_live_on_tcp = _serial && _serial->isConnected()
+      && serial_interface.activeTransportType() == TLOG_XPORT_TCP;
+  bool backoff_elapsed = millis() - _tcp_backoff_started_ms >= 10000;
+
+  BtpState next = _btp_state;
+
+  switch (_btp_state) {
+    case BTP_OFF:
+      if (ble_on)      {
+        bringUpBle_(/*after_wifi_teardown=*/false);
+        next = BTP_BLE_STARTING;
+      }
+      else if (tcp_on) {
+        bringUpTcp_(/*after_ble_teardown=*/false);
+        next = BTP_TCP_STARTING;
+      }
+      break;
+
+    case BTP_BLE_STARTING:
+      if (!ble_on) {
+        next = session_live_on_ble ? BTP_BLE_PENDING : teardownBleThen_(ble_on, tcp_on);
+      } else if (ble_connected) {
+        next = BTP_BLE_UP;
+      }
+      break;
+
+    case BTP_BLE_UP:
+      if (!ble_on) {
+        next = session_live_on_ble ? BTP_BLE_PENDING : teardownBleThen_(ble_on, tcp_on);
+      } else if (!ble_connected) {
+        // BLE stack resumes advertising on its own after a central
+        // disconnects -- no action needed, just reflect it.
+        next = BTP_BLE_STARTING;
+      }
+      break;
+
+    case BTP_BLE_PENDING:
+      if (!session_live_on_ble) {
+        next = teardownBleThen_(ble_on, tcp_on);
+      }
+      break;
+
+    case BTP_TCP_STARTING:
+      if (!tcp_on || creds_changed) {
+        next = session_live_on_tcp ? BTP_TCP_PENDING : teardownTcpThen_(ble_on, tcp_on);
+      } else if (got_ip) {
+        WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
+        // Re-bind the listening socket: every reassociation (the STA's
+        // very first one after boot, and every later one) leaves the
+        // previous WiFiServer orphaned -- see SerialWifiInterface::
+        // rebind()'s own comment. Safe to call directly here (unlike from
+        // _onWifiStaEvent() itself) -- this whole function only ever runs
+        // on the main loop() task, the same one that touches
+        // wifi_interface everywhere else.
+        wifi_interface.rebind();
+        next = BTP_TCP_UP;
+      } else if (disconnected) {
+        WIFI_DEBUG_PRINTLN("WiFi disconnected. Backing off before retry...");
+        _tcp_backoff_started_ms = millis();
+        next = BTP_TCP_BACKOFF;
+      }
+      break;
+
+    case BTP_TCP_UP:
+      if (!tcp_on || creds_changed) {
+        next = session_live_on_tcp ? BTP_TCP_PENDING : teardownTcpThen_(ble_on, tcp_on);
+      } else if (disconnected) {
+        WIFI_DEBUG_PRINTLN("WiFi disconnected. Backing off before retry...");
+        _tcp_backoff_started_ms = millis();
+        next = BTP_TCP_BACKOFF;
+      }
+      break;
+
+    case BTP_TCP_BACKOFF:
+      if (!tcp_on || creds_changed) {
+        next = session_live_on_tcp ? BTP_TCP_PENDING : teardownTcpThen_(ble_on, tcp_on);
+      } else if (backoff_elapsed) {
+        // beebo: only place a lost TCP connection is ever retried. Gated
+        // on elapsed time, not on WiFi.status() (ambiguous between
+        // "genuinely idle" and "actively negotiating" -- see
+        // plans/TRANSPORT_STATE_MACHINE.md).
+        WIFI_DEBUG_PRINTLN("Attempting WiFi reconnect...");
+        WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
+        next = BTP_TCP_STARTING;
+      }
+      break;
+
+    case BTP_TCP_PENDING:
+      if (!session_live_on_tcp) {
+        next = teardownTcpThen_(ble_on, tcp_on);
+      }
+      break;
   }
 
-  bool wifi_torn_down = false;
-  if (!tcp_on && _wifi_up) {
-    wifi_interface.disable();
-    _wifi_needs_reconnect = false;
-    // beebo: set right before the disconnect() call it's guarding -- see
-    // _wifi_disconnect_expected's own comment in Beebo.h. Clearing
-    // _wifi_needs_reconnect above is no longer the only thing standing
-    // between this deliberate teardown and a stray reconnect 10s later
-    // (BUGS.md 2026-09-02): WiFi.disconnect(true) itself fires an async
-    // STA_DISCONNECTED event that used to unconditionally re-set the flag
-    // true again, racing this clear.
-    _wifi_disconnect_expected = true;
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);   // fully power down the WiFi radio
-    // beebo: belt-and-suspenders alongside _wifi_disconnect_expected --
-    // ESP-IDF's own built-in auto-reconnect (WiFi.setAutoReconnect(true),
-    // set on every bring-up) has no matching "off" call anywhere else in
-    // this file, so it stays armed through this teardown; turning it off
-    // here closes the narrow window between WiFi.disconnect(true) and
-    // WiFi.mode(WIFI_OFF) where it could otherwise race a reconnect of its
-    // own. Re-enabled unconditionally on every bring-up path already.
-    WiFi.setAutoReconnect(false);
-    board.setInhibitSleep(false);
-    _wifi_up = false;
-    wifi_torn_down = true;
+  _btp_state = next;
+}
+
+// beebo: shared by every driveBtp() case that can reach a BLE teardown --
+// tears BLE down (caller already confirmed it's safe to, i.e. no live
+// session on it), then decides + performs whatever immediately follows,
+// returning the resulting next state. The only place BLE teardown happens.
+// `ble_on` is passed through only for the *_PENDING-exit case, where the
+// config request may have flipped back on while waiting -- for the
+// STARTING/UP cases it's already known false (that's why they're tearing
+// down at all).
+Beebo::BtpState Beebo::teardownBleThen_(bool ble_on, bool tcp_on) {
+  ble_interface.disable();
+  ble_interface.deinitRadio();   // fully power down the BLE radio, not just stop advertising
+  DEBUG_LOG("ble torn down, heap=%u", (unsigned)ESP.getFreeHeap());
+  if (tcp_on) {
+    bringUpTcp_(/*after_ble_teardown=*/true);
+    return BTP_TCP_STARTING;
+  }
+  if (ble_on) {
+    // Only reachable from the BTP_BLE_PENDING case -- config flipped back
+    // on while still waiting on the old session to end. BLE was never
+    // actually torn down until the line above, so this is a fresh
+    // bring-up, not a silent resume.
+    bringUpBle_(/*after_wifi_teardown=*/false);
+    return BTP_BLE_STARTING;
+  }
+  return BTP_OFF;
+}
+
+// beebo: TCP counterpart to teardownBleThen_() -- see its own comment.
+// Also reached when creds_changed forces a teardown+rejoin with tcp_on
+// still true: bringUpTcp_() below reads whatever's currently in prefs, so
+// a fresh rejoin here automatically uses the just-saved new creds with no
+// special-casing needed.
+Beebo::BtpState Beebo::teardownTcpThen_(bool ble_on, bool tcp_on) {
+  wifi_interface.disable();
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);   // fully power down the WiFi radio
+  // beebo: setAutoReconnect(false) stays permanently off on every bring-up
+  // path too (see bringUpTcp_()) -- ESP-IDF's own built-in auto-reconnect
+  // calls esp_wifi_disconnect() before esp_wifi_connect() on every
+  // re-connectable disconnect reason, exactly the same self-inflicted-de-auth
+  // anti-pattern this whole design exists to eliminate (BUGS.md 2026-09-02)
+  // -- so it must never be armed at all, not just turned off again here.
+  WiFi.setAutoReconnect(false);
+  board.setInhibitSleep(false);
+  if (ble_on) {
+    bringUpBle_(/*after_wifi_teardown=*/true);
+    return BTP_BLE_STARTING;
+  }
+  if (tcp_on) {
+    // creds_changed path, or BTP_TCP_PENDING flipped back on while
+    // waiting -- either way, a fresh rejoin using current prefs.
+    bringUpTcp_(/*after_ble_teardown=*/false);
+    return BTP_TCP_STARTING;
+  }
+  return BTP_OFF;
+}
+
+// beebo: the only place ble_interface.enable() (BLE bring-up) happens.
+void Beebo::bringUpBle_(bool after_wifi_teardown) {
+  if (after_wifi_teardown) {
+    // beebo: NOT esp_coex_preference_set() -- BLE and TCP are strictly,
+    // always mutually exclusive here, so there is never a moment where
+    // both radios are actually active and something needs arbitrating
+    // airtime between them. Confirmed via hardware repro (2026-09-01,
+    // chasing the same BUGS.md 2026-08-31 bug the teardown-then-bring-up
+    // ordering was written for): bringing BLE up right after
+    // WiFi.mode(WIFI_OFF) can fail with "BLE_INIT: Malloc failed" /
+    // BT_HCI status=0x7 (memory capacity exceeded) despite
+    // ESP.getFreeHeap() reporting 60+KB free -- ESP.getFreeHeap() sums
+    // every capability including PSRAM, but the BT controller's own
+    // allocation (esp_bt_controller_init(), controller/bt.c) requires
+    // MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA memory specifically, which
+    // esp_wifi_deinit() (WiFi.mode(WIFI_OFF) -> Arduino's espWiFiStop() ->
+    // wifiLowLevelDeinit(), WiFiGeneric.cpp) frees back to the heap but
+    // not necessarily instantly or as one contiguous block. Logging the
+    // actual capability-specific numbers here (not just total free heap)
+    // so a still-open failure shows real evidence.
+    delay(200);
+    DEBUG_LOG(
+      "wifi torn down, heap=%u internal_free=%u internal_largest=%u "
+      "dma_free=%u dma_largest=%u internal_total=%u",
+      (unsigned)ESP.getFreeHeap(),
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+      (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA),
+      (unsigned)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+  }
+  if (!_ble_added) {
+    ble_interface.begin(BLE_NAME_PREFIX, _role_state->prefs.node_name, getBLEPin());
+    serial_interface.addInterface(&ble_interface, nullptr, nullptr, true, TLOG_XPORT_BLE);
+    _ble_added = true;
+  } else {
+    ble_interface.initRadio();   // rebuild the stack torn down by a prior deinitRadio()
+  }
+  ble_interface.enable();
+}
+
+// beebo: the only place WiFi.begin() (TCP bring-up) happens.
+void Beebo::bringUpTcp_(bool after_ble_teardown) {
+  if (after_ble_teardown) {
+    // beebo: BLEDevice::deinit() returns before the BT controller has
+    // fully released the shared RF/PHY path -- widely reported in the
+    // ESP32-Arduino community as WiFi failing (or, per our own hardware
+    // repro, silently going TCP-deaf a few seconds later while every
+    // driver-level status stays healthy) when it comes up immediately
+    // after a live BLE deinit, with a short settle delay as the reported
+    // mitigation. Blocking is deliberate and scoped to only this one rare,
+    // user-triggered transition (never a plain tcp-only cycle, which never
+    // touches BLE) -- not a per-tick cost.
+    delay(200);
+    esp_bt_controller_status_t bt_status = esp_bt_controller_get_status();
+    transport_log.log(TLOG_BT_CONTROLLER_STATUS, (int32_t)bt_status);
+    DEBUG_LOG("wifi bring-up after ble teardown, bt_status=%d, heap=%u", (int)bt_status, (unsigned)ESP.getFreeHeap());
+  }
+  board.setInhibitSleep(true);   // prevent sleep when WiFi is active
+  WiFi.setAutoReconnect(false);
+  if (!_wifi_added) {
+    // WiFi.onEvent() has no matching "off" and keeps appending a handler
+    // to an internal list on every call -- register it only the first
+    // time WiFi is ever brought up, not on every live re-enable.
+    WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){ _onWifiStaEvent(event, info); });
+  }
+  WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
+  // BLE and TCP are mutually exclusive, so no BT + WiFi coexistence -- power
+  // save can always be off so the station stays awake (eliminates the
+  // multi-second TCP latency/loss).
+  WiFi.setSleep(false);
+  if (!_wifi_added) {
+    wifi_interface.begin(TCP_PORT);
+    serial_interface.addInterface(&wifi_interface, nullptr, nullptr, true, TLOG_XPORT_TCP);
+    _wifi_added = true;
+  } else {
+    wifi_interface.enable();
+  }
+}
+
+// The one orthogonal region -- USB has no radio to arbitrate and is
+// non-exclusive (coexists with whichever of BLE/TCP is up), driven fully
+// independently of _btp_state. Still needs its own PENDING deferral like
+// BLE/TCP: a live app session can be on USB itself when usb_on flips off,
+// and disable() would drop its in-flight reply/traffic -- see the
+// XPORT_PENDING comment in Beebo.h and plans/TRANSPORT_STATE_MACHINE.md.
+void Beebo::driveUsb(bool usb_on) {
+  // beebo: _serial is null until startInterface() runs (beginTransports()'s
+  // first driveUsb() call happens before that) -- no app session is
+  // possible that early regardless, matching driveBtp()'s own guard.
+  bool session_live_on_usb = _serial && _serial->isConnected()
+      && serial_interface.activeTransportType() == TLOG_XPORT_USB;
+
+  TransportState next = _usb_state;
+
+  switch (_usb_state) {
+    case XPORT_OFF:
+      if (usb_on) {
+        if (!_usb_added) {
+          usb_interface.begin(Serial);
+          // beebo: see the other addInterface(&usb_interface, ...) call
+          // site's own comment for why this ANDs in
+          // usb_interface.isConnected().
+          serial_interface.addInterface(
+            &usb_interface,
+            []() -> bool { return (bool)Serial && beebo.usb_interface.isConnected(); },
+            nullptr, false, TLOG_XPORT_USB);
+          _usb_added = true;
+        }
+        usb_interface.enable();
+        next = XPORT_UP;
+      }
+      break;
+
+    case XPORT_UP:
+      if (!usb_on) {
+        next = session_live_on_usb ? XPORT_PENDING : XPORT_OFF;
+        if (next == XPORT_OFF) {
+          usb_interface.disable();   // no radio to power down, unlike BLE/WiFi
+        }
+      }
+      break;
+
+    case XPORT_PENDING:
+      if (usb_on) {
+        // Config flipped back on while still waiting on the old session to
+        // end -- USB was never actually torn down, so just resume wanting
+        // it up (usb_interface itself is still enabled).
+        next = XPORT_UP;
+      } else if (!session_live_on_usb) {
+        usb_interface.disable();
+        next = XPORT_OFF;
+      }
+      break;
   }
 
-  if (ble_on && !_ble_up) {
-    if (wifi_torn_down) {
-      // beebo: NOT esp_coex_preference_set() -- see the ble_torn_down
-      // block's own comment above for why that API doesn't apply here.
-      // Confirmed via hardware repro (2026-09-01, chasing the same
-      // BUGS.md 2026-08-31 bug this teardown-then-bring-up reorder was
-      // written for): reordering alone stopped the coex_core_enable()
-      // abort, but bringing BLE up right after WiFi.mode(WIFI_OFF) then
-      // failed with "BLE_INIT: Malloc failed" / BT_HCI status=0x7
-      // (memory capacity exceeded) despite ESP.getFreeHeap() reporting
-      // 60+KB free -- ESP.getFreeHeap() sums every capability including
-      // PSRAM, but the BT controller's own allocation
-      // (esp_bt_controller_init(), controller/bt.c) requires
-      // MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA memory specifically, which
-      // esp_wifi_deinit() (WiFi.mode(WIFI_OFF) -> Arduino's
-      // espWiFiStop() -> wifiLowLevelDeinit(), WiFiGeneric.cpp) frees
-      // back to the heap but not necessarily instantly or as one
-      // contiguous block. Logging the actual capability-specific numbers
-      // here (not just total free heap) so a still-open failure shows
-      // real evidence -- internal-RAM exhaustion/fragmentation vs.
-      // something else -- instead of another guessed mitigation.
-      delay(200);
-      DEBUG_LOG(
-        "wifi torn down, heap=%u internal_free=%u internal_largest=%u "
-        "dma_free=%u dma_largest=%u internal_total=%u",
-        (unsigned)ESP.getFreeHeap(),
-        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-        (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
-        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA),
-        (unsigned)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
-    }
-    if (!_ble_added) {
-      ble_interface.begin(BLE_NAME_PREFIX, _role_state->prefs.node_name, getBLEPin());
-      serial_interface.addInterface(&ble_interface, nullptr, nullptr, true, TLOG_XPORT_BLE);
-      _ble_added = true;
-    } else {
-      ble_interface.initRadio();   // rebuild the stack torn down by a prior deinitRadio()
-    }
-    ble_interface.enable();
-    _ble_up = true;
-  }
-
-  if (tcp_on && !_wifi_up) {
-    if (ble_torn_down) {
-      // beebo: BLEDevice::deinit() returns before the BT controller has
-      // fully released the shared RF/PHY path -- widely reported in the
-      // ESP32-Arduino community as WiFi failing (or, per our own hardware
-      // repro, silently going TCP-deaf a few seconds later while every
-      // driver-level status stays healthy) when it comes up immediately
-      // after a live BLE deinit, with a short settle delay as the
-      // reported mitigation. `esp_coex_preference_set(ESP_COEX_PREFER_
-      // WIFI)` below did not fix this (confirmed via hardware repro,
-      // BUGS.md 2026-08-31) -- this delay is the next, better-evidenced
-      // attempt. Blocking is deliberate and scoped to only this one rare,
-      // user-triggered transition (never a plain tcp-only cycle, which
-      // never touches BLE) -- not a per-tick cost.
-      delay(200);
-      esp_bt_controller_status_t bt_status = esp_bt_controller_get_status();
-      transport_log.log(TLOG_BT_CONTROLLER_STATUS, (int32_t)bt_status);
-      DEBUG_LOG("wifi bring-up after ble teardown, bt_status=%d, heap=%u", (int)bt_status, (unsigned)ESP.getFreeHeap());
-    }
-    board.setInhibitSleep(true);   // prevent sleep when WiFi is active
-    WiFi.setAutoReconnect(true);
-    if (!_wifi_started) {
-      // WiFi.onEvent() has no matching "off" and keeps appending a handler
-      // to an internal list on every call -- register it only the first
-      // time WiFi is ever brought up, not on every live re-enable.
-      WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info){ _onWifiStaEvent(event, info); });
-    }
-    WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
-    // BLE and TCP are mutually exclusive, so no BT + WiFi coexistence -- power
-    // save can always be off so the station stays awake (eliminates the
-    // multi-second TCP latency/loss).
-    WiFi.setSleep(false);
-    if (!_wifi_started) {
-      wifi_interface.begin(TCP_PORT);
-      serial_interface.addInterface(&wifi_interface, nullptr, nullptr, true, TLOG_XPORT_TCP);
-      _wifi_started = true;
-    } else {
-      wifi_interface.enable();
-    }
-    _wifi_up = true;
-  }
-
-  if (usb_on && !_usb_up) {
-    if (!_usb_added) {
-      usb_interface.begin(Serial);
-      // beebo: see the other addInterface(&usb_interface, ...) call site's
-      // own comment for why this ANDs in usb_interface.isConnected().
-      serial_interface.addInterface(
-        &usb_interface,
-        []() -> bool { return (bool)Serial && beebo.usb_interface.isConnected(); },
-        nullptr, false, TLOG_XPORT_USB);
-      _usb_added = true;
-    }
-    usb_interface.enable();
-    _usb_up = true;
-  } else if (!usb_on && _usb_up) {
-    usb_interface.disable();   // no radio to power down, unlike BLE/WiFi
-    _usb_up = false;
-  }
+  _usb_state = next;
 }
 
 mesh::Packet* Beebo::createSelfAdvertPacket() {
@@ -6759,11 +6770,15 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       uint32_t raw = tlvGetTransportConfig(this, this->_board.role);
       if (on) raw |= 0xFF; else raw &= ~(uint32_t)0xFF;
       tlvSetTransportConfig(this, this->_board.role, raw);
+      // beebo: no separate "apply live" signal needed if !want_reboot --
+      // driveBtp()/driveUsb() read prefs live every tick, already
+      // persisted above. want_reboot just schedules the reboot; a
+      // just-persisted config change reaching the state machine in the
+      // meantime is harmless, since the reboot moments later makes it moot
+      // either way.
       if (want_reboot) {
         _ota_restart_time = futureMillis(750);
         _ota_restart_ts = 0;
-      } else {
-        _transport_config_pending = true;   // signal main.cpp to apply live
       }
       sprintf(reply, "OK - ble is now %s%s", _role_state->prefs.ble_enabled ? "ON" : "OFF", want_reboot ? " (rebooting)" : "");
     } else if (memcmp(key, "tcp ", 4) == 0) {
@@ -6775,8 +6790,6 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       if (want_reboot) {
         _ota_restart_time = futureMillis(750);
         _ota_restart_ts = 0;
-      } else {
-        _transport_config_pending = true;
       }
       sprintf(reply, "OK - tcp is now %s%s", _role_state->prefs.tcp_enabled ? "ON" : "OFF", want_reboot ? " (rebooting)" : "");
     } else if (memcmp(key, "usb ", 4) == 0) {

@@ -151,17 +151,28 @@
 #define TLOG_XPORT_VAR_USB_IFACE_CONNECTED   6
 #define TLOG_XPORT_VAR_MULTI_ENABLED         7
 #define TLOG_XPORT_VAR_MULTI_CONNECTED       8
-#define TLOG_XPORT_VAR_WIFI_STARTED          9
-#define TLOG_XPORT_VAR_WIFI_UP               10
-#define TLOG_XPORT_VAR_WIFI_NEEDS_RECONNECT  11
-#define TLOG_XPORT_VAR_TRANSPORT_SWITCH_PENDING 12   // beebo: whole ble/tcp/usb switch deferred until no live app session (was 3 separate per-transport teardown_pending vars)
+// 9 (was WIFI_STARTED), 11 (was WIFI_NEEDS_RECONNECT), 14 (was BLE_UP), 17
+// (was USB_UP) retired 2026-09-03 -- BLE and TCP share one physical 2.4GHz
+// radio and were previously two independent per-transport flag sets kept
+// in sync by caller-ordering convention, which is exactly the class of bug
+// that produced the TCP-unreachable-after-a-live-BLE-switch failure
+// (BUGS.md 2026-09-02). Replaced by ONE state variable per
+// plans/TRANSPORT_STATE_MACHINE.md: TLOG_XPORT_VAR_BTP_STATE below carries
+// Beebo::BtpState directly, so there is no enum value meaning "BLE and TCP
+// both up" -- not representable, not merely avoided.
+// beebo: BTP_*_PENDING (Beebo::BtpState) is a real state, not a side flag
+// -- entered instead of tearing a radio down immediately whenever a live
+// app session still sits on it, exited only once that session ends (see
+// Beebo.h's own comment). This is what fully replaced both
+// TLOG_XPORT_VAR_TRANSPORT_SWITCH_PENDING and
+// TLOG_XPORT_VAR_WIFI_CREDS_RECONNECT_PENDING (both retired 2026-09-03,
+// were ids 12/25) -- neither a separate flag nor a separate var to track.
+#define TLOG_XPORT_VAR_BTP_STATE             9   // Beebo::BtpState: 0=OFF, 1=BLE_STARTING, 2=BLE_UP, 3=BLE_PENDING, 4=TCP_STARTING, 5=TCP_UP, 6=TCP_BACKOFF, 7=TCP_PENDING
 #define TLOG_XPORT_VAR_BLE_ADDED             13
-#define TLOG_XPORT_VAR_BLE_UP                14
-#define TLOG_XPORT_VAR_USB_ADDED             16
-#define TLOG_XPORT_VAR_USB_UP                17
+// 16 (was USB_ADDED) retired 2026-09-03, folded into USB_STATE below.
+#define TLOG_XPORT_VAR_USB_STATE             16   // Beebo::TransportState: 0=OFF, 1=UP, 2=PENDING
 #define TLOG_XPORT_VAR_WL_STATUS             20   // wl_status_t (WiFi.status())
 #define TLOG_XPORT_VAR_ACTIVE                23   // serial_interface.activeTransportType()
-#define TLOG_XPORT_VAR_WIFI_CREDS_RECONNECT_PENDING 25
 #define TLOG_XPORT_VAR_COUNT                 26   // array size for Beebo::_last_xport_var[]
 
 // Stable transport type ids, logged as the `detail` of MULTI_* events so the
