@@ -1,6 +1,40 @@
 #include "DualModeSerialInterface.h"
 #include <string.h>
 
+// beebo: opt-in (-D BEEBO_USB_RXTX_TRACE), temporary root-cause diagnostic
+// for the boot/reconnect text-vs-binary parser desync -- one DEBUG_LOG line
+// per raw byte read (with the state it was read into) and per outgoing
+// writeFrame() call. Only guards writeFrame(), never writeFrameBestEffort()
+// -- DebugLog's own pushes (including these trace lines) go out through
+// writeFrameBestEffort() exclusively, so tracing that call too would
+// recurse into itself. Off by default: this is a temporary hunting tool,
+// not a shipped feature -- only heltec_v4_3_multi_role_debug's build_flags
+// define the macro (see fw/variants/heltec_v4/platformio.ini).
+#ifdef BEEBO_USB_RXTX_TRACE
+#include "DebugLog.h"
+// beebo: fixed "USBRX"/"USBTX" basename (not __FILE__ via the DEBUG_LOG
+// macro) -- the tag itself says which direction the line is: "USBRX" is a
+// byte checkRecvFrame() read off the wire, "USBTX" is a writeFrame() call
+// sending one out. One event per line, not one per tick -- checkRecvFrame()'s
+// inner while(true) loop drains every byte already buffered in a single
+// call, so several lines with the same millis() can come from one loop()
+// tick. st= is the MODE_* name (see stateName() below), not a raw number.
+// beebo: matches the private MODE_* enum's declaration order in
+// DualModeSerialInterface.h (MODE_IDLE, MODE_TEXT, MODE_FRAMED_LEN1,
+// MODE_FRAMED_LEN2, MODE_FRAMED_BODY) -- a free function outside the class
+// can't name that enum directly (private), so this indexes by position
+// instead of by symbol.
+static const char* stateName(uint8_t s) {
+  static const char* const names[] = {"IDLE", "TEXT", "LEN1", "LEN2", "BODY"};
+  return s < (sizeof(names) / sizeof(names[0])) ? names[s] : "?";
+}
+#define USB_RX_TRACE(c, st) debug_log.logf("USBRX", __LINE__, "c=0x%02x st=%s", (c), stateName(st))
+#define USB_TX_TRACE(text, len) debug_log.logf("USBTX", __LINE__, "text=%d len=%u", (int)(text), (unsigned)(len))
+#else
+#define USB_RX_TRACE(c, st)
+#define USB_TX_TRACE(text, len)
+#endif
+
 void DualModeSerialInterface::enable() {
   _isEnabled = true;
   _state = MODE_IDLE;
@@ -33,7 +67,22 @@ void DualModeSerialInterface::disable() {
 // phantom binary-frame wait, anything else drops into MODE_TEXT and gets
 // echoed back out the port by feedTextByte().
 void DualModeSerialInterface::discardStaleRx() {
+#ifdef BEEBO_USB_RXTX_TRACE
+  uint8_t drained[64];
+  size_t n = 0;
+  while (_serial->available() && n < sizeof(drained)) drained[n++] = (uint8_t)_serial->read();
+  bool more = _serial->available() > 0;
+  while (_serial->available()) _serial->read();   // drain the rest, untraced, past the buffer cap
+  if (n > 0 || more) {
+    char hex[3 * sizeof(drained) + 1];
+    size_t hp = 0;
+    for (size_t i = 0; i < n; i++) hp += snprintf(hex + hp, sizeof(hex) - hp, "%02x ", drained[i]);
+    debug_log.logf("USBRX", __LINE__, "discardStaleRx drained %u%s bytes: %s",
+                    (unsigned)n, more ? "+" : "", hex);
+  }
+#else
   while (_serial->available()) _serial->read();
+#endif
 }
 
 // See this method's own declaration comment in the header for why this
@@ -41,7 +90,66 @@ void DualModeSerialInterface::discardStaleRx() {
 // _isEnabled/_last_byte_at (this transport stays enabled and its idle-
 // liveness timer untouched; only the byte-parser's own mid-command state
 // is stale here).
+//
+// beebo: this is release()'s ONLY cleanup call now -- it used to be
+// paired with a separate, unconditional discardStaleRx() (MultiSerialInterface
+// ::release()), which blindly drained *everything* currently buffered
+// regardless of whether it belonged to the session that just ended.
+// Confirmed on real hardware (BEEBO_USB_RXTX_TRACE) that this ate a
+// legitimate, already-arriving <APP_START> frame from a brand-new session
+// racing the old one's release -- the exact failure mode
+// MultiSerialInterface.h's own SESSION_DISABLED->SESSION_IDLE sweep already
+// flagged as a risk for its own (different) discardStaleRx() call. Fixed by
+// only ever discarding bytes that are provably part of the just-abandoned
+// parse, never bytes past that boundary:
+//  - MODE_IDLE: nothing was in progress -- the parser is already sane,
+//    nothing to discard. This is also by far the common case (a session
+//    almost always ends between frames, not mid-frame).
+//  - MODE_TEXT: consume up to and including the next '\n' *if it's already
+//    buffered*; a text line's own length isn't known in advance, but its
+//    terminator is unambiguous once it arrives. If no '\n' is buffered yet,
+//    leave everything alone -- it can't be told apart from a brand-new
+//    command that hasn't fully arrived.
+//  - MODE_FRAMED_LEN1/LEN2: the frame's declared length isn't known yet, so
+//    there's no way to bound how many more bytes belong to the abandoned
+//    frame without guessing. Leave the buffer alone; whatever's there
+//    starts fresh in MODE_IDLE below (the 1-2 header bytes already
+//    consumed are gone regardless, same as before).
+//  - MODE_FRAMED_BODY: the exact remaining length is known
+//    (_frame_len - rx_len) -- discard precisely that many bytes, if
+//    they're already buffered, and stop there.
 void DualModeSerialInterface::resetParserState() {
+#ifdef BEEBO_USB_RXTX_TRACE
+  uint8_t st_before = _state;
+  size_t rx_len_before = rx_len;
+#endif
+  size_t discarded = 0;
+  switch (_state) {
+    case MODE_TEXT:
+      while (_serial->available()) {
+        int c = _serial->read();
+        discarded++;
+        if (c == '\n') break;
+      }
+      break;
+    case MODE_FRAMED_BODY: {
+      size_t remaining = (_frame_len > rx_len) ? (_frame_len - rx_len) : 0;
+      while (remaining > 0 && _serial->available()) {
+        _serial->read();
+        discarded++;
+        remaining--;
+      }
+      break;
+    }
+    default:
+      break;   // MODE_IDLE, MODE_FRAMED_LEN1, MODE_FRAMED_LEN2: nothing safely discardable
+  }
+#ifdef BEEBO_USB_RXTX_TRACE
+  if (st_before != MODE_IDLE || discarded > 0) {
+    debug_log.logf("USBRX", __LINE__, "resetParserState st=%s rx_len=%u frame_len=%u discarded=%u -> IDLE",
+                    stateName(st_before), (unsigned)rx_len_before, (unsigned)_frame_len, (unsigned)discarded);
+  }
+#endif
   _state = MODE_IDLE;
   rx_len = 0;
 }
@@ -75,6 +183,34 @@ bool DualModeSerialInterface::pollRawControl(uint8_t& sub_id, uint8_t& data) {
   data = (uint8_t)_serial->read();
   _last_byte_at = millis();
   return true;
+}
+
+bool DualModeSerialInterface::hasPendingRawMarker() const {
+  // beebo: deliberately NOT also checking available() < 3 here -- that was
+  // this method's first version, and it re-reads available() independently
+  // of pollRawControl()'s own read a few instructions earlier in the same
+  // tick. If more bytes land in the gap between those two reads,
+  // pollRawControl() already declined (saw < 3 that tick, won't retry until
+  // next tick) while this would then see >= 3 and wrongly wave
+  // checkRecvFrame() through anyway -- confirmed on real hardware as a
+  // still-live instance of the exact corruption this exists to prevent.
+  // The leading byte being the marker is reason enough on its own: whether
+  // pollRawControl() actually consumed the full frame this same tick or is
+  // still waiting on it, checkRecvFrame() must never touch it either way --
+  // if pollRawControl() succeeded, this peek() no longer sees RAW_MARKER
+  // (the next real byte, if any, is whatever follows the consumed frame).
+  bool result = _state == MODE_IDLE && _serial->peek() == RAW_MARKER;
+#ifdef BEEBO_USB_RXTX_TRACE
+  // beebo: only when something's actually buffered -- this is called every
+  // loop() tick unconditionally, so logging unconditionally would flood the
+  // stream with peek=-1 avail=0 noise almost every call.
+  int p = _serial->peek();
+  if (p >= 0) {
+    debug_log.logf("USBRX", __LINE__, "hasPendingRawMarker st=%s peek=%d avail=%d -> %d",
+                    stateName(_state), p, _serial->available(), (int)result);
+  }
+#endif
+  return result;
 }
 
 bool DualModeSerialInterface::isWriteBusy() const {
@@ -179,6 +315,7 @@ static size_t writeAll(Stream* serial, const uint8_t* buf, size_t len) {
 }
 
 size_t DualModeSerialInterface::writeFrame(const uint8_t src[], size_t len) {
+  USB_TX_TRACE(_lastWasText, len);
   if (_lastWasText) {
     if (len == 0) return 0;   // legacy loop stayed silent on empty replies
     _serial->print("  -> ");
@@ -283,6 +420,9 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
         }
         int got = _serial->readBytes(&rx_buf[rx_len], want);
         if (got <= 0) break;
+#ifdef BEEBO_USB_RXTX_TRACE
+        debug_log.logf("USBRX", __LINE__, "body got=%d rx_len=%u/%u", got, (unsigned)(rx_len + got), (unsigned)_frame_len);
+#endif
         rx_len += got;
         _last_byte_at = millis();
       }
@@ -296,6 +436,7 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
     if (!_serial->available()) return 0;
     int c = _serial->read();
     if (c < 0) return 0;
+    USB_RX_TRACE(c, _state);
     _last_byte_at = millis();
 
     switch (_state) {

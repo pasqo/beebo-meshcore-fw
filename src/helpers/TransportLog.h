@@ -105,6 +105,22 @@
 // detail: bits 0-15 = free heap in KB (uint16), bits 16-23 = RSSI dBm
 // (int8, two's complement; always 127 -- see above).
 #define TLOG_BLE_HEALTH            29
+// beebo: MultiSerialInterface's session FSM forcibly dropped a non-owner
+// link that reported itself connected while another transport already held
+// the session lock (see plans/TRANSPORT_STATE_MACHINE.md's "Session
+// arbitration state machine") -- a stray TCP client accepted by WiFi, a
+// stray BLE central completing a GATT connect, or a genuine framed/text app
+// command arriving on non-owner USB. detail = TLOG_XPORT_* of the evicted
+// transport.
+#define TLOG_APP_SESSION_EVICTED   30
+// beebo: logged as the very first thing setup() does (main.cpp), before
+// Serial.begin() -- transport_log.log() only touches RAM/millis(), no
+// Serial dependency, so this captures reset_reason from the earliest
+// possible point rather than waiting on any transport to come up.
+// detail = esp_reset_reason_t. See TransportLog::replayTo()'s own
+// comment for how this (and everything else logged before a client
+// attaches) ever reaches the host despite predating any live connection.
+#define TLOG_BOOT_START            31
 // 26 (TLOG_WIFI_LISTEN_ENABLED) retired 2026-09-02 -- fully subsumed by
 // TLOG_XPORT_VAR_WIFI_LISTENING: checkSerialInterface() (and the
 // SerialWifiInterface::checkRecvFrame() dead-listener guard inside it)
@@ -173,6 +189,13 @@
 #define TLOG_XPORT_VAR_USB_STATE             16   // Beebo::TransportState: 0=OFF, 1=UP, 2=PENDING
 #define TLOG_XPORT_VAR_WL_STATUS             20   // wl_status_t (WiFi.status())
 #define TLOG_XPORT_VAR_ACTIVE                23   // serial_interface.activeTransportType()
+// beebo: MultiSerialInterface::SessionState -- unlike every other var above,
+// logged inline from inside checkRecvFrame() itself (the private field
+// isn't reachable for Beebo.cpp's usual external _checkTransportStateChanges()
+// poll), not tracked in Beebo::_last_xport_var[] and so not bound by
+// TLOG_XPORT_VAR_COUNT below. Reuses the same TLOG_XPORT_VAR_CHANGED
+// event/detail encoding for a consistent decode path (xportlog.py).
+#define TLOG_XPORT_VAR_SESSION_STATE         24   // MultiSerialInterface::SessionState: 0=DISABLED, 1=IDLE, 2=ACTIVE
 #define TLOG_XPORT_VAR_COUNT                 26   // array size for Beebo::_last_xport_var[]
 
 // Stable transport type ids, logged as the `detail` of MULTI_* events so the
@@ -228,6 +251,28 @@ public:
   }
 
   uint16_t count() const { return _count; }
+
+  // beebo: re-emits every event currently in the ring through
+  // DebugLog::logEvent(), oldest first -- called once, from
+  // Beebo::checkSerialInterface()'s BEEBO_RAW_SUB_DEBUG_LOG_ENABLE
+  // handling, on the transition into enabled. This is how a boot-time
+  // event (TLOG_BOOT_START, or anything else logged before a client ever
+  // attached -- see writeFrameBestEffort()'s own no-ring-buffer comment
+  // in DualModeSerialInterface.cpp for why a *live* push that early is
+  // simply lost) still reaches a `--debug`/`--debug-boot` host: nothing
+  // needs to reach the wire before the host is listening, since the ring
+  // already held it and this walks it again once the host actually can
+  // receive it. Same (type, detail) wire shape as a live event -- the
+  // host-side decode table (debuglog.py's TLOG_NAMES) needs no separate
+  // "replay" case, it just sees a burst of ordinary-looking events with
+  // old millis() timestamps.
+  void replayTo(DebugLog& dl) const {
+    uint16_t logical_start = (_count < TLOG_MAX_EVENTS) ? 0 : _head;
+    for (uint16_t j = 0; j < _count; j++) {
+      uint16_t idx = (logical_start + j) % TLOG_MAX_EVENTS;
+      dl.logEvent(_buf[idx].type, _buf[idx].detail);
+    }
+  }
 
   // Serialize a page of events (9 bytes each) starting at logical index
   // `offset` (0 = oldest). Writes the total event count to *total so the

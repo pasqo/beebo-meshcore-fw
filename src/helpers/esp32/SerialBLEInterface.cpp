@@ -258,6 +258,25 @@ void SerialBLEInterface::disable() {
   adv_restart_time = 0;
 }
 
+// beebo: forcibly evict a central that connected while this transport isn't
+// the session owner (MultiSerialInterface's non-owner-eviction pass, see
+// plans/TRANSPORT_STATE_MACHINE.md's "Session arbitration state machine").
+// Unlike disable(), this leaves advertising/the GATT service running --
+// this transport keeps listening for the *next* legitimate session, only
+// the stray peer that shouldn't have been allowed to attach is dropped.
+// No forcible-disconnect capability existed here before: onAuthenticationComplete()
+// sets deviceConnected straight from the BLE stack, with no session-ownership
+// concept of its own to guard it.
+void SerialBLEInterface::resetParserState() {
+  if (pServer == NULL || !_isEnabled) return;
+  if (deviceConnected) {
+    pServer->disconnect(last_conn_id);
+    adv_restart_time = millis() + ADVERT_RESTART_DELAY;
+  }
+  oldDeviceConnected = deviceConnected = false;
+  clearBuffers();
+}
+
 size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
   if (len > MAX_FRAME_SIZE) {
     BLE_DEBUG_PRINTLN("writeFrame(), frame too big, len=%d", len);

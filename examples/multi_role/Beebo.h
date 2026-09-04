@@ -748,6 +748,12 @@ private:
   // 10s retry-to-STARTING transition in driveBtp(). Only meaningful while
   // _btp_state == BTP_TCP_BACKOFF.
   unsigned long _tcp_backoff_started_ms = 0;
+  // beebo: one-shot per boot -- gates TransportLog::replayTo() so a
+  // reconnecting --debug link (which resends DEBUG_LOG_ENABLE(1) after
+  // every reconnect) doesn't re-dump the whole boot-time backlog on each
+  // one, only the first time anything enables the debug link this boot.
+  // See checkSerialInterface()'s BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling.
+  bool _debug_backlog_replayed = false;
   // beebo: registration with serial_interface is a one-time concern,
   // separate from _btp_state's live up/down tracking -- addInterface() must
   // only ever be called once per interface (ble_interface.begin() vs.

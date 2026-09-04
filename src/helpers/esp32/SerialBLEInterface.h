@@ -110,6 +110,7 @@ public:
   void enable() override;
   void disable() override;
   bool isEnabled() const override { return _isEnabled; }
+  void resetParserState() override;
 
   bool isConnected() const override;
 

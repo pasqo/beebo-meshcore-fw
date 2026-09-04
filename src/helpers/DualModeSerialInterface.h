@@ -115,6 +115,23 @@ public:
   // sub_id/data once a full raw frame was consumed.
   bool pollRawControl(uint8_t& sub_id, uint8_t& data);
 
+  // beebo: true whenever the next unread byte is RAW_MARKER and no
+  // framed/text parse is already in flight (_state == MODE_IDLE) --
+  // regardless of how many bytes are buffered behind it. Deliberately does
+  // NOT also check whether the full 3-byte frame has arrived yet (an
+  // earlier version did; see this method's own .cpp comment for why that
+  // was still racy). Beebo::checkSerialInterface() must skip this tick's
+  // _serial->checkRecvFrame() call entirely while this is true -- that
+  // call has no idea a raw control frame might be in flight and will
+  // happily steal the marker byte pollRawControl() (called first, same
+  // tick) either just consumed or is still waiting on, permanently
+  // misrouting it (and everything after it, including the real frame that
+  // follows) into the text/binary parser as ordinary traffic if it does.
+  // Confirmed on real hardware via BEEBO_USB_RXTX_TRACE: this exact race is
+  // what causes the boot/reconnect "RAW <" / "ERR: unknown command" parser
+  // desync.
+  bool hasPendingRawMarker() const;
+
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t writeFrameBestEffort(const uint8_t src[], size_t len) override;

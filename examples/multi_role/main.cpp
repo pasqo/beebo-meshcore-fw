@@ -1,5 +1,7 @@
 #include "Beebo.h"
 
+#include <helpers/DebugLog.h>
+#include <helpers/TransportLog.h>
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 #include <SPIFFS.h>
@@ -48,6 +50,18 @@ static const char* reset_reason_str(esp_reset_reason_t r) {
 }
 
 void setup() {
+  // beebo: the true earliest possible boot marker -- transport_log.log()
+  // only touches RAM/millis() (already ticking well before setup() runs),
+  // no Serial dependency at all, so this runs ahead of even
+  // Serial.setRxBufferSize()/Serial.begin() below. Unlike a live
+  // DEBUG_LOG()/Serial.print() this early (silently dropped -- nothing is
+  // listening on the wire yet, see writeFrameBestEffort()'s own comment),
+  // this just lands in transport_log's RAM ring and survives to be
+  // replayed once a client actually attaches and enables the debug link
+  // (TransportLog::replayTo(), called from checkSerialInterface()'s
+  // BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling).
+  //
+  transport_log.log(TLOG_BOOT_START, (int32_t)esp_reset_reason());
   // beebo: raising the baud rate alone (115200 -> 921600, matching esptool's
   // own flashing speed) turned out not to be the real USB OTA bottleneck --
   // measured no change. This board's ARDUINO_USB_MODE=1 build uses the

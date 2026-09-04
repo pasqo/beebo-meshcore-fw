@@ -5094,7 +5094,22 @@ void Beebo::checkSerialInterface() {
   uint8_t raw_sub, raw_data;
   if (usb_interface.pollRawControl(raw_sub, raw_data)) {
     if (raw_sub == BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) {
-      debug_log.setEnabled(raw_data != 0);
+      bool enabling = raw_data != 0;
+      debug_log.setEnabled(enabling);
+      // beebo: replay transport_log's full backlog exactly once per boot,
+      // the first time anything actually enables the debug link -- not
+      // repeated on every enable request, since a reconnecting --debug
+      // link resends DEBUG_LOG_ENABLE(1) after every reconnect
+      // (debug_link.py's _resend_enable_after_boot()), and re-dumping the
+      // whole boot-time backlog on each of those would repeat old history
+      // instead of showing only what changed. See TransportLog::
+      // replayTo()'s own comment for why this is how a boot-time event
+      // (TLOG_BOOT_START, logged before any client could possibly be
+      // listening) still reaches the host at all.
+      if (enabling && !_debug_backlog_replayed) {
+        _debug_backlog_replayed = true;
+        transport_log.replayTo(debug_log);
+      }
     }
     // BEEBO_RAW_SUB_KEEPALIVE: no action needed here -- pollRawControl()
     // already refreshed usb_interface's _last_byte_at for any raw control
@@ -5102,7 +5117,17 @@ void Beebo::checkSerialInterface() {
     // to do (see DebugLog.h's own comment).
   }
 
-  size_t len = _serial->checkRecvFrame(cmd_frame, _serial->getMaxRecvFrameSize());
+  // beebo: pollRawControl() above defers (peeks, doesn't consume) when it's
+  // seen a lone RAW_MARKER byte and the rest of that 3-byte control frame
+  // hasn't arrived yet. checkRecvFrame() below has no idea a raw control
+  // frame might be in flight -- calling it this tick would steal that same
+  // peeked byte into the ordinary text/binary parser, permanently
+  // misrouting it (and the real frame that follows right after it) as
+  // ordinary traffic. Skip this tick's checkRecvFrame() entirely while
+  // that race window is open; pollRawControl() finishes the job within a
+  // few ticks once the rest of the bytes land.
+  size_t len = usb_interface.hasPendingRawMarker() ? 0 :
+      _serial->checkRecvFrame(cmd_frame, _serial->getMaxRecvFrameSize());
   // beebo: while a monring stream is active (capture paused for it), a
   // well-behaved client sends nothing else until the terminator page — drop
   // any frame that arrives anyway rather than letting it abort the stream
