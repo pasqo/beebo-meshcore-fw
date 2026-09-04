@@ -1452,19 +1452,19 @@ void Beebo::_checkTransportStateChanges() {
     }
   };
 
-  check(TLOG_XPORT_VAR_WIFI_IFACE_ENABLED,    wifi_interface.isEnabled());
-  check(TLOG_XPORT_VAR_WIFI_IFACE_CONNECTED,  wifi_interface.isConnected());
-  check(TLOG_XPORT_VAR_WIFI_LISTENING,        wifi_interface.isListening());
-  check(TLOG_XPORT_VAR_BLE_IFACE_ENABLED,     ble_interface.isEnabled());
-  check(TLOG_XPORT_VAR_BLE_IFACE_CONNECTED,   ble_interface.isConnected());
-  check(TLOG_XPORT_VAR_USB_IFACE_ENABLED,     usb_interface.isEnabled());
-  check(TLOG_XPORT_VAR_USB_IFACE_CONNECTED,   usb_interface.isConnected());
-  check(TLOG_XPORT_VAR_MULTI_ENABLED,         serial_interface.isEnabled());
-  check(TLOG_XPORT_VAR_MULTI_CONNECTED,       serial_interface.isConnected());
-  check(TLOG_XPORT_VAR_BTP_STATE,             (int)_btp_state);
-  check(TLOG_XPORT_VAR_USB_STATE,             (int)_usb_state);
-  check(TLOG_XPORT_VAR_WL_STATUS,             (int)WiFi.status());
-  check(TLOG_XPORT_VAR_ACTIVE,                (int)serial_interface.activeTransportType());
+  check(TLOG_XPORT_LINK_VAR_WIFI_IFACE_ENABLED,    wifi_interface.isEnabled());
+  check(TLOG_XPORT_LINK_VAR_WIFI_IFACE_CONNECTED,  wifi_interface.isConnected());
+  check(TLOG_XPORT_LINK_VAR_WIFI_LISTENING,        wifi_interface.isListening());
+  check(TLOG_XPORT_LINK_VAR_BLE_IFACE_ENABLED,     ble_interface.isEnabled());
+  check(TLOG_XPORT_LINK_VAR_BLE_IFACE_CONNECTED,   ble_interface.isConnected());
+  check(TLOG_XPORT_LINK_VAR_USB_IFACE_ENABLED,     usb_interface.isEnabled());
+  check(TLOG_XPORT_LINK_VAR_USB_IFACE_CONNECTED,   usb_interface.isConnected());
+  check(TLOG_XPORT_LINK_VAR_MULTI_ENABLED,         serial_interface.isEnabled());
+  check(TLOG_XPORT_LINK_VAR_MULTI_CONNECTED,       serial_interface.isConnected());
+  check(TLOG_XPORT_LINK_VAR_BTP_STATE,             (int)_btp_state);
+  check(TLOG_XPORT_LINK_VAR_USB_STATE,             (int)_usb_state);
+  check(TLOG_XPORT_LINK_VAR_WL_STATUS,             (int)WiFi.status());
+  check(TLOG_XPORT_LINK_VAR_ACTIVE,                (int)serial_interface.activeTransportType());
 }
 
 void Beebo::beginTransports() {

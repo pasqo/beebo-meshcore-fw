@@ -458,7 +458,7 @@ public:
       }
     }
 
-    // beebo: mirrors TLOG_XPORT_VAR_BTP_STATE/_USB_STATE (TransportLog.h) --
+    // beebo: mirrors TLOG_XPORT_LINK_VAR_BTP_STATE/_USB_STATE (TransportLog.h) --
     // logged here, at the point of the actual write, rather than via the
     // external poll-based _checkTransportStateChanges() those use (Beebo.cpp
     // has no access to this private field to poll it that way). Reuses the

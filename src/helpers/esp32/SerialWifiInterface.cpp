@@ -13,7 +13,7 @@ void SerialWifiInterface::begin(int port) {
 // ---------- public methods
 void SerialWifiInterface::enable() {
   if (_isEnabled) return;
-  // beebo: no dedicated log call here -- TLOG_XPORT_VAR_WIFI_IFACE_ENABLED
+  // beebo: no dedicated log call here -- TLOG_XPORT_LINK_VAR_WIFI_IFACE_ENABLED
   // (Beebo::_checkTransportStateChanges()) already captures this transition
   // every tick, retired 2026-08-31 as a duplicate (see TransportLog.h).
 
@@ -24,9 +24,9 @@ void SerialWifiInterface::enable() {
 }
 
 void SerialWifiInterface::disable() {
-  // beebo: see enable()'s comment -- TLOG_XPORT_VAR_WIFI_IFACE_ENABLED
+  // beebo: see enable()'s comment -- TLOG_XPORT_LINK_VAR_WIFI_IFACE_ENABLED
   // already covers this transition; the deviceConnected-at-disable detail
-  // this used to carry is reconstructable from TLOG_XPORT_VAR_WIFI_IFACE_CONNECTED
+  // this used to carry is reconstructable from TLOG_XPORT_LINK_VAR_WIFI_IFACE_CONNECTED
   // around the same timestamp if ever needed.
   _isEnabled = false;
   if (deviceConnected) {

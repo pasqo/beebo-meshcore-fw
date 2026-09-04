@@ -27,7 +27,7 @@
 #define TLOG_APP_SESSION_END_DISCONNECT   3
 #define TLOG_APP_SESSION_END_LOST         4
 // 5 (TLOG_WIFI_ENABLE) and 6 (TLOG_WIFI_DISABLE) retired 2026-08-31 -- fully
-// duplicated by the generic TLOG_XPORT_VAR_WIFI_IFACE_ENABLED tracking
+// duplicated by the generic TLOG_XPORT_LINK_VAR_WIFI_IFACE_ENABLED tracking
 // (fires on the exact same enable()/disable() transition, every tick, no
 // dedicated log call needed).
 #define TLOG_WIFI_CLIENT_NEW  7   // detail = (remote_port << 1) | (deviceConnected ? 1 : 0) at accept time
@@ -35,7 +35,7 @@
 #define TLOG_WIFI_SESSION_OFF 9   // detail = SO_ERROR read from the socket just before it was stop()'d (0 = clean peer FIN, no pending error; nonzero = an errno, e.g. ETIMEDOUT from the keepalive probes below timing out, or ECONNRESET from a peer RST)
 // 10 (TLOG_WIFI_POWER_ON) and 11 (TLOG_WIFI_POWER_OFF) retired 2026-08-31 --
 // never had a call site (dead since introduction). WiFi radio power is
-// already visible via TLOG_XPORT_VAR_WL_STATUS transitioning off its 255
+// already visible via TLOG_XPORT_LINK_VAR_WL_STATUS transitioning off its 255
 // (uninitialized) sentinel -- see TLOG_BLE_POWER_ON/OFF below for why BLE
 // needed a real dedicated pair instead.
 #define TLOG_CMD_RECV        12   // detail = (cmd_frame[0]<<8)|cmd_frame[1] for CMD_BEEBO/CMD_GET_STATS (their second byte is a real sub-id), else just cmd_frame[0] (companion frame received)
@@ -122,7 +122,7 @@
 // attaches) ever reaches the host despite predating any live connection.
 #define TLOG_BOOT_START            31
 // 26 (TLOG_WIFI_LISTEN_ENABLED) retired 2026-09-02 -- fully subsumed by
-// TLOG_XPORT_VAR_WIFI_LISTENING: checkSerialInterface() (and the
+// TLOG_XPORT_LINK_VAR_WIFI_LISTENING: checkSerialInterface() (and the
 // SerialWifiInterface::checkRecvFrame() dead-listener guard inside it)
 // always runs before loopTransports()'s _checkTransportStateChanges() in
 // the same loop() tick, so any transition this event would have reported
@@ -144,7 +144,7 @@
 // tick and logs a line the instant any of them differs from its last-known
 // value -- no need to wait for a session boundary or guess which moment to
 // snapshot; whatever changed shows up on its own, whenever it actually
-// happens. TLOG_XPORT_VAR_ACTIVE transitioning 0 <-> nonzero *is* session
+// happens. TLOG_XPORT_LINK_VAR_ACTIVE transitioning 0 <-> nonzero *is* session
 // start/end -- no separate tracking needed for that.
 //
 // The same mechanism also produces the boot baseline: Beebo::_last_xport_var
@@ -158,22 +158,22 @@
 // two-shape design -- a one-shot packed-bitfield snapshot plus this event --
 // after the former proved awkward to position correctly and redundant with
 // this one; see git log for that history).
-#define TLOG_XPORT_VAR_WIFI_IFACE_ENABLED    0
-#define TLOG_XPORT_VAR_WIFI_IFACE_CONNECTED  1
-#define TLOG_XPORT_VAR_WIFI_LISTENING        2
-#define TLOG_XPORT_VAR_BLE_IFACE_ENABLED     3
-#define TLOG_XPORT_VAR_BLE_IFACE_CONNECTED   4
-#define TLOG_XPORT_VAR_USB_IFACE_ENABLED     5
-#define TLOG_XPORT_VAR_USB_IFACE_CONNECTED   6
-#define TLOG_XPORT_VAR_MULTI_ENABLED         7
-#define TLOG_XPORT_VAR_MULTI_CONNECTED       8
+#define TLOG_XPORT_LINK_VAR_WIFI_IFACE_ENABLED    0
+#define TLOG_XPORT_LINK_VAR_WIFI_IFACE_CONNECTED  1
+#define TLOG_XPORT_LINK_VAR_WIFI_LISTENING        2
+#define TLOG_XPORT_LINK_VAR_BLE_IFACE_ENABLED     3
+#define TLOG_XPORT_LINK_VAR_BLE_IFACE_CONNECTED   4
+#define TLOG_XPORT_LINK_VAR_USB_IFACE_ENABLED     5
+#define TLOG_XPORT_LINK_VAR_USB_IFACE_CONNECTED   6
+#define TLOG_XPORT_LINK_VAR_MULTI_ENABLED         7
+#define TLOG_XPORT_LINK_VAR_MULTI_CONNECTED       8
 // 9 (was WIFI_STARTED), 11 (was WIFI_NEEDS_RECONNECT), 14 (was BLE_UP), 17
 // (was USB_UP) retired 2026-09-03 -- BLE and TCP share one physical 2.4GHz
 // radio and were previously two independent per-transport flag sets kept
 // in sync by caller-ordering convention, which is exactly the class of bug
 // that produced the TCP-unreachable-after-a-live-BLE-switch failure
 // (BUGS.md 2026-09-02). Replaced by ONE state variable per
-// plans/TRANSPORT_STATE_MACHINE.md: TLOG_XPORT_VAR_BTP_STATE below carries
+// plans/TRANSPORT_STATE_MACHINE.md: TLOG_XPORT_LINK_VAR_BTP_STATE below carries
 // Beebo::BtpState directly, so there is no enum value meaning "BLE and TCP
 // both up" -- not representable, not merely avoided.
 // beebo: BTP_*_PENDING (Beebo::BtpState) is a real state, not a side flag
@@ -183,12 +183,12 @@
 // TLOG_XPORT_VAR_TRANSPORT_SWITCH_PENDING and
 // TLOG_XPORT_VAR_WIFI_CREDS_RECONNECT_PENDING (both retired 2026-09-03,
 // were ids 12/25) -- neither a separate flag nor a separate var to track.
-#define TLOG_XPORT_VAR_BTP_STATE             9   // Beebo::BtpState: 0=OFF, 1=BLE_STARTING, 2=BLE_UP, 3=BLE_PENDING, 4=TCP_STARTING, 5=TCP_UP, 6=TCP_BACKOFF, 7=TCP_PENDING
-#define TLOG_XPORT_VAR_BLE_ADDED             13
+#define TLOG_XPORT_LINK_VAR_BTP_STATE             9   // Beebo::BtpState: 0=OFF, 1=BLE_STARTING, 2=BLE_UP, 3=BLE_PENDING, 4=TCP_STARTING, 5=TCP_UP, 6=TCP_BACKOFF, 7=TCP_PENDING
+#define TLOG_XPORT_LINK_VAR_BLE_ADDED             13
 // 16 (was USB_ADDED) retired 2026-09-03, folded into USB_STATE below.
-#define TLOG_XPORT_VAR_USB_STATE             16   // Beebo::TransportState: 0=OFF, 1=UP, 2=PENDING
-#define TLOG_XPORT_VAR_WL_STATUS             20   // wl_status_t (WiFi.status())
-#define TLOG_XPORT_VAR_ACTIVE                23   // serial_interface.activeTransportType()
+#define TLOG_XPORT_LINK_VAR_USB_STATE             16   // Beebo::TransportState: 0=OFF, 1=UP, 2=PENDING
+#define TLOG_XPORT_LINK_VAR_WL_STATUS             20   // wl_status_t (WiFi.status())
+#define TLOG_XPORT_LINK_VAR_ACTIVE                23   // serial_interface.activeTransportType()
 // beebo: MultiSerialInterface::SessionState -- unlike every other var above,
 // logged inline from inside checkRecvFrame() itself (the private field
 // isn't reachable for Beebo.cpp's usual external _checkTransportStateChanges()
