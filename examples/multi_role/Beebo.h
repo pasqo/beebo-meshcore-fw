@@ -748,12 +748,6 @@ private:
   // 10s retry-to-STARTING transition in driveBtp(). Only meaningful while
   // _btp_state == BTP_TCP_BACKOFF.
   unsigned long _tcp_backoff_started_ms = 0;
-  // beebo: one-shot per boot -- gates TransportLog::replayTo() so a
-  // reconnecting --debug link (which resends DEBUG_LOG_ENABLE(1) after
-  // every reconnect) doesn't re-dump the whole boot-time backlog on each
-  // one, only the first time anything enables the debug link this boot.
-  // See checkSerialInterface()'s BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling.
-  bool _debug_backlog_replayed = false;
   // beebo: registration with serial_interface is a one-time concern,
   // separate from _btp_state's live up/down tracking -- addInterface() must
   // only ever be called once per interface (ble_interface.begin() vs.
@@ -787,8 +781,8 @@ private:
   volatile int  _sta_disc_reason = -1;   // >=0 when a STA disconnect needs logging
   volatile bool _sta_got_ip = false;     // true when a STA got-IP needs logging
 
-  // beebo: TLOG_WIFI_HEALTH sample cadence -- see that event's own comment
-  // in TransportLog.h for why it exists (nothing else logged catches the
+  // beebo: RLOG_ID_WIFI_HEALTH sample cadence -- see that event's own comment
+  // in DebugRing.h for why it exists (nothing else logged catches the
   // TCP-reachability-degrades-after-a-live-switch bug, BUGS.md 2026-08-31).
   unsigned long _last_wifi_health_sample_ms = 0;
   static const uint32_t WIFI_HEALTH_SAMPLE_MS = 3000;
@@ -832,19 +826,20 @@ private:
   // place to keep correct.
   void _onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info);
 
-  // beebo: last-known value of every TLOG_XPORT_VAR_* tracked variable
-  // (TransportLog.h), indexed by var id. beginTransports() seeds every
-  // entry to -1 ("no previous value" -- see TLOG_XPORT_VAR_CHANGED's own
-  // comment) before the first _checkTransportStateChanges() call, so that
-  // call logs each var's real boot value as if it just "changed from -1" --
-  // one harness for both the boot baseline and every later change.
-  int16_t _last_xport_var[TLOG_XPORT_VAR_COUNT];
+  // beebo: last-known value of every RLOG_ID_XPORT_VAR_* tracked variable
+  // (DebugRing.h), indexed by var id. beginTransports() seeds every
+  // entry to -1 ("no previous value" -- see RLOG_ID_XPORT_INIT/_CHANGE's
+  // own comment) before the first _checkTransportStateChanges() call, so
+  // that call logs each var's real boot value under the INIT id instead of
+  // CHANGE -- one harness for both the boot baseline and every later change.
+  int16_t _last_xport_var[RLOG_XPORT_VAR_COUNT];
 
-  // beebo: re-checks every TLOG_XPORT_VAR_* variable against
-  // _last_xport_var and logs a TLOG_XPORT_VAR_CHANGED line for each one
-  // that differs, updating the stored value as it goes. Called once right
-  // after beginTransports() seeds _last_xport_var to -1 (so it reports the
-  // boot baseline), and once every loopTransports() tick thereafter.
+  // beebo: re-checks every RLOG_ID_XPORT_VAR_* variable against
+  // _last_xport_var and logs a RLOG_ID_XPORT_INIT/_CHANGE (or
+  // RLOG_ID_XLINK_INIT/_CHANGE for the two FSM vars) line for each one that
+  // differs, updating the stored value as it goes. Called once right after
+  // beginTransports() seeds _last_xport_var to -1 (so it reports the boot
+  // baseline), and once every loopTransports() tick thereafter.
   void _checkTransportStateChanges();
 
 #ifdef P_LORA_TX_LED

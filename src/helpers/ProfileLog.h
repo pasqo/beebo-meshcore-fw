@@ -5,19 +5,19 @@
 
 // beebo: general-purpose command/span latency profiling ring.
 //
-// TransportLog captures connection/coexistence churn (link up/down, MULTI
+// DebugRing captures connection/coexistence churn (link up/down, MULTI
 // lock/release) with a 1-byte detail field and millis() resolution -- it
 // answers "what happened, when". This ring answers "how long did it take":
 // each event is a completed span, `id` identifying the call site (caller's
 // choice of encoding -- companion command dispatch packs the two command
 // bytes as (cmd<<8)|sub, so CMD_BEEBO sub-commands are distinguishable,
-// unlike TransportLog's TLOG_CMD_* which only ever sees the outer byte) and
+// unlike DebugRing's RLOG_ID_CMD_* which only ever sees the outer byte) and
 // `duration_us` its measured length, captured via the PROFILE_SCOPE RAII
 // guard below so any call site -- not just command dispatch -- can be
 // instrumented with one line.
 //
 // Ring sized for a full interactive session's worth of commands, same
-// reasoning as TLOG_MAX_EVENTS; each event is 8 bytes on the wire, fetched
+// reasoning as RLOG_MAX_EVENTS; each event is 8 bytes on the wire, fetched
 // paginated the same way (see serialize()).
 #define PROFILE_MAX_EVENTS 128
 

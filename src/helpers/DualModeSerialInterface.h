@@ -25,6 +25,16 @@ class DualModeSerialInterface : public BaseSerialInterface {
   uint16_t _frame_len;
   uint16_t rx_len;
   uint32_t _last_byte_at;
+  // beebo: isConnected() gate -- false until a real byte actually arrives
+  // on the link (see the framed/text parser's and pollRawControl()'s own
+  // _last_byte_at writes), so a freshly enable()'d transport reads as not
+  // connected instead of optimistically "connected" for the first
+  // USB_IDLE_TIMEOUT_MS after enable() just because _last_byte_at was
+  // seeded to "now". Reset false in enable() -- a toggle-off/on cycle
+  // starts the link-liveness question over, same as boot does. Link-level
+  // only -- this class has no notion of a session (MultiSerialInterface's
+  // own concept, layered on top).
+  bool _seen_traffic;
   Stream* _serial;
   // beebo: sized for raw-binary OTA frames (OTA_FRAME_SIZE = OTA_CHUNK_SIZE +
   // 2-byte header), same as SerialWifiInterface's getMaxRecvFrameSize()
@@ -65,7 +75,7 @@ public:
   // this exists and where it's called from.
   static const uint8_t RAW_MARKER = 0x01;
 
-  DualModeSerialInterface() { _isEnabled = false; _state = MODE_IDLE; _lastWasText = false; _last_byte_at = 0; }
+  DualModeSerialInterface() { _isEnabled = false; _state = MODE_IDLE; _lastWasText = false; _last_byte_at = 0; _seen_traffic = false; }
 
   void begin(Stream& serial) {
     _serial = &serial;

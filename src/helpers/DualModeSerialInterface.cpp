@@ -1,18 +1,22 @@
 #include "DualModeSerialInterface.h"
+#include "DebugRing.h"
 #include <string.h>
 
 // beebo: opt-in (-D BEEBO_USB_RXTX_TRACE), temporary root-cause diagnostic
-// for the boot/reconnect text-vs-binary parser desync -- one DEBUG_LOG line
-// per raw byte read (with the state it was read into) and per outgoing
+// for the boot/reconnect text-vs-binary parser desync -- one DLOG line per
+// raw byte read (with the state it was read into) and per outgoing
 // writeFrame() call. Only guards writeFrame(), never writeFrameBestEffort()
-// -- DebugLog's own pushes (including these trace lines) go out through
+// -- DebugRing's own pushes (including these trace lines) go out through
 // writeFrameBestEffort() exclusively, so tracing that call too would
 // recurse into itself. Off by default: this is a temporary hunting tool,
 // not a shipped feature -- only heltec_v4_3_multi_role_debug's build_flags
-// define the macro (see fw/variants/heltec_v4/platformio.ini).
+// define the macro (see fw/variants/heltec_v4/platformio.ini). Medium
+// severity -- opt-in and high-volume already gated by BEEBO_USB_RXTX_TRACE
+// itself, but noisy enough not to warrant High -- so hunting this bug also
+// requires defining DEBUG_LOG_VERBOSE=1 (DebugRing.h) alongside it, or these
+// two macros compile to nothing.
 #ifdef BEEBO_USB_RXTX_TRACE
-#include "DebugLog.h"
-// beebo: fixed "USBRX"/"USBTX" basename (not __FILE__ via the DEBUG_LOG
+// beebo: fixed "USBRX"/"USBTX" basename (not __FILE__ via the DLOGM
 // macro) -- the tag itself says which direction the line is: "USBRX" is a
 // byte checkRecvFrame() read off the wire, "USBTX" is a writeFrame() call
 // sending one out. One event per line, not one per tick -- checkRecvFrame()'s
@@ -28,8 +32,8 @@ static const char* stateName(uint8_t s) {
   static const char* const names[] = {"IDLE", "TEXT", "LEN1", "LEN2", "BODY"};
   return s < (sizeof(names) / sizeof(names[0])) ? names[s] : "?";
 }
-#define USB_RX_TRACE(c, st) debug_log.logf("USBRX", __LINE__, "c=0x%02x st=%s", (c), stateName(st))
-#define USB_TX_TRACE(text, len) debug_log.logf("USBTX", __LINE__, "text=%d len=%u", (int)(text), (unsigned)(len))
+#define USB_RX_TRACE(c, st) DLOGM(DLOG_ID_USB_RX_TRACE, "USBRX c=0x%02x st=%s", (c), stateName(st))
+#define USB_TX_TRACE(text, len) DLOGM(DLOG_ID_USB_TX_TRACE, "USBTX text=%d len=%u", (int)(text), (unsigned)(len))
 #else
 #define USB_RX_TRACE(c, st)
 #define USB_TX_TRACE(text, len)
@@ -40,6 +44,7 @@ void DualModeSerialInterface::enable() {
   _state = MODE_IDLE;
   rx_len = 0;
   _last_byte_at = millis();
+  _seen_traffic = false;
   // beebo: no discardStaleRx() here -- for the boot path, main.cpp's own
   // flush right after Serial.begin() (the earliest point the peripheral
   // is live) already handles the stale-pre-reboot-bytes case this would
@@ -77,7 +82,7 @@ void DualModeSerialInterface::discardStaleRx() {
     char hex[3 * sizeof(drained) + 1];
     size_t hp = 0;
     for (size_t i = 0; i < n; i++) hp += snprintf(hex + hp, sizeof(hex) - hp, "%02x ", drained[i]);
-    debug_log.logf("USBRX", __LINE__, "discardStaleRx drained %u%s bytes: %s",
+    DLOGM(DLOG_ID_USB_RX_DISCARD_STALE, "USBRX discardStaleRx drained %u%s bytes: %s",
                     (unsigned)n, more ? "+" : "", hex);
   }
 #else
@@ -146,7 +151,7 @@ void DualModeSerialInterface::resetParserState() {
   }
 #ifdef BEEBO_USB_RXTX_TRACE
   if (st_before != MODE_IDLE || discarded > 0) {
-    debug_log.logf("USBRX", __LINE__, "resetParserState st=%s rx_len=%u frame_len=%u discarded=%u -> IDLE",
+    DLOGM(DLOG_ID_USB_RX_RESET_PARSER, "USBRX resetParserState st=%s rx_len=%u frame_len=%u discarded=%u -> IDLE",
                     stateName(st_before), (unsigned)rx_len_before, (unsigned)_frame_len, (unsigned)discarded);
   }
 #endif
@@ -156,21 +161,32 @@ void DualModeSerialInterface::resetParserState() {
 
 
 bool DualModeSerialInterface::isConnected() const {
-  // beebo: an idle-liveness inference, not a real hardware signal --
+  // beebo: a link-traffic-liveness inference, not a real hardware signal --
   // there is no USB-level "the far side hung up" event for a client that
   // dies without closing anything cleanly (crash, SIGKILL, cable pulled
-  // while the OS/hub side stays enumerated). ANDed into the USB
-  // connected_fn alongside (bool)Serial (Beebo.cpp's addInterface() calls
-  // -- HWCDC's own real SOF-based physical-disconnect detection, kept
-  // as-is) so either signal going false is enough to release a wedged
-  // session: (bool)Serial catches an actual unplug, this catches a
-  // process that went silent with the cable still attached. A byte
-  // arriving via any path updates _last_byte_at (enable(), the framed/
-  // text parser, pollRawControl()'s session-less raw control frame --
-  // see connect.py's periodic BEEBO_RAW_SUB_KEEPALIVE write during an
-  // otherwise-idle `beebo -i` session), so a genuinely idle-but-alive
-  // session never trips this on its own.
-  return millis() - _last_byte_at < USB_IDLE_TIMEOUT_MS;
+  // while the OS/hub side stays enumerated). This is link-level (this
+  // class has no notion of a session -- that's MultiSerialInterface's own
+  // concept, layered on top): ANDed into the USB connected_fn alongside
+  // (bool)Serial (Beebo.cpp's addInterface() calls -- HWCDC's own real
+  // SOF-based physical-disconnect detection, kept as-is) so either signal
+  // going false is enough to release a wedged app session: (bool)Serial
+  // catches an actual unplug, this catches a link that went silent with
+  // the cable still attached.
+  //
+  // False until a real byte is actually seen (_seen_traffic) -- enable()
+  // resets both _last_byte_at and _seen_traffic, so a freshly enabled
+  // transport reads as not connected instead of optimistically
+  // "connected" for the first USB_IDLE_TIMEOUT_MS just because
+  // _last_byte_at was seeded to "now". A byte arriving via the framed/text
+  // parser sets _seen_traffic, as does pollRawControl()'s
+  // BEEBO_RAW_SUB_KEEPALIVE sub-frame (see connect.py's periodic write
+  // during an otherwise-idle `beebo -i` session) -- so a genuinely
+  // idle-but-alive app session never trips this on its own.
+  // pollRawControl()'s other sub-frames (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE,
+  // `beebo dbglog`/`beebo -d`'s standalone enable/resend) deliberately do
+  // NOT set _seen_traffic -- a debug-log-only link is an observer, not an
+  // app session, and must never look connected on its own.
+  return _seen_traffic && millis() - _last_byte_at < USB_IDLE_TIMEOUT_MS;
 }
 
 bool DualModeSerialInterface::pollRawControl(uint8_t& sub_id, uint8_t& data) {
@@ -181,7 +197,13 @@ bool DualModeSerialInterface::pollRawControl(uint8_t& sub_id, uint8_t& data) {
   _serial->read();   // the marker itself
   sub_id = (uint8_t)_serial->read();
   data = (uint8_t)_serial->read();
-  _last_byte_at = millis();
+  // beebo: only BEEBO_RAW_SUB_KEEPALIVE (a real app session's own liveness
+  // poke, see connect.py's periodic write during `beebo -i`) counts toward
+  // isConnected()'s idle timer -- a debug-log-only link (BEEBO_RAW_SUB_
+  // DEBUG_LOG_ENABLE, `beebo dbglog`/`beebo -d`'s standalone enable/resend)
+  // is an observer, not a session, and must never look like a connected
+  // app session on its own.
+  if (sub_id == BEEBO_RAW_SUB_KEEPALIVE) _last_byte_at = millis();
   return true;
 }
 
@@ -206,7 +228,7 @@ bool DualModeSerialInterface::hasPendingRawMarker() const {
   // stream with peek=-1 avail=0 noise almost every call.
   int p = _serial->peek();
   if (p >= 0) {
-    debug_log.logf("USBRX", __LINE__, "hasPendingRawMarker st=%s peek=%d avail=%d -> %d",
+    DLOGM(DLOG_ID_USB_RX_PENDING_RAW_MARKER, "USBRX hasPendingRawMarker st=%s peek=%d avail=%d -> %d",
                     stateName(_state), p, _serial->available(), (int)result);
   }
 #endif
@@ -342,7 +364,7 @@ size_t DualModeSerialInterface::writeFrame(const uint8_t src[], size_t len) {
 
 // beebo: single-attempt counterpart to writeFrame() above -- see this
 // method's own declaration comment in BaseSerialInterface.h for why
-// DebugLog needs this instead of writeFrame()'s retry-until-sent
+// DebugRing's live push needs this instead of writeFrame()'s retry-until-sent
 // writeAll(). The naive fix (just call write() once, no retry loop) turned
 // out not to be enough on real hardware: on the native USB-Serial-JTAG
 // peripheral (HWCDC.cpp), a single write() call itself blocks internally
@@ -353,7 +375,7 @@ size_t DualModeSerialInterface::writeFrame(const uint8_t src[], size_t len) {
 // application is actually reading, so it stays "connected" for as long as
 // the cable is plugged in, host or no host reader. With DEBUG_LOG_ENABLE
 // on and nothing draining USB, the ring buffer fills once and stays full,
-// so every subsequent push -- one per TransportLog event, which includes
+// so every subsequent push -- one per RLOG event, which includes
 // CMD_RECV/CMD_DONE for every companion command on *every* transport --
 // paid that ~100ms internally, back-to-back, on the same single-threaded
 // main loop that also services BLE/TCP: confirmed on real hardware as the
@@ -421,7 +443,7 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
         int got = _serial->readBytes(&rx_buf[rx_len], want);
         if (got <= 0) break;
 #ifdef BEEBO_USB_RXTX_TRACE
-        debug_log.logf("USBRX", __LINE__, "body got=%d rx_len=%u/%u", got, (unsigned)(rx_len + got), (unsigned)_frame_len);
+        DLOGM(DLOG_ID_USB_RX_BODY, "USBRX body got=%d rx_len=%u/%u", got, (unsigned)(rx_len + got), (unsigned)_frame_len);
 #endif
         rx_len += got;
         _last_byte_at = millis();

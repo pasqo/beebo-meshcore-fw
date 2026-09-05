@@ -1,8 +1,7 @@
 #pragma once
 
 #include "BaseSerialInterface.h"
-#include "TransportLog.h"
-#include "DebugLog.h"
+#include "DebugRing.h"
 
 // Aggregates several BaseSerialInterface transports (e.g. BLE / WiFi / USB)
 // behind the single interface the companion mesh expects.
@@ -35,7 +34,7 @@ class MultiSerialInterface : public BaseSerialInterface {
     ConnectedFn connected_fn;
     PowerFn power_fn;
     bool exclusive;
-    uint8_t type;   // TLOG_XPORT_* — stable id for logging (order-independent)
+    uint8_t type;   // RLOG_ID_XPORT_* — stable id for logging (order-independent)
   };
   SubTransport _transports[MULTI_TRANSPORT_MAX];
   int _count = 0;
@@ -67,6 +66,9 @@ class MultiSerialInterface : public BaseSerialInterface {
   };
   SessionState _state = SESSION_DISABLED;
   int _active = -1;   // accompanying data (which transport), valid only while SESSION_ACTIVE
+  // beebo: fires once, the first checkRecvFrame() call, to log _state's
+  // boot value under RLOG_ID_XSESSION_INIT.
+  bool _state_logged_init = false;
 
   // beebo: the only thing enable()/disable()/disconnectActive() are allowed
   // to write -- matches driveBtp()'s ble_on/tcp_on inputs, just as a field
@@ -85,7 +87,7 @@ class MultiSerialInterface : public BaseSerialInterface {
     size_t m = _transports[i].iface->getMaxRecvFrameSize();
     return m < max_len ? m : max_len;
   }
-  // beebo: TLOG_APP_SESSION_START is logged by each transport itself, at the
+  // beebo: RLOG_ID_APP_SESSION_START is logged by each transport itself, at the
   // very first moment of its own accept (SerialWifiInterface logs it as the
   // first statement of its own accept-a-new-client branch, ahead of its own
   // TCP new client/session ON; SerialBLEInterface logs it alongside its own
@@ -106,8 +108,8 @@ class MultiSerialInterface : public BaseSerialInterface {
   // teardownBleThen_(), doesn't write _state itself; the switch assigns
   // the return value into its own local `next`.
   SessionState lockOn(int i) {
-    if (_transports[i].type == TLOG_XPORT_USB) {
-      transport_log.log(TLOG_APP_SESSION_START, TLOG_XPORT_USB);
+    if (_transports[i].type == RLOG_ID_XPORT_USB) {
+      RLOGH(RLOG_ID_APP_SESSION_START, RLOG_ID_XPORT_USB);
     }
     _active = i;
     if (_transports[i].exclusive) {
@@ -124,7 +126,7 @@ class MultiSerialInterface : public BaseSerialInterface {
   // (the REQ_DISCONNECT input, or the LOST-timeout branch below), so
   // logging both that reason AND a generic "released" here too produced
   // two SESSION END lines back to back for every real session end.
-  // Defaults to TLOG_APP_SESSION_END_RELEASED for a hypothetical future
+  // Defaults to RLOG_ID_APP_SESSION_END_RELEASED for a hypothetical future
   // caller with no more specific reason to give.
   //
   // Call only from checkRecvFrame()'s switch, same as lockOn() -- and
@@ -132,8 +134,8 @@ class MultiSerialInterface : public BaseSerialInterface {
   // writing _state itself. Only ever called while _state == SESSION_ACTIVE
   // (REQ_DISABLE has its own dedicated forced-teardown path and never
   // calls this), so the sibling re-enable loop below is always reachable.
-  SessionState release(int prev, uint8_t end_reason = TLOG_APP_SESSION_END_RELEASED) {
-    transport_log.log(end_reason, _transports[prev].type);
+  SessionState release(int prev, uint8_t end_reason = RLOG_ID_APP_SESSION_END_RELEASED) {
+    RLOGH(end_reason, _transports[prev].type);
     // Reset the released transport's own byte-parser state: a session can end
     // mid-frame (host closes the port between test runs), leaving the
     // parser expecting the rest of a frame that's never coming. Left alone,
@@ -184,7 +186,7 @@ class MultiSerialInterface : public BaseSerialInterface {
       // the success path reboots before the next checkRecvFrame() tick ever
       // processes the queued REQ_DISABLE), but guarded anyway in case a
       // debug session happens to be live when it is.
-      if (!(_transports[_active].type == TLOG_XPORT_USB && debug_log.isEnabled())) {
+      if (!(_transports[_active].type == RLOG_ID_XPORT_USB && debug_ring.isEnabled())) {
         _transports[_active].iface->resetParserState();
       }
       _active = -1;
@@ -228,7 +230,7 @@ public:
     return _state != SESSION_DISABLED;
   }
 
-  // Stable TLOG_XPORT_* type of the locked transport, or 0 if idle.
+  // Stable RLOG_ID_XPORT_* type of the locked transport, or 0 if idle.
   uint8_t activeTransportType() const { return _active >= 0 ? _transports[_active].type : 0; }
 
   // beebo: exclusive transports are BLE/TCP (mutually exclusive with each other for
@@ -315,9 +317,9 @@ public:
   // non-owner index, evicting whichever sub-transport it's given.
   void pollAndEvictIfConnected(int i, uint8_t scratch[], size_t scratch_len) {
     size_t n = _transports[i].iface->checkRecvFrame(scratch, scratch_len);
-    bool stray = (_transports[i].type == TLOG_XPORT_USB) ? (n > 0) : transportConnected(i);
+    bool stray = (_transports[i].type == RLOG_ID_XPORT_USB) ? (n > 0) : transportConnected(i);
     if (stray) {
-      transport_log.log(TLOG_APP_SESSION_EVICTED, _transports[i].type);
+      RLOGH(RLOG_ID_APP_SESSION_EVICTED, _transports[i].type);
       _transports[i].iface->resetParserState();
     }
   }
@@ -341,7 +343,7 @@ public:
         if (_pending_request == REQ_ENABLE) {
           _pending_request = REQ_NONE;
           for (int i = 0; i < _count; i++) {
-            if (_transports[i].type == TLOG_XPORT_USB && debug_log.isEnabled())
+            if (_transports[i].type == RLOG_ID_XPORT_USB && debug_ring.isEnabled())
               continue;
             _transports[i].iface->discardStaleRx();
           }
@@ -377,8 +379,8 @@ public:
           if (winner < 0) {
             size_t n = _transports[i].iface->checkRecvFrame(dest, transportRecvLimit(i, max_len));
             if (n > 0) { winner = i; result = n; continue; }
-            if (_transports[i].type != TLOG_XPORT_USB && transportConnected(i)) {
-              transport_log.log(TLOG_APP_SESSION_EVICTED, _transports[i].type);
+            if (_transports[i].type != RLOG_ID_XPORT_USB && transportConnected(i)) {
+              RLOGH(RLOG_ID_APP_SESSION_EVICTED, _transports[i].type);
               _transports[i].iface->resetParserState();
             }
           } else {
@@ -424,7 +426,7 @@ public:
         // keeps delivering frames with no idle gap.
         if (_pending_request == REQ_DISCONNECT) {
           _pending_request = REQ_NONE;
-          next = release(owner, TLOG_APP_SESSION_END_DISCONNECT);
+          next = release(owner, RLOG_ID_APP_SESSION_END_DISCONNECT);
           _disconnect_since_ms = 0;
           break;
         }
@@ -439,7 +441,7 @@ public:
           uint32_t now = millis();
           if (_disconnect_since_ms == 0) _disconnect_since_ms = now;
           if (now - _disconnect_since_ms >= DISCONNECT_DEBOUNCE_MS) {
-            next = release(owner, TLOG_APP_SESSION_END_LOST);
+            next = release(owner, RLOG_ID_APP_SESSION_END_LOST);
             _disconnect_since_ms = 0;
           }
         } else {
@@ -458,15 +460,17 @@ public:
       }
     }
 
-    // beebo: mirrors TLOG_XPORT_LINK_VAR_BTP_STATE/_USB_STATE (TransportLog.h) --
-    // logged here, at the point of the actual write, rather than via the
-    // external poll-based _checkTransportStateChanges() those use (Beebo.cpp
-    // has no access to this private field to poll it that way). Reuses the
-    // same TLOG_XPORT_VAR_CHANGED event/detail encoding for a consistent
-    // decode path (xportlog.py).
+    // beebo: logged here (not via Beebo.cpp's _checkTransportStateChanges(),
+    // which can't reach this private field) using the same detail packing
+    // as RLOG_ID_XPORT_INIT/_CHANGE, under RLOG_ID_XSESSION_INIT/_CHANGE.
+    if (!_state_logged_init) {
+      int32_t detail = RLOG_ID_XPORT_LINK_SESSION_STATE | (0xFF << 8) | ((_state & 0xFF) << 16);
+      RLOGM(RLOG_ID_XSESSION_INIT, detail);
+      _state_logged_init = true;
+    }
     if (next != _state) {
-      int32_t detail = TLOG_XPORT_VAR_SESSION_STATE | ((_state & 0xFF) << 8) | ((next & 0xFF) << 16);
-      transport_log.log(TLOG_XPORT_VAR_CHANGED, detail);
+      int32_t detail = RLOG_ID_XPORT_LINK_SESSION_STATE | ((_state & 0xFF) << 8) | ((next & 0xFF) << 16);
+      RLOGM(RLOG_ID_XSESSION_CHANGE, detail);
     }
     _state = next;
     return result;

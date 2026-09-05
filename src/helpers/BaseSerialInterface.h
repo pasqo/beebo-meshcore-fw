@@ -80,7 +80,7 @@ public:
 
   virtual bool isConnected() const = 0;
 
-  // beebo: TLOG_XPORT_* id of whichever sub-transport currently holds the
+  // beebo: RLOG_ID_XPORT_* id of whichever sub-transport currently holds the
   // session, or 0 if none/not applicable. Only MultiSerialInterface tracks
   // this meaningfully; single-transport interfaces can ignore it.
   virtual uint8_t activeTransportType() const { return 0; }
@@ -117,7 +117,7 @@ public:
   virtual size_t writeFrame(const uint8_t src[], size_t len) = 0;
 
   // beebo: best-effort variant of writeFrame() for a caller that would
-  // rather lose a push than block -- currently only DebugLog (see its own
+  // rather lose a push than block -- currently only DebugRing (see its own
   // comment). writeFrame()'s retry-until-sent behavior is the right
   // tradeoff for a real companion reply (losing bytes there corrupts an
   // in-flight exchange the client has no way to recover from), but wrong
@@ -125,7 +125,7 @@ public:
   // seconds at a time blocks the single-threaded main loop that also
   // services every other transport, turning an unread debug stream into a
   // stall affecting completely unrelated traffic (confirmed on real
-  // hardware -- see DebugLog.cpp's own comment). Default just forwards to
+  // hardware -- see DebugRing.cpp's own comment). Default just forwards to
   // writeFrame(), so every interface keeps its current behavior unless it
   // overrides this; DualModeSerialInterface is the one that actually needs
   // to, since isConnected()/isWriteBusy() are both unconditional stubs on

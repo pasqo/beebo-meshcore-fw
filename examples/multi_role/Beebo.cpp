@@ -3,8 +3,7 @@
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 #include <SHA256.h>  // beebo: rxlog-compatible packet hash for the monitor ring
-#include <helpers/TransportLog.h>
-#include <helpers/DebugLog.h>
+#include <helpers/DebugRing.h>
 #include <helpers/ProfileLog.h>
 #include <helpers/BattTrend.h>
 #include "BeeboProtocol.h"
@@ -12,7 +11,7 @@
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_mac.h>  // beebo: esp_efuse_mac_get_default() for BEEBO_CMD_GET_BOARD_ID
-#include <esp_bt.h>  // beebo: esp_bt_controller_get_status() -- see applyTransportConfig()'s TLOG_BT_CONTROLLER_STATUS log call
+#include <esp_bt.h>  // beebo: esp_bt_controller_get_status() -- see applyTransportConfig()'s RLOG_ID_BT_CONTROLLER_STATUS log call
 #if defined(ESP32)
 #include <WiFi.h>
 #endif
@@ -1441,30 +1440,35 @@ void Beebo::_onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 }
 
 // beebo: see this method's own declaration comment in Beebo.h. Var ids are
-// defined once, alongside TLOG_XPORT_VAR_CHANGED itself, in TransportLog.h
-// -- keep the two in sync if a field is added or removed here.
+// defined once, alongside RLOG_ID_XPORT_INIT/_CHANGE themselves, in
+// DebugRing.h -- keep the two in sync if a field is added or removed here.
 void Beebo::_checkTransportStateChanges() {
-  auto check = [this](int id, int val) {
+  auto check = [this](int id, int val, int change_type = RLOG_ID_XPORT_CHANGE,
+                       int init_type = RLOG_ID_XPORT_INIT) {
     if (_last_xport_var[id] != val) {
+      bool is_init = (_last_xport_var[id] == -1);
       int32_t detail = id | ((_last_xport_var[id] & 0xFF) << 8) | ((val & 0xFF) << 16);
-      transport_log.log(TLOG_XPORT_VAR_CHANGED, detail);
+      RLOGM(is_init ? init_type : change_type, detail);
       _last_xport_var[id] = (int16_t)val;
     }
   };
 
-  check(TLOG_XPORT_LINK_VAR_WIFI_IFACE_ENABLED,    wifi_interface.isEnabled());
-  check(TLOG_XPORT_LINK_VAR_WIFI_IFACE_CONNECTED,  wifi_interface.isConnected());
-  check(TLOG_XPORT_LINK_VAR_WIFI_LISTENING,        wifi_interface.isListening());
-  check(TLOG_XPORT_LINK_VAR_BLE_IFACE_ENABLED,     ble_interface.isEnabled());
-  check(TLOG_XPORT_LINK_VAR_BLE_IFACE_CONNECTED,   ble_interface.isConnected());
-  check(TLOG_XPORT_LINK_VAR_USB_IFACE_ENABLED,     usb_interface.isEnabled());
-  check(TLOG_XPORT_LINK_VAR_USB_IFACE_CONNECTED,   usb_interface.isConnected());
-  check(TLOG_XPORT_LINK_VAR_MULTI_ENABLED,         serial_interface.isEnabled());
-  check(TLOG_XPORT_LINK_VAR_MULTI_CONNECTED,       serial_interface.isConnected());
-  check(TLOG_XPORT_LINK_VAR_BTP_STATE,             (int)_btp_state);
-  check(TLOG_XPORT_LINK_VAR_USB_STATE,             (int)_usb_state);
-  check(TLOG_XPORT_LINK_VAR_WL_STATUS,             (int)WiFi.status());
-  check(TLOG_XPORT_LINK_VAR_ACTIVE,                (int)serial_interface.activeTransportType());
+  check(RLOG_ID_XPORT_LINK_WIFI_IFACE_ENABLED,    wifi_interface.isEnabled());
+  check(RLOG_ID_XPORT_LINK_WIFI_IFACE_CONNECTED,  wifi_interface.isConnected());
+  check(RLOG_ID_XPORT_LINK_WIFI_LISTENING,        wifi_interface.isListening());
+  check(RLOG_ID_XPORT_LINK_BLE_IFACE_ENABLED,     ble_interface.isEnabled());
+  check(RLOG_ID_XPORT_LINK_BLE_IFACE_CONNECTED,   ble_interface.isConnected());
+  check(RLOG_ID_XPORT_LINK_USB_IFACE_ENABLED,     usb_interface.isEnabled());
+  check(RLOG_ID_XPORT_LINK_USB_IFACE_CONNECTED,   usb_interface.isConnected());
+  check(RLOG_ID_XPORT_LINK_MULTI_ENABLED,         serial_interface.isEnabled());
+  check(RLOG_ID_XPORT_LINK_MULTI_CONNECTED,       serial_interface.isConnected());
+  // FSM transitions get their own event id pair (RLOG_ID_XLINK_INIT/_CHANGE)
+  // instead of the generic RLOG_ID_XPORT_INIT/_CHANGE every plain
+  // tracked flag above uses -- see DebugRing.h's own comment.
+  check(RLOG_ID_XPORT_LINK_BTP_STATE,             (int)_btp_state, RLOG_ID_XLINK_CHANGE, RLOG_ID_XLINK_INIT);
+  check(RLOG_ID_XPORT_LINK_USB_STATE,             (int)_usb_state, RLOG_ID_XLINK_CHANGE, RLOG_ID_XLINK_INIT);
+  check(RLOG_ID_XPORT_LINK_WL_STATUS,             (int)WiFi.status());
+  check(RLOG_ID_XPORT_LINK_ACTIVE,                (int)serial_interface.activeTransportType());
 }
 
 void Beebo::beginTransports() {
@@ -1480,10 +1484,11 @@ void Beebo::beginTransports() {
   driveUsb(usb_on);
 
   startInterface(serial_interface);
-  debug_log.attach(&usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG);
+  debug_ring.attach(&usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG);
 
-  for (int i = 0; i < TLOG_XPORT_VAR_COUNT; i++) _last_xport_var[i] = -1;
+  for (int i = 0; i < RLOG_XPORT_VAR_COUNT; i++) _last_xport_var[i] = -1;
   _checkTransportStateChanges();   // logs every var's boot value as "changed from -1"
+  RLOGH(RLOG_ID_BOOT_TRANSPORTS_READY, (int32_t)millis());
 }
 
 // beebo: clamp the radio-affecting prefs to sane ranges — shared by begin()
@@ -3053,7 +3058,7 @@ void Beebo::handleCmdFrame(size_t len) {
     uint32_t curr = getRTCClock()->getCurrentTime();
     if (secs >= curr) {
       getRTCClock()->setCurrentTime(secs);
-      transport_log.log(TLOG_CLOCK_SET, secs);
+      RLOGM(RLOG_ID_CLOCK_SET, secs);
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
@@ -3862,7 +3867,7 @@ void Beebo::handleCmdFrame(size_t len) {
       // Response: [STATS][type][total LE16][offset LE16][events...]
       //
       // beebo: same page-size/streaming uplevel as BEEBO_CMD_GET_MONRING --
-      // a full ring is small (TLOG_MAX_EVENTS records) but was always paged
+      // a full ring is small (RLOG_MAX_EVENTS records) but was always paged
       // at the legacy 176-byte MAX_FRAME_SIZE with one command round trip
       // per page (e.g. ~57 round trips for a 1024-event ring), unlike
       // GET_MONRING which already rides _app_max_tx/_app_stream once
@@ -3877,7 +3882,7 @@ void Beebo::handleCmdFrame(size_t len) {
       uint16_t offset = (len >= 4) ? (cmd_frame[2] | ((uint16_t)cmd_frame[3] << 8)) : 0;
       // Mark the read boundary once per fetch (first page) so the next debuglog
       // clearly shows which events are new.
-      if (stats_type == STATS_TYPE_TRANSPORT && offset == 0) transport_log.log(TLOG_DEBUGLOG_READ);
+      if (stats_type == STATS_TYPE_TRANSPORT && offset == 0) RLOGL(RLOG_ID_DEBUGLOG_READ);
       if (_app_stream && offset == 0) {
         _statread.active = true;
         _statread.kind = stats_type;
@@ -3892,7 +3897,7 @@ void Beebo::handleCmdFrame(size_t len) {
       uint16_t total = 0;
       size_t page_cap = _app_max_tx;   // larger paged frames if negotiated (else 176)
       if (stats_type == STATS_TYPE_TRANSPORT)
-        i += transport_log.serialize(&out_frame[i], page_cap - i, offset, &total);
+        i += debug_ring.serialize(&out_frame[i], page_cap - i, offset, &total);
       else
         i += profile_log.serialize(&out_frame[i], page_cap - i, offset, &total);
       out_frame[hdr + 0] = total & 0xFF;
@@ -4991,7 +4996,7 @@ void Beebo::handleCmdFrame(size_t len) {
     writeDisabledFrame();
 #endif
   } else if (sub[0] == BEEBO_CMD_DEBUG_LOG_ENABLE && sub_len >= 2) {
-    // beebo: DebugLog always targets usb_interface, so enabling it when USB
+    // beebo: DebugRing always targets usb_interface, so enabling it when USB
     // transport isn't even up on this build (board.usb_enabled=0) would
     // leave the stream with nowhere to go -- refuse instead of silently
     // accepting. XPORT_PENDING still counts as up: usb_interface itself
@@ -4999,7 +5004,7 @@ void Beebo::handleCmdFrame(size_t len) {
     if (_usb_state == XPORT_OFF) {
       writeErrFrame(ERR_CODE_BAD_STATE);
     } else {
-      debug_log.setEnabled(sub[1] != 0);
+      debug_ring.setEnabled(sub[1] != 0);
       writeOKFrame();
     }
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
@@ -5095,26 +5100,30 @@ void Beebo::checkSerialInterface() {
   if (usb_interface.pollRawControl(raw_sub, raw_data)) {
     if (raw_sub == BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) {
       bool enabling = raw_data != 0;
-      debug_log.setEnabled(enabling);
-      // beebo: replay transport_log's full backlog exactly once per boot,
-      // the first time anything actually enables the debug link -- not
-      // repeated on every enable request, since a reconnecting --debug
-      // link resends DEBUG_LOG_ENABLE(1) after every reconnect
-      // (debug_link.py's _resend_enable_after_boot()), and re-dumping the
-      // whole boot-time backlog on each of those would repeat old history
-      // instead of showing only what changed. See TransportLog::
-      // replayTo()'s own comment for why this is how a boot-time event
-      // (TLOG_BOOT_START, logged before any client could possibly be
-      // listening) still reaches the host at all.
-      if (enabling && !_debug_backlog_replayed) {
-        _debug_backlog_replayed = true;
-        transport_log.replayTo(debug_log);
+      // beebo: replay the ring's full backlog on every disabled -> enabled
+      // transition, not just the first one this boot -- a resend of the
+      // *same* enable byte within one still-live connection (debug_link.py's
+      // _resend_enable_after_boot(), covering a lost first attempt) sees
+      // debug_ring already enabled here and so triggers no second replay,
+      // but a genuinely new connection (a fresh `-d`/`-i` invocation,
+      // possibly long after an earlier one ended) gets the ring's current
+      // history again -- useful for a one-shot `beebo -d` session that
+      // wants to see recent history, not just live events from the moment
+      // it happened to attach. See DebugRing::replayRing()'s own comment
+      // for how this is also what gets a boot-time event (RLOG_ID_BOOT_START,
+      // logged before any client could possibly be listening) to a host
+      // at all.
+      if (enabling && !debug_ring.isEnabled()) {
+        debug_ring.setEnabled(true);
+        debug_ring.replayRing();
+      } else {
+        debug_ring.setEnabled(enabling);
       }
     }
     // BEEBO_RAW_SUB_KEEPALIVE: no action needed here -- pollRawControl()
     // already refreshed usb_interface's _last_byte_at for any raw control
     // frame regardless of sub_id, which is the only thing this one exists
-    // to do (see DebugLog.h's own comment).
+    // to do (see DebugRing.h's own comment).
   }
 
   // beebo: pollRawControl() above defers (peeks, doesn't consume) when it's
@@ -5122,7 +5131,7 @@ void Beebo::checkSerialInterface() {
   // hasn't arrived yet. checkRecvFrame() below has no idea a raw control
   // frame might be in flight -- calling it this tick would steal that same
   // peeked byte into the ordinary text/binary parser, permanently
-  // misrouting it (and the real frame that follows right after it) as
+  // mis-routing it (and the real frame that follows right after it) as
   // ordinary traffic. Skip this tick's checkRecvFrame() entirely while
   // that race window is open; pollRawControl() finishes the job within a
   // few ticks once the rest of the bytes land.
@@ -5163,19 +5172,19 @@ void Beebo::checkSerialInterface() {
                         && (cmd_frame[1] == STATS_TYPE_TRANSPORT || cmd_frame[1] == STATS_TYPE_PROFILE)));
     if (trace) {
       // (cmd<<8)|sub so CMD_BEEBO sub-commands (OTA/WiFi/RF measurement/…)
-      // and CMD_GET_STATS sub-types are distinguishable, unlike TLOG_CMD_*'s
+      // and CMD_GET_STATS sub-types are distinguishable, unlike RLOG_ID_CMD_*'s
       // old 1-byte outer-command-only detail. Only these two commands' second
       // byte is actually a sub-id; every other command's byte[1] is just
       // payload data (e.g. SET_RADIO_TX_POWER's power value), so folding it
       // in unconditionally would fragment their stats across many ids.
-      // Also fed into transport_log.log() below (TransportLog.h's `detail`
+      // Also fed into RLOGL() below (DebugRing.h's `detail`
       // is a full int32_t, plenty of room) so `beebo monitor transport`
       // shows the real sub-command instead of a generic "BEEBO"/"GET_STATS"
       // row for every one of these -- see debuglog.py's BEEBO_CMD_NAMES.
       uint16_t prof_id = (uint16_t)cmd_frame[0] << 8;
       if (len >= 2 && (cmd_frame[0] == CMD_BEEBO || cmd_frame[0] == CMD_GET_STATS))
         prof_id |= cmd_frame[1];
-      transport_log.log(TLOG_CMD_RECV, prof_id);
+      RLOGL(RLOG_ID_CMD_RECV, prof_id);
       PROFILE_SCOPE(prof_id);
       // beebo: MON_COMMAND (MonRing.h) -- deliberately narrower than
       // `trace`: excludes every routine/repeated read path (all of
@@ -5192,7 +5201,7 @@ void Beebo::checkSerialInterface() {
                 cmd_frame[1] == BEEBO_CMD_GET_PREFS_TLV));
       if (command_run_eligible) appendCommandRunEvent(prof_id);
       handleCmdFrame(len);
-      transport_log.log(TLOG_CMD_DONE, prof_id);
+      RLOGL(RLOG_ID_CMD_DONE, prof_id);
     } else {
       handleCmdFrame(len);
     }
@@ -5291,7 +5300,7 @@ void Beebo::checkSerialInterface() {
     // count) after a single page, ending the stream 9x/8x too early.
     const int per_event = (_statread.kind == STATS_TYPE_TRANSPORT) ? 9 : 8;
     int body_n = (_statread.kind == STATS_TYPE_TRANSPORT)
-        ? transport_log.serialize(&out_frame[i], body_cap, _statread.offset, &total)
+        ? debug_ring.serialize(&out_frame[i], body_cap, _statread.offset, &total)
         : profile_log.serialize(&out_frame[i], body_cap, _statread.offset, &total);
     int n_records = body_n / per_event;
     i += body_n;
@@ -5651,14 +5660,14 @@ void Beebo::updateStatusLed() {
 // same relative order preserved by running last in loop() here).
 void Beebo::loopTransports() {
   // Re-check every tracked transport variable and log a line for each one
-  // that changed since last tick -- see TLOG_XPORT_VAR_CHANGED's own
-  // comment in TransportLog.h. This one call covers session start/end too
+  // that changed since last tick -- see RLOG_ID_XPORT_INIT/_CHANGE's own
+  // comment in DebugRing.h. This one call covers session start/end too
   // (via the "active" variable going 0 <-> nonzero), so no separate
   // start/end hook is needed here.
   _checkTransportStateChanges();
 
-  // beebo: periodic low-level WiFi health sample -- see TLOG_WIFI_HEALTH's
-  // own comment in TransportLog.h. Gated on _btp_state == BTP_TCP_UP (not
+  // beebo: periodic low-level WiFi health sample -- see RLOG_ID_WIFI_HEALTH's
+  // own comment in DebugRing.h. Gated on _btp_state == BTP_TCP_UP (not
   // tcp_enabled -- this is about the radio actually being live right now)
   // so it stays silent while WiFi is off, and unconditional on any session
   // being live (RSSI/heap sampling never touches deviceConnected/the
@@ -5669,12 +5678,12 @@ void Beebo::loopTransports() {
     int8_t rssi = (int8_t)WiFi.RSSI();
     uint8_t channel = (uint8_t)WiFi.channel();
     int32_t detail = (int32_t)heap_kb | ((int32_t)(uint8_t)rssi << 16) | ((int32_t)channel << 24);
-    transport_log.log(TLOG_WIFI_HEALTH, detail);
+    RLOGL(RLOG_ID_WIFI_HEALTH, detail);
   }
 
-  // beebo: periodic low-level BLE health sample -- see TLOG_BLE_HEALTH's own
-  // comment in TransportLog.h. Only kicks off the async RSSI read here; the
-  // actual TLOG_BLE_HEALTH log call happens later, once the result lands
+  // beebo: periodic low-level BLE health sample -- see RLOG_ID_BLE_HEALTH's own
+  // comment in DebugRing.h. Only kicks off the async RSSI read here; the
+  // actual RLOG_ID_BLE_HEALTH log call happens later, once the result lands
   // (drained from checkRecvFrame() -- see SerialBLEInterface.cpp).
   ble_interface.requestHealthSample();
 
@@ -5687,14 +5696,14 @@ void Beebo::loopTransports() {
   bool got_ip = _sta_got_ip;
   bool disconnected = _sta_disc_reason >= 0;
   if (disconnected) {
-    transport_log.log(TLOG_WIFI_STA_DISCONNECTED, _sta_disc_reason);
+    RLOGH(RLOG_ID_WIFI_STA_DISCONNECTED, _sta_disc_reason);
     _sta_disc_reason = -1;
   }
   if (got_ip) {
     IPAddress ip = WiFi.localIP();
     int32_t packed_ip = ((int32_t)ip[0] << 24) | ((int32_t)ip[1] << 16)
                        | ((int32_t)ip[2] << 8) | (int32_t)ip[3];
-    transport_log.log(TLOG_WIFI_STA_GOT_IP, packed_ip);
+    RLOGH(RLOG_ID_WIFI_STA_GOT_IP, packed_ip);
     _sta_got_ip = false;
   }
 
@@ -5749,9 +5758,9 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
   // possible that early regardless, so this is a correct guard, not a
   // workaround.
   bool session_live_on_ble = _serial && _serial->isConnected()
-      && serial_interface.activeTransportType() == TLOG_XPORT_BLE;
+      && serial_interface.activeTransportType() == RLOG_ID_XPORT_BLE;
   bool session_live_on_tcp = _serial && _serial->isConnected()
-      && serial_interface.activeTransportType() == TLOG_XPORT_TCP;
+      && serial_interface.activeTransportType() == RLOG_ID_XPORT_TCP;
   bool backoff_elapsed = millis() - _tcp_backoff_started_ms >= 10000;
 
   BtpState next = _btp_state;
@@ -5858,7 +5867,7 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
 Beebo::BtpState Beebo::teardownBleThen_(bool ble_on, bool tcp_on) {
   ble_interface.disable();
   ble_interface.deinitRadio();   // fully power down the BLE radio, not just stop advertising
-  DEBUG_LOG("ble torn down, heap=%u", (unsigned)ESP.getFreeHeap());
+  DLOGM(DLOG_ID_BLE_TORN_DOWN, "ble torn down, heap=%u", (unsigned)ESP.getFreeHeap());
   if (tcp_on) {
     bringUpTcp_(/*after_ble_teardown=*/true);
     return BTP_TCP_STARTING;
@@ -5925,7 +5934,8 @@ void Beebo::bringUpBle_(bool after_wifi_teardown) {
     // actual capability-specific numbers here (not just total free heap)
     // so a still-open failure shows real evidence.
     delay(200);
-    DEBUG_LOG(
+    DLOGM(
+      DLOG_ID_WIFI_TORN_DOWN,
       "wifi torn down, heap=%u internal_free=%u internal_largest=%u "
       "dma_free=%u dma_largest=%u internal_total=%u",
       (unsigned)ESP.getFreeHeap(),
@@ -5937,7 +5947,7 @@ void Beebo::bringUpBle_(bool after_wifi_teardown) {
   }
   if (!_ble_added) {
     ble_interface.begin(BLE_NAME_PREFIX, _role_state->prefs.node_name, getBLEPin());
-    serial_interface.addInterface(&ble_interface, nullptr, nullptr, true, TLOG_XPORT_BLE);
+    serial_interface.addInterface(&ble_interface, nullptr, nullptr, true, RLOG_ID_XPORT_BLE);
     _ble_added = true;
   } else {
     ble_interface.initRadio();   // rebuild the stack torn down by a prior deinitRadio()
@@ -5959,8 +5969,8 @@ void Beebo::bringUpTcp_(bool after_ble_teardown) {
     // touches BLE) -- not a per-tick cost.
     delay(200);
     esp_bt_controller_status_t bt_status = esp_bt_controller_get_status();
-    transport_log.log(TLOG_BT_CONTROLLER_STATUS, (int32_t)bt_status);
-    DEBUG_LOG("wifi bring-up after ble teardown, bt_status=%d, heap=%u", (int)bt_status, (unsigned)ESP.getFreeHeap());
+    RLOGM(RLOG_ID_BT_CONTROLLER_STATUS, (int32_t)bt_status);
+    DLOGM(DLOG_ID_WIFI_BRINGUP_AFTER_BLE, "wifi bring-up after ble teardown, bt_status=%d, heap=%u", (int)bt_status, (unsigned)ESP.getFreeHeap());
   }
   board.setInhibitSleep(true);   // prevent sleep when WiFi is active
   WiFi.setAutoReconnect(false);
@@ -5977,7 +5987,7 @@ void Beebo::bringUpTcp_(bool after_ble_teardown) {
   WiFi.setSleep(false);
   if (!_wifi_added) {
     wifi_interface.begin(TCP_PORT);
-    serial_interface.addInterface(&wifi_interface, nullptr, nullptr, true, TLOG_XPORT_TCP);
+    serial_interface.addInterface(&wifi_interface, nullptr, nullptr, true, RLOG_ID_XPORT_TCP);
     _wifi_added = true;
   } else {
     wifi_interface.enable();
@@ -5995,7 +6005,7 @@ void Beebo::driveUsb(bool usb_on) {
   // first driveUsb() call happens before that) -- no app session is
   // possible that early regardless, matching driveBtp()'s own guard.
   bool session_live_on_usb = _serial && _serial->isConnected()
-      && serial_interface.activeTransportType() == TLOG_XPORT_USB;
+      && serial_interface.activeTransportType() == RLOG_ID_XPORT_USB;
 
   TransportState next = _usb_state;
 
@@ -6010,7 +6020,7 @@ void Beebo::driveUsb(bool usb_on) {
           serial_interface.addInterface(
             &usb_interface,
             []() -> bool { return (bool)Serial && beebo.usb_interface.isConnected(); },
-            nullptr, false, TLOG_XPORT_USB);
+            nullptr, false, RLOG_ID_XPORT_USB);
           _usb_added = true;
         }
         usb_interface.enable();
@@ -6402,7 +6412,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     uint32_t curr = getRTCClock()->getCurrentTime();
     if (secs > curr) {
       getRTCClock()->setCurrentTime(secs);
-      transport_log.log(TLOG_CLOCK_SET, secs);
+      RLOGM(RLOG_ID_CLOCK_SET, secs);
       uint32_t now = getRTCClock()->getCurrentTime();
       DateTime dt = DateTime(now);
       sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());

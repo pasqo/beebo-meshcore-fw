@@ -2,8 +2,7 @@
 #include <WiFi.h>
 #include <lwip/sockets.h>   // send(MSG_DONTWAIT) for the non-blocking queue drain
 #include <string.h>   // memcpy
-#include "../TransportLog.h"
-#include "../DebugLog.h"
+#include "../DebugRing.h"
 
 void SerialWifiInterface::begin(int port) {
   _port = port;
@@ -13,9 +12,9 @@ void SerialWifiInterface::begin(int port) {
 // ---------- public methods
 void SerialWifiInterface::enable() {
   if (_isEnabled) return;
-  // beebo: no dedicated log call here -- TLOG_XPORT_LINK_VAR_WIFI_IFACE_ENABLED
+  // beebo: no dedicated log call here -- RLOG_ID_XPORT_LINK_WIFI_IFACE_ENABLED
   // (Beebo::_checkTransportStateChanges()) already captures this transition
-  // every tick, retired 2026-08-31 as a duplicate (see TransportLog.h).
+  // every tick, retired 2026-08-31 as a duplicate (see DebugRing.h).
 
   _isEnabled = true;
   clearBuffers();
@@ -24,9 +23,9 @@ void SerialWifiInterface::enable() {
 }
 
 void SerialWifiInterface::disable() {
-  // beebo: see enable()'s comment -- TLOG_XPORT_LINK_VAR_WIFI_IFACE_ENABLED
+  // beebo: see enable()'s comment -- RLOG_ID_XPORT_LINK_WIFI_IFACE_ENABLED
   // already covers this transition; the deviceConnected-at-disable detail
-  // this used to carry is reconstructable from TLOG_XPORT_LINK_VAR_WIFI_IFACE_CONNECTED
+  // this used to carry is reconstructable from RLOG_ID_XPORT_LINK_WIFI_IFACE_CONNECTED
   // around the same timestamp if ever needed.
   _isEnabled = false;
   if (deviceConnected) {
@@ -123,9 +122,9 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
     // exclusivity close above, and an uncommanded listener death -- either
     // way, _checkTransportStateChanges() (Beebo.cpp) picks up the resulting
     // wifi.listening 0 -> 1 transition on this same loop() tick and logs it,
-    // so no separate event is logged here (see TransportLog.h's retired
-    // TLOG_WIFI_LISTEN_ENABLED entry).
-    DEBUG_LOG("listening socket was dead, rebuilding");
+    // so no separate event is logged here (see DebugRing.h's retired
+    // RLOG_ID_WIFI_LISTEN_ENABLED entry).
+    DLOGM(DLOG_ID_WIFI_LISTENER_REBUILD, "listening socket was dead, rebuilding");
     server.begin(_port);
   }
 
@@ -138,22 +137,22 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
       // listening socket is closed for the duration of a live session, but
       // keep rejecting outright (never preempt) in case a lwIP race still
       // hands one back. detail = the rejected client's remote port.
-      transport_log.log(TLOG_WIFI_CLIENT_REJECTED, newClient.remotePort());
+      RLOGM(RLOG_ID_WIFI_CLIENT_REJECTED, newClient.remotePort());
       newClient.stop();
     } else {
       // beebo: the real first event of an app-level session -- logged as
       // the very first thing in the accept path, ahead of TCP new client/
       // session ON below and MultiSerialInterface::lockOn() (which only
       // runs later, once a first frame has actually been parsed).
-      transport_log.log(TLOG_APP_SESSION_START, TLOG_XPORT_TCP);
+      RLOGH(RLOG_ID_APP_SESSION_START, RLOG_ID_XPORT_TCP);
       // beebo: detail packs the new client's remote port (bits 1+) with
       // whether deviceConnected was still true at accept time (bit 0) --
       // the latter flags the case this guard can't otherwise catch: the
       // OLD client's connected() had already gone false (so this wasn't a
       // rejected preemption), but deviceConnected itself hadn't been
-      // updated yet. Same port-comparison use as TLOG_WIFI_CLIENT_REJECTED
+      // updated yet. Same port-comparison use as RLOG_ID_WIFI_CLIENT_REJECTED
       // above.
-      transport_log.log(TLOG_WIFI_CLIENT_NEW, (newClient.remotePort() << 1) | (deviceConnected ? 1 : 0));
+      RLOGM(RLOG_ID_WIFI_CLIENT_NEW, (newClient.remotePort() << 1) | (deviceConnected ? 1 : 0));
       deviceConnected = false;
       client.stop();
       clearBuffers();
@@ -186,9 +185,9 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
   if (client.connected()) {
     if (!deviceConnected) {
       // beebo: detail = the newly-live client's remote port, so a later
-      // TLOG_WIFI_CLIENT_NEW/REJECTED can be matched against the session
+      // RLOG_ID_WIFI_CLIENT_NEW/REJECTED can be matched against the session
       // it raced with -- see those events' own comments above.
-      transport_log.log(TLOG_WIFI_SESSION_ON, client.remotePort());
+      RLOGH(RLOG_ID_WIFI_SESSION_ON, client.remotePort());
       deviceConnected = true;
       server.end();   // beebo: stop accepting new peers for the duration of this session
     }
@@ -206,7 +205,7 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
     deviceConnected = false;
     clearBuffers();
     resetReceivedFrameHeader();
-    transport_log.log(TLOG_WIFI_SESSION_OFF, sock_err);
+    RLOGH(RLOG_ID_WIFI_SESSION_OFF, sock_err);
   }
 
   if (deviceConnected) {

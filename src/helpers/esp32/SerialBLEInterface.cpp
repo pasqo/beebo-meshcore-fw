@@ -1,6 +1,6 @@
 #include "SerialBLEInterface.h"
 #include "esp_mac.h"
-#include "../TransportLog.h"
+#include "../DebugRing.h"
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -316,23 +316,23 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
   // Drain actual GATT link events captured in the BT-task callbacks into the
   // ring (main-loop context, so the ring stays single-writer).
   static uint8_t seen_up = 0, seen_down = 0;
-  // beebo: TLOG_APP_SESSION_START logged here, alongside the link-up event --
+  // beebo: RLOG_ID_APP_SESSION_START logged here, alongside the link-up event --
   // BLE has no separate app-level accept step the way TCP does (a raw socket
   // accept ahead of any frame), the GATT connection itself IS the session,
   // so this is BLE's equivalent of SerialWifiInterface's own accept-path log
   // (see MultiSerialInterface.h's lockOn() comment for why it's logged here,
   // not there).
   while (seen_up != s_ble_link_up_cnt)   {
-    transport_log.log(TLOG_BLE_CONNECT);
+    RLOGH(RLOG_ID_BLE_CONNECT);
     int32_t addr_hi = ((int32_t)_remote_bda[0] << 8) | (int32_t)_remote_bda[1];
     int32_t addr_lo = ((int32_t)_remote_bda[2] << 24) | ((int32_t)_remote_bda[3] << 16)
                      | ((int32_t)_remote_bda[4] << 8) | (int32_t)_remote_bda[5];
-    transport_log.log(TLOG_BLE_CLIENT_ADDR_HI, addr_hi);
-    transport_log.log(TLOG_BLE_CLIENT_ADDR_LO, addr_lo);
-    transport_log.log(TLOG_APP_SESSION_START, TLOG_XPORT_BLE);
+    RLOGM(RLOG_ID_BLE_CLIENT_ADDR_HI, addr_hi);
+    RLOGM(RLOG_ID_BLE_CLIENT_ADDR_LO, addr_lo);
+    RLOGH(RLOG_ID_APP_SESSION_START, RLOG_ID_XPORT_BLE);
     seen_up++;
   }
-  while (seen_down != s_ble_link_down_cnt) { transport_log.log(TLOG_BLE_DISCONNECT); seen_down++; }
+  while (seen_down != s_ble_link_down_cnt) { RLOGH(RLOG_ID_BLE_DISCONNECT); seen_down++; }
 
   if (send_queue_len > 0   // first, check send queue
     && millis() >= _last_write + BLE_WRITE_MIN_INTERVAL    // space the writes apart
@@ -401,7 +401,7 @@ bool SerialBLEInterface::isConnected() const {
 
 void SerialBLEInterface::requestHealthSample() {
   // beebo: gated on the radio being up, not on a central being connected --
-  // mirrors TLOG_WIFI_HEALTH's own gating (_wifi_up, not a live app
+  // mirrors RLOG_ID_WIFI_HEALTH's own gating (_wifi_up, not a live app
   // session), so a heap reading is available the moment BLE is turned on,
   // same as WiFi's.
   //
@@ -421,5 +421,5 @@ void SerialBLEInterface::requestHealthSample() {
   _last_health_sample_ms = millis();
   uint16_t heap_kb = (uint16_t)(ESP.getFreeHeap() / 1024);
   int32_t detail = (int32_t)heap_kb | ((int32_t)(uint8_t)BLE_RSSI_UNAVAILABLE << 16);
-  transport_log.log(TLOG_BLE_HEALTH, detail);
+  RLOGL(RLOG_ID_BLE_HEALTH, detail);
 }

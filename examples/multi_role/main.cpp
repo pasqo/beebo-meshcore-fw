@@ -1,7 +1,6 @@
 #include "Beebo.h"
 
-#include <helpers/DebugLog.h>
-#include <helpers/TransportLog.h>
+#include <helpers/DebugRing.h>
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 #include <SPIFFS.h>
@@ -50,7 +49,7 @@ static const char* reset_reason_str(esp_reset_reason_t r) {
 }
 
 void setup() {
-  // beebo: the true earliest possible boot marker -- transport_log.log()
+  // beebo: the true earliest possible boot marker -- RLOGH()
   // only touches RAM/millis() (already ticking well before setup() runs),
   // no Serial dependency at all, so this runs ahead of even
   // Serial.setRxBufferSize()/Serial.begin() below. Unlike a live
@@ -58,10 +57,10 @@ void setup() {
   // listening on the wire yet, see writeFrameBestEffort()'s own comment),
   // this just lands in transport_log's RAM ring and survives to be
   // replayed once a client actually attaches and enables the debug link
-  // (TransportLog::replayTo(), called from checkSerialInterface()'s
+  // (DebugRing::replayRing(), called from checkSerialInterface()'s
   // BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling).
   //
-  transport_log.log(TLOG_BOOT_START, (int32_t)esp_reset_reason());
+  RLOGH(RLOG_ID_BOOT_START, (int32_t)esp_reset_reason());
   // beebo: raising the baud rate alone (115200 -> 921600, matching esptool's
   // own flashing speed) turned out not to be the real USB OTA bottleneck --
   // measured no change. This board's ARDUINO_USB_MODE=1 build uses the
@@ -106,11 +105,13 @@ void setup() {
   if (!radio_init()) {
     halt();
   }
+  RLOGH(RLOG_ID_BOOT_RADIO_READY, (int32_t)millis());
 
   fast_rng.begin(radio_driver.getRngSeed());
 
   SPIFFS.begin(true);
   store.begin();
+  RLOGH(RLOG_ID_BOOT_STORAGE_READY, (int32_t)millis());
   beebo.begin();
 
   sensors.begin();
@@ -131,6 +132,8 @@ void setup() {
   // Confirm this firmware is healthy so the bootloader doesn't roll back.
   // No-op if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is not set.
   esp_ota_mark_app_valid_cancel_rollback();
+
+  RLOGH(RLOG_ID_BOOT_COMPLETE, (int32_t)millis());
 }
 
 void loop() {
