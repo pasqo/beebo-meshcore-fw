@@ -5989,9 +5989,8 @@ void Beebo::bringUpTcp_(bool after_ble_teardown) {
     wifi_interface.begin(TCP_PORT);
     serial_interface.addInterface(&wifi_interface, nullptr, nullptr, true, RLOG_ID_XPORT_TCP);
     _wifi_added = true;
-  } else {
-    wifi_interface.enable();
   }
+  wifi_interface.enable();
 }
 
 // The one orthogonal region -- USB has no radio to arbitrate and is
