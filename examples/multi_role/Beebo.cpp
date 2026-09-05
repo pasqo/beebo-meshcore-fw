@@ -6018,7 +6018,9 @@ void Beebo::driveUsb(bool usb_on) {
           // usb_interface.isConnected().
           serial_interface.addInterface(
             &usb_interface,
-            []() -> bool { return (bool)Serial && beebo.usb_interface.isConnected(); },
+            []() -> bool {
+              return (bool)Serial && beebo.usb_interface.isConnected();
+            },
             nullptr, false, RLOG_ID_XPORT_USB);
           _usb_added = true;
         }

@@ -257,7 +257,11 @@
 #define DLOG_ID_BLE_TORN_DOWN              2   // Beebo.cpp: BLE radio deinit complete, heap snapshot
 #define DLOG_ID_WIFI_TORN_DOWN             3   // Beebo.cpp: WiFi radio deinit complete, heap-capability snapshot
 #define DLOG_ID_WIFI_BRINGUP_AFTER_BLE     4   // Beebo.cpp: WiFi bring-up right after a BLE teardown in the same switch, BT controller status snapshot
-// 5-99 reserved for future non-trace DLOGH/M/L call sites.
+#define DLOG_ID_ACK_TABLE_MATCH            5   // BeeboCompanion.cpp processAck(): expected_ack_table[] match found, about to push PUSH_CODE_SEND_CONFIRMED
+#define DLOG_ID_ACK_TABLE_WRITE_RESULT     6   // BeeboCompanion.cpp processAck(): writeFrame() return value for the PUSH_CODE_SEND_CONFIRMED push
+#define DLOG_ID_ACK_CONNECTIONS_FALLBACK   7   // BeeboCompanion.cpp processAck(): no expected_ack_table[] match, falling through to checkConnectionsAck()
+#define DLOG_ID_ACK_NO_MATCH               8   // BeeboCompanion.cpp processAck(): neither expected_ack_table[] nor checkConnectionsAck() matched
+// 9-99 reserved for future non-trace DLOGH/M/L call sites.
 // beebo: BEEBO_USB_RXTX_TRACE (DualModeSerialInterface.cpp) opt-in trace ids.
 #define DLOG_ID_USB_RX_TRACE               100   // one byte read off the wire, with the parser state it landed in
 #define DLOG_ID_USB_TX_TRACE               101   // one writeFrame() call sending a frame out

@@ -12,6 +12,7 @@
 // radio-level overrides -- that both roles actually share.
 
 #include "Beebo.h"
+#include <helpers/DebugRing.h>
 
 #if BEEBO_ENABLE_COMPANION_ROLE
 void Beebo::beginCompanion() {
@@ -129,11 +130,15 @@ ContactInfo*  Beebo::processAck(const uint8_t *data) {
   // see if matches any in a table
   for (int i = 0; i < EXPECTED_ACK_TABLE_SIZE; i++) {
     if (memcmp(data, &expected_ack_table[i].ack, 4) == 0) { // got an ACK from recipient
+      DLOGM(DLOG_ID_ACK_TABLE_MATCH, "slot=%d ack=%02x%02x%02x%02x", i,
+            data[0], data[1], data[2], data[3]);
       out_frame[0] = PUSH_CODE_SEND_CONFIRMED;
       memcpy(&out_frame[1], data, 4);
       uint32_t trip_time = _ms->getMillis() - expected_ack_table[i].msg_sent;
       memcpy(&out_frame[5], &trip_time, 4);
-      _serial->writeFrame(out_frame, 9);
+      size_t written = _serial->writeFrame(out_frame, 9);
+      DLOGM(DLOG_ID_ACK_TABLE_WRITE_RESULT, "written=%u trip_time=%u",
+            (unsigned)written, (unsigned)trip_time);
       emitAckResultEvent(TXCONFIRM_SUCCESS, expected_ack_table[i].tx_pkt_hash, trip_time);
 
       // NOTE: the same ACK can be received multiple times!
@@ -141,7 +146,13 @@ ContactInfo*  Beebo::processAck(const uint8_t *data) {
       return expected_ack_table[i].contact;
     }
   }
-  return checkConnectionsAck(data);
+  DLOGM(DLOG_ID_ACK_CONNECTIONS_FALLBACK, "ack=%02x%02x%02x%02x",
+        data[0], data[1], data[2], data[3]);
+  ContactInfo* result = checkConnectionsAck(data);
+  if (result == NULL) {
+    DLOGM(DLOG_ID_ACK_NO_MATCH, "no match in expected_ack_table or connections");
+  }
+  return result;
 }
 
 // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- walks every in-flight slot, not

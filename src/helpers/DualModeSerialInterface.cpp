@@ -203,7 +203,7 @@ bool DualModeSerialInterface::pollRawControl(uint8_t& sub_id, uint8_t& data) {
   // DEBUG_LOG_ENABLE, `beebo dbglog`/`beebo -d`'s standalone enable/resend)
   // is an observer, not a session, and must never look like a connected
   // app session on its own.
-  if (sub_id == BEEBO_RAW_SUB_KEEPALIVE) _last_byte_at = millis();
+  if (sub_id == BEEBO_RAW_SUB_KEEPALIVE) { _last_byte_at = millis(); _seen_traffic = true; }
   return true;
 }
 
@@ -438,6 +438,7 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
           if (c < 0) break;
           rx_len++;
           _last_byte_at = millis();
+          _seen_traffic = true;
           continue;
         }
         int got = _serial->readBytes(&rx_buf[rx_len], want);
@@ -447,6 +448,7 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
 #endif
         rx_len += got;
         _last_byte_at = millis();
+        _seen_traffic = true;
       }
       if (rx_len < _frame_len) return 0;   // still waiting on more bytes
       size_t out_len = _frame_len > max_len ? max_len : _frame_len;
@@ -460,6 +462,7 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
     if (c < 0) return 0;
     USB_RX_TRACE(c, _state);
     _last_byte_at = millis();
+    _seen_traffic = true;
 
     switch (_state) {
       case MODE_IDLE:
