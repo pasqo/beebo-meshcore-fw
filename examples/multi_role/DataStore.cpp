@@ -481,6 +481,7 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
   saveAbi();
 }
 
+#if BEEBO_ENABLE_COMPANION_ROLE
 void DataStore::loadContacts(DataStoreHost* host) {
 File file = openRead(_getContactsChannelsFS(), "/contacts3");
     if (file) {
@@ -589,6 +590,7 @@ void DataStore::saveChannels(DataStoreHost* host) {
     file.close();
   }
 }
+#endif // BEEBO_ENABLE_COMPANION_ROLE
 
 inline void makeBlobPath(const uint8_t key[], int key_len, char* path, size_t path_size) {
   char fname[18];

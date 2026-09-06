@@ -15,6 +15,11 @@
 // definition.
 struct BeeboPrefs;
 
+// beebo: BASECHATMESH_ROLE_SPLIT.md Phase 1 -- contact/channel storage is
+// companion-only (upstream simple_repeater never has a contacts table,
+// it uses ClientACL instead), so this whole contract only needs to exist
+// for a build that compiles BaseChatMesh in.
+#if BEEBO_ENABLE_COMPANION_ROLE
 class DataStoreHost {
 public:
   virtual bool onContactLoaded(const ContactInfo& contact) =0;
@@ -22,6 +27,7 @@ public:
   virtual bool onChannelLoaded(uint8_t channel_idx, const ChannelDetails& ch) =0;
   virtual bool getChannelForSave(uint8_t channel_idx, ChannelDetails& ch) =0;
 };
+#endif
 
 class DataStore {
   FILESYSTEM* _fs;
@@ -122,10 +128,12 @@ public:
   // REPEATER_PREFS_VERSION.
   bool loadBeeboRepeaterPrefs(BeeboPrefs& prefs, BeeboBoardPrefs& board, void* com_prefs, size_t com_prefs_len);
   void saveBeeboRepeaterPrefs(const BeeboPrefs& prefs, const BeeboBoardPrefs& board, const void* com_prefs, size_t com_prefs_len);
+#if BEEBO_ENABLE_COMPANION_ROLE
   void loadContacts(DataStoreHost* host);
   void saveContacts(DataStoreHost* host, bool (*filter)(const ContactInfo& c) = NULL);
   void loadChannels(DataStoreHost* host);
   void saveChannels(DataStoreHost* host);
+#endif
   uint8_t getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]);
   bool putBlobByKey(const uint8_t key[], int key_len, const uint8_t src_buf[], uint8_t len);
   bool deleteBlobByKey(const uint8_t key[], int key_len);

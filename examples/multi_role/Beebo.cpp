@@ -3383,7 +3383,9 @@ void Beebo::handleCmdFrame(size_t len) {
             // only state, see begin()'s role guard)
             if (isCompanion()) {
               resetContacts();
+#if BEEBO_ENABLE_COMPANION_ROLE
               _store->loadContacts(this);
+#endif
             }
 #if BEEBO_ENABLE_REPEATER_ROLE
             // repeater's ACL shared secrets self-heal the same way on next
@@ -4936,7 +4938,9 @@ void Beebo::handleCmdFrame(size_t len) {
           // only state, see begin()'s role guard) -- same as CMD_IMPORT_PRIVATE_KEY
           if (isCompanion()) {
             resetContacts();
+#if BEEBO_ENABLE_COMPANION_ROLE
             _store->loadContacts(this);
+#endif
           }
 #if BEEBO_ENABLE_REPEATER_ROLE
           if (isRepeater()) acl.load(_store->getPrimaryFS(), self_id);
@@ -5089,12 +5093,16 @@ void Beebo::handleCmdFrame(size_t len) {
   }
 }
 
+#if BEEBO_ENABLE_COMPANION_ROLE
 static bool save_filter(const ContactInfo& c) {
   return c.type != ADV_TYPE_NONE;   // don't save the transient/anon entries
 }
+#endif
 
 void Beebo::saveContacts() {
+#if BEEBO_ENABLE_COMPANION_ROLE
   _store->saveContacts(this, save_filter);
+#endif
 }
 
 void Beebo::checkSerialInterface() {

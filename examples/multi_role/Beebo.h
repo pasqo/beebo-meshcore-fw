@@ -374,7 +374,10 @@ struct RepeaterStats {
   uint32_t n_recv_errors;
 };
 
-class Beebo : public BaseChatMesh, public DataStoreHost
+class Beebo : public BaseChatMesh
+#if BEEBO_ENABLE_COMPANION_ROLE
+    , public DataStoreHost   // beebo: contact/channel storage contract, companion-only (see DataStore.h)
+#endif
 #if BEEBO_ENABLE_REPEATER_ROLE
     , public CommonCLICallbacks   // beebo: CommonCLI (repeater-only) needs this; companion-only static builds skip it entirely
 #endif
@@ -557,11 +560,14 @@ protected:
   uint32_t calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t path_len) const override;
   void onSendTimeout() override;
 
-  // DataStoreHost methods
+  // DataStoreHost methods (contact/channel storage is companion-only --
+  // see DataStore.h's own BASECHATMESH_ROLE_SPLIT.md Phase 1 comment)
+#if BEEBO_ENABLE_COMPANION_ROLE
   bool onContactLoaded(const ContactInfo& contact) override { return addContact(contact); }
   bool getContactForSave(uint32_t idx, ContactInfo& contact) override { return getContactByIdx(idx, contact); }
   bool onChannelLoaded(uint8_t channel_idx, const ChannelDetails& ch) override { return setChannel(channel_idx, ch); }
   bool getChannelForSave(uint8_t channel_idx, ChannelDetails& ch) override { return getChannel(channel_idx, ch); }
+#endif
 
   void clearPendingReqs() {
     pending_login = pending_status = pending_telemetry = pending_discovery = pending_req = 0;
@@ -910,8 +916,12 @@ private:
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
 
-  // helpers, short-cuts
-  void saveChannels() { _store->saveChannels(this); }
+  // helpers, short-cuts (contact/channel storage is companion-only)
+  void saveChannels() {
+#if BEEBO_ENABLE_COMPANION_ROLE
+    _store->saveChannels(this);
+#endif
+  }
   void saveContacts();
 
   DataStore* _store;
