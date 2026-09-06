@@ -317,7 +317,7 @@ public:
   // non-owner index, evicting whichever sub-transport it's given.
   void pollAndEvictIfConnected(int i, uint8_t scratch[], size_t scratch_len) {
     size_t n = _transports[i].iface->checkRecvFrame(scratch, scratch_len);
-    bool stray = (_transports[i].type == RLOG_ID_XPORT_USB) ? (n > 0) : transportConnected(i);
+    bool stray = (_transports[i].type == RLOG_ID_XPORT_USB) ? (n > 0) : connectedPastGrace(i);
     if (stray) {
       RLOGH(RLOG_ID_APP_SESSION_EVICTED, _transports[i].type);
       _transports[i].iface->resetParserState();
@@ -368,18 +368,22 @@ public:
         }
 
         // Poll every enabled transport; first frame wins and locks in.
-        // Whichever ones don't produce that frame still get evicted if they
-        // report themselves connected, so a stray connect gets rejected
-        // even with no session owner yet -- except USB (n is already known
-        // 0 here), see pollAndEvictIfConnected()'s own comment on why
-        // isConnected() is the wrong signal for it.
+        // Whichever ones don't produce that frame still get evicted once
+        // they've been connected past CONNECT_GRACE_MS with nothing to show
+        // for it, so a genuinely stray connect gets rejected even with no
+        // session owner yet -- except USB (n is already known 0 here), see
+        // pollAndEvictIfConnected()'s own comment on why isConnected() is
+        // the wrong signal for it. The grace window (connectedPastGrace())
+        // is what stops this from evicting a legitimate reconnect on the
+        // very tick it's accepted, before its first APP_START frame has had
+        // time to arrive -- see _connected_since_ms's own comment.
         int winner = -1;
         for (int i = 0; i < _count; i++) {
           if (!_transports[i].iface->isEnabled()) continue;
           if (winner < 0) {
             size_t n = _transports[i].iface->checkRecvFrame(dest, transportRecvLimit(i, max_len));
             if (n > 0) { winner = i; result = n; continue; }
-            if (_transports[i].type != RLOG_ID_XPORT_USB && transportConnected(i)) {
+            if (_transports[i].type != RLOG_ID_XPORT_USB && connectedPastGrace(i)) {
               RLOGH(RLOG_ID_APP_SESSION_EVICTED, _transports[i].type);
               _transports[i].iface->resetParserState();
             }
@@ -491,4 +495,33 @@ private:
   // immediate-release path, not to any host-side code.
   uint32_t _disconnect_since_ms = 0;
   static const uint32_t DISCONNECT_DEBOUNCE_MS = 300;
+
+  // beebo: per-transport "connected but hasn't produced a frame yet"
+  // timestamp, 0 = not currently observing this condition -- same debounce
+  // shape as _disconnect_since_ms/DISCONNECT_DEBOUNCE_MS above, but guards
+  // the opposite race: a transport that just this tick accepted a new peer
+  // (WiFi's server.available(), BLE's GATT connect) hasn't had a single
+  // tick's worth of time for its first APP_START frame to actually arrive
+  // over the wire yet -- accept and "do you have data" are two separate
+  // round-trips, not one. Without this, connectedPastGrace() below would
+  // treat "brand new, hasn't spoken yet" the same as "stray peer that's
+  // been silently connected for a while," and evict a legitimate reconnect
+  // before it ever gets to send its first frame. Root-caused via hardware
+  // repro 2026-09-05: a TCP reconnect immediately after a clean disconnect
+  // intermittently got APP_SESSION_EVICTED with no APP_START in between
+  // (see BUGS.md).
+  uint32_t _connected_since_ms[MULTI_TRANSPORT_MAX] = {0};
+  static const uint32_t CONNECT_GRACE_MS = 300;
+
+  // True only once transportConnected(i) has held continuously for at
+  // least CONNECT_GRACE_MS -- see _connected_since_ms's own comment.
+  // Resets the timestamp to 0 the instant the transport reports
+  // disconnected, so a later connect starts counting from zero again
+  // rather than from a stale earlier timestamp.
+  bool connectedPastGrace(int i) {
+    if (!transportConnected(i)) { _connected_since_ms[i] = 0; return false; }
+    uint32_t now = millis();
+    if (_connected_since_ms[i] == 0) _connected_since_ms[i] = now;
+    return now - _connected_since_ms[i] >= CONNECT_GRACE_MS;
+  }
 };
