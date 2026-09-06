@@ -52,7 +52,7 @@ class MultiSerialInterface : public BaseSerialInterface {
   // sub-transport's real link power (driveBtp()/driveUsb() own that
   // independently), so this is a session-scope fact, not a link-scope one.
   //
-  // No fourth "disconnect pending" state: unlike BTP_BLE_PENDING/
+  // No fourth "disconnect pending" state: unlike BTP_BLE_OFF_WAIT/
   // BTP_TCP_BACKOFF (Beebo.h), which can persist for many ticks waiting on
   // a real condition/timer, a disconnect request always resolves on the
   // very next tick (Beebo.cpp already guards disconnectActive() behind

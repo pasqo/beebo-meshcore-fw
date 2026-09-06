@@ -5787,17 +5787,17 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
     case BTP_OFF:
       if (ble_on)      {
         bringUpBle_(/*after_wifi_teardown=*/false);
-        next = BTP_BLE_STARTING;
+        next = BTP_BLE_UP_WAIT;
       }
       else if (tcp_on) {
         bringUpTcp_(/*after_ble_teardown=*/false);
-        next = BTP_TCP_STARTING;
+        next = BTP_TCP_UP_WAIT;
       }
       break;
 
-    case BTP_BLE_STARTING:
+    case BTP_BLE_UP_WAIT:
       if (!ble_on) {
-        next = session_live_on_ble ? BTP_BLE_PENDING : teardownBleThen_(ble_on, tcp_on);
+        next = session_live_on_ble ? BTP_BLE_OFF_WAIT : teardownBleThen_(ble_on, tcp_on);
       } else if (ble_connected) {
         next = BTP_BLE_UP;
       }
@@ -5805,23 +5805,23 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
 
     case BTP_BLE_UP:
       if (!ble_on) {
-        next = session_live_on_ble ? BTP_BLE_PENDING : teardownBleThen_(ble_on, tcp_on);
+        next = session_live_on_ble ? BTP_BLE_OFF_WAIT : teardownBleThen_(ble_on, tcp_on);
       } else if (!ble_connected) {
         // BLE stack resumes advertising on its own after a central
         // disconnects -- no action needed, just reflect it.
-        next = BTP_BLE_STARTING;
+        next = BTP_BLE_UP_WAIT;
       }
       break;
 
-    case BTP_BLE_PENDING:
+    case BTP_BLE_OFF_WAIT:
       if (!session_live_on_ble) {
         next = teardownBleThen_(ble_on, tcp_on);
       }
       break;
 
-    case BTP_TCP_STARTING:
+    case BTP_TCP_UP_WAIT:
       if (!tcp_on || creds_changed) {
-        next = session_live_on_tcp ? BTP_TCP_PENDING : teardownTcpThen_(ble_on, tcp_on);
+        next = session_live_on_tcp ? BTP_TCP_OFF_WAIT : teardownTcpThen_(ble_on, tcp_on);
       } else if (got_ip) {
         WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
         // Re-bind the listening socket: every reassociation (the STA's
@@ -5847,7 +5847,7 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
 
     case BTP_TCP_UP:
       if (!tcp_on || creds_changed) {
-        next = session_live_on_tcp ? BTP_TCP_PENDING : teardownTcpThen_(ble_on, tcp_on);
+        next = session_live_on_tcp ? BTP_TCP_OFF_WAIT : teardownTcpThen_(ble_on, tcp_on);
       } else if (disconnected) {
         WIFI_DEBUG_PRINTLN("WiFi disconnected. Backing off before retry...");
         _tcp_backoff_started_ms = millis();
@@ -5857,7 +5857,7 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
 
     case BTP_TCP_BACKOFF:
       if (!tcp_on || creds_changed) {
-        next = session_live_on_tcp ? BTP_TCP_PENDING : teardownTcpThen_(ble_on, tcp_on);
+        next = session_live_on_tcp ? BTP_TCP_OFF_WAIT : teardownTcpThen_(ble_on, tcp_on);
       } else if (backoff_elapsed) {
         // beebo: only place a lost TCP connection is ever retried. Gated
         // on elapsed time, not on WiFi.status() (ambiguous between
@@ -5865,11 +5865,11 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
         // plans/TRANSPORT_STATE_MACHINE.md).
         WIFI_DEBUG_PRINTLN("Attempting WiFi reconnect...");
         WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
-        next = BTP_TCP_STARTING;
+        next = BTP_TCP_UP_WAIT;
       }
       break;
 
-    case BTP_TCP_PENDING:
+    case BTP_TCP_OFF_WAIT:
       if (!session_live_on_tcp) {
         next = teardownTcpThen_(ble_on, tcp_on);
       }
@@ -5893,15 +5893,15 @@ Beebo::BtpState Beebo::teardownBleThen_(bool ble_on, bool tcp_on) {
   DLOGM(DLOG_ID_BLE_TORN_DOWN, "ble torn down, heap=%u", (unsigned)ESP.getFreeHeap());
   if (tcp_on) {
     bringUpTcp_(/*after_ble_teardown=*/true);
-    return BTP_TCP_STARTING;
+    return BTP_TCP_UP_WAIT;
   }
   if (ble_on) {
-    // Only reachable from the BTP_BLE_PENDING case -- config flipped back
+    // Only reachable from the BTP_BLE_OFF_WAIT case -- config flipped back
     // on while still waiting on the old session to end. BLE was never
     // actually torn down until the line above, so this is a fresh
     // bring-up, not a silent resume.
     bringUpBle_(/*after_wifi_teardown=*/false);
-    return BTP_BLE_STARTING;
+    return BTP_BLE_UP_WAIT;
   }
   return BTP_OFF;
 }
@@ -5927,13 +5927,13 @@ Beebo::BtpState Beebo::teardownTcpThen_(bool ble_on, bool tcp_on) {
   board.setInhibitSleep(false);
   if (ble_on) {
     bringUpBle_(/*after_wifi_teardown=*/true);
-    return BTP_BLE_STARTING;
+    return BTP_BLE_UP_WAIT;
   }
   if (tcp_on) {
-    // creds_changed path, or BTP_TCP_PENDING flipped back on while
+    // creds_changed path, or BTP_TCP_OFF_WAIT flipped back on while
     // waiting -- either way, a fresh rejoin using current prefs.
     bringUpTcp_(/*after_ble_teardown=*/false);
-    return BTP_TCP_STARTING;
+    return BTP_TCP_UP_WAIT;
   }
   return BTP_OFF;
 }

@@ -740,8 +740,8 @@ private:
   // any other function).
   enum BtpState : uint8_t {
     BTP_OFF,
-    BTP_BLE_STARTING, BTP_BLE_UP, BTP_BLE_PENDING,
-    BTP_TCP_STARTING, BTP_TCP_UP, BTP_TCP_BACKOFF, BTP_TCP_PENDING,
+    BTP_BLE_UP_WAIT, BTP_BLE_UP, BTP_BLE_OFF_WAIT,
+    BTP_TCP_UP_WAIT, BTP_TCP_UP, BTP_TCP_BACKOFF, BTP_TCP_OFF_WAIT,
   };
   BtpState _btp_state = BTP_OFF;
   // millis() this session's current TCP_BACKOFF was entered -- gates the
@@ -753,7 +753,7 @@ private:
   // only ever be called once per interface (ble_interface.begin() vs.
   // initRadio() on later re-bring-ups; wifi_interface.begin(TCP_PORT) vs.
   // enable() likewise). Not folded into BtpState since re-entering
-  // BTP_BLE_STARTING/BTP_TCP_STARTING after a teardown must NOT repeat
+  // BTP_BLE_UP_WAIT/BTP_TCP_UP_WAIT after a teardown must NOT repeat
   // addInterface().
   bool _ble_added = false;        // true once ble_interface has been added to serial_interface
   bool _wifi_added = false;       // true once wifi_interface has been added to serial_interface
