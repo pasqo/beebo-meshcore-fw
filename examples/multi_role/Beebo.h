@@ -802,7 +802,7 @@ private:
   // in DebugRing.h for why it exists (nothing else logged catches the
   // TCP-reachability-degrades-after-a-live-switch bug, BUGS.md 2026-08-31).
   unsigned long _last_wifi_health_sample_ms = 0;
-  static const uint32_t WIFI_HEALTH_SAMPLE_MS = 3000;
+  static const uint32_t WIFI_HEALTH_SAMPLE_MS = 60000;
 
   void beginTransports();       // called from begin(): bring up transports per persisted prefs
   void loopTransports();        // called from loop(): STA-event drain, driveBtp()/driveUsb() tick

@@ -426,13 +426,14 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
       // do stuff here on connecting
       pServer->getAdvertising()->stop();
       adv_restart_time = 0;
-      // beebo: don't wait for requestHealthSample()'s own periodic cadence
-      // -- it may already have been satisfied minutes ago, while nobody
-      // was even connected yet (during advertising), and a connection
-      // this short-lived (a single non-interactive CLI command) can end
-      // before that cadence comes around again. See
-      // _requestRssiReadIfIdle()'s own comment for the rest.
-      _requestRssiReadIfIdle();
+      // beebo: force requestHealthSample()'s own periodic cadence to fire
+      // on the very next loopTransports() tick instead of waiting for
+      // whatever's left of BLE_HEALTH_SAMPLE_MS -- that cadence may
+      // already have been satisfied minutes ago, while nobody was even
+      // connected yet (during advertising), and a connection this
+      // short-lived (a single non-interactive CLI command) can otherwise
+      // end before the next periodic sample ever comes around.
+      _last_health_sample_ms = millis() - BLE_HEALTH_SAMPLE_MS;
     }
     oldDeviceConnected = deviceConnected;
   }
@@ -475,11 +476,15 @@ void SerialBLEInterface::_requestRssiReadIfIdle() {
 }
 
 void SerialBLEInterface::requestHealthSample() {
-  // beebo: gated on the radio being up, not on a central being connected --
-  // mirrors RLOG_ID_WIFI_HEALTH's own gating (_wifi_up, not a live app
-  // session), so a heap reading is available the moment BLE is turned on,
-  // same as WiFi's.
-  if (!_isEnabled) return;
+  // beebo: unlike RLOG_ID_WIFI_HEALTH (gated on the radio being up, not a
+  // live app session -- WiFi's heap/channel reading is meaningful the
+  // moment the STA associates, before any companion app connects), BLE's
+  // own heap number never actually moves between samples while
+  // advertising with nobody connected, and rssi is only ever
+  // BLE_RSSI_UNAVAILABLE until a central shows up to read it from -- so a
+  // sample logged in that state is pure noise. Gated on deviceConnected,
+  // not just _isEnabled/advertising.
+  if (!_isEnabled || !deviceConnected) return;
   if (millis() - _last_health_sample_ms < BLE_HEALTH_SAMPLE_MS) return;
   _last_health_sample_ms = millis();
   uint16_t heap_kb = (uint16_t)(ESP.getFreeHeap() / 1024);

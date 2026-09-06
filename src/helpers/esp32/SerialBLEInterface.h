@@ -23,7 +23,7 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   char _dev_name[48];   // saved so the radio can be torn down and re-inited
   esp_bd_addr_t _remote_bda;   // connected central's link-layer address (onConnect); valid while deviceConnected
   unsigned long _last_health_sample_ms;
-  static const uint32_t BLE_HEALTH_SAMPLE_MS = 3000;   // same cadence as SerialWifiInterface's WIFI_HEALTH_SAMPLE_MS
+  static const uint32_t BLE_HEALTH_SAMPLE_MS = 60000;   // same cadence as SerialWifiInterface's WIFI_HEALTH_SAMPLE_MS
   // BLE_RSSI_UNAVAILABLE: esp_ble_gap_read_rssi()'s own "couldn't read"
   // value (see ble_read_rssi_cmpl_evt_param's doc comment in
   // esp_gap_ble_api.h) -- reused as RLOG_ID_BLE_HEALTH's logged RSSI
@@ -152,9 +152,12 @@ public:
   uint32_t getSendQueueFullCount() const { return _send_queue_full_count; }
   uint32_t getRecvQueueFullCount() const { return _recv_queue_full_count; }
 
-  // beebo: called from Beebo::loopTransports() every BLE_HEALTH_SAMPLE_MS
-  // while connected -- kicks off the async RSSI read; RLOG_ID_BLE_HEALTH is
-  // logged later from _gapEventHandler() once the result actually arrives.
+  // beebo: called from Beebo::loopTransports() every tick; no-ops unless a
+  // central is actually connected (see RLOG_ID_BLE_HEALTH's own comment in
+  // DebugRing.h), then at most once per BLE_HEALTH_SAMPLE_MS -- logs
+  // RLOG_ID_BLE_HEALTH itself and kicks off the async RSSI read via
+  // _requestRssiReadIfIdle(); the read's own result is logged separately,
+  // later, once it actually arrives (_gapEventHandler(), RLOG_ID_BLE_RSSI_COMPLETE).
   void requestHealthSample();
 
   // beebo: last completed RSSI reading (BLE_RSSI_UNAVAILABLE if none --

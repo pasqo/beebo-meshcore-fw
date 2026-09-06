@@ -5842,6 +5842,11 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
         // on the main loop() task, the same one that touches
         // wifi_interface everywhere else.
         wifi_interface.rebind();
+        // beebo: force the periodic WIFI_HEALTH_SAMPLE_MS cadence below to
+        // fire on the very next loopTransports() tick instead of waiting
+        // for whatever's left of it from a stale prior TCP session --
+        // same reasoning as SerialBLEInterface's connect-transition reset.
+        _last_wifi_health_sample_ms = millis() - WIFI_HEALTH_SAMPLE_MS;
         next = BTP_TCP_UP;
       } else if (disconnected) {
         WIFI_DEBUG_PRINTLN("WiFi disconnected. Backing off before retry...");

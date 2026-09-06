@@ -115,17 +115,18 @@
 #define RLOG_ID_BLE_CLIENT_ADDR_HI    27
 #define RLOG_ID_BLE_CLIENT_ADDR_LO    28
 // beebo: periodic low-level BLE health sample, mirroring RLOG_ID_WIFI_HEALTH --
-// triggered every BLE_HEALTH_SAMPLE_MS while the radio is enabled
-// (loopTransports() -> SerialBLEInterface::requestHealthSample()), same
-// gating as RLOG_ID_WIFI_HEALTH's own _wifi_up (not a live app session). Low
+// triggered every BLE_HEALTH_SAMPLE_MS (loopTransports() ->
+// SerialBLEInterface::requestHealthSample()), but gated on deviceConnected
+// (a central actually connected), unlike RLOG_ID_WIFI_HEALTH's _wifi_up
+// (not a live app session) -- BLE's own heap number never moves while
+// just advertising with nobody connected, and rssi is unavailable until
+// then anyway, so a sample logged in that state would be pure noise. Low
 // severity, same reasoning as RLOG_ID_WIFI_HEALTH.
-// Heap-only: RSSI is deliberately never read (always logged as 127,
-// SerialBLEInterface's BLE_RSSI_UNAVAILABLE) -- an earlier version issued
-// an async esp_ble_gap_read_rssi() here whenever a central was connected,
-// which raced applyTransportConfig()'s BLE teardown (an outstanding HCI
-// command during deinitRadio()) and reproduced as a hang + watchdog reboot
-// switching back to TCP after BLE (BUGS.md). See requestHealthSample()'s
-// own comment for the full race.
+// detail's rssi field is still always 127 (SerialBLEInterface's
+// BLE_RSSI_UNAVAILABLE) -- the real value only shows up separately, via
+// RLOG_ID_BLE_RSSI_COMPLETE below, once its own async read completes; see
+// RLOG_ID_BLE_RSSI_REQUESTED's own comment for why this event doesn't
+// just read RSSI synchronously into the same detail the way WiFi does.
 // detail: bits 0-15 = free heap in KB (uint16), bits 16-23 = RSSI dBm
 // (int8, two's complement; always 127 -- see above).
 #define RLOG_ID_BLE_HEALTH            29
