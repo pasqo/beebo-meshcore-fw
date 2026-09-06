@@ -24,12 +24,30 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   esp_bd_addr_t _remote_bda;   // connected central's link-layer address (onConnect); valid while deviceConnected
   unsigned long _last_health_sample_ms;
   static const uint32_t BLE_HEALTH_SAMPLE_MS = 3000;   // same cadence as SerialWifiInterface's WIFI_HEALTH_SAMPLE_MS
-  // BLE RSSI is never actually read (see requestHealthSample()'s own
-  // comment for why) -- RLOG_ID_BLE_HEALTH always logs this sentinel for it,
-  // esp_ble_gap_read_rssi()'s own "couldn't read" value (see
-  // ble_read_rssi_cmpl_evt_param's doc comment in esp_gap_ble_api.h),
-  // reused here for "not read at all".
+  // BLE_RSSI_UNAVAILABLE: esp_ble_gap_read_rssi()'s own "couldn't read"
+  // value (see ble_read_rssi_cmpl_evt_param's doc comment in
+  // esp_gap_ble_api.h) -- reused as RLOG_ID_BLE_HEALTH's logged RSSI
+  // whenever no read is currently outstanding (no central connected, or the
+  // last request hasn't completed yet).
   static const int8_t BLE_RSSI_UNAVAILABLE = 127;
+  // beebo: tracing-only, see RLOG_ID_BLE_RSSI_REQUESTED/_COMPLETE/
+  // _TEARDOWN_WHILE_INFLIGHT's own comment in DebugRing.h -- set when
+  // requestHealthSample() issues esp_ble_gap_read_rssi(), cleared by
+  // _gapEventHandler() on ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT. deinitRadio()
+  // checks it purely to log an anomaly if a teardown lands mid-read; it
+  // does NOT wait or cancel on it.
+  volatile bool _rssi_read_inflight;
+  // beebo: last completed RSSI reading, cached for GET_PREFS_TLV readback
+  // (PREFS_TLV_BLE_RSSI) -- set by _gapEventHandler() on
+  // ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT, cleared to BLE_RSSI_UNAVAILABLE on
+  // disconnect/teardown (no central connected, or a read never completed).
+  volatile int8_t _rssi_cache;
+  // beebo: only one SerialBLEInterface instance ever exists (ble_interface,
+  // main.cpp) -- needed so the static GAP callback (esp_ble_gap_register_callback()
+  // takes a plain C function pointer, no user-data param) can reach back into
+  // instance state.
+  static SerialBLEInterface* s_instance;
+  static void _gapEventHandler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param);
 
   struct Frame {
     uint8_t len;
@@ -46,6 +64,14 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   uint32_t _recv_queue_full_count = 0;
 
   void clearBuffers() { recv_queue_len = 0; send_queue_len = 0; }
+
+  // beebo: shared by requestHealthSample()'s periodic cadence and
+  // checkRecvFrame()'s connect-transition -- see requestHealthSample()'s
+  // own comment for why the latter needs its own immediate call: a BLE
+  // connection this short-lived (a single non-interactive CLI command)
+  // can end before the periodic cadence -- last satisfied while nobody
+  // was even connected yet, during advertising -- comes around again.
+  void _requestRssiReadIfIdle();
 
 protected:
   // BLESecurityCallbacks methods
@@ -80,6 +106,9 @@ public:
     send_queue_len = recv_queue_len = 0;
     _last_health_sample_ms = 0;
     memset(_remote_bda, 0, sizeof(_remote_bda));
+    _rssi_read_inflight = false;
+    _rssi_cache = BLE_RSSI_UNAVAILABLE;
+    s_instance = this;
   }
 
   /**
@@ -127,6 +156,11 @@ public:
   // while connected -- kicks off the async RSSI read; RLOG_ID_BLE_HEALTH is
   // logged later from _gapEventHandler() once the result actually arrives.
   void requestHealthSample();
+
+  // beebo: last completed RSSI reading (BLE_RSSI_UNAVAILABLE if none --
+  // no central connected, or a read is still outstanding/never
+  // completed). Backs node.ble.rssi (PREFS_TLV_BLE_RSSI, read-only).
+  int8_t getLastRssi() const { return _rssi_cache; }
 };
 
 #if BLE_DEBUG_LOGGING && ARDUINO

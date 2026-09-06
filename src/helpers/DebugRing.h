@@ -154,6 +154,23 @@
 #define RLOG_ID_BOOT_STORAGE_READY     41   // SPIFFS + DataStore mounted
 #define RLOG_ID_BOOT_TRANSPORTS_READY  42   // Beebo::beginTransports() returned
 #define RLOG_ID_BOOT_COMPLETE          43   // setup() finished, app marked valid
+// beebo: BLE RSSI async-request tracing -- reintroduces esp_ble_gap_read_rssi()
+// (see RLOG_ID_BLE_HEALTH's own comment for why it was removed: an earlier
+// version raced it against applyTransportConfig()'s BLE teardown and
+// reproduced as a hang + watchdog reboot), purely to observe via the ring
+// how often a teardown actually lands while a read is still outstanding --
+// not a fix (no wait/cancel yet), just instrumentation to size the problem
+// before deciding whether/how to build one. REQUESTED/COMPLETE bracket one
+// read's lifetime (detail: RSSI dBm, int8 two's complement, for COMPLETE
+// only -- REQUESTED's detail is unused/0); TEARDOWN_WHILE_INFLIGHT fires
+// from SerialBLEInterface::deinitRadio() when it runs while a read is still
+// outstanding (detail unused/0, just a marker). High severity (not Low, like
+// RLOG_ID_BLE_HEALTH) so TEARDOWN_WHILE_INFLIGHT is always ring-captured,
+// even in a non-verbose build -- this is exactly the anomaly this
+// instrumentation exists to catch.
+#define RLOG_ID_BLE_RSSI_REQUESTED               44
+#define RLOG_ID_BLE_RSSI_COMPLETE                45
+#define RLOG_ID_BLE_RSSI_TEARDOWN_WHILE_INFLIGHT  46
 // beebo: one tracked variable's boot value (INIT) or a later change to it
 // (CHANGE) -- see RLOG_ID_XPORT_VAR_* below for detail's (id, old, new)
 // layout; old is RLOG_XPORT_VAR_NO_PREV_VALUE (0xFF) on INIT. The three

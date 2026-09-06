@@ -563,6 +563,9 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_RADIO_TXPOWER,  TLV_U32,   tlvGetRadioTxpower, tlvSetRadioTxpower, nullptr, nullptr },
   { PREFS_TLV_DEFAULT_SCOPE_NAME, TLV_STRING, nullptr, nullptr, tlvGetDefaultScopeName, tlvSetDefaultScopeName },
   { PREFS_TLV_DEFAULT_SCOPE_KEY,  TLV_STRING, nullptr, nullptr, tlvGetDefaultScopeKey,  tlvSetDefaultScopeKey },
+  { PREFS_TLV_WIFI_IP,            TLV_STRING, nullptr, nullptr, tlvGetWifiIp,           nullptr },
+  { PREFS_TLV_WIFI_RSSI,          TLV_U32,    tlvGetWifiRssi, nullptr, nullptr, nullptr },
+  { PREFS_TLV_BLE_RSSI,           TLV_U32,    tlvGetBleRssi,  nullptr, nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 
@@ -623,7 +626,7 @@ bool Beebo::applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, si
   if (f == nullptr) { pos += vlen; return false; }
 
   if (f->type == TLV_STRING) {
-    bool ok = f->set_str(this, role, &in[pos], vlen);
+    bool ok = f->set_str != nullptr && f->set_str(this, role, &in[pos], vlen);
     pos += vlen;
     return ok;
   }
@@ -631,6 +634,7 @@ bool Beebo::applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, si
   uint32_t raw;
   memcpy(&raw, &in[pos], 4);
   pos += 4;
+  if (f->set_raw == nullptr) return false;
   return f->set_raw(this, role, raw);
 }
 

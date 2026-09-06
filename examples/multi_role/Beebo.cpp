@@ -2209,6 +2209,28 @@ int Beebo::tlvGetWifiPwdSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t m
 // BEEBO_CMD_SET_WIFI_CREDS's combined ssid\0pwd\0 payload, an empty value
 // here clears the password rather than leaving it unchanged -- with
 // separate keys, the caller simply omits the key it doesn't want to touch.
+// TLV_STRING get_str for PREFS_TLV_WIFI_IP: reads _wifi_ip_cache directly,
+// role-agnostic (see the key's own comment in Beebo.h) -- empty string
+// means WiFi is off or the STA hasn't associated yet. No set_str: this
+// field is never written over the wire at all.
+int Beebo::tlvGetWifiIp(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+  size_t n = strlen(self->_wifi_ip_cache);
+  if (n > max_len) n = max_len;
+  memcpy(out, self->_wifi_ip_cache, n);
+  return (int)n;
+}
+// get_raw for PREFS_TLV_WIFI_RSSI: reads _wifi_rssi_cache directly, same
+// role-agnostic/read-only shape as tlvGetWifiIp above. Sign-extended into
+// the u32 the same way tlvGetRadioTxpower does.
+uint32_t Beebo::tlvGetWifiRssi(Beebo* self, uint8_t role) {
+  return (uint32_t)(int32_t)self->_wifi_rssi_cache;
+}
+// get_raw for PREFS_TLV_BLE_RSSI: reads ble_interface's own _rssi_cache
+// (SerialBLEInterface::getLastRssi()), same role-agnostic/read-only/
+// sign-extended shape as tlvGetWifiRssi above.
+uint32_t Beebo::tlvGetBleRssi(Beebo* self, uint8_t role) {
+  return (uint32_t)(int32_t)self->ble_interface.getLastRssi();
+}
 bool Beebo::tlvSetWifiPwd(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
   BeeboRoleState& slot = self->role_state_store[role];
   if (len > sizeof(slot.prefs.wifi_pwd) - 1) len = sizeof(slot.prefs.wifi_pwd) - 1;
@@ -5679,6 +5701,7 @@ void Beebo::loopTransports() {
     uint8_t channel = (uint8_t)WiFi.channel();
     int32_t detail = (int32_t)heap_kb | ((int32_t)(uint8_t)rssi << 16) | ((int32_t)channel << 24);
     RLOGL(RLOG_ID_WIFI_HEALTH, detail);
+    _wifi_rssi_cache = rssi;
   }
 
   // beebo: periodic low-level BLE health sample -- see RLOG_ID_BLE_HEALTH's own
@@ -5698,12 +5721,17 @@ void Beebo::loopTransports() {
   if (disconnected) {
     RLOGH(RLOG_ID_WIFI_STA_DISCONNECTED, _sta_disc_reason);
     _sta_disc_reason = -1;
+    _wifi_ip_cache[0] = '\0';
+    _wifi_rssi_cache = WIFI_RSSI_UNAVAILABLE;
   }
   if (got_ip) {
     IPAddress ip = WiFi.localIP();
     int32_t packed_ip = ((int32_t)ip[0] << 24) | ((int32_t)ip[1] << 16)
                        | ((int32_t)ip[2] << 8) | (int32_t)ip[3];
     RLOGH(RLOG_ID_WIFI_STA_GOT_IP, packed_ip);
+    strncpy(_wifi_ip_cache, ip.toString().c_str(), sizeof(_wifi_ip_cache) - 1);
+    _wifi_ip_cache[sizeof(_wifi_ip_cache) - 1] = '\0';
+    _wifi_rssi_cache = (int8_t)WiFi.RSSI();
     _sta_got_ip = false;
   }
 
@@ -5892,6 +5920,8 @@ Beebo::BtpState Beebo::teardownTcpThen_(bool ble_on, bool tcp_on) {
   wifi_interface.disable();
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);   // fully power down the WiFi radio
+  _wifi_ip_cache[0] = '\0';
+  _wifi_rssi_cache = WIFI_RSSI_UNAVAILABLE;
   // beebo: setAutoReconnect(false) stays permanently off on every bring-up
   // path too (see bringUpTcp_()) -- ESP-IDF's own built-in auto-reconnect
   // calls esp_wifi_disconnect() before esp_wifi_connect() on every
@@ -6496,11 +6526,27 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %s", _role_state->prefs.wifi_ssid);
     } else if (memcmp(key, "wifi.pwd", 8) == 0) {
       sprintf(reply, "> %s", _role_state->prefs.wifi_pwd[0] ? "(set)" : "(unset)");
+    } else if (memcmp(key, "wifi.ip", 7) == 0) {
+      // beebo: read-only, RAM-only run-time value -- see _wifi_ip_cache's
+      // own comment in Beebo.h. Empty means WiFi is off or not yet
+      // associated.
+      sprintf(reply, "> %s", _wifi_ip_cache);
+    } else if (memcmp(key, "wifi.rssi", 9) == 0) {
+      // beebo: read-only, RAM-only run-time value -- see _wifi_rssi_cache's
+      // own comment in Beebo.h. WIFI_RSSI_UNAVAILABLE (127) means WiFi is
+      // off or not yet associated.
+      sprintf(reply, "> %d", (int32_t)_wifi_rssi_cache);
     } else if (memcmp(key, "transports", 10) == 0) {
       sprintf(reply, "> usb=%s ble=%s tcp=%s",
         _role_state->prefs.usb_enabled ? "on" : "off", _role_state->prefs.ble_enabled ? "on" : "off", _role_state->prefs.tcp_enabled ? "on" : "off");
     } else if (memcmp(key, "ble.pin", 7) == 0) {
       sprintf(reply, "> %lu", (unsigned long)_role_state->prefs.ble_pin);
+    } else if (memcmp(key, "ble.rssi", 8) == 0) {
+      // beebo: read-only, RAM-only run-time value -- see
+      // SerialBLEInterface's _rssi_cache/getLastRssi() own comment.
+      // BLE_RSSI_UNAVAILABLE (127) means no central connected, or a read
+      // hasn't completed yet.
+      sprintf(reply, "> %d", (int32_t)ble_interface.getLastRssi());
     } else if (memcmp(key, "ble", 3) == 0) {
       sprintf(reply, "> %s", _role_state->prefs.ble_enabled ? "on" : "off");
     } else if (memcmp(key, "tcp", 3) == 0) {

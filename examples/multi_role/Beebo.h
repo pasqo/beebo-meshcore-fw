@@ -781,6 +781,23 @@ private:
   volatile int  _sta_disc_reason = -1;   // >=0 when a STA disconnect needs logging
   volatile bool _sta_got_ip = false;     // true when a STA got-IP needs logging
 
+  // beebo: RAM-only cache of the STA's current dotted-quad IP, refreshed
+  // in loopTransports() on every got_ip drain and cleared on disconnect --
+  // never persisted, since it's assigned at run time by the AP/DHCP server,
+  // not a stored preference. Backs node.wifi.ip (PREFS_TLV_WIFI_IP,
+  // read-only -- see tlvGetWifiIp).
+  char _wifi_ip_cache[16] = {0};
+  // beebo: RAM-only cache of WiFi.RSSI(), refreshed on the same
+  // WIFI_HEALTH_SAMPLE_MS cadence as RLOG_ID_WIFI_HEALTH (a synchronous
+  // read, unlike BLE's -- see requestHealthSample()'s own comment for why
+  // BLE RSSI has no safe equivalent) and cleared on disconnect/teardown,
+  // same as _wifi_ip_cache above. 127 (WIFI_RSSI_UNAVAILABLE) means WiFi
+  // is off or the STA hasn't associated yet -- a real RSSI reading is
+  // always negative. Backs node.wifi.rssi (PREFS_TLV_WIFI_RSSI, read-only
+  // -- see tlvGetWifiRssi).
+  static const int8_t WIFI_RSSI_UNAVAILABLE = 127;
+  int8_t _wifi_rssi_cache = WIFI_RSSI_UNAVAILABLE;
+
   // beebo: RLOG_ID_WIFI_HEALTH sample cadence -- see that event's own comment
   // in DebugRing.h for why it exists (nothing else logged catches the
   // TCP-reachability-degrades-after-a-live-switch bug, BUGS.md 2026-08-31).
@@ -1273,6 +1290,27 @@ private:
     // TLV_STRING field here.
     PREFS_TLV_DEFAULT_SCOPE_NAME = 50,  // string, up to 30 chars (NodePrefs.default_scope_name)
     PREFS_TLV_DEFAULT_SCOPE_KEY = 51,   // raw 16 bytes, not text (NodePrefs.default_scope_key)
+    // beebo: run-time-only, never persisted -- read_str backed directly by
+    // _wifi_ip_cache (see its own comment above), no set_str at all
+    // (nullptr), making this the only field in the table with no setter
+    // whatsoever rather than a setter that rejects. The role byte is
+    // accepted but ignored, same as the BeeboBoardPrefs keys above -- there
+    // is one physical WiFi STA association for the whole device, not a
+    // per-role copy, and the cache resets to empty on every role switch
+    // (which always reboots) regardless of which role asks.
+    PREFS_TLV_WIFI_IP = 52,             // string, read-only
+    // beebo: run-time-only, same shape/reasoning as PREFS_TLV_WIFI_IP above
+    // (no set_raw, role byte ignored) -- int8 dBm sign-extended into the
+    // u32 the same way PREFS_TLV_RADIO_TXPOWER already does; 127
+    // (WIFI_RSSI_UNAVAILABLE) means WiFi off/not yet associated.
+    PREFS_TLV_WIFI_RSSI = 53,           // u32 (sign-extended int8), read-only
+    // beebo: same shape as PREFS_TLV_WIFI_RSSI, backed by
+    // ble_interface.getLastRssi() (SerialBLEInterface's own
+    // _rssi_cache) instead -- see that field's own comment for the
+    // async-read tracing this value comes from. BLE_RSSI_UNAVAILABLE
+    // (127) means no central is connected, or a read hasn't completed
+    // yet.
+    PREFS_TLV_BLE_RSSI = 54,            // u32 (sign-extended int8), read-only
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1343,6 +1381,9 @@ private:
   static bool tlvGetWifiPwdSet(Beebo* self, uint8_t role);
   static int tlvGetWifiPwdSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
   static bool tlvSetWifiPwd(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
+  static int tlvGetWifiIp(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static uint32_t tlvGetWifiRssi(Beebo* self, uint8_t role);
+  static uint32_t tlvGetBleRssi(Beebo* self, uint8_t role);
   static int tlvGetRepeaterPasswordSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
   static bool tlvSetRepeaterPassword(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   static int tlvGetGuestPasswordSetStr(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);

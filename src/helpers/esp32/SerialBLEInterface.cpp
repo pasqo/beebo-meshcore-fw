@@ -18,6 +18,20 @@
 static volatile uint8_t s_ble_link_up_cnt = 0;
 static volatile uint8_t s_ble_link_down_cnt = 0;
 
+SerialBLEInterface* SerialBLEInterface::s_instance = nullptr;
+
+// beebo: BLEDevice's custom-gap-handler extension point (see initRadio()'s
+// own comment) -- runs on the BT host task, same as onConnect/onDisconnect
+// above. Currently only cares about the RSSI-read tracing this exists for;
+// every other event is ignored.
+void SerialBLEInterface::_gapEventHandler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param) {
+  if (event != ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT) return;
+  if (s_instance == nullptr) return;
+  s_instance->_rssi_read_inflight = false;
+  s_instance->_rssi_cache = param->read_rssi_cmpl.rssi;
+  RLOGH(RLOG_ID_BLE_RSSI_COMPLETE, (int32_t)param->read_rssi_cmpl.rssi);
+}
+
 void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code) {
   _pin_code = pin_code;
 
@@ -47,6 +61,20 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
 void SerialBLEInterface::initRadio() {
   // Create the BLE Device
   BLEDevice::init(_dev_name);
+  // beebo: (re)register every initRadio() -- deinitRadio() doesn't reset
+  // BLEDevice::m_customGapHandler itself but there's no harm re-arming it.
+  // BLEDevice::init() above already registered ITS OWN gap callback
+  // (BLEDevice::gapEventHandler) with the IDF via
+  // esp_ble_gap_register_callback() -- that's the single global slot the
+  // IDF exposes, already owned by BLEDevice for advertising/security/
+  // scan/client handling, so calling esp_ble_gap_register_callback()
+  // again here directly would silently replace it and break all of that.
+  // setCustomGapHandler() is BLEDevice's own supported extension point
+  // instead: BLEDevice::gapEventHandler() forwards every event to it
+  // after its own switch, so this coexists with security/advertising
+  // rather than replacing them. See _gapEventHandler()'s own comment for
+  // what this exists for.
+  BLEDevice::setCustomGapHandler(_gapEventHandler);
   BLEDevice::setSecurityCallbacks(this);
   BLEDevice::setMTU(MAX_FRAME_SIZE);
 
@@ -77,6 +105,22 @@ void SerialBLEInterface::initRadio() {
 }
 
 void SerialBLEInterface::deinitRadio() {
+  // beebo: pure tracing -- see RLOG_ID_BLE_RSSI_TEARDOWN_WHILE_INFLIGHT's
+  // own comment in DebugRing.h. Logged, not waited/cancelled on: this is
+  // exactly the scenario that used to hang the BT stack (see
+  // requestHealthSample()'s own comment) -- capturing it in the ring lets
+  // a real hang be correlated after the fact with "yes, a read was
+  // actually outstanding right here", without changing teardown behavior
+  // at all yet.
+  if (_rssi_read_inflight) {
+    RLOGH(RLOG_ID_BLE_RSSI_TEARDOWN_WHILE_INFLIGHT);
+    // The stack that would have delivered ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT
+    // is being torn down below -- that completion is never coming, so clear
+    // the flag here rather than leave it stuck true and misreport every
+    // later teardown as another mid-read anomaly.
+    _rssi_read_inflight = false;
+  }
+  _rssi_cache = BLE_RSSI_UNAVAILABLE;
   // release_memory=true never clears BLEDevice's internal "initialized" latch
   // (see BLEDevice::deinit() in the Arduino BLE lib), so a later initRadio()
   // would silently no-op and BLE would never actually come back. false still
@@ -179,6 +223,7 @@ void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param
 void SerialBLEInterface::onDisconnect(BLEServer* pServer) {
   BLE_DEBUG_PRINTLN("onDisconnect()");
   s_ble_link_down_cnt++;   // actual GATT link dropped (logged from main loop)
+  _rssi_cache = BLE_RSSI_UNAVAILABLE;   // stale once the central it was read from is gone
   if (_isEnabled) {
     adv_restart_time = millis() + ADVERT_RESTART_DELAY;
 
@@ -381,6 +426,13 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
       // do stuff here on connecting
       pServer->getAdvertising()->stop();
       adv_restart_time = 0;
+      // beebo: don't wait for requestHealthSample()'s own periodic cadence
+      // -- it may already have been satisfied minutes ago, while nobody
+      // was even connected yet (during advertising), and a connection
+      // this short-lived (a single non-interactive CLI command) can end
+      // before that cadence comes around again. See
+      // _requestRssiReadIfIdle()'s own comment for the rest.
+      _requestRssiReadIfIdle();
     }
     oldDeviceConnected = deviceConnected;
   }
@@ -399,27 +451,39 @@ bool SerialBLEInterface::isConnected() const {
   return deviceConnected;  //pServer != NULL && pServer->getConnectedCount() > 0;
 }
 
+// beebo: RSSI-read tracing (RLOG_ID_BLE_RSSI_REQUESTED/_COMPLETE/
+// _TEARDOWN_WHILE_INFLIGHT's own comment in DebugRing.h has the full
+// story). esp_ble_gap_read_rssi() is async -- an earlier version of
+// requestHealthSample() issued it unconditionally whenever a central was
+// connected, which raced applyTransportConfig()'s BLE teardown
+// (loopTransports() calls requestHealthSample(), then can call
+// ble_interface.disable()+deinitRadio() later in the very same tick on a
+// live BLE->TCP switch) and reproduced on real hardware as a hang +
+// watchdog reboot (BUGS.md). This does NOT fix that race -- it's not
+// gated any differently, still fires the read whenever connected -- it
+// only adds the bookkeeping (_rssi_read_inflight) needed to observe, via
+// the ring, how often a teardown actually lands mid-read in practice,
+// before deciding whether/how to build a real fix. Skips issuing a new
+// read while one is already outstanding, so at most one is ever in flight.
+void SerialBLEInterface::_requestRssiReadIfIdle() {
+  if (!deviceConnected || _rssi_read_inflight) return;
+  esp_err_t rc = esp_ble_gap_read_rssi(_remote_bda);
+  if (rc == ESP_OK) {
+    _rssi_read_inflight = true;
+    RLOGH(RLOG_ID_BLE_RSSI_REQUESTED);
+  }
+}
+
 void SerialBLEInterface::requestHealthSample() {
   // beebo: gated on the radio being up, not on a central being connected --
   // mirrors RLOG_ID_WIFI_HEALTH's own gating (_wifi_up, not a live app
   // session), so a heap reading is available the moment BLE is turned on,
   // same as WiFi's.
-  //
-  // RSSI is deliberately NOT read here. esp_ble_gap_read_rssi() is async
-  // (result lands on the BT task via a GAP event, no synchronous getter
-  // exists on this stack the way WiFi.RSSI() does) -- an earlier version of
-  // this function issued that read whenever a central was connected, which
-  // raced applyTransportConfig()'s BLE teardown: loopTransports() calls
-  // this, then can call ble_interface.disable()+deinitRadio() later in the
-  // very same tick when a live BLE->TCP switch is being applied, tearing
-  // down the Bluedroid stack while an RSSI read could still be outstanding
-  // -- reproduced on real hardware as a hang + watchdog reboot on switching
-  // back to TCP after BLE (BUGS.md). Logging heap-only here removes the
-  // outstanding HCI command entirely, so there's nothing left to race.
   if (!_isEnabled) return;
   if (millis() - _last_health_sample_ms < BLE_HEALTH_SAMPLE_MS) return;
   _last_health_sample_ms = millis();
   uint16_t heap_kb = (uint16_t)(ESP.getFreeHeap() / 1024);
   int32_t detail = (int32_t)heap_kb | ((int32_t)(uint8_t)BLE_RSSI_UNAVAILABLE << 16);
   RLOGL(RLOG_ID_BLE_HEALTH, detail);
+  _requestRssiReadIfIdle();
 }
