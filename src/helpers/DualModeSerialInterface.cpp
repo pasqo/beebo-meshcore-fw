@@ -96,17 +96,13 @@ void DualModeSerialInterface::discardStaleRx() {
 // liveness timer untouched; only the byte-parser's own mid-command state
 // is stale here).
 //
-// beebo: this is release()'s ONLY cleanup call now -- it used to be
-// paired with a separate, unconditional discardStaleRx() (MultiSerialInterface
-// ::release()), which blindly drained *everything* currently buffered
-// regardless of whether it belonged to the session that just ended.
-// Confirmed on real hardware (BEEBO_USB_RXTX_TRACE) that this ate a
-// legitimate, already-arriving <APP_START> frame from a brand-new session
-// racing the old one's release -- the exact failure mode
-// MultiSerialInterface.h's own SESSION_DISABLED->SESSION_IDLE sweep already
-// flagged as a risk for its own (different) discardStaleRx() call. Fixed by
-// only ever discarding bytes that are provably part of the just-abandoned
-// parse, never bytes past that boundary:
+// beebo: this is release()'s ONLY cleanup call. An unconditional
+// discardStaleRx() (MultiSerialInterface::release()) would blindly drain
+// *everything* currently buffered regardless of whether it belongs to the
+// session that just ended -- on real hardware this can eat a legitimate,
+// already-arriving <APP_START> frame from a brand-new session racing the
+// old one's release. So this only ever discards bytes that are provably
+// part of the just-abandoned parse, never bytes past that boundary:
 //  - MODE_IDLE: nothing was in progress -- the parser is already sane,
 //    nothing to discard. This is also by far the common case (a session
 //    almost always ends between frames, not mid-frame).

@@ -110,14 +110,15 @@
 // voltage fell ~150mV past charged_mv, sampled correctly and continuously
 // throughout (see BUGS.md 2026-08-23).
 //
-// batt_present (NodePrefs.batt_present, see BATT_PRESENT_* above) replaces
-// what used to be a fixed absolute-voltage "is this plugged in?" threshold.
-// That can't work in general: once adc.multiplier is properly calibrated, a
-// real LiPo's own max voltage (~4.2V) IS the old threshold, so a full
-// battery and "no battery, running on the charger IC's no-load rail" become
-// indistinguishable by voltage alone. Presence is instead an explicit
-// persisted setting the operator sets once per board. Every non-PLUGGED case
-// checks it first to enter PLUGGED; PLUGGED's own case checks the reverse.
+// batt_present (NodePrefs.batt_present, see BATT_PRESENT_* above) is an
+// explicit persisted setting the operator sets once per board, not a fixed
+// absolute-voltage "is this plugged in?" threshold -- a fixed threshold
+// can't work in general: once adc.multiplier is properly calibrated, a real
+// LiPo's own max voltage (~4.2V) IS that threshold, so a full battery and
+// "no battery, running on the charger IC's no-load rail" become
+// indistinguishable by voltage alone. Every non-PLUGGED case checks
+// batt_present first to enter PLUGGED; PLUGGED's own case checks the
+// reverse.
 inline uint8_t classifyBattTrend(
   uint16_t new_mv,
   uint16_t& ref_mv,

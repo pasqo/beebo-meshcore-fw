@@ -83,11 +83,11 @@ public:
   // queued frames, ...) without a real enable/disable transition -- used by
   // MultiSerialInterface::release() purely to leave a released sub's parser
   // clean for its next session, distinct from an actual power/enabled-state
-  // change. Previously this reused disable()+enable() for the same effect,
-  // but that also logs a real transport disable/enable event and (for
-  // SerialWifiInterface) needlessly tears down and rebinds the listen
-  // socket -- neither of which reflects anything that actually happened.
-  // No-op default for transports with no such state to reset.
+  // change. Deliberately not disable()+enable(): that also logs a real
+  // transport disable/enable event and (for SerialWifiInterface) needlessly
+  // tears down and rebinds the listen socket -- neither of which reflects
+  // anything that actually happened. No-op default for transports with no
+  // such state to reset.
   virtual void resetParserState() { }
 
   virtual bool isConnected() const = 0;

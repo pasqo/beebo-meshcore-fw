@@ -1108,15 +1108,11 @@ void Beebo::loadIdentityForRole(uint8_t role) {
 // persisted state (identity, prefs, and for repeater: ACL/RegionMap) into
 // its own resident role_state_store[] slot, independent of which role is
 // currently live. Called once per compiled-in role from begin() (eager
-// per-role boot load) -- replaces ensureRepeaterStateLoaded()'s lazy
-// load-on-first-repeater-entry model and the ~20 defensive call sites that
-// used to guard against touching not-yet-loaded repeater state. Folds in
-// ensureRepeaterStateLoaded()'s former body (BeeboRepeater.cpp) verbatim
-// for the repeater branch, operating on `slot`/`role` explicitly instead
-// of the implicit "whatever _role_state/self_id currently are" the old
-// lazy version relied on (see acl.load()'s identity-keying fix below --
-// that's the one behavior-relevant change from the old body, everything
-// else is the same load sequence).
+// per-role boot load), so no call site anywhere else needs to guard
+// against touching not-yet-loaded repeater state. For the repeater branch,
+// every load operates on the explicit `slot`/`role` parameters, never on
+// "whichever role happens to be live" -- see acl.load()'s identity-keying
+// below for why that distinction matters.
 void Beebo::loadRoleState(uint8_t role) {
   BeeboRoleState& slot = role_state_store[role];
   loadIdentityForRole(role);
@@ -1269,15 +1265,10 @@ void Beebo::begin() {
 
   // beebo: the per-role state store -- eager per-role boot load. Every
   // compiled-in role gets its own resident role_state_store[] slot loaded
-  // now (identity, prefs, and for repeater ACL/RegionMap -- see
+  // here (identity, prefs, and for repeater ACL/RegionMap -- see
   // loadRoleState()'s own comment), regardless of which is actually live.
-  // This is what fixes the boot-time clobbering bug that the old
-  // single-shared-slot0 design had (loadBeeboCompanionPrefs() and
-  // ensureRepeaterStateLoaded() used to both write into the exact same
-  // _role_state->prefs object, so a companion-configured boot on a
-  // dual-role-tested device silently got its BeeboBasePrefs fields
-  // overwritten by repeater's persisted copies) -- each role now has its
-  // own physically separate slot, so there's nothing left to clobber.
+  // Each role has its own physically separate slot, so one role's load can
+  // never clobber the other's BeeboBasePrefs fields.
 #if BEEBO_ENABLE_COMPANION_ROLE
   loadRoleState(NODE_ROLE_COMPANION);
 #endif
@@ -2593,13 +2584,12 @@ bool Beebo::tlvSetRadioTxpower(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-// beebo: BOARD_BATTERY_PREFS.md -- these seven all address self->_board
-// (BeeboBoardPrefs), not role_state_store[role].prefs, and always apply
-// live/persist regardless of `role`: there's one physical VBAT ADC/
-// battery per board, not one per role, so a board-scoped field is always
-// "live" no matter which role's TLV request wrote it -- the previous
-// `if (role == self->_board.role) ...` live-apply guards only existed
-// because these fields used to (incorrectly) pretend to be per-role.
+// beebo: these seven all address self->_board (BeeboBoardPrefs), not
+// role_state_store[role].prefs, and always apply live/persist regardless of
+// `role`: there's one physical VBAT ADC/battery per board, not one per
+// role, so a board-scoped field is always "live" no matter which role's
+// TLV request wrote it -- no `if (role == self->_board.role) ...` live-apply
+// guard is needed here, unlike a genuinely per-role field.
 uint32_t Beebo::tlvGetAdcMultiplier(Beebo* self, uint8_t role) {
   // beebo: _board.adc_multiplier is the persisted override, 0.0f meaning
   // "use board default" (see setAdcMultiplier()) -- report the resolved,
@@ -2851,12 +2841,9 @@ void Beebo::handleCmdFrame(size_t len) {
     // commands (BaseChatMesh's contract); a node currently running as
     // repeater must refuse them rather than silently acting as a companion
     // over whatever transport (BLE/WiFi/USB) the app happens to be connected
-    // through -- a companion command reachable in
-    // repeater mode risk was previously left unaddressed for this legacy
-    // command set (only CMD_APP_START's self-info reply was role-branched).
-    // CMD_SET/GET_DEFAULT_FLOOD_SCOPE added here for the same reason as the other per-role dirty-routed fields:
-    // "reverted" note: default_scope_name/key is companion's own mechanism
-    // (never given independent repeater-side storage, see
+    // through. CMD_SET/GET_DEFAULT_FLOOD_SCOPE belongs in this refusal list
+    // too: default_scope_name/key is companion's own mechanism (never given
+    // independent repeater-side storage, see
     // saveBeeboRepeaterPrefs()/loadBeeboRepeaterPrefs()); repeater has its
     // own, more capable default-scope mechanism already
     // (RegionMap/getDefaultScope(), GET/SET_REGION_DEFAULT).

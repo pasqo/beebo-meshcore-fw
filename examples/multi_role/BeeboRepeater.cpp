@@ -149,11 +149,11 @@ void Beebo::updateFloodAdvertTimer() {
 // getters/setters below target repeater's own slot explicitly
 // (role_state_store[NODE_ROLE_REPEATER] + persistRoleSlot(), see that
 // function's comment in Beebo.cpp), NOT self->_role_state->prefs (whichever
-// role is currently live) -- fixed 2026-08-10, same bug class as
-// tlvSetName/tlvGet+SetOwnerInfo below and the rxdelay/dedup_window
-// pair above: a `beebo settings repeater.*` write issued while companion was
-// the live role used to silently land in companion's own NodePrefs slot
-// instead (see BUGS.md, kbase/SETTINGS_REFACTOR.md's Known gaps).
+// role is currently live). This must hold for every repeater.*-namespaced
+// accessor: targeting the live-role pointer instead would let a `beebo
+// settings repeater.*` write issued while companion is live silently land
+// in companion's own NodePrefs slot (see kbase/SETTINGS_REFACTOR.md's
+// Known gaps).
 uint32_t Beebo::tlvGetRepeatMode(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   return self->role_state_store[role].prefs.disable_fwd ? 0 : 1;
@@ -424,9 +424,8 @@ bool Beebo::tlvSetFloodMaxAdvert(Beebo* self, uint8_t role, uint32_t raw) {
 // (role_state_store[NODE_ROLE_REPEATER].prefs.node_name, same struct field
 // companion's own "name" upstream key would use if CommonCLI ever served
 // companion role, which it never does here). Both always target repeater's
-// own slot explicitly, regardless of which role is currently live -- fixed
-// 2026-08-10 (previously used self->_role_state->prefs, see this file's own
-// top-of-block comment).
+// own slot explicitly, regardless of which role is currently live -- see
+// this file's own top-of-block comment for why that matters.
 int Beebo::tlvGetOwnerInfo(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   const char* info = self->role_state_store[role].prefs.owner_info;
@@ -654,14 +653,14 @@ bool Beebo::applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, si
 // beebo: PER_ROLE_IDENTITY -- this callback is only ever reached via
 // CommonCLI's "prv.key" text command, which itself is only reachable while
 // repeater is the live role (see the isRepeater()-gated cli.handleCommand()
-// fallthroughs in Beebo.cpp's handleCommand()). So unlike the pre-split
-// shared self_id this used to mirror, a rekey here always targets the
-// *repeater* identity specifically and never touches companion's -- the
-// two are independent identities now. Mirrors CMD_IMPORT_PRIVATE_KEY's own
-// handler (Beebo.cpp) for the repeater-targeted case: recompute ACL shared
-// secrets in place instead of the old unconditional companion contacts
-// reload (companion state isn't even loaded while repeater is active, and
-// doesn't exist at all in a companion-role-disabled static repeater build).
+// fallthroughs in Beebo.cpp's handleCommand()). A rekey here always targets
+// the *repeater* identity specifically and never touches companion's --
+// each role holds its own independent identity. Mirrors
+// CMD_IMPORT_PRIVATE_KEY's own handler (Beebo.cpp) for the repeater-targeted
+// case: recompute ACL shared secrets in place rather than reloading
+// companion contacts (companion state isn't loaded while repeater is
+// active, and doesn't exist at all in a companion-role-disabled static
+// repeater build).
 void Beebo::saveIdentity(const mesh::LocalIdentity& new_id) {
   if (_store->saveRoleIdentity(_board.role, new_id)) {
     self_id = new_id;

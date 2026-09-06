@@ -563,12 +563,10 @@ private:
   // disconnect (cable pulled) still gets caught, just DISCONNECT_DEBOUNCE_MS
   // slower; a transient one-poll blip (e.g. HWCDC's `connected` flag
   // dropping momentarily on a USB_SERIAL_JTAG_INTR_BUS_RESET the peripheral
-  // itself self-recovers from) no longer immediately tears down and
-  // discards an in-flight session over it -- confirmed via a raw
-  // (asyncio-free) pyserial repro that a reply frame's declared length and
-  // actually-delivered length can mismatch (168 declared, 104 delivered,
-  // remainder never arriving) with the loss traced to exactly this
-  // immediate-release path, not to any host-side code.
+  // itself self-recovers from) must not immediately tear down and discard
+  // an in-flight session over it -- an immediate release on that blip can
+  // drop the remainder of an already-in-flight reply frame, since the host
+  // has no way to know the transport considered the session dead mid-frame.
   uint32_t _disconnect_since_ms = 0;
   static const uint32_t DISCONNECT_DEBOUNCE_MS = 300;
 

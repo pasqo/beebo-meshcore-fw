@@ -21,23 +21,13 @@ class DualModeSerialInterface : public BaseSerialInterface {
   // raw control frame ([RAW_MARKER][sub_id][data], see RAW_MARKER below)
   // inline, as two more states of this same parser -- entered from
   // MODE_IDLE the instant RAW_MARKER is read, exactly like '<' enters
-  // MODE_FRAMED_LEN1. This used to be a separate mechanism entirely
-  // (pollRawControl()/hasPendingRawMarker(), called directly on this class
-  // by Beebo::checkSerialInterface() *before* checkRecvFrame() ever ran, to
-  // avoid checkRecvFrame() stealing a marker byte it had no way to
-  // recognize) -- that split required two independent peeks of the same
-  // live stream (one in hasPendingRawMarker(), one in checkRecvFrame()'s own
-  // read), and real hardware bytes arriving in the gap between those two
-  // reads (this is a byte-stream transport with real, asynchronous
-  // hardware latency, not an atomic buffer snapshot) caused exactly the
-  // corruption this replaces: a marker byte that hadn't arrived yet at
-  // hasPendingRawMarker()'s check landing by the time checkRecvFrame() did
-  // its own separate read a few instructions later, getting mis-routed into
-  // MODE_TEXT as if it were an ordinary command byte (confirmed via a live
-  // BEEBO_USB_RXTX_TRACE capture, 2026-09-06). Folding recognition into this
-  // one state machine's one read removes the second peek entirely -- there
-  // is no longer a second, later, independent read of the same byte for a
-  // race to open up in.
+  // MODE_FRAMED_LEN1. Recognition must happen inside this single read of
+  // the live byte stream, not via a separate peek called before
+  // checkRecvFrame() -- this is an asynchronous hardware stream, not an
+  // atomic buffer snapshot, so two independent reads of "is a marker
+  // pending" and "read the next byte" can observe different bytes if a
+  // marker arrives in the gap between them, mis-routing it into MODE_TEXT
+  // as an ordinary command byte.
   enum { MODE_IDLE, MODE_TEXT, MODE_FRAMED_LEN1, MODE_FRAMED_LEN2, MODE_FRAMED_BODY, MODE_RAW_SUB, MODE_RAW_DATA };
 
   bool _isEnabled;

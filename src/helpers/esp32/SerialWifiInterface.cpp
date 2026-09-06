@@ -14,7 +14,7 @@ void SerialWifiInterface::enable() {
   if (_isEnabled) return;
   // beebo: no dedicated log call here -- RLOG_ID_XPORT_LINK_WIFI_IFACE_ENABLED
   // (Beebo::_checkTransportStateChanges()) already captures this transition
-  // every tick, retired 2026-08-31 as a duplicate (see DebugRing.h).
+  // every tick, so a second log call here would be a duplicate.
 
   _isEnabled = true;
   clearBuffers();
@@ -24,9 +24,9 @@ void SerialWifiInterface::enable() {
 
 void SerialWifiInterface::disable() {
   // beebo: see enable()'s comment -- RLOG_ID_XPORT_LINK_WIFI_IFACE_ENABLED
-  // already covers this transition; the deviceConnected-at-disable detail
-  // this used to carry is reconstructable from RLOG_ID_XPORT_LINK_WIFI_IFACE_CONNECTED
-  // around the same timestamp if ever needed.
+  // already covers this transition; the deviceConnected-at-disable detail is
+  // reconstructable from RLOG_ID_XPORT_LINK_WIFI_IFACE_CONNECTED around the
+  // same timestamp if ever needed.
   _isEnabled = false;
   if (deviceConnected) {
     client.stop();
@@ -36,13 +36,12 @@ void SerialWifiInterface::disable() {
   // WiFiServer::begin() no-ops whenever _listening is already true, and
   // only end() clears it. A live tcp-off transport switch calls disable()
   // right before WiFi.mode(WIFI_OFF) tears the whole radio/netif down
-  // (Beebo.cpp's applyTransportConfig()), but without this end() call
-  // _listening stayed stuck true across that teardown -- a later
-  // tcp-on's enable() -> server.begin(_port) then no-op'd, leaving
+  // (Beebo.cpp's applyTransportConfig()); without this end() call
+  // _listening would stay stuck true across that teardown, so a later
+  // tcp-on's enable() -> server.begin(_port) would no-op, leaving
   // isListening()/WL_STATUS both reporting a healthy connection while the
-  // actual listening socket was dead underneath, so no TCP client could
-  // ever connect again. Found via hardware-testing a live tcp-off/tcp-on
-  // cycle (2026-08-31).
+  // actual listening socket is dead underneath and no TCP client can ever
+  // connect again.
   server.end();
   clearBuffers();
   resetReceivedFrameHeader();
