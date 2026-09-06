@@ -5111,15 +5111,22 @@ void Beebo::saveContacts() {
 }
 
 void Beebo::checkSerialInterface() {
-  // beebo: raw-marker control byte, handled directly on usb_interface --
-  // below and independent of _serial (the MultiSerialInterface aggregator)
-  // entirely, so it works even while BLE/TCP holds the companion session,
-  // and never triggers MultiSerialInterface::lockOn() the way a real
-  // CMD_BEEBO frame over USB would (see pollRawControl()'s own comment).
-  // Fire-and-forget by design -- no OK/ERR reply, this sits below the
-  // app/session request-reply layer entirely.
-  uint8_t raw_sub, raw_data;
-  if (usb_interface.pollRawControl(raw_sub, raw_data)) {
+  RecvFrameType frame_type = RecvFrameType::BINARY;
+  size_t len = _serial->checkRecvFrame(cmd_frame, _serial->getMaxRecvFrameSize(), &frame_type);
+  // beebo: while a monring stream is active (capture paused for it), a
+  // well-behaved client sends nothing else until the terminator page — drop
+  // any frame that arrives anyway rather than letting it abort the stream
+  // and leave capture paused. The stream's own disconnect/reset paths are
+  // the only things allowed to end it early (see CMD_DEVICE_QUERY handling).
+  if (_monread.active || _statread.active) len = 0;
+  if (len > 0 && frame_type == RecvFrameType::DEBUG) {
+    // beebo: session-less raw control sub-frame -- see
+    // DualModeSerialInterface.cpp's MODE_RAW_DATA and MultiSerialInterface's
+    // own RecvFrameType handling for why this can arrive regardless of
+    // whether USB holds the companion session, and never establishes/
+    // disturbs one. Fire-and-forget by design -- no OK/ERR reply, this sits
+    // below the app/session request-reply layer entirely.
+    uint8_t raw_sub = cmd_frame[0], raw_data = cmd_frame[1];
     if (raw_sub == BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) {
       bool enabling = raw_data != 0;
       // beebo: replay the ring's full backlog on every disabled -> enabled
@@ -5142,40 +5149,23 @@ void Beebo::checkSerialInterface() {
         debug_ring.setEnabled(enabling);
       }
     }
-    // BEEBO_RAW_SUB_KEEPALIVE: no action needed here -- pollRawControl()
-    // already refreshed usb_interface's _last_byte_at for any raw control
-    // frame regardless of sub_id, which is the only thing this one exists
-    // to do (see DebugRing.h's own comment).
+    // BEEBO_RAW_SUB_KEEPALIVE: no action needed here -- checkRecvFrame()'s
+    // own MODE_RAW_DATA completion already refreshed usb_interface's
+    // _last_byte_at for this sub_id, which is the only thing this one
+    // exists to do (see DebugRing.h's own comment).
+    return;
   }
-
-  // beebo: pollRawControl() above defers (peeks, doesn't consume) when it's
-  // seen a lone RAW_MARKER byte and the rest of that 3-byte control frame
-  // hasn't arrived yet. checkRecvFrame() below has no idea a raw control
-  // frame might be in flight -- calling it this tick would steal that same
-  // peeked byte into the ordinary text/binary parser, permanently
-  // mis-routing it (and the real frame that follows right after it) as
-  // ordinary traffic. Skip this tick's checkRecvFrame() entirely while
-  // that race window is open; pollRawControl() finishes the job within a
-  // few ticks once the rest of the bytes land.
-  size_t len = usb_interface.hasPendingRawMarker() ? 0 :
-      _serial->checkRecvFrame(cmd_frame, _serial->getMaxRecvFrameSize());
-  // beebo: while a monring stream is active (capture paused for it), a
-  // well-behaved client sends nothing else until the terminator page — drop
-  // any frame that arrives anyway rather than letting it abort the stream
-  // and leave capture paused. The stream's own disconnect/reset paths are
-  // the only things allowed to end it early (see CMD_DEVICE_QUERY handling).
-  if (_monread.active || _statread.active) len = 0;
   if (len > 0) {
     // beebo: USB's DualModeSerialInterface delivers a
     // raw text-CLI line through this same checkRecvFrame() call, decided
     // fresh per command from its first byte (see DualModeSerialInterface.h).
-    // Dispatch on the transport's own recorded classification
-    // (lastRecvWasText(), BaseSerialInterface.h), not a guess from
+    // Dispatch on the transport's own recorded classification (frame_type,
+    // BaseSerialInterface.h's RecvFrameType), not a guess from
     // cmd_frame[0]'s value -- opcode IDs aren't fully under this project's
     // control (shared with upstream MeshCore) and could collide with any
     // fixed byte-range heuristic in the future. Every non-dual-mode
-    // interface always reports false here.
-    if (_serial->lastRecvWasText()) {
+    // interface always reports BINARY here.
+    if (frame_type == RecvFrameType::TEXT) {
       cmd_frame[len] = 0;  // null terminator, matching simple_repeater's own text CLI
       char reply[160];
       reply[0] = 0;

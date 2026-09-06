@@ -25,11 +25,11 @@
 // tick. st= is the MODE_* name (see stateName() below), not a raw number.
 // beebo: matches the private MODE_* enum's declaration order in
 // DualModeSerialInterface.h (MODE_IDLE, MODE_TEXT, MODE_FRAMED_LEN1,
-// MODE_FRAMED_LEN2, MODE_FRAMED_BODY) -- a free function outside the class
-// can't name that enum directly (private), so this indexes by position
-// instead of by symbol.
+// MODE_FRAMED_LEN2, MODE_FRAMED_BODY, MODE_RAW_SUB, MODE_RAW_DATA) -- a free
+// function outside the class can't name that enum directly (private), so
+// this indexes by position instead of by symbol.
 static const char* stateName(uint8_t s) {
-  static const char* const names[] = {"IDLE", "TEXT", "LEN1", "LEN2", "BODY"};
+  static const char* const names[] = {"IDLE", "TEXT", "LEN1", "LEN2", "BODY", "RAWSUB", "RAWDATA"};
   return s < (sizeof(names) / sizeof(names[0])) ? names[s] : "?";
 }
 #define USB_RX_TRACE(c, st) DLOGM(DLOG_ID_USB_RX_TRACE, "USBRX c=0x%02x st=%s", (c), stateName(st))
@@ -43,7 +43,7 @@ void DualModeSerialInterface::enable() {
   _isEnabled = true;
   _state = MODE_IDLE;
   rx_len = 0;
-  _last_byte_at = millis();
+  _last_byte_at = 0;
   _seen_traffic = false;
   // beebo: no discardStaleRx() here -- for the boot path, main.cpp's own
   // flush right after Serial.begin() (the earliest point the peripheral
@@ -175,64 +175,18 @@ bool DualModeSerialInterface::isConnected() const {
   //
   // False until a real byte is actually seen (_seen_traffic) -- enable()
   // resets both _last_byte_at and _seen_traffic, so a freshly enabled
-  // transport reads as not connected instead of optimistically
-  // "connected" for the first USB_IDLE_TIMEOUT_MS just because
-  // _last_byte_at was seeded to "now". A byte arriving via the framed/text
-  // parser sets _seen_traffic, as does pollRawControl()'s
-  // BEEBO_RAW_SUB_KEEPALIVE sub-frame (see connect.py's periodic write
-  // during an otherwise-idle `beebo -i` session) -- so a genuinely
-  // idle-but-alive app session never trips this on its own.
-  // pollRawControl()'s other sub-frames (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE,
-  // `beebo dbglog`/`beebo -d`'s standalone enable/resend) deliberately do
+  // transport reads as not connected until then, gated on _seen_traffic
+  // alone (_last_byte_at's value is irrelevant while it's false). A byte
+  // arriving via the framed/text parser sets _seen_traffic, as does
+  // checkRecvFrame()'s own
+  // MODE_RAW_DATA completion for a BEEBO_RAW_SUB_KEEPALIVE sub-frame (see
+  // connect.py's periodic write during an otherwise-idle `beebo -i`
+  // session) -- so a genuinely idle-but-alive app session never trips this
+  // on its own. Every other raw sub-frame (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE,
+  // `beebo dbglog`/`beebo -d`'s standalone enable/resend) deliberately does
   // NOT set _seen_traffic -- a debug-log-only link is an observer, not an
   // app session, and must never look connected on its own.
   return _seen_traffic && millis() - _last_byte_at < USB_IDLE_TIMEOUT_MS;
-}
-
-bool DualModeSerialInterface::pollRawControl(uint8_t& sub_id, uint8_t& data) {
-  if (_state != MODE_IDLE) return false;
-  if (_serial->peek() != RAW_MARKER) return false;
-  if (_serial->available() < 3) return false;   // wait for the rest to arrive, don't consume yet
-
-  _serial->read();   // the marker itself
-  sub_id = (uint8_t)_serial->read();
-  data = (uint8_t)_serial->read();
-  // beebo: only BEEBO_RAW_SUB_KEEPALIVE (a real app session's own liveness
-  // poke, see connect.py's periodic write during `beebo -i`) counts toward
-  // isConnected()'s idle timer -- a debug-log-only link (BEEBO_RAW_SUB_
-  // DEBUG_LOG_ENABLE, `beebo dbglog`/`beebo -d`'s standalone enable/resend)
-  // is an observer, not a session, and must never look like a connected
-  // app session on its own.
-  if (sub_id == BEEBO_RAW_SUB_KEEPALIVE) { _last_byte_at = millis(); _seen_traffic = true; }
-  return true;
-}
-
-bool DualModeSerialInterface::hasPendingRawMarker() const {
-  // beebo: deliberately NOT also checking available() < 3 here -- that was
-  // this method's first version, and it re-reads available() independently
-  // of pollRawControl()'s own read a few instructions earlier in the same
-  // tick. If more bytes land in the gap between those two reads,
-  // pollRawControl() already declined (saw < 3 that tick, won't retry until
-  // next tick) while this would then see >= 3 and wrongly wave
-  // checkRecvFrame() through anyway -- confirmed on real hardware as a
-  // still-live instance of the exact corruption this exists to prevent.
-  // The leading byte being the marker is reason enough on its own: whether
-  // pollRawControl() actually consumed the full frame this same tick or is
-  // still waiting on it, checkRecvFrame() must never touch it either way --
-  // if pollRawControl() succeeded, this peek() no longer sees RAW_MARKER
-  // (the next real byte, if any, is whatever follows the consumed frame).
-  bool result = _state == MODE_IDLE && _serial->peek() == RAW_MARKER;
-#ifdef BEEBO_USB_RXTX_TRACE
-  // beebo: only when something's actually buffered -- this is called every
-  // loop() tick unconditionally, so logging unconditionally would flood the
-  // stream with peek=-1 avail=0 noise almost every call.
-  int p = _serial->peek();
-  if (p >= 0) {
-    DLOGM(DLOG_ID_USB_RX_PENDING_RAW_MARKER, "USBRX hasPendingRawMarker st=%s peek=%d avail=%d -> %d",
-                    stateName(_state), p, _serial->available(), (int)result);
-  }
-#endif
-  return result;
 }
 
 bool DualModeSerialInterface::isWriteBusy() const {
@@ -399,8 +353,24 @@ size_t DualModeSerialInterface::writeFrameBestEffort(const uint8_t src[], size_t
   return _serial->write(src, len);
 }
 
-size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
-  if (_state != MODE_IDLE && millis() - _last_byte_at > RESYNC_TIMEOUT_MS) {
+size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) {
+  // beebo: one snapshot for the whole call, not a fresh millis() at every
+  // update site below -- this call only ever processes whatever's already
+  // buffered (at most a handful of bytes, microseconds of real time), and
+  // every timeout compared against it (RESYNC_TIMEOUT_MS, USB_IDLE_TIMEOUT_MS)
+  // is second-scale, so the difference is never observable.
+  uint32_t now = millis();
+
+  // beebo: the raw states track their own start time (_raw_frame_started_at)
+  // instead of _last_byte_at, since their own bytes deliberately don't
+  // refresh _last_byte_at (see isConnected()'s comment) -- using
+  // _last_byte_at here would measure "time since the last *real* app byte",
+  // which can already be well past RESYNC_TIMEOUT_MS the moment a marker
+  // shows up on an otherwise-idle debug-only link, wrongly aborting a raw
+  // frame that's still arriving on schedule.
+  if (_state == MODE_RAW_SUB || _state == MODE_RAW_DATA) {
+    if (now - _raw_frame_started_at > RESYNC_TIMEOUT_MS) _state = MODE_IDLE;
+  } else if (_state != MODE_IDLE && now - _last_byte_at > RESYNC_TIMEOUT_MS) {
     // no terminator arrived in time -- discard the stale partial command
     // and resync, rather than staying stuck ignoring real traffic.
     rx_len = 0;
@@ -437,7 +407,7 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
           int c = _serial->read();
           if (c < 0) break;
           rx_len++;
-          _last_byte_at = millis();
+          _last_byte_at = now;
           _seen_traffic = true;
           continue;
         }
@@ -447,13 +417,14 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
         DLOGM(DLOG_ID_USB_RX_BODY, "USBRX body got=%d rx_len=%u/%u", got, (unsigned)(rx_len + got), (unsigned)_frame_len);
 #endif
         rx_len += got;
-        _last_byte_at = millis();
+        _last_byte_at = now;
         _seen_traffic = true;
       }
       if (rx_len < _frame_len) return 0;   // still waiting on more bytes
       size_t out_len = _frame_len > max_len ? max_len : _frame_len;
       memcpy(dest, rx_buf, out_len);
       _state = MODE_IDLE;
+      if (type) *type = RecvFrameType::BINARY;
       return out_len;
     }
 
@@ -461,23 +432,46 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
     int c = _serial->read();
     if (c < 0) return 0;
     USB_RX_TRACE(c, _state);
-    _last_byte_at = millis();
-    _seen_traffic = true;
+
+    // beebo: every byte counts as link liveness (isConnected()'s
+    // _seen_traffic gate) EXCEPT the raw control frame's own bytes -- a
+    // lone RAW_MARKER, or a byte consumed while already inside one
+    // (MODE_RAW_SUB/MODE_RAW_DATA). Those get their own, narrower liveness
+    // rule (MODE_RAW_DATA below: only a completed BEEBO_RAW_SUB_KEEPALIVE
+    // counts). Computed once here, rather than repeated in every other
+    // case below, since only this one condition is special.
+    bool is_raw_frame_byte = (_state == MODE_IDLE && c == RAW_MARKER) ||
+                              _state == MODE_RAW_SUB || _state == MODE_RAW_DATA;
+    if (!is_raw_frame_byte) {
+      _last_byte_at = now;
+      _seen_traffic = true;
+    }
 
     switch (_state) {
       case MODE_IDLE:
+        if (c == RAW_MARKER) {
+          _state = MODE_RAW_SUB;
+          _raw_frame_started_at = now;
+          break;
+        }
         if (c == '<') {
           _state = MODE_FRAMED_LEN1;
         } else {
           rx_len = 0;
           _state = MODE_TEXT;
           size_t n;
-          if (feedTextByte(c, dest, max_len, n)) return n;
+          if (feedTextByte(c, dest, max_len, n)) {
+            if (type) *type = RecvFrameType::TEXT;
+            return n;
+          }
         }
         break;
       case MODE_TEXT: {
         size_t n;
-        if (feedTextByte(c, dest, max_len, n)) return n;
+        if (feedTextByte(c, dest, max_len, n)) {
+          if (type) *type = RecvFrameType::TEXT;
+          return n;
+        }
         break;
       }
       case MODE_FRAMED_LEN1:
@@ -492,6 +486,31 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
         break;
       case MODE_FRAMED_BODY:
         break;   // unreachable -- handled at the top of this loop
+      case MODE_RAW_SUB:
+        _raw_sub_id = (uint8_t)c;
+        _state = MODE_RAW_DATA;
+        break;
+      case MODE_RAW_DATA: {
+        uint8_t raw_data = (uint8_t)c;
+        uint8_t raw_sub_id = _raw_sub_id;
+        _state = MODE_IDLE;
+        // beebo: only BEEBO_RAW_SUB_KEEPALIVE (a real app session's own
+        // liveness poke, see connect.py's periodic write during `beebo -i`)
+        // counts toward isConnected()'s idle timer -- every other sub-frame
+        // (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, `beebo dbglog`/`beebo -d`'s
+        // standalone enable/resend) is an observer, not a session, and must
+        // never look like a connected app session on its own.
+        if (raw_sub_id == BEEBO_RAW_SUB_KEEPALIVE) {
+          _last_byte_at = now;
+          _seen_traffic = true;
+        }
+        if (max_len >= 2) {
+          dest[0] = raw_sub_id;
+          dest[1] = raw_data;
+        }
+        if (type) *type = RecvFrameType::DEBUG;
+        return 2;
+      }
     }
   }
 }

@@ -135,7 +135,7 @@ public:
   size_t getMaxRecvFrameSize() const override { return OTA_FRAME_SIZE; }
   size_t getMaxSendFrameSize() const override { return MAX_SEND_FRAME_SIZE; }
   size_t writeFrame(const uint8_t src[], size_t len) override;
-  size_t checkRecvFrame(uint8_t dest[], size_t max_len) override;
+  size_t checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) override;
 
   bool hasReceivedFrameHeader();
   void resetReceivedFrameHeader();

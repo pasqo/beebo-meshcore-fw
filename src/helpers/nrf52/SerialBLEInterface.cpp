@@ -295,7 +295,7 @@ size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
   return 0;
 }
 
-size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
+size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) {
   if (send_queue_len > 0) {
     if (!isConnected()) {
       BLE_DEBUG_PRINTLN("writeBytes: connection invalid, clearing send queue");
@@ -337,6 +337,7 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
     BLE_DEBUG_PRINTLN("readBytes: sz=%u, hdr=%u", (unsigned)len, (unsigned)dest[0]);
     
     shiftRecvQueueLeft();
+    if (type) *type = RecvFrameType::BINARY;
     return len;
   }
   

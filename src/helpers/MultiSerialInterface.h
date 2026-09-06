@@ -2,6 +2,7 @@
 
 #include "BaseSerialInterface.h"
 #include "DebugRing.h"
+#include <string.h>
 
 // Aggregates several BaseSerialInterface transports (e.g. BLE / WiFi / USB)
 // behind the single interface the companion mesh expects.
@@ -279,10 +280,6 @@ public:
     return _active >= 0 ? _transports[_active].iface->getMaxSendFrameSize() : MAX_FRAME_SIZE;
   }
 
-  bool lastRecvWasText() const override {
-    return _active >= 0 ? _transports[_active].iface->lastRecvWasText() : false;
-  }
-
   // beebo: link state (is a transport's radio/interface powered/listening,
   // BtpState/TransportState in Beebo.h) and session state (SessionState,
   // above -- which single transport owns the app-level command/response
@@ -314,14 +311,36 @@ public:
   // "Non-owner eviction, per transport".
   //
   // Call only from checkRecvFrame()'s switch. Runs only against a
-  // non-owner index, evicting whichever sub-transport it's given.
-  void pollAndEvictIfConnected(int i, uint8_t scratch[], size_t scratch_len) {
-    size_t n = _transports[i].iface->checkRecvFrame(scratch, scratch_len);
+  // non-owner index, evicting whichever sub-transport it's given -- unless
+  // this poll produced a RecvFrameType::DEBUG sub-frame (only
+  // DualModeSerialInterface/USB can), which is session-less by design (see
+  // DualModeSerialInterface.cpp's MODE_RAW_DATA comment) and must never
+  // count as a stray app-connect attempt. That DEBUG payload still has to
+  // reach the real caller-visible dest/type -- this poll would otherwise
+  // read it into `scratch` and discard it, silently losing a raw control
+  // frame (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) any time USB isn't this
+  // tick's session owner/winner, which is the common case for a
+  // debug-only `beebo -d` link running alongside a real BLE/TCP session.
+  // Returns true (and fills dest/type/out_len) exactly when that happened;
+  // callers only honor it if they haven't already claimed dest/type/result
+  // for something else this same tick (see checkRecvFrame()'s own comment
+  // on the rare same-tick collision this implies).
+  bool pollAndEvictIfConnected(int i, uint8_t scratch[], size_t scratch_len,
+                               uint8_t dest[], size_t max_len, RecvFrameType* type, size_t& out_len) {
+    RecvFrameType sub_type = RecvFrameType::BINARY;
+    size_t n = _transports[i].iface->checkRecvFrame(scratch, scratch_len, &sub_type);
+    if (n > 0 && sub_type == RecvFrameType::DEBUG) {
+      out_len = n > max_len ? max_len : n;
+      memcpy(dest, scratch, out_len);
+      if (type) *type = RecvFrameType::DEBUG;
+      return true;
+    }
     bool stray = (_transports[i].type == RLOG_ID_XPORT_USB) ? (n > 0) : connectedPastGrace(i);
     if (stray) {
       RLOGH(RLOG_ID_APP_SESSION_EVICTED, _transports[i].type);
       _transports[i].iface->resetParserState();
     }
+    return false;
   }
 
   // beebo: a pure switch, matching driveBtp()'s actual shape exactly --
@@ -333,7 +352,23 @@ public:
   // (checkRecvFrame() on an enabled link has real side effects, e.g. WiFi's
   // accept-a-new-client), not a separate side-effect-free read, so it's
   // folded into each case's own logic.
-  size_t checkRecvFrame(uint8_t dest[], size_t max_len) override {
+  // beebo: `type`, if non-null, is set to whichever RecvFrameType this
+  // call's `result` bytes actually are -- BINARY (a real app frame, from
+  // the winner/owner slot), TEXT (USB's own dual-mode parser), or DEBUG (a
+  // session-less raw control sub-frame, USB only -- see
+  // DualModeSerialInterface.cpp's MODE_RAW_DATA). A DEBUG result never
+  // participates in session arbitration (never wins SESSION_IDLE, never
+  // counts as SESSION_ACTIVE app activity, never trips USB's own
+  // n>0-means-stray eviction rule) -- see pollAndEvictIfConnected()'s own
+  // comment for the one rare tradeoff this implies: if two different
+  // sub-transports both produce a result the same tick (e.g. USB completes
+  // a raw control frame the same tick a different transport wins the
+  // session), only one can be returned from this one call; whichever branch
+  // runs last below wins. Negligible in practice -- a lost debug-log-enable/
+  // keepalive byte is retried by the client on its own, and this is not
+  // "some tick soon", it requires two entirely independent link events to
+  // land in the exact same loop() tick.
+  size_t checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type = nullptr) override {
     uint8_t scratch[MAX_FRAME_SIZE];
     size_t result = 0;
     SessionState next = _state;
@@ -381,14 +416,37 @@ public:
         for (int i = 0; i < _count; i++) {
           if (!_transports[i].iface->isEnabled()) continue;
           if (winner < 0) {
-            size_t n = _transports[i].iface->checkRecvFrame(dest, transportRecvLimit(i, max_len));
-            if (n > 0) { winner = i; result = n; continue; }
+            RecvFrameType sub_type = RecvFrameType::BINARY;
+            size_t n = _transports[i].iface->checkRecvFrame(dest, transportRecvLimit(i, max_len), &sub_type);
+            if (n > 0 && sub_type == RecvFrameType::DEBUG) {
+              // Session-less control frame -- never wins the session, but
+              // still this call's result if nothing else has claimed it yet.
+              if (result == 0) { result = n; if (type) *type = sub_type; }
+              continue;
+            }
+            if (n > 0) { winner = i; result = n; if (type) *type = sub_type; continue; }
             if (_transports[i].type != RLOG_ID_XPORT_USB && connectedPastGrace(i)) {
               RLOGH(RLOG_ID_APP_SESSION_EVICTED, _transports[i].type);
               _transports[i].iface->resetParserState();
             }
           } else {
-            pollAndEvictIfConnected(i, scratch, sizeof(scratch));
+            // beebo: never pass the real dest/type here once `result` is
+            // already claimed (by the winner found above, or by an earlier
+            // iteration of this very loop) -- pollAndEvictIfConnected()
+            // copies unconditionally into whatever dest it's given the
+            // moment it sees DEBUG, so a caller ignoring its return value
+            // isn't enough to protect an already-claimed dest from being
+            // silently overwritten. Route to raw_scratch/nullptr instead,
+            // discarding the forward, whenever that's the case.
+            uint8_t raw_scratch[2];
+            size_t debug_len;
+            bool forwarded = pollAndEvictIfConnected(
+                i, scratch, sizeof(scratch),
+                result == 0 ? dest : raw_scratch,
+                result == 0 ? max_len : sizeof(raw_scratch),
+                result == 0 ? type : nullptr,
+                debug_len);
+            if (forwarded && result == 0) result = debug_len;
           }
         }
         if (winner >= 0) {
@@ -436,10 +494,18 @@ public:
         }
 
         // Poll the owner for real app frames.
-        size_t n = _transports[owner].iface->checkRecvFrame(dest, max_len);
-        if (n > 0) {
+        RecvFrameType sub_type = RecvFrameType::BINARY;
+        size_t n = _transports[owner].iface->checkRecvFrame(dest, max_len, &sub_type);
+        if (type) *type = sub_type;
+        if (n > 0 && sub_type != RecvFrameType::DEBUG) {
           _activity++;   // beebo: RX frame from app
           _disconnect_since_ms = 0;
+          result = n;
+        } else if (n > 0) {
+          // beebo: a session-less raw control sub-frame from the owner
+          // itself (only possible when owner is USB) -- forwarded to the
+          // caller, but never counted as app-session activity/liveness (see
+          // DualModeSerialInterface.cpp's MODE_RAW_DATA comment).
           result = n;
         } else if (!transportConnected(owner)) {
           uint32_t now = millis();
@@ -458,7 +524,17 @@ public:
         // captured above, regardless of whether release() ran this tick.
         for (int i = 0; i < _count; i++) {
           if (i == owner || !_transports[i].iface->isEnabled()) continue;
-          pollAndEvictIfConnected(i, scratch, sizeof(scratch));
+          // beebo: same "never clobber an already-claimed dest" guard as
+          // SESSION_IDLE's own non-owner poll above.
+          uint8_t raw_scratch[2];
+          size_t debug_len;
+          bool forwarded = pollAndEvictIfConnected(
+              i, scratch, sizeof(scratch),
+              result == 0 ? dest : raw_scratch,
+              result == 0 ? max_len : sizeof(raw_scratch),
+              result == 0 ? type : nullptr,
+              debug_len);
+          if (forwarded && result == 0) result = debug_len;
         }
         break;
       }

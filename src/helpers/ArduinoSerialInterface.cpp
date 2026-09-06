@@ -81,7 +81,7 @@ size_t ArduinoSerialInterface::writeFrame(const uint8_t src[], size_t len) {
   return writeAll(_serial, src, len);
 }
 
-size_t ArduinoSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
+size_t ArduinoSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) {
   while (_serial->available()) {
     int c = _serial->read();
     if (c < 0) break;
@@ -110,6 +110,7 @@ size_t ArduinoSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
           if (_frame_len > max_len) _frame_len = max_len;    // truncate
           memcpy(dest, rx_buf, _frame_len);
           _state = RECV_STATE_IDLE;  // reset state, for next frame
+          if (type) *type = RecvFrameType::BINARY;
           return _frame_len;
         }
     }

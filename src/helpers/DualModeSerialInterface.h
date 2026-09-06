@@ -17,23 +17,58 @@
 // carries over between commands, so there's no stale cross-connection state
 // to reset and no dependency on correctly detecting a session boundary.
 class DualModeSerialInterface : public BaseSerialInterface {
-  enum { MODE_IDLE, MODE_TEXT, MODE_FRAMED_LEN1, MODE_FRAMED_LEN2, MODE_FRAMED_BODY };
+  // beebo: MODE_RAW_SUB/MODE_RAW_DATA recognize and consume the session-less
+  // raw control frame ([RAW_MARKER][sub_id][data], see RAW_MARKER below)
+  // inline, as two more states of this same parser -- entered from
+  // MODE_IDLE the instant RAW_MARKER is read, exactly like '<' enters
+  // MODE_FRAMED_LEN1. This used to be a separate mechanism entirely
+  // (pollRawControl()/hasPendingRawMarker(), called directly on this class
+  // by Beebo::checkSerialInterface() *before* checkRecvFrame() ever ran, to
+  // avoid checkRecvFrame() stealing a marker byte it had no way to
+  // recognize) -- that split required two independent peeks of the same
+  // live stream (one in hasPendingRawMarker(), one in checkRecvFrame()'s own
+  // read), and real hardware bytes arriving in the gap between those two
+  // reads (this is a byte-stream transport with real, asynchronous
+  // hardware latency, not an atomic buffer snapshot) caused exactly the
+  // corruption this replaces: a marker byte that hadn't arrived yet at
+  // hasPendingRawMarker()'s check landing by the time checkRecvFrame() did
+  // its own separate read a few instructions later, getting mis-routed into
+  // MODE_TEXT as if it were an ordinary command byte (confirmed via a live
+  // BEEBO_USB_RXTX_TRACE capture, 2026-09-06). Folding recognition into this
+  // one state machine's one read removes the second peek entirely -- there
+  // is no longer a second, later, independent read of the same byte for a
+  // race to open up in.
+  enum { MODE_IDLE, MODE_TEXT, MODE_FRAMED_LEN1, MODE_FRAMED_LEN2, MODE_FRAMED_BODY, MODE_RAW_SUB, MODE_RAW_DATA };
 
   bool _isEnabled;
   uint8_t _state;
+  // beebo: internal only -- writeFrame()/writeFrameBestEffort()'s own
+  // reply-format dispatch (text line vs binary <len> envelope), decided by
+  // the last command actually consumed. Distinct from the public `type`
+  // out-param callers read from checkRecvFrame() itself.
   bool _lastWasText;
   uint16_t _frame_len;
   uint16_t rx_len;
   uint32_t _last_byte_at;
+  // beebo: sub_id read in MODE_RAW_SUB, held until MODE_RAW_DATA completes
+  // the frame. Only meaningful while _state is one of the two raw states.
+  uint8_t _raw_sub_id;
+  // beebo: separate from _last_byte_at -- a raw control frame's own marker/
+  // sub_id bytes deliberately do NOT refresh _last_byte_at/_seen_traffic
+  // (see isConnected()'s own comment: only BEEBO_RAW_SUB_KEEPALIVE, once the
+  // full frame is known, counts as link liveness), but the RESYNC_TIMEOUT_MS
+  // self-heal below still needs its own clock so a stray marker with
+  // nothing following doesn't park this parser in MODE_RAW_SUB forever --
+  // set once, on entering MODE_RAW_SUB, read only while _state is a raw
+  // state.
+  uint32_t _raw_frame_started_at;
   // beebo: isConnected() gate -- false until a real byte actually arrives
-  // on the link (see the framed/text parser's and pollRawControl()'s own
-  // _last_byte_at writes), so a freshly enable()'d transport reads as not
-  // connected instead of optimistically "connected" for the first
-  // USB_IDLE_TIMEOUT_MS after enable() just because _last_byte_at was
-  // seeded to "now". Reset false in enable() -- a toggle-off/on cycle
-  // starts the link-liveness question over, same as boot does. Link-level
-  // only -- this class has no notion of a session (MultiSerialInterface's
-  // own concept, layered on top).
+  // on the link (see the framed/text parser's and checkRecvFrame()'s own
+  // MODE_RAW_DATA-completion _last_byte_at writes), so a freshly enable()'d
+  // transport reads as not connected until then. Reset false in enable() --
+  // a toggle-off/on cycle starts the link-liveness question over, same as
+  // boot does. Link-level only -- this class has no notion of a session
+  // (MultiSerialInterface's own concept, layered on top).
   bool _seen_traffic;
   Stream* _serial;
   // beebo: sized for raw-binary OTA frames (OTA_FRAME_SIZE = OTA_CHUNK_SIZE +
@@ -71,11 +106,14 @@ public:
   // session arbitration entirely. Never '<' (0x3C, a real framed command)
   // or '>' (0x3E, this transport's own reply marker), and never a byte any
   // legitimate Serial.println() debug line would emit (those are always
-  // printable ASCII + CR/LF) -- see pollRawControl()'s own comment for why
-  // this exists and where it's called from.
+  // printable ASCII + CR/LF) -- see checkRecvFrame()'s own MODE_RAW_SUB/
+  // MODE_RAW_DATA handling in the .cpp for where this is consumed.
   static const uint8_t RAW_MARKER = 0x01;
 
-  DualModeSerialInterface() { _isEnabled = false; _state = MODE_IDLE; _lastWasText = false; _last_byte_at = 0; _seen_traffic = false; }
+  DualModeSerialInterface() {
+    _isEnabled = false; _state = MODE_IDLE; _lastWasText = false; _last_byte_at = 0; _seen_traffic = false;
+    _raw_sub_id = 0; _raw_frame_started_at = 0;
+  }
 
   void begin(Stream& serial) {
     _serial = &serial;
@@ -103,49 +141,18 @@ public:
 
   bool isConnected() const override;
 
-  // beebo: called directly by Beebo::checkSerialInterface(), before
-  // _serial->checkRecvFrame() (the MultiSerialInterface aggregator) runs at
-  // all -- not through it, and not through this class's own checkRecvFrame()
-  // either. That matters for two reasons: (1) MultiSerialInterface only
-  // polls USB's checkRecvFrame() while USB is idle-polled or already the
-  // locked/active transport (MultiSerialInterface.h's own checkRecvFrame()
-  // comment) -- while a different transport (BLE/TCP) holds the session,
-  // USB's checkRecvFrame() is never invoked at all, so a raw control byte
-  // routed through it would simply never be seen; (2) even when it would be
-  // invoked, going through checkRecvFrame() means MultiSerialInterface's
-  // lockOn() fires and pins `_active` to USB for as long as the raw
-  // command's issuer keeps polling it, locking out every BLE/TCP connection
-  // attempt for that whole time -- exactly the side effect this bypasses.
-  // Only ever consumes bytes when _state == MODE_IDLE (no framed/text parse
-  // already in flight -- if one is, this defers entirely to the normal
-  // parser) and only once the full fixed-size frame has already arrived; a
-  // lone stray RAW_MARKER byte with nothing following it yet is left
-  // untouched (peeked, not consumed) rather than partially eaten, so it's
-  // still there to retry on the next call. Returns true and fills
-  // sub_id/data once a full raw frame was consumed.
-  bool pollRawControl(uint8_t& sub_id, uint8_t& data);
-
-  // beebo: true whenever the next unread byte is RAW_MARKER and no
-  // framed/text parse is already in flight (_state == MODE_IDLE) --
-  // regardless of how many bytes are buffered behind it. Deliberately does
-  // NOT also check whether the full 3-byte frame has arrived yet (an
-  // earlier version did; see this method's own .cpp comment for why that
-  // was still racy). Beebo::checkSerialInterface() must skip this tick's
-  // _serial->checkRecvFrame() call entirely while this is true -- that
-  // call has no idea a raw control frame might be in flight and will
-  // happily steal the marker byte pollRawControl() (called first, same
-  // tick) either just consumed or is still waiting on, permanently
-  // misrouting it (and everything after it, including the real frame that
-  // follows) into the text/binary parser as ordinary traffic if it does.
-  // Confirmed on real hardware via BEEBO_USB_RXTX_TRACE: this exact race is
-  // what causes the boot/reconnect "RAW <" / "ERR: unknown command" parser
-  // desync.
-  bool hasPendingRawMarker() const;
-
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t writeFrameBestEffort(const uint8_t src[], size_t len) override;
-  size_t checkRecvFrame(uint8_t dest[], size_t max_len) override;
+  // beebo: also recognizes and consumes the session-less raw control frame
+  // ([RAW_MARKER][sub_id][data], see RAW_MARKER above and this class's own
+  // enum comment) inline as two extra parser states -- returns 2 with
+  // *type == RecvFrameType::DEBUG and dest[0]/dest[1] holding sub_id/data
+  // when one completes. Works regardless of MultiSerialInterface's session
+  // arbitration (called on this object the same as any other frame; see
+  // MultiSerialInterface::checkRecvFrame()'s own handling of
+  // RecvFrameType::DEBUG for why a raw frame never wins/evicts a session).
+  size_t checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) override;
   size_t getMaxRecvFrameSize() const override { return OTA_FRAME_SIZE; }
   // beebo: USB is at least as fast as WiFi (see rx_buf's own comment on the
   // recv side) -- no reason its outbound cap should stay stuck at the BLE
@@ -155,5 +162,4 @@ public:
   // override the whole table's worth of fields needed several USB round
   // trips it didn't actually need, unlike WiFi's single-page dump.
   size_t getMaxSendFrameSize() const override { return MAX_SEND_FRAME_SIZE; }
-  bool lastRecvWasText() const override { return _lastWasText; }
 };

@@ -105,7 +105,7 @@ void SerialWifiInterface::resetParserState() {
   resetReceivedFrameHeader();
 }
 
-size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
+size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) {
   // beebo: refuse a second peer at the TCP/listen level instead of accepting
   // it into the app and rejecting it afterward. The prior approach (accept
   // via server.available(), then newClient.stop() when a session was already
@@ -337,6 +337,7 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
       // ready for next frame
       resetReceivedFrameHeader();
       _recv_body_len = 0;
+      if (type) *type = RecvFrameType::BINARY;
       return frame_length;
 
     }

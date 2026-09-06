@@ -357,7 +357,7 @@ bool SerialBLEInterface::isWriteBusy() const {
     || send_queue_len >= FRAME_QUEUE_SIZE - 1;
 }
 
-size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
+size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) {
   // Drain actual GATT link events captured in the BT-task callbacks into the
   // ring (main-loop context, so the ring stays single-writer).
   static uint8_t seen_up = 0, seen_down = 0;
@@ -404,6 +404,7 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len) {
     for (int i = 0; i < recv_queue_len; i++) {   // delete top item from queue
       recv_queue[i] = recv_queue[i + 1];
     }
+    if (type) *type = RecvFrameType::BINARY;
     return len;
   }
 

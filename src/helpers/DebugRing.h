@@ -285,7 +285,6 @@
 #define DLOG_ID_USB_TX_TRACE               101   // one writeFrame() call sending a frame out
 #define DLOG_ID_USB_RX_DISCARD_STALE       102   // discardStaleRx(): bytes drained from a newly-(re)polled sub's stale hardware RX buffer
 #define DLOG_ID_USB_RX_RESET_PARSER        103   // resetParserState(): mid-command parser state discarded at session end
-#define DLOG_ID_USB_RX_PENDING_RAW_MARKER  104   // hasPendingRawMarker(): peek result while resolving a possible raw-control marker byte
 #define DLOG_ID_USB_RX_BODY                105   // checkRecvFrame()'s MODE_FRAMED_BODY read progress
 // GEN_DLOG_NAMES_END
 

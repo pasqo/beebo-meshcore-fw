@@ -48,6 +48,18 @@
   #define MAX_SEND_FRAME_SIZE  MAX_FRAME_SIZE
 #endif
 
+// beebo: what kind of frame checkRecvFrame() just delivered -- decided
+// fresh per frame, from the transport's own parser state, not guessed from
+// frame content (opcode IDs aren't fully under this project's control,
+// shared with upstream MeshCore, and could collide with any fixed
+// byte-range heuristic). BINARY is the default/only kind for every
+// transport except DualModeSerialInterface, which can also deliver TEXT
+// (an unframed text-CLI line) or DEBUG (a session-less raw control
+// sub-frame -- BEEBO_RAW_SUB_DEBUG_LOG_ENABLE/BEEBO_RAW_SUB_KEEPALIVE,
+// DebugRing.h -- carried as a real 2-byte [sub_id][data] payload in dest,
+// not an app command).
+enum class RecvFrameType : uint8_t { BINARY, TEXT, DEBUG };
+
 class BaseSerialInterface {
 protected:
   BaseSerialInterface() { }
@@ -94,15 +106,6 @@ public:
   virtual bool is24GUp() const { return false; }
   virtual bool isUsbUp() const { return false; }
 
-  // beebo: true if the frame most recently returned by checkRecvFrame() came
-  // in as an unframed text-CLI line rather than the binary <len><data>
-  // envelope. Only DualModeSerialInterface can say yes -- every other
-  // interface is binary-only, so the default is a safe "no". Lets a caller
-  // that supports both (e.g. multi_role's MyMesh::checkSerialInterface)
-  // dispatch on real transport state instead of guessing from frame content,
-  // which can't be made collision-proof against future opcode IDs.
-  virtual bool lastRecvWasText() const { return false; }
-
   // Maximum number of bytes this transport can deliver in a single incoming frame.
   // BLE is limited by MTU; WiFi and USB can handle large OTA chunks.
   virtual size_t getMaxRecvFrameSize() const { return MAX_FRAME_SIZE; }
@@ -135,5 +138,9 @@ public:
   // dest must point to a buffer of at least max_len bytes. max_len defaults
   // to MAX_FRAME_SIZE so pre-existing single-arg call sites are unaffected;
   // callers that want a wider bound (e.g. BULK_XFER) pass it explicitly.
-  virtual size_t checkRecvFrame(uint8_t dest[], size_t max_len = MAX_FRAME_SIZE) = 0;
+  // type, if non-null, is set to this call's RecvFrameType whenever a frame
+  // is actually returned (n > 0) -- every transport except
+  // DualModeSerialInterface always sets it to BINARY. Defaulted to nullptr
+  // so pre-existing two-arg call sites are unaffected.
+  virtual size_t checkRecvFrame(uint8_t dest[], size_t max_len = MAX_FRAME_SIZE, RecvFrameType* type = nullptr) = 0;
 };
