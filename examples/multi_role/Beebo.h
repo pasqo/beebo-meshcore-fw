@@ -946,8 +946,10 @@ private:
   void writeContactRespFrame(uint8_t code, const ContactInfo &contact);
   void updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, const uint8_t *frame, int len);
 #endif
+#if BEEBO_ENABLE_COMPANION_ROLE
   void addToOfflineQueue(const uint8_t frame[], int len);
   int getFromOfflineQueue(uint8_t frame[]);
+#endif
 #if BEEBO_ENABLE_COMPANION_ROLE
   int getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) override {
     return _store->getBlobByKey(key, key_len, dest_buf);
@@ -1855,14 +1857,16 @@ private:
   struct { bool active; int index; } _neighread;  // in-flight GET_NEIGHBORS stream
   struct { bool active; int index; } _pathread;   // in-flight GET_ADVERT_PATHS stream
 
+#if BEEBO_ENABLE_COMPANION_ROLE
   struct Frame {
     uint8_t len;
     uint8_t buf[MAX_FRAME_SIZE];
 
     bool isChannelMsg() const;
   };
-  int offline_queue_len;
   Frame offline_queue[OFFLINE_QUEUE_SIZE];
+#endif
+  int offline_queue_len; // stays 0 (never incremented) when companion is compiled out
 
   // beebo: DM send-confirmation tracking is companion-only (BaseChatMesh's
   // own sendMessage()/onAckRecv() are still always available when

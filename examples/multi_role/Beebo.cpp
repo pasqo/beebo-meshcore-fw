@@ -110,6 +110,7 @@ void Beebo::updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, con
 }
 #endif // BEEBO_ENABLE_COMPANION_ROLE
 
+#if BEEBO_ENABLE_COMPANION_ROLE
 bool Beebo::Frame::isChannelMsg() const {
   return buf[0] == RESP_CODE_CHANNEL_MSG_RECV || buf[0] == RESP_CODE_CHANNEL_MSG_RECV_V3 ||
          buf[0] == RESP_CODE_CHANNEL_DATA_RECV;
@@ -152,6 +153,7 @@ int Beebo::getFromOfflineQueue(uint8_t frame[]) {
   }
   return 0; // queue is empty
 }
+#endif // BEEBO_ENABLE_COMPANION_ROLE
 
 // beebo: airtime_factor is one of the 14 SharedPrefs fields (see
 // NodePrefs.h) -- one physical storage slot in _role_state->prefs regardless of
@@ -3234,6 +3236,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
 #endif
+#if BEEBO_ENABLE_COMPANION_ROLE
   } else if (cmd_frame[0] == CMD_SYNC_NEXT_MESSAGE) {
     int out_len;
     if ((out_len = getFromOfflineQueue(out_frame)) > 0) {
@@ -3242,6 +3245,7 @@ void Beebo::handleCmdFrame(size_t len) {
       out_frame[0] = RESP_CODE_NO_MORE_MESSAGES;
       _serial->writeFrame(out_frame, 1);
     }
+#endif
   } else if (cmd_frame[0] == CMD_SET_RADIO_PARAMS) {
     int i = 1;
     uint32_t freq;
