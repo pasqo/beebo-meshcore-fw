@@ -106,7 +106,12 @@
 #define BLE_NAME_PREFIX "MeshCore-"
 #endif
 
+#if BEEBO_ENABLE_COMPANION_ROLE
 #include <helpers/BaseChatMesh.h>
+#else
+#include <helpers/AdvertDataHelpers.h>
+#include <helpers/TxtDataHelpers.h>
+#endif
 #include <helpers/TransportKeyStore.h>
 
 /* -------------------------------------------------------------------------------------- */
@@ -1669,7 +1674,9 @@ private:
   // this being null since no app session is possible that early anyway).
   BaseSerialInterface *_serial = nullptr;
 
+#if BEEBO_ENABLE_COMPANION_ROLE
   ContactsIterator _iter;
+#endif
   uint32_t _iter_filter_since;
   uint32_t _most_recent_lastmod;
   uint32_t _active_ble_pin;
