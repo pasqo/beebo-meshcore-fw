@@ -1498,7 +1498,7 @@ void Beebo::beginTransports() {
   driveUsb(usb_on);
 
   startInterface(serial_interface);
-  debug_ring.attach(&usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG);
+  debug_ring.attach(_serial, &usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG);
 
   for (int i = 0; i < RLOG_XPORT_VAR_COUNT; i++) _last_xport_var[i] = -1;
   _checkTransportStateChanges();   // logs every var's boot value as "changed from -1"
@@ -5080,15 +5080,31 @@ void Beebo::handleCmdFrame(size_t len) {
     writeDisabledFrame();
 #endif
   } else if (sub[0] == BEEBO_CMD_DEBUG_LOG_ENABLE && sub_len >= 2) {
-    // beebo: DebugRing always targets usb_interface, so enabling it when USB
-    // transport isn't even up on this build (board.usb_enabled=0) would
-    // leave the stream with nowhere to go -- refuse instead of silently
-    // accepting. XPORT_OFF_WAIT still counts as up: usb_interface itself
-    // hasn't been disabled yet, teardown is only deferred pending session end.
-    if (_usb_state == XPORT_OFF) {
+    // beebo: DebugRing targets serial_interface (the same aggregator _serial
+    // already points at), which forwards writeFrame()/writeFrameBestEffort()
+    // to whichever transport currently holds the companion session -- so
+    // the live stream follows the session, not a fixed transport. Refuse
+    // only if no transport is actually connected, since there'd be nowhere
+    // for the enabled stream to go.
+    if (!serial_interface.isConnected()) {
       writeErrFrame(ERR_CODE_BAD_STATE);
     } else {
-      debug_ring.setEnabled(sub[1] != 0);
+      // beebo: replay the ring's backlog on every disabled -> enabled
+      // transition, same as the raw sub-frame USB path's own
+      // BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling above -- see
+      // DebugRing::beginReplay()/replayStep()'s own comment for why (a
+      // fresh `-d`/`-i` session should see recent history, not just events
+      // from the moment it happened to attach; a same-connection resend of
+      // an already-enabled state triggers no second replay), and for why
+      // this is paced (checkSerialInterface()'s own paced-stream chain)
+      // rather than a synchronous burst.
+      bool enabling = sub[1] != 0;
+      if (enabling && !debug_ring.isEnabled()) {
+        debug_ring.setEnabled(true);
+        debug_ring.beginReplay();
+      } else {
+        debug_ring.setEnabled(enabling);
+      }
       writeOKFrame();
     }
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
@@ -5204,13 +5220,14 @@ void Beebo::checkSerialInterface() {
       // possibly long after an earlier one ended) gets the ring's current
       // history again -- useful for a one-shot `beebo -d` session that
       // wants to see recent history, not just live events from the moment
-      // it happened to attach. See DebugRing::replayRing()'s own comment
-      // for how this is also what gets a boot-time event (RLOG_ID_BOOT_START,
-      // logged before any client could possibly be listening) to a host
-      // at all.
+      // it happened to attach. See DebugRing::beginReplay()/replayStep()'s
+      // own comment for how this is also what gets a boot-time event
+      // (RLOG_ID_BOOT_START, logged before any client could possibly be
+      // listening) to a host at all, and for why replay is paced rather
+      // than a synchronous burst.
       if (enabling && !debug_ring.isEnabled()) {
         debug_ring.setEnabled(true);
-        debug_ring.replayRing();
+        debug_ring.beginReplay();
       } else {
         debug_ring.setEnabled(enabling);
       }
@@ -5453,6 +5470,13 @@ void Beebo::checkSerialInterface() {
       _serial->writeFrame(out_frame, 2);
       _pathread.active = false;
     }
+  } else if (debug_ring.isReplaying() && !_serial->isWriteBusy()) {
+    // beebo: stream the debug-event ring's replay backlog one event per
+    // loop, same pacing as GET_NEIGHBORS/GET_MONRING/the contacts iterator
+    // above -- see DebugRing::beginReplay()/replayStep()'s own comment for
+    // why an unpaced synchronous burst overflowed SerialWifiInterface's
+    // send_queue.
+    debug_ring.replayStep();
   //} else if (!_serial->isWriteBusy()) {
   //  checkConnections();    // TODO - deprecate the 'Connections' stuff
   }

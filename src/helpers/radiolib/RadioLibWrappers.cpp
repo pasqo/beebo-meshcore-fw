@@ -170,7 +170,7 @@ int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
         int noise_floor = getNoiseFloor();
         int32_t detail = ((int32_t)err & 0xFF) | (((int32_t)rssi & 0xFF) << 8)
                         | (((int32_t)snr & 0xFF) << 16) | (((int32_t)noise_floor & 0xFF) << 24);
-        RLOGH(RLOG_ID_RADIO_RECV_ERROR, detail);
+        RLOGL(RLOG_ID_RADIO_RECV_ERROR, detail);   // beebo: known systematic issue, not worth H-severity/ring space
         len = 0;
         n_recv_errors++;
       } else {

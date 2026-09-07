@@ -5,26 +5,28 @@
 #include "BaseSerialInterface.h"
 
 // beebo: unified debug-event subsystem -- one ring (this file, `debug_ring`,
-// was `TransportLog`/`transport_log`) and one live USB push mechanism (was
+// was `TransportLog`/`transport_log`) and one live push mechanism (was
 // the separate DebugLog.h/.cpp, folded in here) behind two macro families:
 //
 // - RLOGH/M/L(type, detail) -- a structured (type, detail) event, always
-//   live-pushed over USB whenever the debug link is enabled, and also
+//   live-pushed over physical USB *and* over whichever transport currently
+//   holds the companion session, if any and if not USB itself (see
+//   attach()'s own comment) whenever the debug link is enabled, and also
 //   appended to the ring *unless* severity is Low -- L is link-only, same
-//   as DLOGH/M/L below, never occupies a ring slot. `type` is a hand-picked,
-//   sometimes-reused-on-purpose per-call-site tag (e.g.
+//   as DLOGH/M/L below, never occupies a ring slot. `type`
+//   is a hand-picked, sometimes-reused-on-purpose per-call-site tag (e.g.
 //   RLOG_ID_XSESSION_INIT/_CHANGE is logged from a different file than every
 //   other RLOG_ID_XPORT_*/RLOG_ID_XLINK_* id) that doubles as the live
 //   frame's id.
 // - DLOGH/M/L(id, fmt, ...) -- a free-text printf-style event, live-pushed
-//   over USB whenever the debug link is enabled, but never stored in the
-//   ring (which only ever holds fixed-size structured records).
+//   the same way whenever the debug link is enabled, but never stored in
+//   the ring (which only ever holds fixed-size structured records).
 //
 // Severity is a compile-time gate, not just a runtime label: H is always
 // compiled in; M/L only exist when DEBUG_LOG_VERBOSE is defined (1) for the
 // build, otherwise every RLOGM/L/DLOGM/L call site compiles to nothing at
 // all -- e.g. RLOG_ID_WIFI_HEALTH/RLOG_ID_BLE_HEALTH (both Low) cost nothing in a
-// regular build. Both families are unconditionally live-pushed to USB while
+// regular build. Both families are unconditionally live-pushed while
 // the debug link is enabled -- the ring is a separate, always-on record of
 // H/M-severity events only, for post-mortem fetch.
 //
@@ -324,14 +326,37 @@ class DebugRing {
   uint16_t _count = 0;
 
   BaseSerialInterface* _serial = nullptr;
+  BaseSerialInterface* _usb = nullptr;
   uint8_t _resp_code = 0;
   uint8_t _log_sub_id = 0;
   uint8_t _rlog_sub_id = 0;
   bool _enabled = false;
 
+  bool _replay_active = false;
+  uint16_t _replay_pos = 0;   // 0.._count-1, logical index of the next event replayStep() will push
+
 public:
-  void attach(BaseSerialInterface* serial, uint8_t resp_code,
+  // beebo: `serial` is the MultiSerialInterface aggregator (Beebo::_serial/
+  // serial_interface) -- its writeFrame()/writeFrameBestEffort() forward to
+  // whichever sub-transport (BLE/WiFi-TCP/USB) currently holds the companion
+  // session, so pushRlogFrame() below additionally reaches a live TCP/BLE
+  // session (e.g. gatto, which has no USB at all -- the TCP_DEBUG_STREAM
+  // capability). `usb` is the fixed physical USB interface (Beebo's
+  // usb_interface) -- pushRlogFrame() always reaches it directly too,
+  // regardless of `serial`'s locked transport, since the session-less raw
+  // USB debug tap (BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, checkSerialInterface())
+  // never establishes a MultiSerialInterface session at all and so would
+  // get nothing from `serial` alone whenever no session happens to be
+  // locked -- confirmed as a real regression (2026-09-07) when `serial`
+  // briefly became the *only* push target during TCP_DEBUG_STREAM's
+  // development. Pushing to both, always, is what restores the pre-
+  // TCP_DEBUG_STREAM guarantee that a raw USB tap works unconditionally
+  // (including alongside a separately-held TCP/BLE session under test --
+  // see kbase/TESTING_METHODOLOGY.md's root-causing-a-race section) while
+  // still adding TCP/BLE streaming as a second, independent target.
+  void attach(BaseSerialInterface* serial, BaseSerialInterface* usb, uint8_t resp_code,
               uint8_t log_sub_id, uint8_t rlog_sub_id) {
+    _usb = usb;
     _serial = serial;
     _resp_code = resp_code;
     _log_sub_id = log_sub_id;
@@ -341,33 +366,70 @@ public:
   bool isEnabled() const { return _enabled; }
 
   // RLOGH/M/L: appended to the ring unless severity is Low (L is link-only,
-  // like DLOGH/M/L); always live-pushed over USB (RESP_CODE_BEEBO/DEBUG_TLOG
-  // frame) whenever the debug link is enabled, regardless of severity.
+  // like DLOGH/M/L); always live-pushed to physical USB *and* whichever
+  // transport (if any, if not USB) holds the session (RESP_CODE_BEEBO/
+  // DEBUG_TLOG frame) whenever the debug link is enabled, regardless of
+  // severity -- see attach()'s own comment.
   void logRing(const char* file, int line, uint8_t type, uint8_t severity, int32_t detail = 0);
 
   // DLOGH/M/L: never touches the ring (fixed-size records can't hold
-  // arbitrary text) -- only live-pushed over USB (RESP_CODE_BEEBO/DEBUG_LOG
-  // frame) whenever the debug link is enabled.
+  // arbitrary text) -- only live-pushed to physical USB *and* whichever
+  // transport (if any, if not USB) holds the session (RESP_CODE_BEEBO/
+  // DEBUG_LOG frame) whenever the debug link is enabled -- see attach()'s
+  // own comment.
   void logLink(const char* file, int line, uint16_t id, uint8_t severity, const char* fmt, ...) __attribute__((format(printf, 6, 7)));
 
   uint16_t count() const { return _count; }
 
   // beebo: re-emits every event currently in the ring as a live DEBUG_TLOG
-  // push, oldest first -- called once, from Beebo::checkSerialInterface()'s
-  // BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling, on the transition into enabled.
-  // This is how a boot-time event (RLOG_ID_BOOT_START, or anything else logged
-  // before a client ever attached -- see writeFrameBestEffort()'s own
-  // no-ring-buffer comment in DualModeSerialInterface.cpp for why a *live*
-  // push that early is simply lost) still reaches a `--debug` host: nothing
-  // needs to reach the wire before the host is listening, since the ring
-  // already held it and this walks it again once the host actually can
-  // receive it.
-  void replayRing() const {
-    uint16_t logical_start = (_count < RLOG_MAX_EVENTS) ? 0 : _head;
-    for (uint16_t j = 0; j < _count; j++) {
-      uint16_t idx = (logical_start + j) % RLOG_MAX_EVENTS;
-      pushRlogFrame(_buf[idx].file, _buf[idx].line, _buf[idx].type, _buf[idx].severity, _buf[idx].detail, _buf[idx].millis);
+  // push, oldest first -- armed once from Beebo::checkSerialInterface()'s
+  // DEBUG_LOG_ENABLE handling (both the raw sub-frame USB path and the
+  // session-owning BEEBO_CMD_DEBUG_LOG_ENABLE opcode), on the transition
+  // into enabled, then drained one event per loop() tick from
+  // checkSerialInterface()'s own paced-stream chain -- the same
+  // !_serial->isWriteBusy()-gated pattern GET_NEIGHBORS/GET_MONRING/the
+  // contacts iterator already use. This is how a boot-time event
+  // (RLOG_ID_BOOT_START, or anything else logged before a client ever
+  // attached -- see writeFrameBestEffort()'s own no-ring-buffer comment in
+  // DualModeSerialInterface.cpp for why a *live* push that early is simply
+  // lost) still reaches a `--debug` host: nothing needs to reach the wire
+  // before the host is listening, since the ring already held it and this
+  // walks it again once the host actually can receive it.
+  //
+  // Paced deliberately, not a single synchronous burst -- confirmed on real
+  // hardware (`gatto`, 2026-09-07) that a tight unpaced loop calling
+  // writeFrameBestEffort() for every ring event overflows
+  // SerialWifiInterface's own send_queue (only FRAME_QUEUE_SIZE slots deep)
+  // well before a full boot sequence's worth of events got out -- the
+  // replay silently stopped after exactly as many events as the queue could
+  // hold, with no indication anything had been dropped. USB doesn't hit
+  // this (DualModeSerialInterface's writeFrameBestEffort() is a cheap,
+  // genuinely non-blocking drop, no shallow intermediate queue involved),
+  // but the ring can hold up to RLOG_MAX_EVENTS regardless of transport, so
+  // pacing applies uniformly rather than only over TCP/BLE.
+  bool isReplaying() const { return _replay_active; }
+
+  void beginReplay() {
+    _replay_active = (_count > 0);
+    _replay_pos = 0;
+  }
+
+  // Push one more ring event (oldest-first) and advance the cursor.
+  // Returns true while replay is still in progress (call again next tick,
+  // once the caller's own !_serial->isWriteBusy() gate opens again), false
+  // once done (nothing pushed this call).
+  bool replayStep() {
+    if (!_replay_active) return false;
+    if (_replay_pos >= _count) {
+      _replay_active = false;
+      return false;
     }
+    uint16_t logical_start = (_count < RLOG_MAX_EVENTS) ? 0 : _head;
+    uint16_t idx = (logical_start + _replay_pos) % RLOG_MAX_EVENTS;
+    pushRlogFrame(_buf[idx].file, _buf[idx].line, _buf[idx].type, _buf[idx].severity, _buf[idx].detail, _buf[idx].millis);
+    _replay_pos++;
+    if (_replay_pos >= _count) _replay_active = false;
+    return _replay_active;
   }
 
   // Serialize a page of events (9 bytes each) starting at logical index
@@ -447,7 +509,7 @@ private:
     // ZERO_WRITE_GIVEUP_MS (3s) whenever nothing was draining the USB TX
     // side, stalling completely unrelated traffic (BLE/TCP included) on
     // every single event while armed.
-    if (!_enabled || !_serial) return;
+    if (!_enabled || (!_serial && !_usb)) return;
 
     uint8_t out[64];   // plenty for header + a file basename + the 4-byte detail
     size_t pos = writeHeader(out, sizeof(out), 4, _resp_code, _rlog_sub_id, id, severity, line, file, ms);
@@ -456,7 +518,23 @@ private:
     memcpy(&out[pos], &detail, 4);
     pos += 4;
 
-    const_cast<DebugRing*>(this)->_serial->writeFrameBestEffort(out, pos);
+    // beebo: always reaches physical USB directly -- see attach()'s own
+    // comment for why this is required, not optional, to keep the
+    // session-less raw USB debug tap working regardless of whatever (if
+    // anything) `_serial` currently has locked.
+    if (_usb) const_cast<DebugRing*>(this)->_usb->writeFrameBestEffort(out, pos);
+
+    // beebo: additionally reaches a live TCP/BLE session (the
+    // TCP_DEBUG_STREAM capability) -- skipped when nothing is locked
+    // (activeTransportType() == 0) or when the locked transport IS USB,
+    // since that's the exact same physical wire the push above already
+    // reached (no double send).
+    if (_serial) {
+      uint8_t active_type = const_cast<DebugRing*>(this)->_serial->activeTransportType();
+      if (active_type != 0 && active_type != RLOG_ID_XPORT_USB) {
+        const_cast<DebugRing*>(this)->_serial->writeFrameBestEffort(out, pos);
+      }
+    }
   }
 };
 

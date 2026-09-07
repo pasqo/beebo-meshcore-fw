@@ -272,6 +272,21 @@ public:
     return _transports[_active].iface->writeFrame(src, len);
   }
 
+  // beebo: forwards to the active sub-transport's own writeFrameBestEffort()
+  // rather than falling back to BaseSerialInterface's default (which would
+  // silently redirect to writeFrame() instead) -- DebugRing's live push
+  // (DebugRing.h::pushRlogFrame()) relies on this being genuinely
+  // non-blocking on USB specifically (DualModeSerialInterface's own
+  // writeFrameBestEffort() override), since its target is now this
+  // aggregator, not a fixed usb_interface. Falling through to writeFrame()
+  // here would reintroduce the exact multi-second main-loop stall
+  // pushRlogFrame()'s own comment documents avoiding.
+  size_t writeFrameBestEffort(const uint8_t src[], size_t len) override {
+    if (_active < 0) return 0;
+    _activity++;
+    return _transports[_active].iface->writeFrameBestEffort(src, len);
+  }
+
   size_t getMaxRecvFrameSize() const override {
     return _active >= 0 ? _transports[_active].iface->getMaxRecvFrameSize() : MAX_FRAME_SIZE;
   }
