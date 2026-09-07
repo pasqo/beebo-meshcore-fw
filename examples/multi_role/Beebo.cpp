@@ -5083,7 +5083,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // beebo: DebugRing always targets usb_interface, so enabling it when USB
     // transport isn't even up on this build (board.usb_enabled=0) would
     // leave the stream with nowhere to go -- refuse instead of silently
-    // accepting. XPORT_PENDING still counts as up: usb_interface itself
+    // accepting. XPORT_OFF_WAIT still counts as up: usb_interface itself
     // hasn't been disabled yet, teardown is only deferred pending session end.
     if (_usb_state == XPORT_OFF) {
       writeErrFrame(ERR_CODE_BAD_STATE);
@@ -6091,7 +6091,7 @@ void Beebo::bringUpTcp_(bool after_ble_teardown) {
 // independently of _btp_state. Still needs its own PENDING deferral like
 // BLE/TCP: a live app session can be on USB itself when usb_on flips off,
 // and disable() would drop its in-flight reply/traffic -- see the
-// XPORT_PENDING comment in Beebo.h and plans/TRANSPORT_STATE_MACHINE.md.
+// XPORT_OFF_WAIT comment in Beebo.h and plans/TRANSPORT_STATE_MACHINE.md.
 void Beebo::driveUsb(bool usb_on) {
   // beebo: _serial is null until startInterface() runs (beginTransports()'s
   // first driveUsb() call happens before that) -- no app session is
@@ -6124,14 +6124,14 @@ void Beebo::driveUsb(bool usb_on) {
 
     case XPORT_UP:
       if (!usb_on) {
-        next = session_live_on_usb ? XPORT_PENDING : XPORT_OFF;
+        next = session_live_on_usb ? XPORT_OFF_WAIT : XPORT_OFF;
         if (next == XPORT_OFF) {
           usb_interface.disable();   // no radio to power down, unlike BLE/WiFi
         }
       }
       break;
 
-    case XPORT_PENDING:
+    case XPORT_OFF_WAIT:
       if (usb_on) {
         // Config flipped back on while still waiting on the old session to
         // end -- USB was never actually torn down, so just resume wanting

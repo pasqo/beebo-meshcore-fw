@@ -813,7 +813,7 @@ private:
   // off, and tearing down usb_interface out from under that session drops
   // its reply/traffic mid-flight -- the same failure class this whole
   // rewrite exists to eliminate for BLE/TCP.
-  enum TransportState : uint8_t { XPORT_OFF, XPORT_UP, XPORT_PENDING };
+  enum TransportState : uint8_t { XPORT_OFF, XPORT_UP, XPORT_OFF_WAIT };
   TransportState _usb_state = XPORT_OFF;
   bool _usb_added = false;        // true once usb_interface has been added to serial_interface
 
