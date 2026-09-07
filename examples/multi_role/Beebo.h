@@ -374,7 +374,19 @@ struct RepeaterStats {
   uint32_t n_recv_errors;
 };
 
-class Beebo : public BaseChatMesh
+// beebo: BASECHATMESH_ROLE_SPLIT.md Phase 2 -- Beebo is one concrete
+// object regardless of build variant, so its base class has to be picked
+// at compile time: BaseChatMesh (contacts/channels/messaging) only when
+// companion is compiled in, otherwise plain mesh::Mesh, matching what
+// upstream simple_repeater/simple_room_server/simple_sensor already
+// derive from directly.
+#if BEEBO_ENABLE_COMPANION_ROLE
+  #define BEEBO_MESH_BASE BaseChatMesh
+#else
+  #define BEEBO_MESH_BASE mesh::Mesh
+#endif
+
+class Beebo : public BEEBO_MESH_BASE
 #if BEEBO_ENABLE_COMPANION_ROLE
     , public DataStoreHost   // beebo: contact/channel storage contract, companion-only (see DataStore.h)
 #endif
@@ -433,8 +445,11 @@ public:
   // beebo: 'self' sentinel (plans/ADMIN_SELF_COMMAND.md) -- runs command locally via
   // handleCommand() and queues the reply as if it came from target, instead of relaying
   // it over the mesh. Caller (handleCmdFrame's CMD_SEND_TXT_MSG branch) has already
-  // verified hasConnectionTo(target) before calling this.
+  // verified hasConnectionTo(target) before calling this. Companion-only (queueMessage()
+  // is the companion reply path) -- see BASECHATMESH_ROLE_SPLIT.md Phase 2.
+#if BEEBO_ENABLE_COMPANION_ROLE
   void handleAdminSelfCommand(const ContactInfo& target, char* command);
+#endif
 
   // beebo: repeater-role advert, mirroring
   // BaseChatMesh::createSelfAdvert (src/helpers/BaseChatMesh.cpp:19-39,
@@ -513,8 +528,10 @@ protected:
 #endif
 
   void sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis);
+#if BEEBO_ENABLE_COMPANION_ROLE
   void sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis=0) override;
   void sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis=0) override;
+#endif
 
   void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override;
   void onPacketCaptured(mesh::Packet* pkt) override;                   // beebo: stage distilled fields onto pkt
@@ -522,6 +539,7 @@ protected:
   void onPacketDisposed(mesh::Packet* pkt) override;  // beebo: commit the finished monitor-ring record
   void logTx(mesh::Packet* pkt, int len) override;      // beebo: capture our own TX into the monitor ring
   void logTxFail(mesh::Packet* pkt, int len) override;  // beebo: ditto, send timed out
+#if BEEBO_ENABLE_COMPANION_ROLE
   bool isAutoAddEnabled() const override;
   bool shouldAutoAddContactType(uint8_t type) const override;
   bool shouldOverwriteWhenFull() const override;
@@ -530,7 +548,9 @@ protected:
   void onContactOverwrite(const uint8_t* pub_key) override;
   bool onContactPathRecv(ContactInfo& from, uint8_t* in_path, uint8_t in_path_len, uint8_t* out_path, uint8_t out_path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) override;
   void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) override;
+#endif
   void onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp, const uint8_t* app_data, size_t app_data_len) override;  // beebo: track direct neighbours
+#if BEEBO_ENABLE_COMPANION_ROLE
   void onContactPathUpdated(const ContactInfo &contact) override;
   ContactInfo* processAck(const uint8_t *data) override;
   void queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packet *pkt, uint32_t sender_timestamp,
@@ -550,15 +570,30 @@ protected:
   uint8_t onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
                            uint8_t len, uint8_t *reply) override;
   void onContactResponse(const ContactInfo &contact, const uint8_t *data, uint8_t len) override;
+#endif
   void onControlDataRecv(mesh::Packet *packet) override;
   void onRawDataRecv(mesh::Packet *packet) override;
   void onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code, uint8_t flags,
                    const uint8_t *path_snrs, const uint8_t *path_hashes, uint8_t path_len) override;
   void onPokeReply(mesh::Packet *packet, uint32_t tag, int16_t rssi, int16_t snr, int16_t noise_floor) override;
 
+#if BEEBO_ENABLE_COMPANION_ROLE
   uint32_t calcFloodTimeoutMillisFor(uint32_t pkt_airtime_millis) const override;
-  uint32_t calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t path_len) const override;
   void onSendTimeout() override;
+#endif
+  // beebo: calcDirectTimeoutMillisFor is a BaseChatMesh pure virtual when
+  // companion is compiled in (override, defined in BeeboCompanion.cpp),
+  // but it's also called directly by name from role-agnostic code
+  // (CMD_SEND_TRACE_PATH, BEEBO_CMD_SEND_POKE in Beebo.cpp) -- neither
+  // touches ContactInfo/contacts, it's a pure timeout calculation, so it
+  // stays declared/defined unconditionally rather than following
+  // calcFloodTimeoutMillisFor (which has no such outside caller) into the
+  // companion-only guard above. See BASECHATMESH_ROLE_SPLIT.md Phase 2.
+#if BEEBO_ENABLE_COMPANION_ROLE
+  uint32_t calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t path_len) const override;
+#else
+  uint32_t calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t path_len) const;
+#endif
 
   // DataStoreHost methods (contact/channel storage is companion-only --
   // see DataStore.h's own BASECHATMESH_ROLE_SPLIT.md Phase 1 comment)
@@ -902,16 +937,20 @@ private:
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);
   void writeDisabledFrame();
+#if BEEBO_ENABLE_COMPANION_ROLE
   void writeContactRespFrame(uint8_t code, const ContactInfo &contact);
   void updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, const uint8_t *frame, int len);
+#endif
   void addToOfflineQueue(const uint8_t frame[], int len);
   int getFromOfflineQueue(uint8_t frame[]);
-  int getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) override { 
+#if BEEBO_ENABLE_COMPANION_ROLE
+  int getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) override {
     return _store->getBlobByKey(key, key_len, dest_buf);
   }
   bool putBlobByKey(const uint8_t key[], int key_len, const uint8_t src_buf[], int len) override {
     return _store->putBlobByKey(key, key_len, src_buf, len);
   }
+#endif
 
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
@@ -1617,10 +1656,12 @@ private:
   // out of range, not just immediately after a live login round trip. Cleared only
   // on reboot (in-RAM, not persisted) -- single most-recent login, not a table, so
   // logging into a different admin target overwrites it.
+#if BEEBO_ENABLE_COMPANION_ROLE
   uint8_t last_admin_login_pubkey[6];
   bool hasAdminLogin(const uint8_t* pub_key) const {
     return memcmp(last_admin_login_pubkey, pub_key, 6) == 0;
   }
+#endif
   // beebo: defaults to nullptr -- not assigned until startInterface() runs
   // (beginTransports(), after driveBtp()/driveUsb()'s first call already
   // needs to read it for session-liveness -- see driveBtp()'s own
@@ -1816,6 +1857,12 @@ private:
   int offline_queue_len;
   Frame offline_queue[OFFLINE_QUEUE_SIZE];
 
+  // beebo: DM send-confirmation tracking is companion-only (BaseChatMesh's
+  // own sendMessage()/onAckRecv() are still always available when
+  // companion is compiled in, but this per-message table and the
+  // events/counters built on it are Beebo's own addition on top -- see
+  // BASECHATMESH_ROLE_SPLIT.md Phase 2).
+#if BEEBO_ENABLE_COMPANION_ROLE
   struct AckTableEntry {
     unsigned long msg_sent;
     uint32_t ack;
@@ -1860,9 +1907,27 @@ private:
   // step -- the entry's contact/ack are still readable here, right before
   // the slot is cleared.
   void checkAckTableTimeouts();
+#endif
 
 public:
+  // beebo: always declared -- queried by role-agnostic SoH/QoS stats
+  // reporting (Beebo.cpp's buildSohStats()-equivalent, TuneController
+  // feed, and BEEBO_CMD_GET_ACK_STATS) regardless of role. 0 when
+  // companion is compiled out, since none of ack_overflow_count/
+  // BaseChatMesh's own _ack_success_count/_ack_timeout_count/
+  // num_contacts exist in that build -- see BASECHATMESH_ROLE_SPLIT.md
+  // Phase 2.
+#if BEEBO_ENABLE_COMPANION_ROLE
   uint32_t getAckOverflowCount() const { return ack_overflow_count; }
+  uint32_t getAckSuccessCount() const { return BaseChatMesh::getAckSuccessCount(); }
+  uint32_t getAckTimeoutCount() const { return BaseChatMesh::getAckTimeoutCount(); }
+  int getNumContacts() const { return BaseChatMesh::getNumContacts(); }
+#else
+  uint32_t getAckOverflowCount() const { return 0; }
+  uint32_t getAckSuccessCount() const { return 0; }
+  uint32_t getAckTimeoutCount() const { return 0; }
+  int getNumContacts() const { return 0; }
+#endif
 private:
 
   #define ADVERT_PATH_TABLE_SIZE   16
@@ -1882,7 +1947,9 @@ private:
   // onPeerDataRecv hook that resolves a ContactInfo (onMessageRecv/
   // onCommandDataRecv/onSignedMessageRecv). Full pubkey is always known here
   // (ContactInfo), unlike the 1-byte hash a discover response carries.
+#if BEEBO_ENABLE_COMPANION_ROLE
   void refreshNeighbourFromContact(const ContactInfo& from, mesh::Packet* pkt);
+#endif
 };
 
 extern Beebo beebo;

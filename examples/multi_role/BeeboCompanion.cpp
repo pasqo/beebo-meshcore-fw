@@ -30,7 +30,6 @@ void Beebo::loopCompanion(bool skip_radio) {
   }
   checkSerialInterface();
 }
-#endif // BEEBO_ENABLE_COMPANION_ROLE
 
 bool Beebo::isAutoAddEnabled() const {
   return (_role_state->prefs.manual_add_contacts & 1) == 0;
@@ -503,11 +502,8 @@ bool Beebo::onContactPathRecv(ContactInfo& contact, uint8_t* in_path, uint8_t in
 uint32_t Beebo::calcFloodTimeoutMillisFor(uint32_t pkt_airtime_millis) const {
   return SEND_TIMEOUT_BASE_MILLIS + (FLOOD_SEND_TIMEOUT_FACTOR * pkt_airtime_millis);
 }
-uint32_t Beebo::calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t path_len) const {
-  uint8_t path_hash_count = path_len & 63;
-  return SEND_TIMEOUT_BASE_MILLIS +
-         ((pkt_airtime_millis * DIRECT_SEND_PERHOP_FACTOR + DIRECT_SEND_PERHOP_EXTRA_MILLIS) *
-          (path_hash_count + 1));
-}
+// beebo: calcDirectTimeoutMillisFor moved to Beebo.cpp (unconditional) --
+// see its own comment in Beebo.h, BASECHATMESH_ROLE_SPLIT.md Phase 2.
 
 void Beebo::onSendTimeout() {}
+#endif // BEEBO_ENABLE_COMPANION_ROLE

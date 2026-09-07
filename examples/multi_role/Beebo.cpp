@@ -60,6 +60,7 @@ void Beebo::writeDisabledFrame() {
   _serial->writeFrame(buf, 1);
 }
 
+#if BEEBO_ENABLE_COMPANION_ROLE
 void Beebo::writeContactRespFrame(uint8_t code, const ContactInfo &contact) {
   int i = 0;
   out_frame[i++] = code;
@@ -107,6 +108,7 @@ void Beebo::updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, con
     }
   }
 }
+#endif // BEEBO_ENABLE_COMPANION_ROLE
 
 bool Beebo::Frame::isChannelMsg() const {
   return buf[0] == RESP_CODE_CHANNEL_MSG_RECV || buf[0] == RESP_CODE_CHANNEL_MSG_RECV_V3 ||
@@ -479,6 +481,9 @@ void Beebo::logTxFail(mesh::Packet* pkt, int len) {
 // beebo: see MonRing.h's
 // EVENT_ACK_SUCCESS/EVENT_ACK_TIMEOUT comment for the data[] layout. SUCCESS/
 // TIMEOUT only -- see emitAckOverflowEvent() for the resource-exhaustion case.
+// Companion-only (DM send-confirmation tracking), see Beebo.h's
+// expected_ack_table comment.
+#if BEEBO_ENABLE_COMPANION_ROLE
 void Beebo::emitAckResultEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_ms) {
   if (!monring.enabled() || !monring.allocated()) return;
   EventRecord rec{};
@@ -500,6 +505,7 @@ void Beebo::emitAckOverflowEvent(uint32_t pkt_hash, uint32_t age_ms) {
   memcpy(&rec.data[5], &age_ms, 4);
   monring.appendEvent(rec, (uint32_t)getRTCClock()->getCurrentTime());
 }
+#endif // BEEBO_ENABLE_COMPANION_ROLE
 
 // beebo: record/refresh a direct neighbour (evict least-recently-heard on
 // overflow). Matches an existing slot by prefix over the shorter of the two
@@ -518,6 +524,17 @@ void Beebo::emitAckOverflowEvent(uint32_t pkt_hash, uint32_t age_ms) {
 // the real one. A longer prefix always upgrades the stored one in place;
 // name==NULL (a discover hit, not an advert) leaves any existing name/type/
 // location/advert_timestamp untouched rather than blanking them.
+// beebo: role-agnostic (see Beebo.h's own comment) -- called directly from
+// CMD_SEND_TRACE_PATH/BEEBO_CMD_SEND_POKE regardless of role, a pure
+// timeout calculation with no ContactInfo/contacts dependency, unlike its
+// sibling calcFloodTimeoutMillisFor (BeeboCompanion.cpp, companion-only).
+uint32_t Beebo::calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t path_len) const {
+  uint8_t path_hash_count = path_len & 63;
+  return SEND_TIMEOUT_BASE_MILLIS +
+         ((pkt_airtime_millis * DIRECT_SEND_PERHOP_FACTOR + DIRECT_SEND_PERHOP_EXTRA_MILLIS) *
+          (path_hash_count + 1));
+}
+
 void Beebo::putNeighbour(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t advert_timestamp,
                           int8_t snr, uint8_t type, const char* name, int32_t lat, int32_t lon) {
   NeighbourInfo* slot = &neighbours[0];
@@ -591,11 +608,13 @@ void Beebo::putNeighbour(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t adv
 // same putNeighbour(). getPathHashCount()==0 gates on zero-hop the same way
 // onAdvertRecv() does; a multi-hop message from a known contact says nothing
 // about who our own direct neighbours are.
+#if BEEBO_ENABLE_COMPANION_ROLE
 void Beebo::refreshNeighbourFromContact(const ContactInfo& from, mesh::Packet* pkt) {
   if (pkt->getPathHashCount() != 0) return;
   putNeighbour(from.id.pub_key, PUB_KEY_SIZE, from.last_advert_timestamp,
                (int8_t)(pkt->getSNR() * 4), from.type, from.name, from.gps_lat, from.gps_lon);
 }
+#endif
 
 // beebo: shared by BEEBO_CMD_SET_NEIGHBOR_REMOVE's own binary handler (below,
 // this file) and CommonCLICallbacks::removeNeighbor() (the CommonCLI
@@ -635,7 +654,7 @@ bool Beebo::removeNeighborByPrefix(const uint8_t* pubkey, int key_len) {
 // regardless of whether they're a saved contact.
 void Beebo::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp,
                           const uint8_t* app_data, size_t app_data_len) {
-  BaseChatMesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len);
+  BEEBO_MESH_BASE::onAdvertRecv(packet, id, timestamp, app_data, app_data_len);
 
   if (packet->getPathHashCount() != 0) return;   // not heard directly => not a neighbour
   AdvertDataParser parser(app_data, app_data_len);
@@ -964,7 +983,7 @@ void Beebo::onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code, 
 }
 
 Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store)
-    : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
+    : BEEBO_MESH_BASE(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
       _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store) {
   _iter_started = false;
   _pending_disconnect = false;
@@ -978,8 +997,10 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   _neighread.active = false;
   _pathread.active = false;
   clearPendingReqs();
+#if BEEBO_ENABLE_COMPANION_ROLE
   next_ack_idx = 0;
   ack_overflow_count = 0;
+#endif
   sign_data = NULL;
   ota_handle = 0;
   ota_partition = NULL;
@@ -2698,6 +2719,7 @@ bool Beebo::tlvSetCompanionRepeat(Beebo* self, uint8_t role, uint32_t raw) {
 // the reply back to the app through the same queued-message path a real remote admin
 // reply from `target` would take (Beebo::onCommandDataRecv() -> queueMessage()), so the
 // app's UI sees an ordinary admin-command response with no special casing needed there.
+#if BEEBO_ENABLE_COMPANION_ROLE
 void Beebo::handleAdminSelfCommand(const ContactInfo& target, char* command) {
   char reply[160];
   reply[0] = 0;
@@ -2708,6 +2730,7 @@ void Beebo::handleAdminSelfCommand(const ContactInfo& target, char* command) {
     queueMessage(target, TXT_TYPE_CLI_DATA, NULL, timestamp, NULL, 0, reply);
   }
 }
+#endif
 
 void Beebo::handleCmdFrame(size_t len) {
   if (cmd_frame[0] == CMD_DEVICE_QUERY && len >= 2) { // sent when app establishes connection
@@ -2849,6 +2872,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // (RegionMap/getDefaultScope(), GET/SET_REGION_DEFAULT).
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
   } else if (cmd_frame[0] == CMD_SEND_TXT_MSG && len >= 14) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     int i = 1;
     uint8_t txt_type = cmd_frame[i++];
     uint8_t attempt = cmd_frame[i++];
@@ -2930,7 +2954,11 @@ void Beebo::handleCmdFrame(size_t len) {
                         ? ERR_CODE_NOT_FOUND
                         : ERR_CODE_UNSUPPORTED_CMD); // unknown recipient, or unsupported TXT_TYPE_*
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG) { // send GroupChannel text msg
+#if BEEBO_ENABLE_COMPANION_ROLE
     int i = 1;
     uint8_t txt_type = cmd_frame[i++]; // should be TXT_TYPE_PLAIN
     uint8_t channel_idx = cmd_frame[i++];
@@ -2950,7 +2978,11 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
       }
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SEND_CHANNEL_DATA) { // send GroupChannel datagram
+#if BEEBO_ENABLE_COMPANION_ROLE
     if (len < 4) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
       return;
@@ -2990,7 +3022,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_TABLE_FULL);
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_GET_CONTACTS) { // get Contact list
+#if BEEBO_ENABLE_COMPANION_ROLE
     if (_iter_started) {
       writeErrFrame(ERR_CODE_BAD_STATE); // iterator is currently busy
     } else {
@@ -3011,6 +3047,9 @@ void Beebo::handleCmdFrame(size_t len) {
       _iter_started = true;
       _most_recent_lastmod = 0;
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SET_ADVERT_NAME && len >= 2) {
     int nlen = len - 1;
     if (nlen > sizeof(_role_state->prefs.node_name) - 1) nlen = sizeof(_role_state->prefs.node_name) - 1; // max len
@@ -3094,6 +3133,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_TABLE_FULL);
     }
   } else if (cmd_frame[0] == CMD_RESET_PATH && len >= 1 + 32) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3104,7 +3144,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // unknown contact
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_ADD_UPDATE_CONTACT && len >= 1 + 32 + 2 + 1) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     uint32_t last_mod = getRTCClock()->getCurrentTime();  // fallback value if not present in cmd_frame
@@ -3125,7 +3169,11 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_TABLE_FULL);
       }
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_REMOVE_CONTACT) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient && removeContact(*recipient)) {
@@ -3135,7 +3183,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // not found, or unable to remove
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SHARE_CONTACT) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3147,7 +3199,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND);
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_GET_CONTACT_BY_KEY) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *contact = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (contact) {
@@ -3155,7 +3211,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // not found
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_EXPORT_CONTACT) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     if (len < 1 + PUB_KEY_SIZE) {
       // export SELF -- companion-only reachable (CMD_EXPORT_CONTACT is in
       // the repeater-refusal list above), so createSelfAdvertPacket()'s
@@ -3183,12 +3243,19 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_NOT_FOUND); // not found
       }
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_IMPORT_CONTACT && len > 2 + 32 + 64) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     if (importContact(&cmd_frame[1], len - 1)) {
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SYNC_NEXT_MESSAGE) {
     int out_len;
     if ((out_len = getFromOfflineQueue(out_frame)) > 0) {
@@ -3382,8 +3449,8 @@ void Beebo::handleCmdFrame(size_t len) {
             // re-load contacts, to invalidate ecdh shared_secrets (companion-
             // only state, see begin()'s role guard)
             if (isCompanion()) {
-              resetContacts();
 #if BEEBO_ENABLE_COMPANION_ROLE
+              resetContacts();
               _store->loadContacts(this);
 #endif
             }
@@ -3419,6 +3486,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_UNSUPPORTED_CMD); // flood, not supported (yet)
     }
   } else if (cmd_frame[0] == CMD_SEND_LOGIN && len >= 1 + PUB_KEY_SIZE) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     char *password = (char *)&cmd_frame[1 + PUB_KEY_SIZE];
@@ -3440,7 +3508,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SEND_ANON_REQ && len > 1 + PUB_KEY_SIZE) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     ContactInfo anon;
@@ -3470,7 +3542,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_TABLE_FULL); // contacts full
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SEND_STATUS_REQ && len >= 1 + PUB_KEY_SIZE) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3491,7 +3567,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SEND_PATH_DISCOVERY_REQ && cmd_frame[1] == 0 && len >= 2 + PUB_KEY_SIZE) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[2];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3520,7 +3600,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SEND_TELEMETRY_REQ && len >= 4 + PUB_KEY_SIZE) {  // can deprecate, in favour of CMD_SEND_BINARY_REQ
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[4];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3540,6 +3624,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SEND_TELEMETRY_REQ && len == 4) {  // 'self' telemetry request
     telemetry.reset();
     telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
@@ -3556,6 +3643,7 @@ void Beebo::handleCmdFrame(size_t len) {
     i += tlen;
     _serial->writeFrame(out_frame, i);
   } else if (cmd_frame[0] == CMD_SEND_BINARY_REQ && len >= 2 + PUB_KEY_SIZE) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3576,18 +3664,30 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_HAS_CONNECTION && len >= 1 + PUB_KEY_SIZE) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     if (hasConnectionTo(pub_key)) {
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND);
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_LOGOUT && len >= 1 + PUB_KEY_SIZE) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &cmd_frame[1];
     stopConnection(pub_key);
     writeOKFrame();
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t channel_idx = cmd_frame[1];
     ChannelDetails channel;
     if (getChannel(channel_idx, channel)) {
@@ -3602,9 +3702,13 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND);
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SET_CHANNEL && len >= 2 + 32 + 32) {
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD); // not supported (yet)
   } else if (cmd_frame[0] == CMD_SET_CHANNEL && len >= 2 + 32 + 16) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t channel_idx = cmd_frame[1];
     ChannelDetails channel;
     StrHelper::strncpy(channel.name, (char *)&cmd_frame[2], 32);
@@ -3616,6 +3720,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (cmd_frame[0] == CMD_SIGN_START) {
     out_frame[0] = RESP_CODE_SIGN_START;
     out_frame[1] = 0; // reserved
@@ -4025,6 +4132,7 @@ void Beebo::handleCmdFrame(size_t len) {
     writeOKFrame();
     _pending_disconnect = true;
   } else if (sub[0] == BEEBO_CMD_SEND_POKE && sub_len >= 1 + PUB_KEY_SIZE) {
+#if BEEBO_ENABLE_COMPANION_ROLE
     uint8_t *pub_key = &sub[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient == NULL) {
@@ -4053,6 +4161,9 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_TABLE_FULL);
       }
     }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (sub[0] == BEEBO_CMD_GET_SAVE_PREFS) {
     out_frame[0] = RESP_CODE_OK;
     uint32_t value = getSavePrefs() ? 1 : 0;
@@ -4937,8 +5048,8 @@ void Beebo::handleCmdFrame(size_t len) {
           // re-load contacts, to invalidate ecdh shared_secrets (companion-
           // only state, see begin()'s role guard) -- same as CMD_IMPORT_PRIVATE_KEY
           if (isCompanion()) {
-            resetContacts();
 #if BEEBO_ENABLE_COMPANION_ROLE
+            resetContacts();
             _store->loadContacts(this);
 #endif
           }
@@ -5216,6 +5327,7 @@ void Beebo::checkSerialInterface() {
     _pending_disconnect = false;
     MESH_DEBUG_PRINTLN("Disconnecting serial interface (app request)");
     _serial->disconnectActive();
+#if BEEBO_ENABLE_COMPANION_ROLE
   } else if (_iter_started              // check if our ContactsIterator is 'running'
              && !_serial->isWriteBusy() // don't spam the Serial Interface too quickly!
   ) {
@@ -5242,6 +5354,7 @@ void Beebo::checkSerialInterface() {
       _serial->writeFrame(out_frame, 5);
       _iter_started = false;
     }
+#endif
   } else if (_monread.active && !_serial->isWriteBusy()) {
     // beebo: stream the monitor-ring read one frame per loop, paced by the transport
     // accepting the write. One frame/iteration keeps radio RX serviced; the read
@@ -6093,6 +6206,7 @@ mesh::Packet* Beebo::createSelfAdvertPacket() {
   // for repeater, _role_state->prefs.node_lat/lon for companion -- the same field
   // CMD_SET_ADVERT_LATLON/SET_LAT/SET_LON now write).
   uint8_t loc_policy = use_repeater_type ? _role_state->prefs.advert_loc_policy : _role_state->prefs.advert_loc_policy;
+#if BEEBO_ENABLE_COMPANION_ROLE
   if (loc_policy == ADVERT_LOC_NONE) {
     return use_repeater_type ? createRepeaterSelfAdvert(name)
                               : createSelfAdvert(name);
@@ -6104,6 +6218,19 @@ mesh::Packet* Beebo::createSelfAdvertPacket() {
   double lon = use_repeater_type ? _role_state->prefs.node_lon : _role_state->prefs.node_lon;
   return use_repeater_type ? createRepeaterSelfAdvert(name, lat, lon)
                             : createSelfAdvert(name, lat, lon);
+#else
+  // beebo: repeater-only static build -- use_repeater_type is always true
+  // here (isNodeRoleBuiltIn() forbids any other live role), so the
+  // companion-only createSelfAdvert() alternative above never actually
+  // runs; this mirrors the same NONE/SHARE/PREFS 3-way with only the
+  // repeater call, so it compiles without BaseChatMesh at all.
+  if (loc_policy == ADVERT_LOC_NONE) {
+    return createRepeaterSelfAdvert(name);
+  } else if (loc_policy == ADVERT_LOC_SHARE) {
+    return createRepeaterSelfAdvert(name, sensors.node_lat, sensors.node_lon);
+  }
+  return createRepeaterSelfAdvert(name, _role_state->prefs.node_lat, _role_state->prefs.node_lon);
+#endif
 #else
   // beebo: STATIC_ROLE_BUILDS -- no repeater-type advert without repeater
   // support; _board.role can never be NODE_ROLE_REPEATER here (see
@@ -6188,7 +6315,7 @@ int Beebo::searchPeersByHash(const uint8_t *hash) {
     return n;
   }
 #endif
-  return BaseChatMesh::searchPeersByHash(hash);
+  return BEEBO_MESH_BASE::searchPeersByHash(hash);
 }
 
 void Beebo::getPeerSharedSecret(uint8_t *dest_secret, int peer_idx) {
@@ -6203,7 +6330,7 @@ void Beebo::getPeerSharedSecret(uint8_t *dest_secret, int peer_idx) {
     return;
   }
 #endif
-  BaseChatMesh::getPeerSharedSecret(dest_secret, peer_idx);
+  BEEBO_MESH_BASE::getPeerSharedSecret(dest_secret, peer_idx);
 }
 
 // beebo: never overridden
@@ -6231,7 +6358,7 @@ bool Beebo::onPeerPathRecv(mesh::Packet *packet, int sender_idx, const uint8_t *
     return false;
   }
 #endif
-  return BaseChatMesh::onPeerPathRecv(packet, sender_idx, secret, path, path_len, extra_type, extra, extra_len);
+  return BEEBO_MESH_BASE::onPeerPathRecv(packet, sender_idx, secret, path, path_len, extra_type, extra, extra_len);
 }
 
 void Beebo::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, const uint8_t *secret,
@@ -6345,7 +6472,7 @@ void Beebo::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, c
     return;
   }
 #endif
-  BaseChatMesh::onPeerDataRecv(packet, type, sender_idx, secret, data, len);
+  BEEBO_MESH_BASE::onPeerDataRecv(packet, type, sender_idx, secret, data, len);
 }
 
 /* ------------------------------------------------------------------------
