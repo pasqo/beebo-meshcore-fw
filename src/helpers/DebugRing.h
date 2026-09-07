@@ -191,6 +191,17 @@
 // from Beebo.cpp's poll), not via _checkTransportStateChanges().
 #define RLOG_ID_XSESSION_INIT         38
 #define RLOG_ID_XSESSION_CHANGE       39
+// beebo: radio_driver.recvRaw() got an RX interrupt but _radio->readData()
+// itself failed (CRC mismatch, length mismatch, or another RadioLib error)
+// -- the packet is dropped and counted in n_recv_errors (RadioLibWrappers.cpp),
+// but that counter alone can't distinguish a bad-CRC reception (real RF
+// noise/interference) from any other RadioLib-level failure. detail packs
+// four signed bytes (bits 0-7 = LSB): RadioLib error code (e.g.
+// RADIOLIB_ERR_CRC_MISMATCH = -6), RSSI dBm, SNR dB (rounded to the nearest
+// integer -- the radio reports it with sub-dB precision, but a whole dB is
+// enough for this diagnostic), and the current noise floor dBm -- all as
+// int8 two's complement.
+#define RLOG_ID_RADIO_RECV_ERROR      47
 // GEN_RLOG_NAMES_END
 // 22, 26 retired -- subsumed by RLOG_ID_XPORT_LINK_WIFI_LISTENING.
 // 24/25 never assigned.

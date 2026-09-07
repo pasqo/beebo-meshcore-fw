@@ -1,6 +1,8 @@
 
 #define RADIOLIB_STATIC_ONLY 1
 #include "RadioLibWrappers.h"
+#include "../DebugRing.h"
+#include <math.h>
 
 #define STATE_IDLE       0
 #define STATE_RX         1
@@ -163,6 +165,12 @@ int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
       int err = _radio->readData(bytes, len);
       if (err != RADIOLIB_ERR_NONE) {
         MESH_DEBUG_PRINTLN("RadioLibWrapper: error: readData(%d)", err);
+        int rssi = (int)getCurrentRSSI();
+        int snr = (int)lroundf(getLastSNR());
+        int noise_floor = getNoiseFloor();
+        int32_t detail = ((int32_t)err & 0xFF) | (((int32_t)rssi & 0xFF) << 8)
+                        | (((int32_t)snr & 0xFF) << 16) | (((int32_t)noise_floor & 0xFF) << 24);
+        RLOGH(RLOG_ID_RADIO_RECV_ERROR, detail);
         len = 0;
         n_recv_errors++;
       } else {
