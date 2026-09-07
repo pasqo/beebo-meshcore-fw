@@ -2871,8 +2871,8 @@ void Beebo::handleCmdFrame(size_t len) {
     // own, more capable default-scope mechanism already
     // (RegionMap/getDefaultScope(), GET/SET_REGION_DEFAULT).
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
-  } else if (cmd_frame[0] == CMD_SEND_TXT_MSG && len >= 14) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_TXT_MSG && len >= 14) {
     int i = 1;
     uint8_t txt_type = cmd_frame[i++];
     uint8_t attempt = cmd_frame[i++];
@@ -2954,11 +2954,9 @@ void Beebo::handleCmdFrame(size_t len) {
                         ? ERR_CODE_NOT_FOUND
                         : ERR_CODE_UNSUPPORTED_CMD); // unknown recipient, or unsupported TXT_TYPE_*
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG) { // send GroupChannel text msg
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG) { // send GroupChannel text msg
     int i = 1;
     uint8_t txt_type = cmd_frame[i++]; // should be TXT_TYPE_PLAIN
     uint8_t channel_idx = cmd_frame[i++];
@@ -2978,11 +2976,9 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
       }
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_SEND_CHANNEL_DATA) { // send GroupChannel datagram
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_CHANNEL_DATA) { // send GroupChannel datagram
     if (len < 4) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
       return;
@@ -3022,11 +3018,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_TABLE_FULL);
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_GET_CONTACTS) { // get Contact list
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_GET_CONTACTS) { // get Contact list
     if (_iter_started) {
       writeErrFrame(ERR_CODE_BAD_STATE); // iterator is currently busy
     } else {
@@ -3047,8 +3041,6 @@ void Beebo::handleCmdFrame(size_t len) {
       _iter_started = true;
       _most_recent_lastmod = 0;
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
   } else if (cmd_frame[0] == CMD_SET_ADVERT_NAME && len >= 2) {
     int nlen = len - 1;
@@ -3132,8 +3124,8 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_TABLE_FULL);
     }
-  } else if (cmd_frame[0] == CMD_RESET_PATH && len >= 1 + 32) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_RESET_PATH && len >= 1 + 32) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3144,11 +3136,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // unknown contact
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_ADD_UPDATE_CONTACT && len >= 1 + 32 + 2 + 1) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_ADD_UPDATE_CONTACT && len >= 1 + 32 + 2 + 1) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     uint32_t last_mod = getRTCClock()->getCurrentTime();  // fallback value if not present in cmd_frame
@@ -3169,11 +3159,9 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_TABLE_FULL);
       }
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_REMOVE_CONTACT) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_REMOVE_CONTACT) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient && removeContact(*recipient)) {
@@ -3183,11 +3171,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // not found, or unable to remove
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_SHARE_CONTACT) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SHARE_CONTACT) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3199,11 +3185,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND);
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_GET_CONTACT_BY_KEY) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_GET_CONTACT_BY_KEY) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *contact = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (contact) {
@@ -3211,11 +3195,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // not found
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_EXPORT_CONTACT) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_EXPORT_CONTACT) {
     if (len < 1 + PUB_KEY_SIZE) {
       // export SELF -- companion-only reachable (CMD_EXPORT_CONTACT is in
       // the repeater-refusal list above), so createSelfAdvertPacket()'s
@@ -3243,18 +3225,14 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_NOT_FOUND); // not found
       }
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_IMPORT_CONTACT && len > 2 + 32 + 64) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_IMPORT_CONTACT && len > 2 + 32 + 64) {
     if (importContact(&cmd_frame[1], len - 1)) {
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
   } else if (cmd_frame[0] == CMD_SYNC_NEXT_MESSAGE) {
     int out_len;
@@ -3485,8 +3463,8 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_UNSUPPORTED_CMD); // flood, not supported (yet)
     }
-  } else if (cmd_frame[0] == CMD_SEND_LOGIN && len >= 1 + PUB_KEY_SIZE) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_LOGIN && len >= 1 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     char *password = (char *)&cmd_frame[1 + PUB_KEY_SIZE];
@@ -3508,11 +3486,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_SEND_ANON_REQ && len > 1 + PUB_KEY_SIZE) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_ANON_REQ && len > 1 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     ContactInfo anon;
@@ -3542,11 +3518,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_TABLE_FULL); // contacts full
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_SEND_STATUS_REQ && len >= 1 + PUB_KEY_SIZE) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_STATUS_REQ && len >= 1 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3567,11 +3541,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_SEND_PATH_DISCOVERY_REQ && cmd_frame[1] == 0 && len >= 2 + PUB_KEY_SIZE) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_PATH_DISCOVERY_REQ && cmd_frame[1] == 0 && len >= 2 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[2];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3600,11 +3572,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_SEND_TELEMETRY_REQ && len >= 4 + PUB_KEY_SIZE) {  // can deprecate, in favour of CMD_SEND_BINARY_REQ
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_TELEMETRY_REQ && len >= 4 + PUB_KEY_SIZE) {  // can deprecate, in favour of CMD_SEND_BINARY_REQ
     uint8_t *pub_key = &cmd_frame[4];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3624,8 +3594,6 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
   } else if (cmd_frame[0] == CMD_SEND_TELEMETRY_REQ && len == 4) {  // 'self' telemetry request
     telemetry.reset();
@@ -3642,8 +3610,8 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&out_frame[i], telemetry.getBuffer(), tlen);
     i += tlen;
     _serial->writeFrame(out_frame, i);
-  } else if (cmd_frame[0] == CMD_SEND_BINARY_REQ && len >= 2 + PUB_KEY_SIZE) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_BINARY_REQ && len >= 2 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -3664,30 +3632,24 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_HAS_CONNECTION && len >= 1 + PUB_KEY_SIZE) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_HAS_CONNECTION && len >= 1 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[1];
     if (hasConnectionTo(pub_key)) {
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND);
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_LOGOUT && len >= 1 + PUB_KEY_SIZE) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_LOGOUT && len >= 1 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[1];
     stopConnection(pub_key);
     writeOKFrame();
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
-  } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
     uint8_t channel_idx = cmd_frame[1];
     ChannelDetails channel;
     if (getChannel(channel_idx, channel)) {
@@ -3702,13 +3664,11 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND);
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
   } else if (cmd_frame[0] == CMD_SET_CHANNEL && len >= 2 + 32 + 32) {
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD); // not supported (yet)
-  } else if (cmd_frame[0] == CMD_SET_CHANNEL && len >= 2 + 32 + 16) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SET_CHANNEL && len >= 2 + 32 + 16) {
     uint8_t channel_idx = cmd_frame[1];
     ChannelDetails channel;
     StrHelper::strncpy(channel.name, (char *)&cmd_frame[2], 32);
@@ -3720,8 +3680,6 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
   } else if (cmd_frame[0] == CMD_SIGN_START) {
     out_frame[0] = RESP_CODE_SIGN_START;
@@ -4131,8 +4089,8 @@ void Beebo::handleCmdFrame(size_t len) {
     MESH_DEBUG_PRINTLN("App disconnect requested");
     writeOKFrame();
     _pending_disconnect = true;
-  } else if (sub[0] == BEEBO_CMD_SEND_POKE && sub_len >= 1 + PUB_KEY_SIZE) {
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (sub[0] == BEEBO_CMD_SEND_POKE && sub_len >= 1 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &sub[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient == NULL) {
@@ -4161,8 +4119,6 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_TABLE_FULL);
       }
     }
-#else
-    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
   } else if (sub[0] == BEEBO_CMD_GET_SAVE_PREFS) {
     out_frame[0] = RESP_CODE_OK;
