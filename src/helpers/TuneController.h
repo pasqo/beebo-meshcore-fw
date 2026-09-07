@@ -130,7 +130,7 @@ public:
                                                         // pref (Beebo.cpp) -- proposals
                                                         // for this param are logged but
                                                         // permanently excluded from
-                                                        // should_apply (see isAppliable())
+                                                        // should_apply (see isApplicable())
                                                         // until that's fixed upstream.
       { TUNE_AIRTIME_FACTOR,           50, 0,  900 },  // 0.00 ..  9.00, step 0.50
     };
@@ -141,7 +141,7 @@ public:
   // comment) -- excluded from actuation regardless of applied_mask, so a
   // caller can't accidentally "apply" a change that has zero real effect
   // and silently think it did something.
-  static bool isAppliable(uint8_t param_id) {
+  static bool isApplicable(uint8_t param_id) {
     return param_id != TUNE_INTERFERENCE_THRESHOLD;
   }
 
@@ -202,7 +202,7 @@ public:
     ParamSpec spec = specFor(p);
     ParamState &ps = _state[p];
     int16_t current = current_values[p];
-    bool param_applied_enabled = isAppliable(spec.param_id) && (applied_mask & (1 << p)) != 0;
+    bool param_applied_enabled = isApplicable(spec.param_id) && (applied_mask & (1 << p)) != 0;
 
     uint16_t reward = txConfirmReward(stats);
 

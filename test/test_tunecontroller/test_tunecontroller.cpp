@@ -205,7 +205,7 @@ TEST(TuneController, InterferenceThresholdNeverAppliesEvenWhenMasked) {
     d = tc.tick(f.ring, 1000 + i, current, kNoExposure, mask);
   }
   EXPECT_EQ(TUNE_INTERFERENCE_THRESHOLD, d.param_id);
-  EXPECT_FALSE(d.should_apply);  // isAppliable() excludes it regardless of the mask
+  EXPECT_FALSE(d.should_apply);  // isApplicable() excludes it regardless of the mask
 }
 
 TEST(TuneController, RegressionAfterLiveChangeTriggersRollbackToLastGood) {
