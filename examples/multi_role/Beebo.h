@@ -1886,6 +1886,23 @@ private:
   uint32_t _route_start_us = 0;        // start of the current 1-minute route window
   unsigned long _next_route_ms = 0;
   uint32_t _rx_route_us = 0, _tx_route_us = 0;  // accumulated across the current 1-minute route window
+
+  // beebo: headroom metrics (plans/CPU_UTILIZATION.md's "New goals" #1/#2)
+  // -- cause-agnostic, unlike the RX/TX/CLI/IDLE % breakdown above: a
+  // lower loops/sec or a high single-iteration stall means less capacity
+  // for anything else that also runs once per loop(), regardless of
+  // whether the time went to computing or blocking on a peripheral. Same
+  // live (~1s)/reported (10s) two-tier shape, riding the same
+  // _next_cpu_window_ms/_next_cpu_report_ms cadence -- no new timers.
+  uint32_t _loop_count = 0;              // monotonic, incremented once per loop() call
+  uint32_t _loop_count_at_window = 0;    // _loop_count snapshot at the last 1s window tick
+  uint32_t _loop_count_at_report = 0;    // _loop_count snapshot at the last 10s report tick
+  uint16_t _loops_per_sec = 0;           // live (~1s)
+  uint16_t _loops_per_sec_reported = 0;  // reported (10s average)
+  uint32_t _last_loop_us = 0;            // micros() at the previous loop() call (0 = not yet seen one)
+  uint32_t _max_loop_latency_us = 0;         // running max within the current 1s window
+  uint32_t _max_loop_latency_us_peak = 0;    // max-of-maxes across the current 10s report period
+  uint16_t _max_loop_latency_ms_reported = 0;  // reported (10s peak, ms -- see STATS_TYPE_SYSTEM wire frame)
 #endif
 
   TransportKey send_scope;

@@ -3962,6 +3962,11 @@ void Beebo::handleCmdFrame(size_t len) {
       out_frame[i++] = _rx_time_pct_reported;
       out_frame[i++] = _tx_time_pct_reported;
       out_frame[i++] = _cli_time_pct_reported;
+      // beebo: headroom metrics, same reported (10s) tier (see
+      // Beebo::_loops_per_sec_reported/_max_loop_latency_ms_reported and
+      // plans/CPU_UTILIZATION.md's "New goals" #1/#2). Append-only.
+      memcpy(&out_frame[i], &_loops_per_sec_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_max_loop_latency_ms_reported, 2); i += 2;
 #endif
       _serial->writeFrame(out_frame, i);
     } else if (stats_type == STATS_TYPE_TRANSPORT || stats_type == STATS_TYPE_PROFILE) {
@@ -5565,6 +5570,23 @@ uint16_t Beebo::updateBattTrend(bool force_read) {
 }
 
 void Beebo::loop() {
+#ifdef BEEBO_CPU_ACCOUNTING
+  // beebo: headroom metrics (plans/CPU_UTILIZATION.md's "New goals" #1/#2)
+  // -- cause-agnostic, unlike the RX/TX/CLI/IDLE % breakdown: a lower
+  // loops/sec or a high single-iteration stall means less capacity for
+  // anything else that also runs once per loop(), regardless of whether
+  // the time went to computing or blocking on a peripheral. Runs first,
+  // before any other loop() logic, so nothing below is excluded from the
+  // latency measurement.
+  _loop_count++;
+  uint32_t now_us = micros();
+  if (_last_loop_us != 0) {
+    uint32_t dt_us = now_us - _last_loop_us;
+    if (dt_us > _max_loop_latency_us) _max_loop_latency_us = dt_us;
+  }
+  _last_loop_us = now_us;
+#endif
+
   // beebo: a host that Ctrl-C's or crashes mid-transfer never sends
   // OTA_END, so ota_partition (and therefore isOTAActive()/skip_radio/
   // ota_priority) would otherwise stay latched forever with no way back
@@ -5710,6 +5732,20 @@ void Beebo::loop() {
     resetCpuAccounting();
     _cli_busy_us = 0;
     _cpu_window_start_us = micros();
+
+    // beebo: headroom metrics, same live (~1s)/reported (10s) two-tier
+    // shape as the CPU pct accounting above -- loops/sec computed from
+    // the actual elapsed window_us (not assumed exactly 1000ms), max
+    // loop latency rolled into a running peak-of-peaks for the 10s
+    // report tier before this window's own max resets to 0.
+    if (window_us > 0) {
+      _loops_per_sec = (uint16_t)(((uint64_t)(_loop_count - _loop_count_at_window) * 1000000ULL) / window_us);
+    }
+    _loop_count_at_window = _loop_count;
+    if (_max_loop_latency_us > _max_loop_latency_us_peak) {
+      _max_loop_latency_us_peak = _max_loop_latency_us;
+    }
+    _max_loop_latency_us = 0;
   }
   if (millisHasNowPassed(_next_cpu_report_ms)) {
     _next_cpu_report_ms = futureMillis(CPU_REPORT_MS);
@@ -5717,9 +5753,13 @@ void Beebo::loop() {
     if (report_us > 0) {
       MonRing::computeTimePct(_rx_report_us, _tx_report_us, _cli_report_us, report_us,
                               _rx_time_pct_reported, _tx_time_pct_reported, _cli_time_pct_reported);
+      _loops_per_sec_reported = (uint16_t)(((uint64_t)(_loop_count - _loop_count_at_report) * 1000000ULL) / report_us);
     }
     _rx_report_us = _tx_report_us = _cli_report_us = 0;
     _cpu_report_start_us = micros();
+    _loop_count_at_report = _loop_count;
+    _max_loop_latency_ms_reported = (uint16_t)min(_max_loop_latency_us_peak / 1000, (uint32_t)0xFFFF);
+    _max_loop_latency_us_peak = 0;
   }
   // beebo: RouteRecord's 1-minute snapshot -- exec from the accumulators
   // above (same rx_us/tx_us source as the time pct report tier, just summed
