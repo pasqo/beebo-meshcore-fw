@@ -584,15 +584,16 @@ struct __attribute__((packed)) CommandRecord {
 // convention) rather than a raw duration -- bounded by construction, no
 // overflow risk regardless of window size. tx_wait_pct itself (=
 // tx_wait_airtime_pct + tx_wait_cad_pct, clamped) is derived, not stored,
-// same reasoning as idle_time_pct not being stored. rx_wait_pct is
-// reserved at 0 for now -- measuring actual-vs-scheduled relay dwell
-// needs scheduled_for tracking in the packet manager's delayed-inbound
-// queue, out of scope for this pass (see plan's Progress checklist).
+// same reasoning as idle_time_pct not being stored. rx_wait_pct measures
+// how much a delayed flood-relay's actual send overran calcRxDelay()'s
+// own scheduled time (Packet::_rx_scheduled_for, Dispatcher's rx_wait_ms
+// accumulator) -- 0 when RX_DISPOSITION isn't compiled in (no staging
+// field on Packet in that case).
 struct __attribute__((packed)) RouteRecord {
   uint8_t  kind;                 // MON_ROUTE
   uint16_t offset;
   uint16_t rx_exec_pct;          // 0-10000
-  uint16_t rx_wait_pct;          // 0-10000, reserved (always 0 for now)
+  uint16_t rx_wait_pct;          // 0-10000, relay-scheduling actual-vs-scheduled overdue time
   uint16_t tx_exec_pct;          // 0-10000
   uint16_t tx_wait_airtime_pct;  // 0-10000, duty-cycle/airtime-budget throttle
   uint16_t tx_wait_cad_pct;      // 0-10000, CAD-busy portion

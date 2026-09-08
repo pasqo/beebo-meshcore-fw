@@ -5788,9 +5788,8 @@ void Beebo::loop() {
   // beebo: RouteRecord's 1-minute snapshot -- exec from the accumulators
   // above (same rx_us/tx_us source as the time pct report tier, just summed
   // over a longer window), wait read directly from Dispatcher's continuous
-  // accumulators. rx_wait_pct stays reserved at 0 (see RouteRecord's own
-  // comment in MonRing.h). Appended regardless of change (a periodic
-  // snapshot is meaningful even at 0%), unlike EnvRecord's dedup.
+  // accumulators. Appended regardless of change (a periodic snapshot is
+  // meaningful even at 0%), unlike EnvRecord's dedup.
   if (monring.enabled() && monring.allocated() &&
       millisHasNowPassed(_next_route_ms)) {
     _next_route_ms = futureMillis(ROUTE_WINDOW_MS);
@@ -5800,7 +5799,11 @@ void Beebo::loop() {
     route.tx_exec_pct = MonRing::computeRoutePct(_tx_route_us, window_us);
     route.tx_wait_airtime_pct = MonRing::computeRoutePct(getTxWaitAirtimeMs() * 1000, window_us);
     route.tx_wait_cad_pct = MonRing::computeRoutePct(getTxWaitCadMs() * 1000, window_us);
-    route.rx_wait_pct = 0;
+#ifdef RX_DISPOSITION
+    route.rx_wait_pct = MonRing::computeRoutePct(getRxWaitMs() * 1000, window_us);
+#else
+    route.rx_wait_pct = 0;  // no Packet::_rx_scheduled_for staging without RX_DISPOSITION
+#endif
     monring.appendRoute(route, (uint32_t)getRTCClock()->getCurrentTime());
     _rx_route_us = _tx_route_us = 0;
     resetRouteAccounting();

@@ -178,6 +178,13 @@ class Dispatcher {
   uint32_t tx_wait_airtime_ms;  // duty-cycle/airtime-budget throttle portion
   uint32_t tx_wait_cad_ms;      // CAD-busy portion
   unsigned long last_checksend_ms;  // wall-clock of the previous checkSend() call, for the dt slice above
+#ifdef RX_DISPOSITION
+  // beebo: rx_wait_pct's accumulator -- how much a delayed flood-relay's
+  // actual send overran calcRxDelay()'s own scheduled time, summed since
+  // last resetRouteAccounting(). Needs Packet::_rx_scheduled_for
+  // (RX_DISPOSITION-gated, see Packet.h), so gated the same way here.
+  uint32_t rx_wait_ms;
+#endif
 #endif
 
   void processRecvPacket(Packet* pkt);
@@ -210,6 +217,9 @@ protected:
     tx_wait_airtime_ms = 0;
     tx_wait_cad_ms = 0;
     last_checksend_ms = ms.getMillis();
+#ifdef RX_DISPOSITION
+    rx_wait_ms = 0;
+#endif
 #endif
   }
 
@@ -302,7 +312,12 @@ public:
 
   uint32_t getTxWaitAirtimeMs() const { return tx_wait_airtime_ms; }
   uint32_t getTxWaitCadMs() const { return tx_wait_cad_ms; }
+#ifdef RX_DISPOSITION
+  uint32_t getRxWaitMs() const { return rx_wait_ms; }
+  void resetRouteAccounting() { tx_wait_airtime_ms = 0; tx_wait_cad_ms = 0; rx_wait_ms = 0; }
+#else
   void resetRouteAccounting() { tx_wait_airtime_ms = 0; tx_wait_cad_ms = 0; }
+#endif
 #endif
 
   // helper methods

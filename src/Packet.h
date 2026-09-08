@@ -73,6 +73,18 @@ public:
   uint8_t  _rx_disp;    // accumulated disposition axis bits (see MonRing.h)
   bool     _rx_logged;  // true if logRxRaw actually distilled/staged this capture
 #endif
+#if defined(RX_DISPOSITION) && defined(BEEBO_CPU_ACCOUNTING)
+  // beebo: RouteRecord's rx_wait_pct (plans/CPU_UTILIZATION.md) -- the
+  // millis() deadline Dispatcher::checkRecv() scheduled this flood-relay
+  // for (calcRxDelay()), staged at Dispatcher::queueInbound() time and
+  // read back the moment Dispatcher::getNextInbound() dequeues it, to
+  // measure how much the actual relay-send overran the scheduled delay.
+  // 0 for a packet that never went through the delayed-relay queue at
+  // all (processed immediately in checkRecv()) -- always written fresh
+  // right before being queued, only ever read back from that same queue,
+  // so no stale-pool-reuse risk despite Packet objects being pool-shared.
+  uint32_t _rx_scheduled_for = 0;
+#endif
 
   /**
    * \brief calculate the hash of payload + type

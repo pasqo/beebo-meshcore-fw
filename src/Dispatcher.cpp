@@ -140,8 +140,19 @@ void Dispatcher::loop() {
 #endif
   // check inbound (delayed) queue
   {
-    Packet* pkt = _mgr->getNextInbound(_ms->getMillis());
+    unsigned long now_ms = _ms->getMillis();
+    Packet* pkt = _mgr->getNextInbound(now_ms);
     if (pkt) {
+#if defined(RX_DISPOSITION) && defined(BEEBO_CPU_ACCOUNTING)
+      // beebo: rx_wait_pct -- how much this delayed relay's actual dequeue
+      // overran calcRxDelay()'s own scheduled time (Packet.h's
+      // _rx_scheduled_for). 0 for anything processed immediately in
+      // checkRecv() (never queued, so never staged) -- only a genuinely
+      // delayed relay reaches this branch at all.
+      if (pkt->_rx_scheduled_for != 0 && now_ms > pkt->_rx_scheduled_for) {
+        rx_wait_ms += (uint32_t)(now_ms - pkt->_rx_scheduled_for);
+      }
+#endif
       processRecvPacket(pkt);
     }
   }
@@ -265,7 +276,11 @@ void Dispatcher::checkRecv() {
         if (_delay > MAX_RX_DELAY_MILLIS) {
           _delay = MAX_RX_DELAY_MILLIS;
         }
-        if (!_mgr->queueInbound(pkt, futureMillis(_delay))) {  // add to delayed inbound queue
+        unsigned long scheduled_for = futureMillis(_delay);
+#if defined(RX_DISPOSITION) && defined(BEEBO_CPU_ACCOUNTING)
+        pkt->_rx_scheduled_for = scheduled_for;  // beebo: rx_wait_pct, see Packet.h
+#endif
+        if (!_mgr->queueInbound(pkt, scheduled_for)) {  // add to delayed inbound queue
           logRxQueueFull();
         }
       }
