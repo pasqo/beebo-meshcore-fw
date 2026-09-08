@@ -37,7 +37,13 @@ void Beebo::loopRepeater(bool skip_radio) {
   if (!skip_radio) {
     Mesh::loop();
   }
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint32_t cli_start_us = micros();
   checkSerialInterface();
+  _cli_busy_us += micros() - cli_start_us;
+#else
+  checkSerialInterface();
+#endif
   if (next_flood_advert && millisHasNowPassed(next_flood_advert)) {
     mesh::Packet* pkt = createSelfAdvertPacket();
     if (pkt) {

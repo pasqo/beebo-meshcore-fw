@@ -1,6 +1,6 @@
 #include "Dispatcher.h"
 
-#if MESH_PACKET_LOGGING
+#if MESH_PACKET_LOGGING || defined(BEEBO_CPU_ACCOUNTING)
   #include <Arduino.h>
 #endif
 
@@ -135,6 +135,9 @@ void Dispatcher::loop() {
     next_agc_reset_time = futureMillis(getAGCResetInterval());
   }
 
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint32_t rx_start_us = ::micros();
+#endif
   // check inbound (delayed) queue
   {
     Packet* pkt = _mgr->getNextInbound(_ms->getMillis());
@@ -143,7 +146,14 @@ void Dispatcher::loop() {
     }
   }
   checkRecv();
+#ifdef BEEBO_CPU_ACCOUNTING
+  rx_busy_us += ::micros() - rx_start_us;
+  uint32_t tx_start_us = ::micros();
+#endif
   checkSend();
+#ifdef BEEBO_CPU_ACCOUNTING
+  tx_busy_us += ::micros() - tx_start_us;
+#endif
 }
 
 bool Dispatcher::tryParsePacket(Packet* pkt, const uint8_t* raw, int len) {
@@ -298,18 +308,36 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
 
 void Dispatcher::checkSend() {
   if (_mgr->getOutboundCount(_ms->getMillis()) == 0) return;
-  
+
+#ifdef BEEBO_CPU_ACCOUNTING
+  // beebo: routing-latency wait accounting -- dt since the last tick where
+  // something was actually outbound-queued, attributed to whichever cause
+  // this tick's early-return (if any) is blocked on. See
+  // plans/CPU_UTILIZATION.md's "Routing-latency" section.
+  unsigned long now_ms = _ms->getMillis();
+  unsigned long dt_ms = now_ms - last_checksend_ms;
+  last_checksend_ms = now_ms;
+#endif
+
   updateTxBudget();
-  
+
   uint32_t est_airtime = _radio->getEstAirtimeFor(MAX_TRANS_UNIT);
   if (tx_budget_ms < est_airtime / MIN_TX_BUDGET_AIRTIME_DIV) {
     float duty_cycle = 1.0f / (1.0f + getAirtimeBudgetFactor());
     unsigned long needed = est_airtime / MIN_TX_BUDGET_AIRTIME_DIV - tx_budget_ms;
     next_tx_time = futureMillis((unsigned long)(needed / duty_cycle));
+#ifdef BEEBO_CPU_ACCOUNTING
+    tx_wait_airtime_ms += dt_ms;
+#endif
     return;
   }
-  
-  if (!millisHasNowPassed(next_tx_time)) return;
+
+  if (!millisHasNowPassed(next_tx_time)) {
+#ifdef BEEBO_CPU_ACCOUNTING
+    tx_wait_cad_ms += dt_ms;
+#endif
+    return;
+  }
   if (_radio->isReceiving()) {
     if (cad_busy_start == 0) {
       cad_busy_start = _ms->getMillis();   // record when CAD busy state started
@@ -325,6 +353,9 @@ void Dispatcher::checkSend() {
       // force the pending transmit below...
     } else {
       next_tx_time = futureMillis(getCADFailRetryDelay());
+#ifdef BEEBO_CPU_ACCOUNTING
+      tx_wait_cad_ms += dt_ms;
+#endif
       return;
     }
   }

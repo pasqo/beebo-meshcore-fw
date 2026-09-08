@@ -25,6 +25,11 @@
 #define MONRING_MIN_BYTES     (64u * 1024)    // below this, don't bother (~2k records)
 #define MONRING_ALIGN_BYTES   4096            // round allocation down to a page-size multiple
 #define SLOWSTAT_REFRESH_MS   60000u          // beebo: cadence to refresh cached FS usage + MCU temp
+#define ENV_SAMPLE_MS         300000u         // beebo: EnvRecord (noise_floor/temp_c) fixed sampling cadence (5 min, plans/CPU_UTILIZATION.md)
+#define ENV_RETRY_MS          1000u           // beebo: retry cadence while waiting for noise_floor calibration to complete post-boot
+#define CPU_WINDOW_MS         1000u           // beebo: CPU accounting live-window compute cadence (plans/CPU_UTILIZATION.md)
+#define CPU_REPORT_MS         10000u          // beebo: CPU accounting reported-snapshot cadence (MonRing/STATS_TYPE_SYSTEM)
+#define ROUTE_WINDOW_MS       60000u          // beebo: RouteRecord (MON_ROUTE) report window, 1 minute (plans/CPU_UTILIZATION.md)
 #define TUNE_TICK_INTERVAL_MS 300000u         // beebo: dynamic-tuning optimizer re-tune cadence (5 min)
 
 #ifndef TCP_PORT
@@ -335,9 +340,11 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
       // frame; the endpoint/routing axes stay NONE for the RX chain to fill in
       // later via logRxDisposition().
       if (!parsed) rec.disp |= RXREC_DISTILL;
-      // beebo: close out any stale radio/env epoch before this capture
+      // beebo: close out any stale radio epoch before this capture --
+      // env sampling moved off this RX-opportunistic trigger onto its own
+      // fixed cadence in loop() (ENV_SAMPLE_MS), see
+      // plans/CPU_UTILIZATION.md's "Fixed-cadence sampling" section.
       monring.noteRadio(buildRadioRecord(), (uint32_t)getRTCClock()->getCurrentTime());
-      monring.sampleEnv(buildEnvRecord(), (uint32_t)getRTCClock()->getCurrentTime());
     }
   }
   _rx_staged = want_monring;
@@ -460,9 +467,9 @@ void Beebo::logTx(mesh::Packet* pkt, int len) {
     TxRecord rec;
     fillTxRecordCommon(rec, pkt, len, _radio);
     rec.result = TXR_OK;
-    // beebo: close out any stale radio/env epoch before this capture
+    // beebo: close out any stale radio epoch before this capture -- env
+    // sampling is on its own fixed cadence in loop(), not this trigger
     monring.noteRadio(buildRadioRecord(), (uint32_t)getRTCClock()->getCurrentTime());
-    monring.sampleEnv(buildEnvRecord(), (uint32_t)getRTCClock()->getCurrentTime());
     monring.appendTx(rec, (uint32_t)getRTCClock()->getCurrentTime());
   }
 }
@@ -473,9 +480,9 @@ void Beebo::logTxFail(mesh::Packet* pkt, int len) {
     TxRecord rec;
     fillTxRecordCommon(rec, pkt, len, _radio);
     rec.result = TXR_TIMEOUT;
-    // beebo: close out any stale radio/env epoch before this capture
+    // beebo: close out any stale radio epoch before this capture -- env
+    // sampling is on its own fixed cadence in loop(), not this trigger
     monring.noteRadio(buildRadioRecord(), (uint32_t)getRTCClock()->getCurrentTime());
-    monring.sampleEnv(buildEnvRecord(), (uint32_t)getRTCClock()->getCurrentTime());
     monring.appendTx(rec, (uint32_t)getRTCClock()->getCurrentTime());
   }
 }
@@ -1575,6 +1582,16 @@ void Beebo::initMonRing() {
   // trend anchor/state instead of seeding it directly, so updateBattTrend()
   // won't classify against it until a confirmed-idle sample replaces it.
   resetBattTrendRef(_batt_state, _cached_batt_mv, _board.batt_present);
+  // beebo: warm the slow-stat caches so the first `status` returns instantly
+  // (getStorageUsedKb() is a live block-scan; getMCUTemperature() averages four
+  // ~76 ms sensor reads); loop() refreshes them thereafter. Storage total is the
+  // partition size — constant, so read once here. Done BEFORE buildEnvRecord()
+  // below/in monring.init(): it reads _mcu_temp_scaled, which must already
+  // hold a real reading rather than its zero-initialized default.
+  _fs_total_kb = _store->getStorageTotalKb();
+  _fs_used_kb = _store->getStorageUsedKb();
+  _mcu_temp_scaled = (int16_t)(board.getMCUTemperature() * 10);
+  _next_slowstat_refresh = futureMillis(SLOWSTAT_REFRESH_MS);
   if (ring != NULL && monring.init(ring, want, (uint32_t)getRTCClock()->getCurrentTime(),
                                     buildRadioRecord(), buildEnvRecord())) {
     monring.setConfig(_role_state->prefs.monring_config);  // apply persisted enable + per-kind capture mask
@@ -1594,14 +1611,19 @@ void Beebo::initMonRing() {
   // and this only ever needs to be set once at boot.
   ((SimpleMeshTables*)getTables())->setMonRing(&monring, getRTCClock());
   pushActiveDedupWindow();
-  // beebo: warm the slow-stat caches so the first `status` returns instantly
-  // (getStorageUsedKb() is a live block-scan; getMCUTemperature() averages four
-  // ~76 ms sensor reads); loop() refreshes them thereafter. Storage total is the
-  // partition size — constant, so read once here.
-  _fs_total_kb = _store->getStorageTotalKb();
-  _fs_used_kb = _store->getStorageUsedKb();
-  _mcu_temp_scaled = (int16_t)(board.getMCUTemperature() * 10);
-  _next_slowstat_refresh = futureMillis(SLOWSTAT_REFRESH_MS);
+  // beebo: due immediately -- the loop() cadence check below takes the
+  // genuine first EnvRecord as soon as the radio's noise-floor calibration
+  // actually completes, rather than waiting a full ENV_SAMPLE_MS.
+  _next_env_sample_ms = 0;
+
+#ifdef BEEBO_CPU_ACCOUNTING
+  _cpu_window_start_us = micros();
+  _cpu_report_start_us = _cpu_window_start_us;
+  _next_cpu_window_ms = futureMillis(CPU_WINDOW_MS);
+  _next_cpu_report_ms = futureMillis(CPU_REPORT_MS);
+  _route_start_us = _cpu_window_start_us;
+  _next_route_ms = futureMillis(ROUTE_WINDOW_MS);
+#endif
 
   tune_controller.begin();
   _next_tune_tick = futureMillis(TUNE_TICK_INTERVAL_MS);
@@ -1636,25 +1658,17 @@ RadioRecord Beebo::buildRadioRecord() {
   return radio;
 }
 
-// beebo: snapshot the current env sample into an EnvRecord. noise_floor,
-// free_heap, temp_c, pool_free, tx_queue and err_flags are all cheap member/
-// cached reads (no radio I/O, no blocking delay) so they're sampled fresh
-// here; batt_mv reuses the slow-timer cache since the ADC read itself blocks
-// for ~10-12ms (see _cached_batt_mv). err_flags is truncated from
-// Dispatcher's uint16_t to the wire struct's uint8_t; only the low 3 bits
-// (ERR_EVENT_FULL/CAD_TIMEOUT/STARTRX_TIMEOUT) are ever set, so no data is
-// lost. Shared by the monring.sampleEnv() capture sites and the
+// beebo: snapshot the current env sample into an EnvRecord -- noise_floor
+// and temp_c only (genuine environment readings; see the struct's own
+// comment in MonRing.h for why batt_mv/free_heap/pool_free/tx_queue/
+// err_flags/cad_busy_events/RX-TX-CLI time pct don't live here). Both are cheap
+// member/cached reads (no radio I/O, no blocking delay), sampled fresh
+// here. Shared by the monring.sampleEnv() capture sites and the
 // monring.init()/monring.clear() call sites, same reason as buildRadioRecord().
 EnvRecord Beebo::buildEnvRecord() {
   EnvRecord env{};
   env.noise_floor = (int8_t)_radio->getNoiseFloor();
-  env.batt_mv = _cached_batt_mv;
   env.temp_c = (int8_t)(_mcu_temp_scaled / 10);
-  env.free_heap = (uint16_t)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
-  env.pool_free = (uint8_t)_mgr->getFreeCount();
-  env.tx_queue = (uint8_t)_mgr->getOutboundCount((uint32_t)getRTCClock()->getCurrentTime());
-  env.err_flags = (uint8_t)_err_flags;
-  env.cad_busy_events = (uint8_t)getCADBusyEventCount();
   return env;
 }
 
@@ -3941,6 +3955,14 @@ void Beebo::handleCmdFrame(size_t len) {
       uint32_t monring_cap = monring.capacity();
       memcpy(&out_frame[i], &monring_count, 4); i += 4;
       memcpy(&out_frame[i], &monring_cap, 4); i += 4;
+#ifdef BEEBO_CPU_ACCOUNTING
+      // beebo: RX/TX/CLI time accounting, latest 10s-reported window (see
+      // Beebo::_rx_time_pct_reported and plans/CPU_UTILIZATION.md). Append-only,
+      // absent on older/non-accounting builds -- CLI decode length-gates it.
+      out_frame[i++] = _rx_time_pct_reported;
+      out_frame[i++] = _tx_time_pct_reported;
+      out_frame[i++] = _cli_time_pct_reported;
+#endif
       _serial->writeFrame(out_frame, i);
     } else if (stats_type == STATS_TYPE_TRANSPORT || stats_type == STATS_TYPE_PROFILE) {
       // Paginated fetch: optional 2-byte LE start offset in cmd_frame[2..3].
@@ -5618,10 +5640,11 @@ void Beebo::loop() {
 
   // beebo: refresh the cached battery reading — the ADC read blocks for
   // ~10-12ms (see _cached_batt_mv), and voltage moves slowly enough that a
-  // 5-minute cadence loses nothing. Radio config and the rest of the env
-  // sample are pushed fresh at every RX/TX capture instead (monring.noteRadio/
-  // monring.sampleEnv in logRxRaw/logTx/logTxFail), so a config or noise/heap
-  // change is always attributed to the right packet rather than lagging a poll.
+  // 5-minute cadence loses nothing. Radio config is still pushed fresh at
+  // every RX/TX capture instead (monring.noteRadio in logRxRaw/logTx/
+  // logTxFail), so a config change is always attributed to the right
+  // packet rather than lagging a poll; EnvRecord's own noise/temp sample
+  // is on its own fixed cadence below (ENV_SAMPLE_MS), not this trigger.
   updateBattTrend();
 
   // beebo: refresh the slow-stat caches off the hot path — getStorageUsedKb() is
@@ -5638,6 +5661,88 @@ void Beebo::loop() {
     int16_t sample = (int16_t)(temperatureRead() * 10);
     _mcu_temp_scaled = (int16_t)((3 * (int32_t)_mcu_temp_scaled + sample) / 4);
   }
+
+  // beebo: EnvRecord's own fixed-cadence sample -- noise_floor/temp_c are
+  // both slowly-drifting ambient quantities (see plans/CPU_UTILIZATION.md's
+  // "Fixed-cadence sampling" section), so this is on its own ENV_SAMPLE_MS
+  // timer rather than tied to any RX/TX event; sampleEnv()'s own change-
+  // detection still dedups an unchanged reading into no new record.
+  if (monring.enabled() && monring.allocated() &&
+      millisHasNowPassed(_next_env_sample_ms)) {
+    if (_radio->getNoiseFloor() != 0) {
+      _next_env_sample_ms = futureMillis(ENV_SAMPLE_MS);
+      monring.sampleEnv(buildEnvRecord(), (uint32_t)getRTCClock()->getCurrentTime());
+    } else {
+      // beebo: noise_floor is still RadioLibWrapper::begin()/resetAGC()'s
+      // reset value of 0 -- genuinely uncalibrated (never a real reading;
+      // clamped to [-120, ...] once calibrated), not a placeholder worth
+      // logging. Retry soon instead of waiting a full ENV_SAMPLE_MS for
+      // the first real sample.
+      _next_env_sample_ms = futureMillis(ENV_RETRY_MS);
+    }
+  }
+
+#ifdef BEEBO_CPU_ACCOUNTING
+  // beebo: RX/TX/CLI time accounting -- two decoupled cadences, see
+  // Beebo.h's member comment and plans/CPU_UTILIZATION.md. The live
+  // (~1s) window always reflects just the most recent compute window --
+  // a single instantaneous sample, not smoothed, so any consumer reading
+  // it should expect it to reflect whatever happened in that specific
+  // second (e.g. a CLI round trip landing entirely inside one window).
+  // The reported (10s) value is a genuine average over the whole report
+  // period, via its own _*_report_us accumulators that run in parallel
+  // and are NOT reset every 1s -- so one busy second doesn't dominate
+  // (or vanish from) the 10s figure depending on exactly when it landed
+  // relative to the report boundary.
+  if (millisHasNowPassed(_next_cpu_window_ms)) {
+    _next_cpu_window_ms = futureMillis(CPU_WINDOW_MS);
+    uint32_t window_us = micros() - _cpu_window_start_us;
+    uint32_t rx_us = getRxBusyUs(), tx_us = getTxBusyUs();
+    if (window_us > 0) {
+      MonRing::computeTimePct(rx_us, tx_us, _cli_busy_us, window_us,
+                              _rx_time_pct, _tx_time_pct, _cli_time_pct);
+    }
+    _rx_report_us += rx_us;
+    _tx_report_us += tx_us;
+    _cli_report_us += _cli_busy_us;
+    _rx_route_us += rx_us;
+    _tx_route_us += tx_us;
+    resetCpuAccounting();
+    _cli_busy_us = 0;
+    _cpu_window_start_us = micros();
+  }
+  if (millisHasNowPassed(_next_cpu_report_ms)) {
+    _next_cpu_report_ms = futureMillis(CPU_REPORT_MS);
+    uint32_t report_us = micros() - _cpu_report_start_us;
+    if (report_us > 0) {
+      MonRing::computeTimePct(_rx_report_us, _tx_report_us, _cli_report_us, report_us,
+                              _rx_time_pct_reported, _tx_time_pct_reported, _cli_time_pct_reported);
+    }
+    _rx_report_us = _tx_report_us = _cli_report_us = 0;
+    _cpu_report_start_us = micros();
+  }
+  // beebo: RouteRecord's 1-minute snapshot -- exec from the accumulators
+  // above (same rx_us/tx_us source as the time pct report tier, just summed
+  // over a longer window), wait read directly from Dispatcher's continuous
+  // accumulators. rx_wait_pct stays reserved at 0 (see RouteRecord's own
+  // comment in MonRing.h). Appended regardless of change (a periodic
+  // snapshot is meaningful even at 0%), unlike EnvRecord's dedup.
+  if (monring.enabled() && monring.allocated() &&
+      millisHasNowPassed(_next_route_ms)) {
+    _next_route_ms = futureMillis(ROUTE_WINDOW_MS);
+    uint32_t window_us = micros() - _route_start_us;
+    RouteRecord route{};
+    route.rx_exec_pct = MonRing::computeRoutePct(_rx_route_us, window_us);
+    route.tx_exec_pct = MonRing::computeRoutePct(_tx_route_us, window_us);
+    route.tx_wait_airtime_pct = MonRing::computeRoutePct(getTxWaitAirtimeMs() * 1000, window_us);
+    route.tx_wait_cad_pct = MonRing::computeRoutePct(getTxWaitCadMs() * 1000, window_us);
+    route.rx_wait_pct = 0;
+    monring.appendRoute(route, (uint32_t)getRTCClock()->getCurrentTime());
+    _rx_route_us = _tx_route_us = 0;
+    resetRouteAccounting();
+    _route_start_us = micros();
+  }
+#endif
 
   // beebo: cheap every-tick check (a couple of integer compares) -- not
   // role-gated, since the node's BLE/WiFi link congestion applies regardless

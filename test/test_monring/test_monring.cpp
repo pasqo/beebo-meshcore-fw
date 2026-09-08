@@ -37,9 +37,9 @@ TxRecord makeTx(uint32_t hash = 0xAABBCCDD) {
   return tx;
 }
 
-EnvRecord makeEnv(uint16_t batt_mv = 3700) {
+EnvRecord makeEnv(int8_t noise_floor = -90) {
   EnvRecord env; memset(&env, 0, sizeof(env));
-  env.batt_mv = batt_mv;
+  env.noise_floor = noise_floor;
   return env;
 }
 
@@ -199,9 +199,13 @@ TEST(MonRing, EvictionReanchorsStartSyncAndOldestSeqAdvances) {
 }
 
 TEST(MonRing, EmitStartRefAlwaysValidFromBootSeedBeforeAnyEviction) {
-  // start_sync/start_radio/start_env are always populated once init() has
-  // run -- even before anything has actually changed or been evicted -- so
-  // emitStartRef() must report a value for every kind immediately.
+  // start_sync/start_radio are always populated once init() has run -- even
+  // before anything has actually changed or been evicted -- so
+  // emitStartRef() must report a value for both immediately. MON_ENV is
+  // the one exception -- see EmitStartRefEnvWithheldUntilFirstRealSample
+  // below: init()'s boot-time env snapshot isn't a genuine sample (radio
+  // noise-floor calibration/MCU temp aren't settled that early), so it
+  // must NOT be handed out as if it were one.
   RingFixture<8> f;
   MonRecord dest;
   ASSERT_TRUE(f.ring.emitStartRef(MON_SYNC, &dest));
@@ -210,8 +214,39 @@ TEST(MonRing, EmitStartRefAlwaysValidFromBootSeedBeforeAnyEviction) {
   EXPECT_EQ(MONRING_ABI_VERSION, dest.sync.abi_version);
   ASSERT_TRUE(f.ring.emitStartRef(MON_RADIO, &dest));
   EXPECT_EQ(MON_RADIO, dest.kind);
+  EXPECT_FALSE(f.ring.emitStartRef(MON_ENV, &dest));
+}
+
+TEST(MonRing, EmitStartRefEnvWithheldUntilFirstRealSample) {
+  // Before any real sampleEnv() call, MON_ENV must not be injected at all
+  // -- init()'s boot-time seed is not a genuine reading (see
+  // plans/CPU_UTILIZATION.md's "Fixed-cadence sampling" section: noise
+  // floor calibrates in the background, MCU temp isn't settled that
+  // early either). Once a real sample lands, it must be handed back
+  // immediately -- not just after some later eviction reanchors it.
+  RingFixture<8> f;
+  MonRecord dest;
+  EXPECT_FALSE(f.ring.emitStartRef(MON_ENV, &dest));
+
+  f.ring.sampleEnv(makeEnv(-77), 1000);
+
   ASSERT_TRUE(f.ring.emitStartRef(MON_ENV, &dest));
   EXPECT_EQ(MON_ENV, dest.kind);
+  EXPECT_EQ(-77, dest.env.noise_floor);
+}
+
+TEST(MonRing, ClearReseedsEnvAsAlreadyValid) {
+  // Unlike init()'s boot-time seed, clear()'s env snapshot is a live read
+  // taken at clear time -- already a genuine sample -- so emitStartRef()
+  // must return it right away, not withhold it pending a fresh
+  // sampleEnv() call.
+  RingFixture<8> f;
+  f.ring.sampleEnv(makeEnv(-80), 1000);  // establish a real sample pre-clear
+  f.ring.clear(2000, makeRadio(), makeEnv(-60));
+
+  MonRecord dest;
+  ASSERT_TRUE(f.ring.emitStartRef(MON_ENV, &dest));
+  EXPECT_EQ(-60, dest.env.noise_floor);
 }
 
 TEST(MonRing, EmitStartRefAllThreeKindsAfterFullWrap) {
@@ -988,6 +1023,123 @@ TEST(MonRing, QosAndSohAreIndependentAxes) {
   MonRing::QosStats qos{2, 8, 0, 0};  // mostly timeouts -- poor delivery
   EXPECT_EQ(10000u, MonRing::computeSoh(soh));  // fully healthy
   EXPECT_EQ(2000u, MonRing::computeQos(qos));   // but only 20% QoS
+}
+
+TEST(MonRing, ComputeCpuPctSplitsWindowProportionally) {
+  uint8_t rx, tx, cli;
+  // 200ms RX + 100ms TX + 50ms CLI out of a 1000ms window -> 20/10/5, 65% idle.
+  MonRing::computeTimePct(200000, 100000, 50000, 1000000, rx, tx, cli);
+  EXPECT_EQ(20, rx);
+  EXPECT_EQ(10, tx);
+  EXPECT_EQ(5, cli);
+}
+
+TEST(MonRing, ComputeCpuPctAllIdleIsAllZero) {
+  uint8_t rx, tx, cli;
+  MonRing::computeTimePct(0, 0, 0, 1000000, rx, tx, cli);
+  EXPECT_EQ(0, rx);
+  EXPECT_EQ(0, tx);
+  EXPECT_EQ(0, cli);
+}
+
+TEST(MonRing, ComputeCpuPctZeroWindowIsAllZeroNotDivByZero) {
+  uint8_t rx, tx, cli;
+  MonRing::computeTimePct(500000, 500000, 500000, 0, rx, tx, cli);
+  EXPECT_EQ(0, rx);
+  EXPECT_EQ(0, tx);
+  EXPECT_EQ(0, cli);
+}
+
+TEST(MonRing, ComputeCpuPctFullyBusyLeavesNoIdle) {
+  uint8_t rx, tx, cli;
+  // Exactly the whole window split three ways -- sums to exactly 100, no clamp needed.
+  MonRing::computeTimePct(500000, 300000, 200000, 1000000, rx, tx, cli);
+  EXPECT_EQ(50, rx);
+  EXPECT_EQ(30, tx);
+  EXPECT_EQ(20, cli);
+  EXPECT_EQ(100, rx + tx + cli);
+}
+
+TEST(MonRing, ComputeCpuPctOverBudgetClampsProportionally) {
+  uint8_t rx, tx, cli;
+  // A stray timing overlap pushes the raw sum past 100 (150) -- clamp
+  // renormalizes down to 100 while preserving the 2:1:1 ratio (equal
+  // 100/150 for rx doesn't apply here; verify the clamp keeps sum == 100
+  // and ratios preserved rather than any specific naive expectation).
+  MonRing::computeTimePct(600000, 300000, 300000, 1000000, rx, tx, cli);
+  EXPECT_EQ(100, rx + tx + cli);
+  EXPECT_EQ(50, rx);   // 60 * 100/120 = 50
+  EXPECT_EQ(25, tx);   // 30 * 100/120 = 25
+  EXPECT_EQ(25, cli);  // 30 * 100/120 = 25
+}
+
+TEST(MonRing, ComputeRoutePctHalfWindowIsHalfScale) {
+  // 30s busy out of a 60s window -> 5000 (0.01% precision, half of 10000).
+  EXPECT_EQ(5000, MonRing::computeRoutePct(30000000, 60000000));
+}
+
+TEST(MonRing, ComputeRoutePctZeroIsZero) {
+  EXPECT_EQ(0, MonRing::computeRoutePct(0, 60000000));
+}
+
+TEST(MonRing, ComputeRoutePctZeroWindowIsZeroNotDivByZero) {
+  EXPECT_EQ(0, MonRing::computeRoutePct(30000000, 0));
+}
+
+TEST(MonRing, ComputeRoutePctFullWindowIsMaxScale) {
+  EXPECT_EQ(10000, MonRing::computeRoutePct(60000000, 60000000));
+}
+
+TEST(MonRing, ComputeRoutePctOverBudgetClampsAtMax) {
+  // A stray timing overlap pushes busy_us past the window -- clamp at
+  // 10000 rather than overflowing the wire field's uint16 range.
+  EXPECT_EQ(10000, MonRing::computeRoutePct(90000000, 60000000));
+}
+
+RouteRecord makeRoute(uint16_t rx_exec = 1234, uint16_t tx_exec = 567,
+                      uint16_t tx_wait_airtime = 8901, uint16_t tx_wait_cad = 234) {
+  RouteRecord route{};
+  route.rx_exec_pct = rx_exec;
+  route.tx_exec_pct = tx_exec;
+  route.tx_wait_airtime_pct = tx_wait_airtime;
+  route.tx_wait_cad_pct = tx_wait_cad;
+  return route;
+}
+
+TEST(MonRing, AppendRouteRoundTripsAllFields) {
+  RingFixture<8> f;
+  f.ring.appendRoute(makeRoute(), 1000);
+
+  MonRecord out[8];
+  uint32_t returned = 0;
+  f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
+  ASSERT_EQ(1u, returned);
+  EXPECT_EQ(MON_ROUTE, out[0].kind);
+  EXPECT_EQ(1234, out[0].route.rx_exec_pct);
+  EXPECT_EQ(0, out[0].route.rx_wait_pct);
+  EXPECT_EQ(567, out[0].route.tx_exec_pct);
+  EXPECT_EQ(8901, out[0].route.tx_wait_airtime_pct);
+  EXPECT_EQ(234, out[0].route.tx_wait_cad_pct);
+  EXPECT_EQ(1u, f.ring.routeCount());
+}
+
+TEST(MonRing, AppendRouteNoOpWhenCapMissing) {
+  RingFixture<8> f;
+  f.ring.setConfig((MON_CAP_ALL & ~MON_CAP_EVENT) | MON_CAP_ENABLED);
+  f.ring.appendRoute(makeRoute(), 1000);
+  EXPECT_EQ(0u, f.ring.routeCount());
+}
+
+TEST(MonRing, RouteCountDecrementsOnEviction) {
+  RingFixture<2> f;
+  f.ring.appendRoute(makeRoute(), 1000);  // seq0=ROUTE
+  EXPECT_EQ(1u, f.ring.routeCount());
+
+  f.ring.appendTx(makeTx(), 1001);  // seq1=TX (ring full: [ROUTE0, TX1])
+  EXPECT_EQ(1u, f.ring.routeCount());
+
+  f.ring.appendTx(makeTx(), 1002);  // evicts seq0 -- the ROUTE record itself
+  EXPECT_EQ(0u, f.ring.routeCount());
 }
 
 int main(int argc, char **argv) {

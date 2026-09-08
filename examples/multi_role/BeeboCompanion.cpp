@@ -28,7 +28,13 @@ void Beebo::loopCompanion(bool skip_radio) {
     BaseChatMesh::loop();
     checkAckTableTimeouts();  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9
   }
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint32_t cli_start_us = micros();
   checkSerialInterface();
+  _cli_busy_us += micros() - cli_start_us;
+#else
+  checkSerialInterface();
+#endif
 }
 
 bool Beebo::isAutoAddEnabled() const {

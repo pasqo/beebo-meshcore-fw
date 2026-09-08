@@ -165,6 +165,20 @@ class Dispatcher {
   unsigned long tx_budget_ms;
   unsigned long last_budget_update;
   unsigned long duty_cycle_window_ms;
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint32_t rx_busy_us;  // beebo: micros() accumulated in loop()'s housekeeping + checkRecv() since last resetCpuAccounting()
+  uint32_t tx_busy_us;  // beebo: micros() accumulated in checkSend() since last resetCpuAccounting()
+  // beebo: routing-latency wait accumulators (plans/CPU_UTILIZATION.md's
+  // "Routing-latency" section) -- wall-clock millis() a queued outbound
+  // packet spent blocked by each cause, since last resetRouteAccounting().
+  // Orthogonal to tx_busy_us above: checkSend() returns near-instantly
+  // while throttled/CAD-busy, so these accumulate time tx_busy_us does not.
+  // ms resolution is enough here (waits are ms-to-second scale, unlike
+  // exec's micros()-scale busy time).
+  uint32_t tx_wait_airtime_ms;  // duty-cycle/airtime-budget throttle portion
+  uint32_t tx_wait_cad_ms;      // CAD-busy portion
+  unsigned long last_checksend_ms;  // wall-clock of the previous checkSend() call, for the dt slice above
+#endif
 
   void processRecvPacket(Packet* pkt);
   void updateTxBudget();
@@ -190,6 +204,13 @@ protected:
     tx_budget_ms = 0;
     last_budget_update = 0;
     duty_cycle_window_ms = 3600000;
+#ifdef BEEBO_CPU_ACCOUNTING
+    rx_busy_us = 0;
+    tx_busy_us = 0;
+    tx_wait_airtime_ms = 0;
+    tx_wait_cad_ms = 0;
+    last_checksend_ms = ms.getMillis();
+#endif
   }
 
   virtual DispatcherAction onRecvPacket(Packet* pkt) = 0;
@@ -273,6 +294,16 @@ public:
     n_sent_flood = n_sent_direct = n_recv_flood = n_recv_direct = 0;
     _err_flags = 0;
   }
+
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint32_t getRxBusyUs() const { return rx_busy_us; }
+  uint32_t getTxBusyUs() const { return tx_busy_us; }
+  void resetCpuAccounting() { rx_busy_us = 0; tx_busy_us = 0; }
+
+  uint32_t getTxWaitAirtimeMs() const { return tx_wait_airtime_ms; }
+  uint32_t getTxWaitCadMs() const { return tx_wait_cad_ms; }
+  void resetRouteAccounting() { tx_wait_airtime_ms = 0; tx_wait_cad_ms = 0; }
+#endif
 
   // helper methods
   bool millisHasNowPassed(unsigned long timestamp) const;

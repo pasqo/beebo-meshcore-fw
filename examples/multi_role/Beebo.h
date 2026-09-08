@@ -1841,6 +1841,53 @@ private:
   int16_t  _mcu_temp_scaled = 0;   // °C * 10
   unsigned long _next_slowstat_refresh = 0;
 
+  // beebo: EnvRecord's own fixed-cadence sampling timer (see
+  // plans/CPU_UTILIZATION.md's "Fixed-cadence sampling" section) --
+  // separate from _next_slowstat_refresh above, since noise_floor/temp_c
+  // is a MonRing-logged trend (ENV_SAMPLE_MS, minutes-scale) while that
+  // one is just a hot-path-avoidance cache refresh (SLOWSTAT_REFRESH_MS,
+  // seconds-scale) for a different consumer (status/STATS_TYPE_SYSTEM).
+  unsigned long _next_env_sample_ms = 0;
+
+#ifdef BEEBO_CPU_ACCOUNTING
+  // beebo: RX/TX/CLI time accounting -- two decoupled cadences (see
+  // plans/CPU_UTILIZATION.md). Named _time_pct, not _cpu_pct: this is
+  // wall-clock time spent inside each code path (checkRecv()/checkSend()/
+  // checkSerialInterface()), including any blocking I/O within it (radio
+  // SPI, USB/BLE transfer) -- not actual CPU cycles the way an OS "CPU
+  // time" figure would be. The "live" set is a fast (~1s) window,
+  // always the freshest value, read directly by any in-RAM consumer
+  // (TuneController) -- it can be skewed by whatever happened in that
+  // specific second (e.g. a `beebo status` round trip landing entirely
+  // inside one 1s window), same as any single-sample instantaneous
+  // reading. The "reported" set is a genuine average over the full 10s
+  // report period (its own accumulators below, run in parallel with the
+  // live ones, NOT reset every 1s) -- unlike a naive "just copy the
+  // latest 1s window every 10s", which would silently discard 9/10ths of
+  // the period and report whichever single second happened to align with
+  // the 10s boundary. Reported is the only tier that ever reaches
+  // MonRing/EnvRecord or the STATS_TYPE_SYSTEM wire frame.
+  uint32_t _cpu_window_start_us = 0;   // start of the current 1s live window
+  uint32_t _cpu_report_start_us = 0;   // start of the current 10s report period
+  unsigned long _next_cpu_window_ms = 0;
+  unsigned long _next_cpu_report_ms = 0;
+  uint32_t _cli_busy_us = 0;          // beebo: micros() in checkSerialInterface() since last live-window reset
+  uint32_t _rx_report_us = 0, _tx_report_us = 0, _cli_report_us = 0;  // accumulated across the current 10s report period
+  uint8_t  _rx_time_pct = 0, _tx_time_pct = 0, _cli_time_pct = 0;                    // live (~1s)
+  uint8_t  _rx_time_pct_reported = 0, _tx_time_pct_reported = 0, _cli_time_pct_reported = 0;  // reported (10s average)
+
+  // beebo: RouteRecord's own 1-minute report period (plans/CPU_UTILIZATION.md's
+  // "Routing-latency" section) -- a third, coarser cadence than the time
+  // pct pair above. rx/tx exec accumulate off the same 1s live-window
+  // ticks as the time pct report tier (same rx_us/tx_us source, just a
+  // longer-running total); tx wait accumulates directly and continuously in Dispatcher
+  // (getTxWaitAirtimeMs()/getTxWaitCadMs()) since nothing else reads it in
+  // between, so it needs no intermediate tier of its own.
+  uint32_t _route_start_us = 0;        // start of the current 1-minute route window
+  unsigned long _next_route_ms = 0;
+  uint32_t _rx_route_us = 0, _tx_route_us = 0;  // accumulated across the current 1-minute route window
+#endif
+
   TransportKey send_scope;
 
   uint8_t cmd_frame[OTA_FRAME_SIZE + 1];  // large enough for OTA frames on WiFi/USB

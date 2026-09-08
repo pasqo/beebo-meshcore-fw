@@ -63,6 +63,11 @@ enum : uint8_t {
   // MON_CAP_* bits remain -- see that enum below -- and these are still
   // conceptually part of "admin/event activity capture" for that purpose).
   MON_COMMAND = 8, MON_SETTING = 9,
+  // beebo: periodic routing-latency snapshot (exec/wait breakdown for
+  // QoS/tuning, see plans/CPU_UTILIZATION.md's "Routing-latency" section)
+  // -- shares MON_CAP_EVENT, same reasoning as MON_COMMAND/MON_SETTING
+  // above (no free MON_CAP_* bits remain).
+  MON_ROUTE = 10,
 };
 
 // ---- TUNE param IDs: which NodePrefs knob a TuneRecord proposal concerns ---
@@ -450,18 +455,26 @@ struct __attribute__((packed)) RadioRecord {
   uint8_t  flags;       // rx_boosted_gain(b0) | fem_rxgain(b1)
   uint8_t  _rsvd[3];
 };
+// beebo: genuine environment readings only -- noise_floor, temp_c.
+// batt_mv/free_heap/pool_free/tx_queue/err_flags/cad_busy_events and CPU
+// utilization pct used to live here too, but they're operational/runtime-
+// state signals, not environment samples, and every one of them was
+// already redundant with a dedicated record (MON_BATT/BattRecord for
+// batt_mv, richer -- idle/trend/transport flags -- than the plain value
+// that lived here), a live STATS_TYPE_CORE/STATS_TYPE_SYSTEM poll, or a
+// discrete MON_EVENT record elsewhere -- or, for free_heap, close to
+// constant in practice (no dynamic allocation outside setup()/begin() per
+// this repo's coding convention, so it rarely if ever actually changes
+// post-boot) (see git history / plans/CPU_UTILIZATION.md for the
+// 2026-09-07 removal). If any of those need a logged history again, they
+// belong on their own record kind alongside MON_EVENT, not folded back
+// in here.
 struct __attribute__((packed)) EnvRecord {
   uint8_t  kind;        // MON_ENV
   uint16_t offset;
   int8_t   noise_floor; // dBm (was the per-RX 'noise' field)
-  uint16_t batt_mv;
   int8_t   temp_c;
-  uint16_t free_heap;   // KB
-  uint8_t  pool_free;   // free packet buffers
-  uint8_t  tx_queue;
-  uint8_t  err_flags;
-  uint8_t  cad_busy_events; // beebo: low byte of Dispatcher::getCADBusyEventCount(), sampled alongside the rest of env
-  uint8_t  _rsvd[3];
+  uint8_t  _rsvd[11];
 };
 struct __attribute__((packed)) BattRecord {
   uint8_t  kind;        // MON_BATT
@@ -542,6 +555,32 @@ struct __attribute__((packed)) CommandRecord {
   //   12 bytes).
   uint8_t  command[12];
 };
+// beebo: periodic (1-minute) routing-latency snapshot for QoS/tuning --
+// see plans/CPU_UTILIZATION.md's "Routing-latency: exec vs. wait" section
+// for the full exec/wait framing this follows. exec = CPU time actually
+// spent running checkRecv()/checkSend() (rx_exec_pct/tx_exec_pct -- the
+// same signal as rx_time_pct/tx_time_pct, higher precision); wait = elapsed
+// wall-clock time a packet is blocked before exec happens, orthogonal to
+// exec (e.g. checkSend() returns near-instantly while CAD-busy/airtime-
+// throttled, so tx_exec_pct can be near zero while tx_wait is high).
+// Every field is a %-of-window ratio (0-10000, computeQos's precision
+// convention) rather than a raw duration -- bounded by construction, no
+// overflow risk regardless of window size. tx_wait_pct itself (=
+// tx_wait_airtime_pct + tx_wait_cad_pct, clamped) is derived, not stored,
+// same reasoning as idle_time_pct not being stored. rx_wait_pct is
+// reserved at 0 for now -- measuring actual-vs-scheduled relay dwell
+// needs scheduled_for tracking in the packet manager's delayed-inbound
+// queue, out of scope for this pass (see plan's Progress checklist).
+struct __attribute__((packed)) RouteRecord {
+  uint8_t  kind;                 // MON_ROUTE
+  uint16_t offset;
+  uint16_t rx_exec_pct;          // 0-10000
+  uint16_t rx_wait_pct;          // 0-10000, reserved (always 0 for now)
+  uint16_t tx_exec_pct;          // 0-10000
+  uint16_t tx_wait_airtime_pct;  // 0-10000, duty-cycle/airtime-budget throttle
+  uint16_t tx_wait_cad_pct;      // 0-10000, CAD-busy portion
+  uint8_t  _rsvd[3];
+};
 
 union MonRecord {
   uint8_t     kind;     // common discriminant (byte 0 of every arm)
@@ -555,6 +594,7 @@ union MonRecord {
   EventRecord event;
   SettingRecord setting;
   CommandRecord command;
+  RouteRecord route;
   uint8_t     raw[16];
 };
 
@@ -568,6 +608,7 @@ static_assert(sizeof(TuneRecord)  == 16, "TuneRecord must be 16 bytes");
 static_assert(sizeof(EventRecord) == 16, "EventRecord must be 16 bytes");
 static_assert(sizeof(SettingRecord) == 16, "SettingRecord must be 16 bytes");
 static_assert(sizeof(CommandRecord) == 16, "CommandRecord must be 16 bytes");
+static_assert(sizeof(RouteRecord) == 16, "RouteRecord must be 16 bytes");
 static_assert(sizeof(MonRecord)   == 16, "MonRecord must be 16 bytes");
 
 class MonRing {
@@ -618,6 +659,17 @@ class MonRing {
   // running ENV sample
   EnvRecord _env;
   bool      _env_valid = false;
+
+  // beebo: true only once sampleEnv() has been called for real (a genuine
+  // fixed-cadence reading, plans/CPU_UTILIZATION.md's "Fixed-cadence
+  // sampling" section) -- distinct from _env_valid above, which _seed()
+  // sets unconditionally at init()/clear() time from whatever transient
+  // value buildEnvRecord() returned right after boot (radio noise-floor
+  // calibration and the MCU temp sensor are both not yet settled that
+  // early). Gates emitStartRef(MON_ENV, ...) below so a bootstrap/full
+  // pull never injects that boot-time placeholder as if it were a real
+  // reference reading.
+  bool      _env_ever_sampled = false;
 
   // The reference record that governs the current oldest surviving prefix of
   // the ring, for each of the three reference kinds — seeded by init()/
@@ -681,6 +733,10 @@ class MonRing {
   // incremented-on-append/decremented-on-eviction pattern as _rx_count.
   uint32_t  _setting_count = 0;
   uint32_t  _command_count = 0;
+
+  // Count of ROUTE records currently resident in the ring, same
+  // incremented-on-append/decremented-on-eviction pattern as _rx_count.
+  uint32_t  _route_count = 0;
 
   // Resident counts for the reference kinds, same incremented-on-store,
   // decremented-on-eviction pattern as _rx_count (see _store()'s eviction
@@ -798,6 +854,9 @@ class MonRing {
         case MON_COMMAND:
           if (_command_count) _command_count--;
           break;
+        case MON_ROUTE:
+          if (_route_count) _route_count--;
+          break;
         default: break;
       }
     }
@@ -820,6 +879,10 @@ public:
     _cap = bytes / sizeof(MonRecord);
     _head = _count = _next_seq = 0;
     _seed(now, radio, env);
+    // beebo: explicit, even though this is also the member default --
+    // init()'s env snapshot is the boot-time one (not yet a genuine
+    // sample, see _env_ever_sampled's own comment), unlike clear()'s.
+    _env_ever_sampled = false;
     return true;
   }
 
@@ -840,6 +903,7 @@ public:
   uint32_t eventCount() const { return _event_count; }
   uint32_t settingCount() const { return _setting_count; }
   uint32_t commandCount() const { return _command_count; }
+  uint32_t routeCount() const { return _route_count; }
   uint32_t txCount() const { return _tx_count; }
   uint32_t syncCount() const { return _sync_count; }
   uint32_t radioCount() const { return _radio_count; }
@@ -877,12 +941,17 @@ public:
   // storing a fresh record after the clear.
   void clear(uint32_t now, const RadioRecord &radio, const EnvRecord &env) {
     _head = _count = 0; _next_seq = 0;
-    _rx_count = _tx_count = _sync_count = _radio_count = _env_count = _batt_count = _tune_count = _event_count = _setting_count = _command_count = _end_time = 0;
+    _rx_count = _tx_count = _sync_count = _radio_count = _env_count = _batt_count = _tune_count = _event_count = _setting_count = _command_count = _route_count = _end_time = 0;
     // beebo: _rx_pool_exhausted_count/_rx_parse_error_count are deliberately
     // NOT reset here -- they're lifetime-since-boot counters (see their
     // declaration above), and clearing the ring shouldn't erase evidence that
     // the packet pool was exhausted earlier in this boot.
     _seed(now, radio, env);
+    // beebo: unlike init()'s boot-time seed, clear()'s env snapshot is a
+    // live read taken at clear time -- already a genuine sample, so
+    // emitStartRef(MON_ENV, ...) may inject it right away (see
+    // _env_ever_sampled's own comment).
+    _env_ever_sampled = true;
   }
 
   // Append one fully-resolved reception: the caller fills every RxRecord field
@@ -986,6 +1055,24 @@ public:
     _store(r);
   }
 
+  // Append one periodic routing-latency snapshot (kind/offset stamped
+  // here). Same capture gating as appendSetting()/appendCommand()/
+  // appendEvent() -- see MON_ROUTE's comment for why this has its own
+  // kind/struct but shares the capture bit. Unlike ENV/RADIO's
+  // dedup-on-change, every call stores a record -- a periodic snapshot is
+  // meaningful even when unchanged (e.g. "still 0% wait" over the last
+  // minute is itself the signal), same reasoning as appendEvent().
+  void appendRoute(RouteRecord route, uint32_t now) {
+    if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
+    MonRecord r{};
+    r.route = route;
+    r.route.kind = MON_ROUTE;
+    r.route.offset = _ensureSync(now);
+    _end_time = now;
+    _route_count++;
+    _store(r);
+  }
+
   // Note the current radio config. On a real change, store the NEW config as
   // a record immediately (forward semantics), then adopt it as the running
   // state. Same shape as sampleEnv() (and shares its caller-builds-the-record
@@ -1012,14 +1099,31 @@ public:
   // rule as noteRadio().
   void sampleEnv(EnvRecord env, uint32_t now) {
     if (!enabled() || !(_config & MON_CAP_ENV) || _buf == nullptr) return;
-    bool changed = !_env_valid || _env.noise_floor != env.noise_floor ||
-                   _env.batt_mv != env.batt_mv || _env.temp_c != env.temp_c ||
-                   _env.free_heap != env.free_heap || _env.pool_free != env.pool_free ||
-                   _env.tx_queue != env.tx_queue || _env.err_flags != env.err_flags ||
-                   _env.cad_busy_events != env.cad_busy_events;
+    // A genuine reading happened, regardless of whether it changed the
+    // stored value -- see _env_ever_sampled's own comment. On the
+    // transition itself (first-ever real sample), also replace start_env
+    // immediately rather than waiting for the eviction-time reanchor in
+    // _store() -- otherwise emitStartRef(MON_ENV, ...) would start
+    // returning true right away but still hand back the boot-time seed
+    // until whatever record currently occupies start_env's slot is
+    // eventually evicted.
+    bool first_real_sample = !_env_ever_sampled;
+    _env_ever_sampled = true;
+    // Always log the first genuine sample, even if it happens to match
+    // the boot-time seed -- that's the only valid reference callers get
+    // until the next real change, so it must actually be stored, not
+    // silently deduped away.
+    bool changed = first_real_sample || !_env_valid ||
+                   _env.noise_floor != env.noise_floor ||
+                   _env.temp_c != env.temp_c;
     if (!changed) return;
     _env = env;
     _env_valid = true;
+    if (first_real_sample) {
+      start_env = _env;
+      start_env.kind = MON_ENV;
+      start_env.offset = 0;
+    }
     MonRecord r{};
     r.env = _env;
     r.env.kind = MON_ENV;
@@ -1047,7 +1151,14 @@ public:
     switch (kind) {
       case MON_SYNC:  dest->sync  = start_sync;  return true;
       case MON_RADIO: dest->radio = start_radio; return true;
-      case MON_ENV:   dest->env   = start_env;   return true;
+      // beebo: only once a real sampleEnv() has actually happened -- see
+      // _env_ever_sampled's own comment. Before that, start_env still
+      // holds init()/clear()'s boot-time seed (radio noise-floor
+      // calibration and the MCU temp sensor are both not yet settled
+      // that early), which would otherwise get injected as if it were a
+      // genuine reference reading.
+      case MON_ENV:   if (!_env_ever_sampled) return false;
+                       dest->env = start_env;  return true;
       default: return false;
     }
   }
@@ -1159,6 +1270,47 @@ public:
   // comment above. Same lifetime-cumulative-counter caveat as everywhere
   // else this pattern is used: early history dominates, less responsive to
   // recent conditions as the denominator grows over uptime.
+  // beebo: RX/TX/CLI busy time (micros(), accumulated over one compute
+  // window) -> 0-100 pct of that window, normalized so the three never sum
+  // past 100 (a stray timing overlap/rounding case, not expected in normal
+  // operation, would otherwise push idle_pct = 100-rx-tx-cli negative).
+  // Pulled out as a static helper (same shape as computeQos/computeSoh
+  // above) purely so this arithmetic is natively testable -- the caller
+  // (Beebo::loop(), see plans/CPU_UTILIZATION.md) is Arduino-only and can't
+  // run under the native GoogleTest env itself. window_us == 0 (shouldn't
+  // happen in practice -- loop() only calls this once the window's actual
+  // elapsed time is known -- but guards div-by-zero) yields all-zero pct.
+  static void computeTimePct(uint32_t rx_us, uint32_t tx_us, uint32_t cli_us, uint32_t window_us,
+                             uint8_t &rx_pct, uint8_t &tx_pct, uint8_t &cli_pct) {
+    if (window_us == 0) { rx_pct = tx_pct = cli_pct = 0; return; }
+    uint32_t rx = (uint32_t)((uint64_t)rx_us * 100 / window_us);
+    uint32_t tx = (uint32_t)((uint64_t)tx_us * 100 / window_us);
+    uint32_t cli = (uint32_t)((uint64_t)cli_us * 100 / window_us);
+    uint32_t total = rx + tx + cli;
+    if (total > 100) {
+      rx = rx * 100 / total;
+      tx = tx * 100 / total;
+      cli = cli * 100 / total;
+    }
+    rx_pct = (uint8_t)rx;
+    tx_pct = (uint8_t)tx;
+    cli_pct = (uint8_t)cli;
+  }
+
+  // beebo: one busy-time accumulator (micros(), over one RouteRecord
+  // report window) -> 0-10000 pct of that window (computeQos's precision
+  // convention). Unlike computeTimePct's rx/tx/cli, RouteRecord's fields
+  // are independent axes (exec vs. wait, RX vs. TX) that don't need to
+  // sum to any particular total, so no cross-normalization -- each is
+  // just clamped at 10000 on its own (a stray timing overlap/rounding
+  // case, not expected in normal operation, would otherwise overflow the
+  // wire field). window_us == 0 guards div-by-zero, yields 0.
+  static uint16_t computeRoutePct(uint32_t busy_us, uint32_t window_us) {
+    if (window_us == 0) return 0;
+    uint32_t pct = (uint32_t)((uint64_t)busy_us * 10000 / window_us);
+    return (uint16_t)(pct > 10000 ? 10000 : pct);
+  }
+
   static uint16_t computeQos(const QosStats &s) {
     uint32_t numerator = s.ack_success_count + s.echo_success_count;
     uint32_t denominator = computeQosExposure(s);
