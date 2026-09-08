@@ -5741,6 +5741,18 @@ void Beebo::loop() {
     _rx_route_us = _tx_route_us = 0;
     resetRouteAccounting();
     _route_start_us = micros();
+
+    // beebo: live-only CPU snapshot for a --debug/-d session, same cadence
+    // as the RouteRecord append above -- see RLOG_ID_CPU_SNAPSHOT's own
+    // comment in DebugRing.h. Coarse (0-100, live ~1s _*_time_pct values),
+    // purely for visual scanning; RouteRecord above stays the persisted,
+    // higher-precision (0-10000) per-direction source of truth.
+    uint8_t exec_pct = (uint8_t)min(_rx_time_pct + _tx_time_pct, 100);
+    uint8_t idle_pct = (uint8_t)max(0, 100 - _rx_time_pct - _tx_time_pct - _cli_time_pct);
+    int32_t cpu_detail = ((int32_t)exec_pct & 0xFF)
+                        | (((int32_t)_cli_time_pct & 0xFF) << 8)
+                        | (((int32_t)idle_pct & 0xFF) << 16);
+    RLOGL(RLOG_ID_CPU_SNAPSHOT, cpu_detail);
   }
 #endif
 

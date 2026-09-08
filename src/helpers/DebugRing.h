@@ -204,6 +204,16 @@
 // enough for this diagnostic), and the current noise floor dBm -- all as
 // int8 two's complement.
 #define RLOG_ID_RADIO_RECV_ERROR      47
+// beebo: 1-minute CPU/time-pct snapshot for a live `--debug`/`-d` session
+// (visual-only, coarse) -- see plans/CPU_UTILIZATION.md's "cli_time_pct/
+// idle_time_pct" section. detail packs three unsigned 0-100 percentages
+// into the low 3 bytes (no sign-extension needed, unlike
+// RLOG_ID_RADIO_RECV_ERROR's signed dB values): bits 0-7 = exec_time_pct
+// (rx_exec_pct+tx_exec_pct, clamped at 100), bits 8-15 = cli_time_pct,
+// bits 16-23 = idle_time_pct. RLOGL (DLOG_SEV_L) only -- never persisted
+// to the in-RAM debug ring retrievable later via GET_STATS/
+// STATS_TYPE_TRANSPORT, genuinely live-only like the values it reports.
+#define RLOG_ID_CPU_SNAPSHOT          48
 // GEN_RLOG_NAMES_END
 // 22, 26 retired -- subsumed by RLOG_ID_XPORT_LINK_WIFI_LISTENING.
 // 24/25 never assigned.
