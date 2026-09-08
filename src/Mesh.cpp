@@ -401,7 +401,12 @@ void Mesh::removeSelfFromPath(Packet* pkt) {
 
 DispatcherAction Mesh::routeRecvPacket(Packet* packet) {
   uint8_t n = packet->getPathHashCount();
-  if (packet->isRouteFlood() && !packet->isMarkedDoNotRetransmit() && allowPacketForward(packet)) {
+  // beebo: cache allowPacketForward()'s result -- it has side effects
+  // (hop-limit/region/loop-detect decline counters, MonRing event logging),
+  // so calling it twice for the same packet double-counted every decline.
+  bool can_retransmit = packet->isRouteFlood() && !packet->isMarkedDoNotRetransmit();
+  bool forward_allowed = can_retransmit && allowPacketForward(packet);
+  if (forward_allowed) {
     if ((n + 1)*packet->getPathHashSize() <= MAX_PATH_SIZE) {
       // append this node's hash to 'path'
       self_id.copyHashTo(&packet->path[n * packet->getPathHashSize()], packet->getPathHashSize());
@@ -428,7 +433,7 @@ DispatcherAction Mesh::routeRecvPacket(Packet* packet) {
   // Not relayed. Distinguish "forwarding disabled" (this node is a client, not a
   // repeater) from packets we simply won't re-flood (delivered to us / already
   // marked); the endpoint axis keeps an earlier ACCEPTED alongside this NO_FORWARD.
-  if (packet->isRouteFlood() && !packet->isMarkedDoNotRetransmit() && !allowPacketForward(packet))
+  if (can_retransmit && !forward_allowed)
     logRxDisposition(packet, RX_DISP_NO_FORWARD);
   return ACTION_RELEASE;
 }

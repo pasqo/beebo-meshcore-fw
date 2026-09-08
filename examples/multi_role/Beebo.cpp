@@ -673,7 +673,7 @@ bool Beebo::removeNeighborByPrefix(const uint8_t* pubkey, int key_len) {
 // regardless of whether they're a saved contact.
 void Beebo::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp,
                           const uint8_t* app_data, size_t app_data_len) {
-  BEEBO_MESH_BASE::onAdvertRecv(packet, id, timestamp, app_data, app_data_len);
+  if (isCompanion()) BEEBO_MESH_BASE::onAdvertRecv(packet, id, timestamp, app_data, app_data_len);
 
   if (packet->getPathHashCount() != 0) return;   // not heard directly => not a neighbour
   AdvertDataParser parser(app_data, app_data_len);
@@ -682,6 +682,18 @@ void Beebo::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_
   int32_t lon = parser.hasLatLon() ? parser.getIntLon() : 0;
   putNeighbour(id.pub_key, PUB_KEY_SIZE, timestamp, (int8_t)(packet->getSNR() * 4),
                parser.getType(), parser.getName(), lat, lon);
+}
+
+// beebo: not overridden before, so every ACK a live repeater received still
+// ran BaseChatMesh::onAckRecv()'s companion-only expected_ack_table[]/
+// connections[] matching (harmless today -- repeater never populates
+// either table, since CMD_SEND_TXT_MSG is refused while repeater is live --
+// but wasted cycles on every ACK, and the same architectural gap as
+// onAdvertRecv above). Purely observational either way: relay/forward of
+// the ACK packet itself happens unconditionally in
+// Mesh::onRecvPacket()/routeRecvPacket(), independent of this call.
+void Beebo::onAckRecv(mesh::Packet* packet, uint32_t ack_crc) {
+  if (isCompanion()) BEEBO_MESH_BASE::onAckRecv(packet, ack_crc);
 }
 
 static int sort_by_recent(const void *a, const void *b) {
@@ -1511,7 +1523,7 @@ void Beebo::beginTransports() {
   // later live toggle -- see driveBtp()/driveUsb()'s own comments and
   // plans/TRANSPORT_STATE_MACHINE.md for the full design. No events/creds
   // change/live BLE central are possible yet at this point in begin().
-  driveBtp(ble_on, tcp_on, false, false, false, false);
+  driveBtp(ble_on, tcp_on, false, false, -1, false);
   driveUsb(usb_on);
 
   startInterface(serial_interface);
@@ -6020,10 +6032,9 @@ void Beebo::loopTransports() {
   // pass. No (int8_t) truncation on the reason -- esp_wifi disconnect
   // reason codes go up to ~208 (e.g. BEACON_TIMEOUT=200, NO_AP_FOUND=201).
   bool got_ip = _sta_got_ip;
-  bool disconnected = _sta_disc_reason >= 0;
-  if (disconnected) {
-    RLOGH(RLOG_ID_WIFI_STA_DISCONNECTED, _sta_disc_reason);
-    _sta_disc_reason = -1;
+  int sta_disc_reason = _sta_disc_reason;
+  if (sta_disc_reason >= 0) {
+    RLOGH(RLOG_ID_WIFI_STA_DISCONNECTED, sta_disc_reason);
     _wifi_ip_cache[0] = '\0';
     _wifi_rssi_cache = WIFI_RSSI_UNAVAILABLE;
   }
@@ -6045,8 +6056,63 @@ void Beebo::loopTransports() {
   bool ble_connected = ble_interface.isConnected();
 
   // ---- Compute next state + apply outputs, one pass, one place ----------
-  driveBtp(ble_on, tcp_on, creds_changed, got_ip, disconnected, ble_connected);
+  // driveBtp() is the sole consumer of sta_disc_reason -- it clears
+  // _sta_disc_reason itself once its BTP_TCP_UP_WAIT/BTP_TCP_UP disconnect
+  // handling has actually used it, same drain-on-consume idiom as
+  // consumeWifiCredsPending() (not cleared eagerly here, since the raw
+  // reason -- not just whether a disconnect happened -- is the input
+  // driveBtp() needs).
+  driveBtp(ble_on, tcp_on, creds_changed, got_ip, sta_disc_reason, ble_connected);
   driveUsb(usb_on);
+}
+
+// beebo: reason codes esp_wifi reports for the AP rejecting/expiring our
+// auth, association, or key exchange, as opposed to a plain loss of
+// signal/beacon or an administrative/environmental disassociation -- see
+// BUGS.md's WiFi Protocol and Auth entry and its cited esp-idf/
+// arduino-esp32 issues, and esp-idf's esp_wifi_types_generic.h for each
+// reason's canonical one-line meaning:
+//   AUTH_EXPIRE(2)/AUTH_FAIL(202)   -- prior auth no longer valid / rejected
+//   MIC_FAILURE(14)                -- key MIC check failed
+//   4WAY_HANDSHAKE_TIMEOUT(15) /
+//   HANDSHAKE_TIMEOUT(204)         -- same failure, two codes across
+//                                      esp_wifi versions; commonly a wrong
+//                                      PSK, also seen on correct credentials
+//   GROUP_KEY_UPDATE_TIMEOUT(16)   -- group key renewal failed
+//   ASSOC_FAIL(203)                -- AP rejected association outright
+//   INVALID_PMKID(49)              -- our cached PMK doesn't match the AP's
+//   ASSOC_NOT_AUTHED(9)            -- associated but not authenticated
+//   NOT_AUTHED(6)/NOT_ASSOCED(7)   -- AP received a frame from us while it
+//                                      believes we're not authenticated/
+//                                      associated -- direct evidence our
+//                                      cached state is stale on the AP side
+//   802_1X_AUTH_FAILED(23)         -- enterprise-auth analog of AUTH_FAIL;
+//                                      not reachable on beebo's PSK-only
+//                                      config today, included for parity
+// Every other reason (signal loss, AP-initiated roam/steer, environmental,
+// or the AUTH_LEAVE(3)/ASSOC_LEAVE(8) echo of our own WiFi.disconnect()
+// calls) falls through to the default -- still logged via
+// RLOG_ID_WIFI_STA_DISCONNECTED same as every other reason (loopTransports()
+// logs before classification ever runs), just not treated as a reason to
+// force a full teardown before retrying.
+bool Beebo::isAuthClassDiscReason_(int reason) {
+  switch (reason) {
+    case WIFI_REASON_AUTH_EXPIRE:
+    case WIFI_REASON_AUTH_FAIL:
+    case WIFI_REASON_MIC_FAILURE:
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_GROUP_KEY_UPDATE_TIMEOUT:
+    case WIFI_REASON_ASSOC_FAIL:
+    case WIFI_REASON_INVALID_PMKID:
+    case WIFI_REASON_ASSOC_NOT_AUTHED:
+    case WIFI_REASON_NOT_AUTHED:
+    case WIFI_REASON_NOT_ASSOCED:
+    case WIFI_REASON_802_1X_AUTH_FAILED:
+      return true;
+    default:
+      return false;
+  }
 }
 
 // The single function that owns every BLE/TCP transition -- a proper Mealy
@@ -6083,7 +6149,7 @@ void Beebo::loopTransports() {
 // logic -- they're still only ever invoked from within this switch, never
 // an independent second place computing state.
 void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
-                      bool got_ip, bool disconnected, bool ble_connected) {
+                      bool got_ip, int sta_disc_reason, bool ble_connected) {
   // beebo: _serial is null until startInterface() runs (beginTransports()'s
   // first driveBtp() call happens before that) -- no app session is
   // possible that early regardless, so this is a correct guard, not a
@@ -6093,6 +6159,14 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
   bool session_live_on_tcp = _serial && _serial->isConnected()
       && serial_interface.activeTransportType() == RLOG_ID_XPORT_TCP;
   bool backoff_elapsed = millis() - _tcp_backoff_started_ms >= 10000;
+  bool disconnected = sta_disc_reason >= 0;
+  // beebo: driveBtp() is the sole consumer of this tick's disconnect
+  // reason (see loopTransports()'s call site comment) -- clear it here,
+  // once, regardless of which case below actually acts on it, so a
+  // disconnect landing in a state that doesn't care (e.g. BTP_OFF,
+  // BLE-only states) doesn't leave it set to be re-read/re-logged next
+  // tick.
+  if (disconnected) _sta_disc_reason = -1;
 
   BtpState next = _btp_state;
 
@@ -6153,6 +6227,16 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
         next = BTP_TCP_UP;
       } else if (disconnected) {
         WIFI_DEBUG_PRINTLN("WiFi disconnected. Backing off before retry...");
+        if (isAuthClassDiscReason_(sta_disc_reason)) {
+          // beebo: the AP rejected/expired our auth or key exchange rather
+          // than us losing signal -- force a full teardown now instead of
+          // leaving the retry to reassociate on top of whatever PMK/
+          // association context the failed handshake left behind. Per
+          // Espressif's Wi-Fi Driver guide, the disconnect reason is what's
+          // supposed to decide this, not a reason-blind retry (BUGS.md's
+          // WiFi Protocol and Auth entry).
+          WiFi.disconnect(true);
+        }
         _tcp_backoff_started_ms = millis();
         next = BTP_TCP_BACKOFF;
       }
@@ -6163,6 +6247,9 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
         next = session_live_on_tcp ? BTP_TCP_OFF_WAIT : teardownTcpThen_(ble_on, tcp_on);
       } else if (disconnected) {
         WIFI_DEBUG_PRINTLN("WiFi disconnected. Backing off before retry...");
+        if (isAuthClassDiscReason_(sta_disc_reason)) {
+          WiFi.disconnect(true);
+        }
         _tcp_backoff_started_ms = millis();
         next = BTP_TCP_BACKOFF;
       }

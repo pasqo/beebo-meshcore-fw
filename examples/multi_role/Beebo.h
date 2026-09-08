@@ -555,6 +555,7 @@ protected:
   void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) override;
 #endif
   void onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp, const uint8_t* app_data, size_t app_data_len) override;  // beebo: track direct neighbours
+  void onAckRecv(mesh::Packet* packet, uint32_t ack_crc) override;  // beebo: gate companion's ACK bookkeeping on isCompanion()
 #if BEEBO_ENABLE_COMPANION_ROLE
   void onContactPathUpdated(const ContactInfo &contact) override;
   ContactInfo* processAck(const uint8_t *data) override;
@@ -865,8 +866,17 @@ private:
   // never from elsewhere (including _onWifiStaEvent(), which only records
   // events -- see its own comment).
   void driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
-                bool got_ip, bool disconnected, bool ble_connected);
+                bool got_ip, int sta_disc_reason, bool ble_connected);
   void driveUsb(bool usb_on);
+
+  // beebo: true for a disconnect reason that means the AP rejected/expired
+  // the STA's authentication or key exchange rather than a plain loss of
+  // signal (AUTH_EXPIRE, MIC_FAILURE, the 4-way/group-key handshake
+  // timeouts) -- see driveBtp()'s BTP_TCP_UP_WAIT/BTP_TCP_UP disconnect
+  // handling. Per Espressif's own Wi-Fi Driver guide, the application is
+  // responsible for reacting to the reason code, not retrying identically
+  // regardless of cause (BUGS.md's WiFi Protocol and Auth entry).
+  static bool isAuthClassDiscReason_(int reason);
 
   // beebo: shared BLE/TCP teardown+immediate-rebringup and plain bring-up
   // actions, factored out of driveBtp()'s switch so its per-case logic
