@@ -266,6 +266,23 @@ enum : uint8_t {
   EVENT_ACK_TIMEOUT = 21,   // DM/ACK side, no ACK within deadline (checkAckTableTimeouts())
   EVENT_ECHO_SUCCESS = 22,  // flood-echo side, rebroadcast heard (SimpleMeshTables::hasSeen())
   EVENT_ECHO_TIMEOUT = 23,  // flood-echo side, echo window elapsed (checkEchoTimeouts())
+  // beebo: general loop-latency stall watchdog (plans/CPU_UTILIZATION.md's
+  // "New goals" #2) -- fires every time the micros() delta between two
+  // consecutive Beebo::loop() calls exceeds MAX_LOOP_LATENCY_THRESHOLD_MS
+  // (Beebo.cpp), same "own EVENT_* type, fires every occurrence" pattern
+  // as EVENT_TX_POOL_FULL/EVENT_TX_CAD_TIMEOUT/EVENT_RX_START_TIMEOUT
+  // (Dispatcher::logFaultEvent()) but not gated by RX_DISPOSITION -- this
+  // is a Beebo::loop()-level stall, not an RX/TX-disposition fault.
+  // Cause-agnostic by design (same reasoning as the headroom metrics
+  // themselves): doesn't distinguish which specific call stalled, only
+  // that something did -- ProfileLog/PROFILE_SCOPE (deferred, see the
+  // plan) is the tool for narrowing down which one, once revisited.
+  //   data[0:2] = the triggering latency in ms (u16 LE, clamped at 65535)
+  //   data[2:6] = cumulative lifetime count for this event, AFTER this
+  //               occurrence (u32 LE) -- same convention as
+  //               EVENT_RX_POOL_FULL/EVENT_TX_POOL_FULL etc. above
+  //   data[6:12] = reserved
+  EVENT_MAX_LOOP_LATENCY = 24,
 };
 
 // ---- TXCONFIRM_*: verdict enum used ONLY for internal bookkeeping now

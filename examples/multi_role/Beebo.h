@@ -1903,6 +1903,12 @@ private:
   uint32_t _max_loop_latency_us = 0;         // running max within the current 1s window
   uint32_t _max_loop_latency_us_peak = 0;    // max-of-maxes across the current 10s report period
   uint16_t _max_loop_latency_ms_reported = 0;  // reported (10s peak, ms -- see STATS_TYPE_SYSTEM wire frame)
+  // beebo: general loop-latency stall watchdog (MonRing.h's
+  // EVENT_MAX_LOOP_LATENCY) -- fires immediately, every occurrence (same
+  // "not sticky/one-shot" reasoning as _tx_pool_full_count/
+  // _cad_timeout_count/_rx_start_timeout_count above), independent of the
+  // BEEBO_CPU_ACCOUNTING window/report timers this lives alongside.
+  uint32_t _max_loop_latency_event_count = 0;
 #endif
 
   TransportKey send_scope;

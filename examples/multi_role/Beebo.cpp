@@ -30,6 +30,16 @@
 #define CPU_WINDOW_MS         1000u           // beebo: CPU accounting live-window compute cadence (plans/CPU_UTILIZATION.md)
 #define CPU_REPORT_MS         10000u          // beebo: CPU accounting reported-snapshot cadence (MonRing/STATS_TYPE_SYSTEM)
 #define ROUTE_WINDOW_MS       60000u          // beebo: RouteRecord (MON_ROUTE) report window, 1 minute (plans/CPU_UTILIZATION.md)
+// beebo: general loop-latency stall watchdog threshold (EVENT_MAX_LOOP_LATENCY,
+// plans/CPU_UTILIZATION.md's "New goals" #2) -- a first-pick constant, no
+// real-traffic trigger data yet (same caveat as ROLLBACK_THRESHOLD/
+// computeSoh()'s fault weights). Picked with comfortable margin above every
+// known periodic housekeeping call inside loop() (temperatureRead() ~76ms
+// average of 4 reads, getBattMilliVolts()/ADC ~10-12ms) so normal
+// housekeeping never trips it; getStorageUsedKb()'s live FS block-scan
+// duration isn't empirically measured, so this stays conservative until
+// real trigger data says otherwise.
+#define MAX_LOOP_LATENCY_THRESHOLD_MS  500u
 #define TUNE_TICK_INTERVAL_MS 300000u         // beebo: dynamic-tuning optimizer re-tune cadence (5 min)
 
 #ifndef TCP_PORT
@@ -5583,6 +5593,20 @@ void Beebo::loop() {
   if (_last_loop_us != 0) {
     uint32_t dt_us = now_us - _last_loop_us;
     if (dt_us > _max_loop_latency_us) _max_loop_latency_us = dt_us;
+    // beebo: stall watchdog (EVENT_MAX_LOOP_LATENCY, MonRing.h) -- fires
+    // immediately, every occurrence, independent of the window/report
+    // timers above (same "not sticky/one-shot" reasoning as
+    // logFaultEvent()'s ERR_EVENT_* trail).
+    uint32_t dt_ms = dt_us / 1000;
+    if (dt_ms > MAX_LOOP_LATENCY_THRESHOLD_MS && monring.enabled() && monring.allocated()) {
+      _max_loop_latency_event_count++;
+      uint16_t latency_ms = (uint16_t)min(dt_ms, (uint32_t)0xFFFF);
+      EventRecord rec{};
+      rec.event_type = EVENT_MAX_LOOP_LATENCY;
+      memcpy(&rec.data[0], &latency_ms, 2);
+      memcpy(&rec.data[2], &_max_loop_latency_event_count, 4);
+      monring.appendEvent(rec, (uint32_t)getRTCClock()->getCurrentTime());
+    }
   }
   _last_loop_us = now_us;
 #endif
