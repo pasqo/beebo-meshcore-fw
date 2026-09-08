@@ -1710,6 +1710,17 @@ private:
 
   RadioRecord buildRadioRecord();  // beebo: snapshot current radio config, shared by initMonRing()/logRxRaw()/logTx()/logTxFail()/monring.clear() sites
   EnvRecord   buildEnvRecord();    // beebo: snapshot current env sample, shared by initMonRing()/logRxRaw()/logTx()/logTxFail()/monring.clear() sites
+#ifdef BEEBO_CPU_ACCOUNTING
+  // beebo: RouteRecord's exec/wait percentages, computed live against the
+  // CURRENT (not-yet-reset) route-window accumulators -- non-destructive,
+  // safe to call from a live STATS_TYPE_SYSTEM query at any point in the
+  // window. Shared by that live query and the periodic 1-minute
+  // MON_ROUTE snapshot in loop() (which additionally resets the
+  // accumulators after calling this).
+  void computeLiveRoutePcts(uint16_t &rx_exec_pct, uint16_t &tx_exec_pct,
+                             uint16_t &tx_wait_airtime_pct, uint16_t &tx_wait_cad_pct,
+                             uint16_t &rx_wait_pct);
+#endif
   // beebo: true once the radio has been quiet for IDLE_MARGIN ms (see
   // Beebo.cpp) -- general-purpose idle probe (not RX/TX-specific), used to
   // gate the periodic Vbat sample away from RX/TX-induced IR drop.
@@ -1909,6 +1920,16 @@ private:
   // _cad_timeout_count/_rx_start_timeout_count above), independent of the
   // BEEBO_CPU_ACCOUNTING window/report timers this lives alongside.
   uint32_t _max_loop_latency_event_count = 0;
+
+  // beebo: live packets/minute (Phase 4, plans/CPU_UTILIZATION.md) -- same
+  // reported (10s) tier as loops_per_sec above, riding the same
+  // _next_cpu_report_ms cadence. Derived from Dispatcher's own existing
+  // lifetime totals (getNumRecvFlood()+getNumRecvDirect() /
+  // getNumSentFlood()+getNumSentDirect()) via snapshot-and-delta, same
+  // technique _loop_count_at_report already uses -- no new increment call
+  // sites needed, no per-packet cost.
+  uint32_t _pkt_count_at_report_rx = 0, _pkt_count_at_report_tx = 0;
+  uint16_t _rx_per_min_reported = 0, _tx_per_min_reported = 0;
 #endif
 
   TransportKey send_scope;

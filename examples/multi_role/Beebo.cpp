@@ -1682,6 +1682,23 @@ EnvRecord Beebo::buildEnvRecord() {
   return env;
 }
 
+#ifdef BEEBO_CPU_ACCOUNTING
+void Beebo::computeLiveRoutePcts(uint16_t &rx_exec_pct, uint16_t &tx_exec_pct,
+                                  uint16_t &tx_wait_airtime_pct, uint16_t &tx_wait_cad_pct,
+                                  uint16_t &rx_wait_pct) {
+  uint32_t window_us = micros() - _route_start_us;
+  rx_exec_pct = MonRing::computeRoutePct(_rx_route_us, window_us);
+  tx_exec_pct = MonRing::computeRoutePct(_tx_route_us, window_us);
+  tx_wait_airtime_pct = MonRing::computeRoutePct(getTxWaitAirtimeMs() * 1000, window_us);
+  tx_wait_cad_pct = MonRing::computeRoutePct(getTxWaitCadMs() * 1000, window_us);
+#ifdef RX_DISPOSITION
+  rx_wait_pct = MonRing::computeRoutePct(getRxWaitMs() * 1000, window_us);
+#else
+  rx_wait_pct = 0;  // no Packet::_rx_scheduled_for staging without RX_DISPOSITION
+#endif
+}
+#endif
+
 // beebo: writes one TuneController::Decision -- reuses the exact same
 // tlvSet*/direct-NodePrefs path each param's own individual GET/SET_*
 // command already uses (see BeeboRepeater.cpp's tlvSet* functions and this
@@ -3977,6 +3994,23 @@ void Beebo::handleCmdFrame(size_t len) {
       // plans/CPU_UTILIZATION.md's "New goals" #1/#2). Append-only.
       memcpy(&out_frame[i], &_loops_per_sec_reported, 2); i += 2;
       memcpy(&out_frame[i], &_max_loop_latency_ms_reported, 2); i += 2;
+      // beebo: RouteRecord's exec/wait percentages, computed live against
+      // the current (not-yet-reset) route-window accumulators -- same
+      // signal RouteRecord's own 1-minute MonRing snapshot carries, just
+      // readable without a ring download. Append-only.
+      {
+        uint16_t rx_exec_pct, tx_exec_pct, tx_wait_airtime_pct, tx_wait_cad_pct, rx_wait_pct;
+        computeLiveRoutePcts(rx_exec_pct, tx_exec_pct, tx_wait_airtime_pct, tx_wait_cad_pct, rx_wait_pct);
+        memcpy(&out_frame[i], &rx_exec_pct, 2); i += 2;
+        memcpy(&out_frame[i], &tx_exec_pct, 2); i += 2;
+        memcpy(&out_frame[i], &tx_wait_airtime_pct, 2); i += 2;
+        memcpy(&out_frame[i], &tx_wait_cad_pct, 2); i += 2;
+        memcpy(&out_frame[i], &rx_wait_pct, 2); i += 2;
+      }
+      // beebo: Phase 4 live packets/minute, same reported (10s) tier (see
+      // Beebo::_rx_per_min_reported/_tx_per_min_reported). Append-only.
+      memcpy(&out_frame[i], &_rx_per_min_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_tx_per_min_reported, 2); i += 2;
 #endif
       _serial->writeFrame(out_frame, i);
     } else if (stats_type == STATS_TYPE_TRANSPORT || stats_type == STATS_TYPE_PROFILE) {
@@ -5778,6 +5812,12 @@ void Beebo::loop() {
       MonRing::computeTimePct(_rx_report_us, _tx_report_us, _cli_report_us, report_us,
                               _rx_time_pct_reported, _tx_time_pct_reported, _cli_time_pct_reported);
       _loops_per_sec_reported = (uint16_t)(((uint64_t)(_loop_count - _loop_count_at_report) * 1000000ULL) / report_us);
+      uint32_t rx_now = getNumRecvFlood() + getNumRecvDirect();
+      uint32_t tx_now = getNumSentFlood() + getNumSentDirect();
+      _rx_per_min_reported = (uint16_t)min(((uint64_t)(rx_now - _pkt_count_at_report_rx) * 60000000ULL) / report_us, (uint64_t)0xFFFF);
+      _tx_per_min_reported = (uint16_t)min(((uint64_t)(tx_now - _pkt_count_at_report_tx) * 60000000ULL) / report_us, (uint64_t)0xFFFF);
+      _pkt_count_at_report_rx = rx_now;
+      _pkt_count_at_report_tx = tx_now;
     }
     _rx_report_us = _tx_report_us = _cli_report_us = 0;
     _cpu_report_start_us = micros();
@@ -5793,17 +5833,14 @@ void Beebo::loop() {
   if (monring.enabled() && monring.allocated() &&
       millisHasNowPassed(_next_route_ms)) {
     _next_route_ms = futureMillis(ROUTE_WINDOW_MS);
-    uint32_t window_us = micros() - _route_start_us;
     RouteRecord route{};
-    route.rx_exec_pct = MonRing::computeRoutePct(_rx_route_us, window_us);
-    route.tx_exec_pct = MonRing::computeRoutePct(_tx_route_us, window_us);
-    route.tx_wait_airtime_pct = MonRing::computeRoutePct(getTxWaitAirtimeMs() * 1000, window_us);
-    route.tx_wait_cad_pct = MonRing::computeRoutePct(getTxWaitCadMs() * 1000, window_us);
-#ifdef RX_DISPOSITION
-    route.rx_wait_pct = MonRing::computeRoutePct(getRxWaitMs() * 1000, window_us);
-#else
-    route.rx_wait_pct = 0;  // no Packet::_rx_scheduled_for staging without RX_DISPOSITION
-#endif
+    uint16_t rx_exec_pct, tx_exec_pct, tx_wait_airtime_pct, tx_wait_cad_pct, rx_wait_pct;
+    computeLiveRoutePcts(rx_exec_pct, tx_exec_pct, tx_wait_airtime_pct, tx_wait_cad_pct, rx_wait_pct);
+    route.rx_exec_pct = rx_exec_pct;
+    route.tx_exec_pct = tx_exec_pct;
+    route.tx_wait_airtime_pct = tx_wait_airtime_pct;
+    route.tx_wait_cad_pct = tx_wait_cad_pct;
+    route.rx_wait_pct = rx_wait_pct;
     monring.appendRoute(route, (uint32_t)getRTCClock()->getCurrentTime());
     _rx_route_us = _tx_route_us = 0;
     resetRouteAccounting();
