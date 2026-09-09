@@ -363,6 +363,7 @@
 #define DLOG_ID_ACK_TABLE_WRITE_RESULT     6   // BeeboCompanion.cpp processAck(): writeFrame() return value for the PUSH_CODE_SEND_CONFIRMED push
 #define DLOG_ID_ACK_CONNECTIONS_FALLBACK   7   // BeeboCompanion.cpp processAck(): no expected_ack_table[] match, falling through to checkConnectionsAck()
 #define DLOG_ID_ACK_NO_MATCH               8   // BeeboCompanion.cpp processAck(): neither expected_ack_table[] nor checkConnectionsAck() matched
+#define DLOG_ID_BOOT_ROLE_NAME             9   // Beebo.cpp, right after RLOG_ID_BOOT_ROLE_BEGIN_DONE: this board/node's own identity at boot -- board.name (physical board alias, BeeboBoardPrefs.h's board_name), the live role's node.name (NodePrefs.h's node_name), and which role (companion/repeater) actually came up
 // 9-99 reserved for future non-trace DLOGH/M/L call sites.
 // beebo: BEEBO_USB_RXTX_TRACE (DualModeSerialInterface.cpp) opt-in trace ids.
 #define DLOG_ID_USB_RX_TRACE               100   // one byte read off the wire, with the parser state it landed in

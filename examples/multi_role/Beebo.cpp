@@ -1405,6 +1405,10 @@ void Beebo::begin() {
   if (isRepeater()) beginRepeater();
 #endif
   RLOGH(RLOG_ID_BOOT_ROLE_BEGIN_DONE, (int32_t)millis());
+  DLOGH(DLOG_ID_BOOT_ROLE_NAME, "device=%s node=%s role=%s",
+        _board.board_name[0] ? _board.board_name : "(unset)",
+        _role_state->prefs.node_name[0] ? _role_state->prefs.node_name : "(unset)",
+        isRepeater() ? "repeater" : "companion");
 
   // sanitize bad pref values
   clampRadioPrefs();
