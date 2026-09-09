@@ -721,6 +721,17 @@ bool Beebo::filterRecvFloodPacket(mesh::Packet* packet) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (packet->getRouteType() == ROUTE_TYPE_TRANSPORT_FLOOD) {
     recv_pkt_region = region_map.findMatch(packet, REGION_DENY_FLOOD);
+    if (recv_pkt_region == NULL && region_map.getCount() == 0) {
+      // beebo: no regions configured at all -- nothing to scope this
+      // packet against, so fall back to the wildcard's own allow/deny
+      // flag instead of denying every scoped flood by default (matches
+      // the ROUTE_TYPE_FLOOD branch below). A repeater with regions
+      // actually defined that just don't match this packet's transport
+      // code still denies it, unchanged.
+      if (!(region_map.getWildcard().flags & REGION_DENY_FLOOD)) {
+        recv_pkt_region = &region_map.getWildcard();
+      }
+    }
   } else if (packet->getRouteType() == ROUTE_TYPE_FLOOD) {
     if (region_map.getWildcard().flags & REGION_DENY_FLOOD) {
       recv_pkt_region = NULL;
