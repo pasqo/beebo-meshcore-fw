@@ -34,6 +34,8 @@ static void beebo_persistRTCTimeForReboot() {
   time(&now);
   beebo_persistRTCTimeForReboot((uint32_t)now);
 }
+
+void beebo_recordClockDrift(uint32_t offset);
 #endif
 
 class ESP32Board : public mesh::MainBoard {
@@ -229,7 +231,15 @@ public:
 #endif
       tv.tv_usec = 0;
       settimeofday(&tv, NULL);
+#ifdef BEEBO_RTC_PERSIST
+      applyDriftOffset_();
+#endif
     }
+#ifdef BEEBO_RTC_PERSIST
+    else if (reason == ESP_RST_UNKNOWN) {
+      applyDriftOffset_();
+    }
+#endif
   }
   uint32_t getCurrentTime() override {
     time_t _now;
@@ -242,6 +252,11 @@ public:
     tv.tv_usec = 0;
     settimeofday(&tv, NULL);
   }
+
+private:
+#ifdef BEEBO_RTC_PERSIST
+  void applyDriftOffset_();
+#endif
 };
 
 #endif

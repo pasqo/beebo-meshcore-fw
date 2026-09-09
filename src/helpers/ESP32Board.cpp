@@ -2,6 +2,42 @@
 
 #include "ESP32Board.h"
 
+#ifdef BEEBO_RTC_PERSIST
+void beebo_recordClockDrift(uint32_t offset) {
+  Preferences prefs;
+  if (prefs.begin("beebo", false)) {
+    prefs.putUInt("drift_off", offset);
+    prefs.end();
+  }
+}
+
+// beebo: applies the last-known drift offset (see
+// plans/CLOCK_DRIFT_COMPENSATION.md) to whatever getCurrentTime() currently
+// reads. Called from both ESP_RST_UNKNOWN (where that reading is the RTC
+// counter's own still-ticking, just-uncorrected value -- see BUGS.md's WiFi
+// Protocol/clock investigation) and ESP_RST_POWERON (layered on top of the
+// saved_ts restore). No-op if no offset has been recorded yet, e.g. a fresh
+// device.
+void ESP32RTCClock::applyDriftOffset_() {
+  Preferences prefs;
+  if (prefs.begin("beebo", true)) {
+    bool has_offset = prefs.isKey("drift_off");
+    uint32_t drift_offset = prefs.getUInt("drift_off", 0);
+    prefs.end();
+    if (has_offset) {
+      time_t device_now_t;
+      time(&device_now_t);
+      if (device_now_t > drift_offset) {
+        struct timeval tv;
+        tv.tv_sec = device_now_t - drift_offset;
+        tv.tv_usec = 0;
+        settimeofday(&tv, NULL);
+      }
+    }
+  }
+}
+#endif
+
 #if defined(ADMIN_PASSWORD) && !defined(DISABLE_WIFI_OTA)   // Repeater or Room Server only
 #include <WiFi.h>
 #include <AsyncTCP.h>

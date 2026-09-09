@@ -2946,22 +2946,17 @@ void Beebo::handleCmdFrame(size_t len) {
       if (self_rest) {
         // beebo: 'self' sentinel (plans/ADMIN_SELF_COMMAND.md) -- run the admin command
         // locally against this device's own live role instead of relaying it to
-        // <recipient>. Gated on hasAdminLogin(recipient) -- a real admin CMD_LOGIN to
-        // <recipient> succeeded at some point this boot session (persists like a
-        // cached password, no reachability requirement at self-command time -- see
-        // last_admin_login_pubkey's comment in Beebo.h for why hasConnectionTo()
-        // can't be used here instead).
-        if (!hasAdminLogin(recipient->id.pub_key)) {
-          writeErrFrame(ERR_CODE_BAD_STATE);
-        } else {
-          handleAdminSelfCommand(*recipient, self_rest);
-          out_frame[0] = RESP_CODE_SENT;
-          out_frame[1] = 0; // direct, not flood
-          uint32_t zero = 0;
-          memcpy(&out_frame[2], &zero, 4); // no ack expected
-          memcpy(&out_frame[6], &zero, 4); // no timeout
-          _serial->writeFrame(out_frame, 10);
-        }
+        // <recipient>. No extra ACL check -- reaching this point already requires an
+        // authenticated companion session (BLE/TCP/USB), the same protection level
+        // every other companion CLI command relies on; <recipient> only attributes
+        // the reply message.
+        handleAdminSelfCommand(*recipient, self_rest);
+        out_frame[0] = RESP_CODE_SENT;
+        out_frame[1] = 0; // direct, not flood
+        uint32_t zero = 0;
+        memcpy(&out_frame[2], &zero, 4); // no ack expected
+        memcpy(&out_frame[6], &zero, 4); // no timeout
+        _serial->writeFrame(out_frame, 10);
       } else {
         uint32_t est_timeout;
         int result;
@@ -3151,11 +3146,16 @@ void Beebo::handleCmdFrame(size_t len) {
     uint32_t secs;
     memcpy(&secs, &cmd_frame[1], 4);
     uint32_t curr = getRTCClock()->getCurrentTime();
-    if (secs >= curr) {
+    if (secs > curr) {
       getRTCClock()->setCurrentTime(secs);
       RLOGM(RLOG_ID_CLOCK_SET, secs);
       writeOKFrame();
+    } else if (secs == curr) {
+      writeOKFrame();
     } else {
+#ifdef BEEBO_RTC_PERSIST
+      beebo_recordClockDrift(curr - secs);
+#endif
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
   } else if (cmd_frame[0] == CMD_SEND_SELF_ADVERT) {
@@ -5190,6 +5190,23 @@ void Beebo::handleCmdFrame(size_t len) {
       }
       writeOKFrame();
     }
+  } else if (sub[0] == BEEBO_CMD_RUN_SELF_COMMAND && sub_len >= 1) {
+    // beebo: run an admin CLI command locally, no contact/messaging
+    // involved (unlike the mesh-relay 'self' sentinel in
+    // matchAdminSelfCommand()) -- protected only by the existing
+    // authenticated companion session, same as every other CMD_BEEBO opcode.
+    char command[160];
+    size_t cmd_len = min((size_t)sub_len - 1, sizeof(command) - 1);
+    memcpy(command, &sub[1], cmd_len);
+    command[cmd_len] = 0;
+    char reply[160];
+    reply[0] = 0;
+    handleCommand(getRTCClock()->getCurrentTimeUnique(), command, reply);
+    int reply_len = strlen(reply);
+    out_frame[0] = RESP_CODE_BEEBO;
+    out_frame[1] = BEEBO_RESP_SELF_COMMAND_REPLY;
+    memcpy(&out_frame[2], reply, reply_len);
+    _serial->writeFrame(out_frame, 2 + reply_len);
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
     // beebo: factory eFuse base MAC -- hardware-burned, stable across
     // reflashes/identity changes/role switches, unrelated to node.public_key
@@ -6856,7 +6873,12 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       uint32_t now = getRTCClock()->getCurrentTime();
       DateTime dt = DateTime(now);
       sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+    } else if (secs == curr) {
+      strcpy(reply, "OK - clock already in sync");
     } else {
+#ifdef BEEBO_RTC_PERSIST
+      beebo_recordClockDrift(curr - secs);
+#endif
       strcpy(reply, "(ERR: clock cannot go backwards)");
     }
   } else if (memcmp(command, "get ", 4) == 0) {

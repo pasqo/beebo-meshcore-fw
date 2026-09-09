@@ -1661,24 +1661,6 @@ private:
   uint32_t pending_telemetry, pending_discovery;   // pending _TELEMETRY_REQ
   uint32_t pending_req;   // pending _BINARY_REQ
 
-  // beebo: 'self' sentinel auth record (plans/ADMIN_SELF_COMMAND.md) -- set in
-  // onContactResponse() when a real admin login to this contact succeeds; checked
-  // by hasAdminLogin() in handleAdminSelfCommand()'s gate. Not a long-lived
-  // connection-keepalive table like BaseChatMesh's connections[] (which a repeater
-  // admin login never populates -- a repeater login's keep_alive_secs is always 0,
-  // see onContactResponse()'s own comment) -- and deliberately no expiry window
-  // either: matches the client-side cached-password semantics this mirrors
-  // (admin.py's _load_password()/_save_password(), never time-limited, only
-  // cleared by `admin ... forget`) so `self` keeps working even while <target> is
-  // out of range, not just immediately after a live login round trip. Cleared only
-  // on reboot (in-RAM, not persisted) -- single most-recent login, not a table, so
-  // logging into a different admin target overwrites it.
-#if BEEBO_ENABLE_COMPANION_ROLE
-  uint8_t last_admin_login_pubkey[6];
-  bool hasAdminLogin(const uint8_t* pub_key) const {
-    return memcmp(last_admin_login_pubkey, pub_key, 6) == 0;
-  }
-#endif
   // beebo: defaults to nullptr -- not assigned until startInterface() runs
   // (beginTransports(), after driveBtp()/driveUsb()'s first call already
   // needs to read it for session-liveness -- see driveBtp()'s own

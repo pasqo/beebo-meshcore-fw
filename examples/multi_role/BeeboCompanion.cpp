@@ -417,10 +417,6 @@ void Beebo::onContactResponse(const ContactInfo &contact, const uint8_t *data, u
       if (keep_alive_secs > 0) {
         startConnection(contact, keep_alive_secs);
       }
-      if (data[6]) { // beebo: 'self' sentinel auth record -- admin-only (data[6] == is_admin),
-                     // see last_admin_login_pubkey's comment in Beebo.h.
-        memcpy(last_admin_login_pubkey, contact.id.pub_key, 6);
-      }
       out_frame[i++] = PUSH_CODE_LOGIN_SUCCESS;
       out_frame[i++] = data[6]; // permissions (eg. is_admin)
       memcpy(&out_frame[i], contact.id.pub_key, 6);

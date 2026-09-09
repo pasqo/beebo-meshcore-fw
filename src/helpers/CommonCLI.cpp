@@ -22,6 +22,10 @@
 mesh::LocalIdentity radio_new_identity();
 #endif
 
+#ifdef BEEBO_RTC_PERSIST
+void beebo_recordClockDrift(uint32_t offset);
+#endif
+
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
   uint32_t n = 0;
@@ -245,11 +249,16 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
     } else if (memcmp(command, "clock sync", 10) == 0) {
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (sender_timestamp > curr) {
-        getRTCClock()->setCurrentTime(sender_timestamp + 1);
+        getRTCClock()->setCurrentTime(sender_timestamp);
         uint32_t now = getRTCClock()->getCurrentTime();
         DateTime dt = DateTime(now);
         sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+      } else if (sender_timestamp == curr) {
+        strcpy(reply, "OK - clock already in sync");
       } else {
+#ifdef BEEBO_RTC_PERSIST
+        beebo_recordClockDrift(curr - sender_timestamp);
+#endif
         strcpy(reply, "ERR: clock cannot go backwards");
       }
     } else if (memcmp(command, "start ota", 9) == 0) {
@@ -272,7 +281,12 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
         uint32_t now = getRTCClock()->getCurrentTime();
         DateTime dt = DateTime(now);
         sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+      } else if (secs == curr) {
+        strcpy(reply, "OK - clock already in sync");
       } else {
+#ifdef BEEBO_RTC_PERSIST
+        beebo_recordClockDrift(curr - secs);
+#endif
         strcpy(reply, "(ERR: clock cannot go backwards)");
       }
     } else if (memcmp(command, "neighbors", 9) == 0) {
