@@ -70,7 +70,16 @@
 #define RLOG_ID_CMD_DONE        13   // detail = same (cmd<<8)|sub encoding as RLOG_ID_CMD_RECV (handler returned)
 #define RLOG_ID_WIFI_STA_DISCONNECTED 14   // detail = disconnect reason code
 #define RLOG_ID_WIFI_STA_GOT_IP       15   // station (re)associated and got an IP; detail = the IPv4 address, packed MSB-first (octet1<<24 | octet2<<16 | octet3<<8 | octet4)
-#define RLOG_ID_BLE_CONNECT           16   // BLE GATT link up (onConnect callback)
+// beebo: BLE session-FSM bring-up sequence, one grouped id instead of a
+// separate top-level RLOG_ID per step (added 2026-09-09 diagnosing a
+// "Failed to fetch device info" timeout that only reproduced on the first
+// connection after a fresh pair -- see BUGS.md and checkRecvFrame()'s
+// notify_ready gate) -- detail bits 0-7 = sub-id (RLOG_ID_BLE_HANDSHAKE_*
+// below), bits 8-31 = sub-id-specific payload, same shape as
+// RLOG_ID_XPORT_INIT/_CHANGE's var-id packing further below. Teardown
+// (RLOG_ID_BLE_DISCONNECT) stays its own top-level id -- this group is
+// bring-up only.
+#define RLOG_ID_BLE_HANDSHAKE         16
 #define RLOG_ID_BLE_DISCONNECT        17   // BLE GATT link down (onDisconnect callback)
 #define RLOG_ID_DEBUGLOG_READ         18   // marker: debuglog was fetched (boundary)
 // 19 retired 2026-09-01 (was RLOG_ID_COEX_PREFER_WIFI, esp_coex_preference_set()
@@ -110,7 +119,7 @@
 // bytes) -- BLE's counterpart to RLOG_ID_WIFI_STA_GOT_IP, so a trace identifies
 // *which* peer is on the link the same way an IP does for TCP. 48 bits
 // doesn't fit in one int32 detail, so it's two events logged back-to-back
-// (same millis tick) right alongside RLOG_ID_BLE_CONNECT: HI carries the first
+// (same millis tick) right alongside RLOG_ID_BLE_HANDSHAKE's CONNECT step: HI carries the first
 // 2 bytes (bda[0..1]) packed MSB-first in the low 16 bits, LO carries the
 // last 4 bytes (bda[2..5]) packed MSB-first, matching RLOG_ID_WIFI_STA_GOT_IP's
 // own octet packing.
@@ -214,9 +223,61 @@
 // to the in-RAM debug ring retrievable later via GET_STATS/
 // STATS_TYPE_TRANSPORT, genuinely live-only like the values it reports.
 #define RLOG_ID_CPU_SNAPSHOT          48
+// beebo: this device's own local BLE link-layer address (esp_bd_addr_t, 6
+// bytes) -- BLE's counterpart to RLOG_ID_BLE_CLIENT_ADDR_HI/LO, but for
+// the advertising side rather than a connecting peer, so a scan/connect
+// (e.g. `beebo -b scan`) can be matched against a specific device's
+// address without a physical serial console. Logged once, right after
+// BLEDevice::init() in initRadio() -- i.e. whenever BLE comes up (boot
+// with BLE enabled, or a live "set ble on"), not on every advertising
+// restart. Same HI/LO split and packing as RLOG_ID_BLE_CLIENT_ADDR_HI/LO:
+// HI carries the first 2 bytes (bda[0..1]) packed MSB-first in the low 16
+// bits, LO carries the last 4 bytes (bda[2..5]) packed MSB-first.
+#define RLOG_ID_BLE_LOCAL_ADDR_HI     49
+#define RLOG_ID_BLE_LOCAL_ADDR_LO     50
+// beebo: clock-drift compensation tracing (see kbase/CLOCK_DRIFT_COMPENSATION.md)
+// -- added to pin down a discrepancy between the offset recorded right
+// before a flash and the offset actually applied after it, rather than
+// inferring both from before/after `beebo clock` readings. detail =
+// the offset in seconds (curr - secs, always positive -- see
+// beebo_recordClockDrift()'s own comment for why only an ahead-drift is
+// ever recorded).
+#define RLOG_ID_CLOCK_DRIFT_RECORDED  51
+// beebo: logged from applyDriftOffset_() every time it actually subtracts
+// (i.e. has_offset was true and the device_now_t > drift_offset guard
+// passed) -- detail = the drift_off value it read from NVS and applied,
+// so it can be compared directly against the nearest preceding
+// RLOG_ID_CLOCK_DRIFT_RECORDED's detail across a reset.
+#define RLOG_ID_CLOCK_DRIFT_APPLIED   52
+// beebo: boot-time sub-checkpoints inside Beebo::begin(), between
+// RLOG_ID_BOOT_STORAGE_READY and RLOG_ID_BOOT_TRANSPORTS_READY -- added to
+// break down a 2026-09-09 report of a multi-second gap in that span
+// (SPIFFS reads via loadRoleState() were the leading suspect, but never
+// measured directly). detail = millis() at each point, same convention as
+// the other RLOG_ID_BOOT_* events.
+#define RLOG_ID_BOOT_ROLE_STATE_LOADED 53   // both loadRoleState() calls done
+#define RLOG_ID_BOOT_ROLE_BEGIN_DONE   54   // beginCompanion()/beginRepeater() done
 // GEN_RLOG_NAMES_END
+// 55, 56, 57 retired 2026-09-09 -- folded into RLOG_ID_BLE_HANDSHAKE above.
 // 22, 26 retired -- subsumed by RLOG_ID_XPORT_LINK_WIFI_LISTENING.
 // 24/25 never assigned.
+
+// beebo: RLOG_ID_BLE_HANDSHAKE sub-ids (detail bits 0-7) -- bits 8-31 are
+// this sub-id's own payload, interpreted per step below. CONNECT has none
+// (the GATT link coming up is the event); SECURITY_REQUEST/PASSKEY_REQUEST
+// likewise (BLESecurityCallbacks -- PASSKEY_REQUEST only fires on a fresh,
+// non-bonded pairing, absent on a silent bonded reconnect); AUTH_COMPLETE
+// packs bit8=success, bits16-23=fail_reason (HCI code) if failed;
+// CCCD_WRITE packs bit8=notifications now enabled -- the client's TX-
+// characteristic "enable notifications" descriptor write, the step whose
+// timing (or absence, right after a fresh pair) was the actual root cause
+// behind the "Failed to fetch device info" investigation this group was
+// added for; see checkRecvFrame()'s notify_ready gate and BUGS.md.
+#define RLOG_ID_BLE_HANDSHAKE_CONNECT           0   // onConnect() -- GATT link up
+#define RLOG_ID_BLE_HANDSHAKE_SECURITY_REQUEST  1   // onSecurityRequest() -- central asked to elevate/pair
+#define RLOG_ID_BLE_HANDSHAKE_PASSKEY_REQUEST   2   // onPassKeyRequest()
+#define RLOG_ID_BLE_HANDSHAKE_AUTH_COMPLETE     3   // onAuthenticationComplete()
+#define RLOG_ID_BLE_HANDSHAKE_CCCD_WRITE        4   // client wrote the TX characteristic's CCCD (0x2902)
 
 // beebo: RLOG_ID_XPORT_INIT/_CHANGE (and RLOG_ID_XLINK_*/RLOG_ID_XSESSION_*)
 // detail packs one variable's transition: bits 0-7 = var id
@@ -340,7 +401,17 @@ class DebugRing {
   uint8_t _resp_code = 0;
   uint8_t _log_sub_id = 0;
   uint8_t _rlog_sub_id = 0;
-  bool _enabled = false;
+  // beebo: enabling is tracked per requesting path, not one shared bool --
+  // the raw session-less USB tap (BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) and the
+  // session-owning opcode (BEEBO_CMD_DEBUG_LOG_ENABLE, arriving over
+  // whichever transport currently holds the companion session) are
+  // independent clients that can each be live or not. pushRlogFrame()/
+  // logLink() route to _usb only when _usb_enabled and to _serial only
+  // when _session_enabled, so a `beebo -d` session tapping raw USB never
+  // also gets mirrored onto an unrelated BLE/WiFi companion session (and
+  // vice versa) -- see those functions' own comments.
+  bool _usb_enabled = false;
+  bool _session_enabled = false;
 
   bool _replay_active = false;
   uint16_t _replay_pos = 0;   // 0.._count-1, logical index of the next event replayStep() will push
@@ -349,21 +420,17 @@ public:
   // beebo: `serial` is the MultiSerialInterface aggregator (Beebo::_serial/
   // serial_interface) -- its writeFrame()/writeFrameBestEffort() forward to
   // whichever sub-transport (BLE/WiFi-TCP/USB) currently holds the companion
-  // session, so pushRlogFrame() below additionally reaches a live TCP/BLE
-  // session (e.g. gatto, which has no USB at all -- the TCP_DEBUG_STREAM
-  // capability). `usb` is the fixed physical USB interface (Beebo's
-  // usb_interface) -- pushRlogFrame() always reaches it directly too,
-  // regardless of `serial`'s locked transport, since the session-less raw
-  // USB debug tap (BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, checkSerialInterface())
-  // never establishes a MultiSerialInterface session at all and so would
-  // get nothing from `serial` alone whenever no session happens to be
-  // locked -- confirmed as a real regression (2026-09-07) when `serial`
-  // briefly became the *only* push target during TCP_DEBUG_STREAM's
-  // development. Pushing to both, always, is what restores the pre-
-  // TCP_DEBUG_STREAM guarantee that a raw USB tap works unconditionally
-  // (including alongside a separately-held TCP/BLE session under test --
-  // see kbase/TESTING_METHODOLOGY.md's root-causing-a-race section) while
-  // still adding TCP/BLE streaming as a second, independent target.
+  // session, reached only while a companion session itself enabled the
+  // stream (setSessionEnabled(), the TCP_DEBUG_STREAM capability -- e.g.
+  // gatto, which has no USB at all). `usb` is the fixed physical USB
+  // interface (Beebo's usb_interface), reached only while the session-less
+  // raw USB debug tap enabled it (setUsbEnabled(), BEEBO_RAW_SUB_DEBUG_LOG_ENABLE,
+  // checkSerialInterface()) -- see pushToTargets() for the routing. Each
+  // path pushes only to the target that actually asked for it, so a raw USB
+  // tap's stream never also gets mirrored onto an unrelated live BLE/WiFi
+  // companion session (found 2026-09-09 doing exactly that, competing with
+  // that session's own command-reply traffic for the same shallow
+  // send_queue and dropping real app frames -- see BUGS.md).
   void attach(BaseSerialInterface* serial, BaseSerialInterface* usb, uint8_t resp_code,
               uint8_t log_sub_id, uint8_t rlog_sub_id) {
     _usb = usb;
@@ -372,8 +439,11 @@ public:
     _log_sub_id = log_sub_id;
     _rlog_sub_id = rlog_sub_id;
   }
-  void setEnabled(bool enabled) { _enabled = enabled; }
-  bool isEnabled() const { return _enabled; }
+  void setUsbEnabled(bool enabled) { _usb_enabled = enabled; }
+  void setSessionEnabled(bool enabled) { _session_enabled = enabled; }
+  bool isUsbEnabled() const { return _usb_enabled; }
+  bool isSessionEnabled() const { return _session_enabled; }
+  bool isEnabled() const { return _usb_enabled || _session_enabled; }
 
   // RLOGH/M/L: appended to the ring unless severity is Low (L is link-only,
   // like DLOGH/M/L); always live-pushed to physical USB *and* whichever
@@ -507,6 +577,32 @@ private:
     return 12 + base_len;
   }
 
+  // beebo: routes one already-serialized frame to whichever target(s)
+  // actually asked for the live stream -- _usb only if the raw USB tap
+  // enabled it (BEEBO_RAW_SUB_DEBUG_LOG_ENABLE), _serial only if a
+  // companion session enabled it (BEEBO_CMD_DEBUG_LOG_ENABLE), skipping
+  // _serial when its locked transport is USB and _usb_enabled already
+  // covers the same physical wire (no double send). A companion session's
+  // stream is best-effort against that session's own traffic -- skipped
+  // outright (not queued) while its transport isWriteBusy(), so a burst of
+  // debug events never takes the last send_queue slot a real app command
+  // reply needs (see SerialBLEInterface::isWriteBusy()'s own comment on
+  // why that slot matters); the raw USB tap has no such shared traffic to
+  // protect, so it always pushes when armed.
+  void pushToTargets(const uint8_t* out, size_t pos) const {
+    if (_usb_enabled && _usb) {
+      const_cast<DebugRing*>(this)->_usb->writeFrameBestEffort(out, pos);
+    }
+    if (_session_enabled && _serial) {
+      BaseSerialInterface* serial = const_cast<DebugRing*>(this)->_serial;
+      uint8_t active_type = serial->activeTransportType();
+      bool same_wire_as_usb = _usb_enabled && active_type == RLOG_ID_XPORT_USB;
+      if (active_type != 0 && !same_wire_as_usb && !serial->isWriteBusy()) {
+        serial->writeFrameBestEffort(out, pos);
+      }
+    }
+  }
+
   void pushRlogFrame(const char* file, int line, uint16_t id, uint8_t severity,
                       int32_t detail, uint32_t ms) const {
     // beebo: no isConnected() gate -- DualModeSerialInterface::isConnected()
@@ -519,7 +615,7 @@ private:
     // ZERO_WRITE_GIVEUP_MS (3s) whenever nothing was draining the USB TX
     // side, stalling completely unrelated traffic (BLE/TCP included) on
     // every single event while armed.
-    if (!_enabled || (!_serial && !_usb)) return;
+    if (!isEnabled() || (!_serial && !_usb)) return;
 
     uint8_t out[64];   // plenty for header + a file basename + the 4-byte detail
     size_t pos = writeHeader(out, sizeof(out), 4, _resp_code, _rlog_sub_id, id, severity, line, file, ms);
@@ -528,23 +624,7 @@ private:
     memcpy(&out[pos], &detail, 4);
     pos += 4;
 
-    // beebo: always reaches physical USB directly -- see attach()'s own
-    // comment for why this is required, not optional, to keep the
-    // session-less raw USB debug tap working regardless of whatever (if
-    // anything) `_serial` currently has locked.
-    if (_usb) const_cast<DebugRing*>(this)->_usb->writeFrameBestEffort(out, pos);
-
-    // beebo: additionally reaches a live TCP/BLE session (the
-    // TCP_DEBUG_STREAM capability) -- skipped when nothing is locked
-    // (activeTransportType() == 0) or when the locked transport IS USB,
-    // since that's the exact same physical wire the push above already
-    // reached (no double send).
-    if (_serial) {
-      uint8_t active_type = const_cast<DebugRing*>(this)->_serial->activeTransportType();
-      if (active_type != 0 && active_type != RLOG_ID_XPORT_USB) {
-        const_cast<DebugRing*>(this)->_serial->writeFrameBestEffort(out, pos);
-      }
-    }
+    pushToTargets(out, pos);
   }
 };
 

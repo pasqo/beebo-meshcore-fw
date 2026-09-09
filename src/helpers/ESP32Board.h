@@ -236,7 +236,13 @@ public:
 #endif
     }
 #ifdef BEEBO_RTC_PERSIST
-    else if (reason == ESP_RST_UNKNOWN) {
+    // beebo: ESP_RST_UNKNOWN covers an esptool flash; ESP_RST_SW covers an
+    // ordinary reboot() (esp_restart()) -- the RTC counter survives both
+    // intact (never powered down), so both need the same drift correction.
+    // Found missing 2026-09-09: `beebo clock`'s own "Reboot the device to
+    // correct it" message pointed at a plain reboot, which this branch
+    // never covered -- the RTC free-ran straight through it, uncorrected.
+    else if (reason == ESP_RST_UNKNOWN || reason == ESP_RST_SW) {
       applyDriftOffset_();
     }
 #endif

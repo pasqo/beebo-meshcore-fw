@@ -33,10 +33,14 @@ void DebugRing::logRing(const char* file, int line, uint8_t type, uint8_t severi
 
 void DebugRing::logLink(const char* file, int line, uint16_t id, uint8_t severity, const char* fmt, ...) {
   // beebo: no isConnected() gate -- see pushRlogFrame()'s own comment on why.
-  if (!_enabled || !_serial) return;
+  // Routes through pushToTargets() same as logRing()'s pushRlogFrame(), so
+  // this also reaches physical USB (previously only ever reached _serial,
+  // contradicting this function's own doc comment above).
+  if (!isEnabled() || (!_serial && !_usb)) return;
 
+  BaseSerialInterface* cap_source = _serial ? _serial : _usb;
   uint8_t out[200];
-  size_t cap = _serial->getMaxSendFrameSize();
+  size_t cap = cap_source->getMaxSendFrameSize();
   if (cap > sizeof(out)) cap = sizeof(out);
   if (cap < 16) return;   // no room for even the header
 
@@ -57,5 +61,5 @@ void DebugRing::logLink(const char* file, int line, uint16_t id, uint8_t severit
   if (n < 0) n = 0;
   size_t msg_len = (size_t)n < text_cap ? (size_t)n : (text_cap > 0 ? text_cap - 1 : 0);
 
-  _serial->writeFrameBestEffort(out, pos + msg_len);
+  pushToTargets(out, pos + msg_len);
 }

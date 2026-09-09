@@ -1,6 +1,7 @@
 #ifdef ESP_PLATFORM
 
 #include "ESP32Board.h"
+#include "DebugRing.h"
 
 #ifdef BEEBO_RTC_PERSIST
 void beebo_recordClockDrift(uint32_t offset) {
@@ -9,6 +10,7 @@ void beebo_recordClockDrift(uint32_t offset) {
     prefs.putUInt("drift_off", offset);
     prefs.end();
   }
+  RLOGM(RLOG_ID_CLOCK_DRIFT_RECORDED, (int32_t)offset);
 }
 
 // beebo: applies the last-known drift offset (see
@@ -32,6 +34,7 @@ void ESP32RTCClock::applyDriftOffset_() {
         tv.tv_sec = device_now_t - drift_offset;
         tv.tv_usec = 0;
         settimeofday(&tv, NULL);
+        RLOGM(RLOG_ID_CLOCK_DRIFT_APPLIED, (int32_t)drift_offset);
       }
     }
   }

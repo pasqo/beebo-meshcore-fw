@@ -1338,6 +1338,7 @@ void Beebo::begin() {
 #if BEEBO_ENABLE_REPEATER_ROLE
   loadRoleState(NODE_ROLE_REPEATER);
 #endif
+  RLOGH(RLOG_ID_BOOT_ROLE_STATE_LOADED, (int32_t)millis());
 
   // beebo: BeeboBoardPrefs unification -- board_existed false means
   // /beebo_board either didn't exist yet (pre-refactor device, or
@@ -1403,6 +1404,7 @@ void Beebo::begin() {
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (isRepeater()) beginRepeater();
 #endif
+  RLOGH(RLOG_ID_BOOT_ROLE_BEGIN_DONE, (int32_t)millis());
 
   // sanitize bad pref values
   clampRadioPrefs();
@@ -1498,19 +1500,34 @@ void Beebo::_onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 // DebugRing.h -- keep the two in sync if a field is added or removed here.
 void Beebo::_checkTransportStateChanges() {
   auto check = [this](int id, int val, int change_type = RLOG_ID_XPORT_CHANGE,
-                       int init_type = RLOG_ID_XPORT_INIT) {
+                       int init_type = RLOG_ID_XPORT_INIT) -> bool {
     if (_last_xport_var[id] != val) {
       bool is_init = (_last_xport_var[id] == -1);
       int32_t detail = id | ((_last_xport_var[id] & 0xFF) << 8) | ((val & 0xFF) << 16);
       RLOGM(is_init ? init_type : change_type, detail);
       _last_xport_var[id] = (int16_t)val;
+      return true;
     }
+    return false;
   };
 
   check(RLOG_ID_XPORT_LINK_WIFI_IFACE_ENABLED,    wifi_interface.isEnabled());
   check(RLOG_ID_XPORT_LINK_WIFI_IFACE_CONNECTED,  wifi_interface.isConnected());
   check(RLOG_ID_XPORT_LINK_WIFI_LISTENING,        wifi_interface.isListening());
-  check(RLOG_ID_XPORT_LINK_BLE_IFACE_ENABLED,     ble_interface.isEnabled());
+  bool ble_enabled = ble_interface.isEnabled();
+  if (check(RLOG_ID_XPORT_LINK_BLE_IFACE_ENABLED, ble_enabled) && ble_enabled) {
+    // beebo: log this device's own BLE address right alongside the rest
+    // of the transport-state dump (boot, or a live "set ble on"), instead
+    // of eagerly from SerialBLEInterface::initRadio() at its own,
+    // out-of-order timestamp -- see RLOG_ID_BLE_LOCAL_ADDR_HI/LO's own
+    // comment in DebugRing.h and getLocalAddress()'s in SerialBLEInterface.h.
+    const uint8_t* bda = ble_interface.getLocalAddress();
+    int32_t addr_hi = ((int32_t)bda[0] << 8) | (int32_t)bda[1];
+    int32_t addr_lo = ((int32_t)bda[2] << 24) | ((int32_t)bda[3] << 16)
+                     | ((int32_t)bda[4] << 8) | (int32_t)bda[5];
+    RLOGM(RLOG_ID_BLE_LOCAL_ADDR_HI, addr_hi);
+    RLOGM(RLOG_ID_BLE_LOCAL_ADDR_LO, addr_lo);
+  }
   check(RLOG_ID_XPORT_LINK_BLE_IFACE_CONNECTED,   ble_interface.isConnected());
   check(RLOG_ID_XPORT_LINK_USB_IFACE_ENABLED,     usb_interface.isEnabled());
   check(RLOG_ID_XPORT_LINK_USB_IFACE_CONNECTED,   usb_interface.isConnected());
@@ -5194,10 +5211,10 @@ void Beebo::handleCmdFrame(size_t len) {
       // rather than a synchronous burst.
       bool enabling = sub[1] != 0;
       if (enabling && !debug_ring.isEnabled()) {
-        debug_ring.setEnabled(true);
+        debug_ring.setSessionEnabled(true);
         debug_ring.beginReplay();
       } else {
-        debug_ring.setEnabled(enabling);
+        debug_ring.setSessionEnabled(enabling);
       }
       writeOKFrame();
     }
@@ -5337,10 +5354,10 @@ void Beebo::checkSerialInterface() {
       // listening) to a host at all, and for why replay is paced rather
       // than a synchronous burst.
       if (enabling && !debug_ring.isEnabled()) {
-        debug_ring.setEnabled(true);
+        debug_ring.setUsbEnabled(true);
         debug_ring.beginReplay();
       } else {
-        debug_ring.setEnabled(enabling);
+        debug_ring.setUsbEnabled(enabling);
       }
     }
     // BEEBO_RAW_SUB_KEEPALIVE: no action needed here -- checkRecvFrame()'s

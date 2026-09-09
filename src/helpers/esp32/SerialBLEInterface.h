@@ -6,6 +6,8 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
 class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLEServerCallbacks, BLECharacteristicCallbacks {
   BLEServer *pServer;
@@ -22,6 +24,7 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   unsigned long adv_restart_time;
   char _dev_name[48];   // saved so the radio can be torn down and re-inited
   esp_bd_addr_t _remote_bda;   // connected central's link-layer address (onConnect); valid while deviceConnected
+  esp_bd_addr_t _local_bda;    // this device's own advertised address, cached in initRadio() -- see getLocalAddress()
   unsigned long _last_health_sample_ms;
   static const uint32_t BLE_HEALTH_SAMPLE_MS = 60000;   // same cadence as SerialWifiInterface's WIFI_HEALTH_SAMPLE_MS
   // BLE_RSSI_UNAVAILABLE: esp_ble_gap_read_rssi()'s own "couldn't read"
@@ -48,6 +51,22 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   // instance state.
   static SerialBLEInterface* s_instance;
   static void _gapEventHandler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param);
+  // beebo: real send-queue backpressure -- replaces the fixed
+  // BLE_WRITE_MIN_INTERVAL guess with the BT controller's own
+  // ESP_GATTS_CONF_EVT (fires once a queued notify()/indicate() has
+  // actually been handed off/drained by the controller, not on a timer).
+  // Registered via BLEDevice::setCustomGattsHandler(), the same
+  // already-established extension-point pattern _gapEventHandler() uses
+  // for setCustomGapHandler() -- runs on the BT host task, alongside
+  // onConnect/onDisconnect. See checkRecvFrame()'s send-queue drain.
+  static void _gattsEventHandler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t* param);
+  // beebo: true from the moment a notify() is issued until either its
+  // ESP_GATTS_CONF_EVT arrives or _NOTIFY_CONF_TIMEOUT_MS elapses (a
+  // dropped/never-delivered confirmation must not wedge the send queue
+  // forever) -- see checkRecvFrame()/_gattsEventHandler().
+  volatile bool _notify_pending;
+  unsigned long _notify_sent_at;
+  static const uint32_t _NOTIFY_CONF_TIMEOUT_MS = 500;
 
   struct Frame {
     uint8_t len;
@@ -56,14 +75,25 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
 
   // beebo: bumped 4->6 -- see SerialWifiInterface.h's matching comment.
   #define FRAME_QUEUE_SIZE  6
-  int recv_queue_len;
-  Frame recv_queue[FRAME_QUEUE_SIZE];
+  // beebo: recv_queue is pushed to from onWrite() (BT host task) and popped
+  // from checkRecvFrame() (main loop task) -- a plain array + int length
+  // shared across two FreeRTOS tasks with no lock is a real race (torn
+  // writes/lost increments on concurrent push+pop). Backported from
+  // upstream's post-v1.16.0 fix (3885c67c "fix: synchronize BLE receive
+  // queue", 4d4d7c37 "refactor: use FreeRTOS BLE receive queue") -- our
+  // fork's base predates both. xQueueCreateStatic avoids heap allocation
+  // (storage is a plain member array). send_queue stays a plain array:
+  // upstream never made it thread-safe either -- only checkRecvFrame()
+  // (main loop task) ever touches it, no concurrent-task access exists.
+  StaticQueue_t recv_queue_state;
+  uint8_t recv_queue_storage[FRAME_QUEUE_SIZE * sizeof(Frame)];
+  QueueHandle_t recv_queue;
   int send_queue_len;
   Frame send_queue[FRAME_QUEUE_SIZE];
   uint32_t _send_queue_full_count = 0;
   uint32_t _recv_queue_full_count = 0;
 
-  void clearBuffers() { recv_queue_len = 0; send_queue_len = 0; }
+  void clearBuffers() { xQueueReset(recv_queue); send_queue_len = 0; _notify_pending = false; }
 
   // beebo: shared by requestHealthSample()'s periodic cadence and
   // checkRecvFrame()'s connect-transition -- see requestHealthSample()'s
@@ -103,11 +133,17 @@ public:
     _isEnabled = false;
     _last_write = 0;
     last_conn_id = 0;
-    send_queue_len = recv_queue_len = 0;
+    recv_queue = xQueueCreateStatic(
+      FRAME_QUEUE_SIZE, sizeof(Frame), recv_queue_storage, &recv_queue_state
+    );
+    send_queue_len = 0;
     _last_health_sample_ms = 0;
     memset(_remote_bda, 0, sizeof(_remote_bda));
+    memset(_local_bda, 0, sizeof(_local_bda));
     _rssi_read_inflight = false;
     _rssi_cache = BLE_RSSI_UNAVAILABLE;
+    _notify_pending = false;
+    _notify_sent_at = 0;
     s_instance = this;
   }
 
@@ -139,6 +175,16 @@ public:
   void enable() override;
   void disable() override;
   bool isEnabled() const override { return _isEnabled; }
+
+  // beebo: this device's own advertised BLE address, cached by initRadio()
+  // -- see RLOG_ID_BLE_LOCAL_ADDR_HI/LO's own comment in DebugRing.h.
+  // Beebo::_checkTransportStateChanges() calls this (not initRadio()
+  // itself) right when RLOG_ID_XPORT_LINK_BLE_IFACE_ENABLED transitions
+  // on, so the address lands in the ring alongside the rest of the
+  // boot-time transport-state dump instead of its own separate,
+  // out-of-order timestamp. Only valid once initRadio() has actually run
+  // (i.e. once isEnabled() is true) -- zeroed otherwise.
+  const uint8_t* getLocalAddress() const { return _local_bda; }
   void resetParserState() override;
 
   bool isConnected() const override;
