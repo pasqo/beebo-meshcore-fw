@@ -75,12 +75,14 @@ void Beebo::loopRepeater(bool skip_radio) {
 // for every compiled-in role regardless of which is live (Beebo::begin()'s
 // loadRoleState(NODE_ROLE_REPEATER) call, Beebo.cpp), replacing the old
 // lazy load-on-first-repeater-entry model this function used to implement
-// itself. beginRepeater() (called from begin() only `if (isRepeater())`,
-// and from the SET_NODE_ROLE handlers on every switch into repeater) is
-// now just the live-session part: (re-)arm the advert timers, unconditional
-// on every entry into repeater so a stale deadline from a much earlier
-// load/switch never fires immediately.
+// itself. beginRepeater() (called from begin() only `if (isRepeater())` --
+// a role switch always reboots, see requestNodeRoleSwitch(), so begin() is
+// the only entry point) is now just the live-session part: send an
+// immediate local advert and (re-)arm the advert timers, so a boot always
+// announces the node right away instead of waiting out the first full
+// advert_interval.
 void Beebo::beginRepeater() {
+  advert();
   updateAdvertTimer();
   updateFloodAdvertTimer();
 }
