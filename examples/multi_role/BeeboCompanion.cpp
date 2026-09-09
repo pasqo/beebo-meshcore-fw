@@ -29,9 +29,9 @@ void Beebo::loopCompanion(bool skip_radio) {
     checkAckTableTimeouts();  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9
   }
 #ifdef BEEBO_CPU_ACCOUNTING
-  uint32_t cli_start_us = micros();
+  uint32_t link_start_us = micros();
   checkSerialInterface();
-  _cli_busy_us += micros() - cli_start_us;
+  _link_busy_us += micros() - link_start_us;
 #else
   checkSerialInterface();
 #endif

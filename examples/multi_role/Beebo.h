@@ -1874,10 +1874,10 @@ private:
   uint32_t _cpu_report_start_us = 0;   // start of the current 10s report period
   unsigned long _next_cpu_window_ms = 0;
   unsigned long _next_cpu_report_ms = 0;
-  uint32_t _cli_busy_us = 0;          // beebo: micros() in checkSerialInterface() since last live-window reset
-  uint32_t _rx_report_us = 0, _tx_report_us = 0, _cli_report_us = 0;  // accumulated across the current 10s report period
-  uint8_t  _rx_time_pct = 0, _tx_time_pct = 0, _cli_time_pct = 0;                    // live (~1s)
-  uint8_t  _rx_time_pct_reported = 0, _tx_time_pct_reported = 0, _cli_time_pct_reported = 0;  // reported (10s average)
+  uint32_t _link_busy_us = 0;          // beebo: micros() in checkSerialInterface() since last live-window reset
+  uint32_t _rx_report_us = 0, _tx_report_us = 0, _link_report_us = 0;  // accumulated across the current 10s report period
+  uint8_t  _rx_time_pct = 0, _tx_time_pct = 0, _link_time_pct = 0;                    // live (~1s)
+  uint8_t  _rx_time_pct_reported = 0, _tx_time_pct_reported = 0, _link_time_pct_reported = 0;  // reported (10s average)
 
   // beebo: RouteRecord's own 1-minute report period (plans/CPU_UTILIZATION.md's
   // "Routing-latency" section) -- a third, coarser cadence than the time

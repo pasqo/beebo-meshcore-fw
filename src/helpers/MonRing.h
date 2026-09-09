@@ -1291,28 +1291,28 @@ public:
   // beebo: RX/TX/CLI busy time (micros(), accumulated over one compute
   // window) -> 0-100 pct of that window, normalized so the three never sum
   // past 100 (a stray timing overlap/rounding case, not expected in normal
-  // operation, would otherwise push idle_pct = 100-rx-tx-cli negative).
+  // operation, would otherwise push idle_pct = 100-rx-tx-link negative).
   // Pulled out as a static helper (same shape as computeQos/computeSoh
   // above) purely so this arithmetic is natively testable -- the caller
   // (Beebo::loop(), see plans/CPU_UTILIZATION.md) is Arduino-only and can't
   // run under the native GoogleTest env itself. window_us == 0 (shouldn't
   // happen in practice -- loop() only calls this once the window's actual
   // elapsed time is known -- but guards div-by-zero) yields all-zero pct.
-  static void computeTimePct(uint32_t rx_us, uint32_t tx_us, uint32_t cli_us, uint32_t window_us,
-                             uint8_t &rx_pct, uint8_t &tx_pct, uint8_t &cli_pct) {
-    if (window_us == 0) { rx_pct = tx_pct = cli_pct = 0; return; }
+  static void computeTimePct(uint32_t rx_us, uint32_t tx_us, uint32_t link_us, uint32_t window_us,
+                             uint8_t &rx_pct, uint8_t &tx_pct, uint8_t &link_pct) {
+    if (window_us == 0) { rx_pct = tx_pct = link_pct = 0; return; }
     uint32_t rx = (uint32_t)((uint64_t)rx_us * 100 / window_us);
     uint32_t tx = (uint32_t)((uint64_t)tx_us * 100 / window_us);
-    uint32_t cli = (uint32_t)((uint64_t)cli_us * 100 / window_us);
-    uint32_t total = rx + tx + cli;
+    uint32_t link = (uint32_t)((uint64_t)link_us * 100 / window_us);
+    uint32_t total = rx + tx + link;
     if (total > 100) {
       rx = rx * 100 / total;
       tx = tx * 100 / total;
-      cli = cli * 100 / total;
+      link = link * 100 / total;
     }
     rx_pct = (uint8_t)rx;
     tx_pct = (uint8_t)tx;
-    cli_pct = (uint8_t)cli;
+    link_pct = (uint8_t)link;
   }
 
   // beebo: one busy-time accumulator (micros(), over one RouteRecord

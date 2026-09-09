@@ -4027,12 +4027,12 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&out_frame[i], &monring_count, 4); i += 4;
       memcpy(&out_frame[i], &monring_cap, 4); i += 4;
 #ifdef BEEBO_CPU_ACCOUNTING
-      // beebo: RX/TX/CLI time accounting, latest 10s-reported window (see
+      // beebo: RX/TX/link time accounting, latest 10s-reported window (see
       // Beebo::_rx_time_pct_reported and plans/CPU_UTILIZATION.md). Append-only,
       // absent on older/non-accounting builds -- CLI decode length-gates it.
       out_frame[i++] = _rx_time_pct_reported;
       out_frame[i++] = _tx_time_pct_reported;
-      out_frame[i++] = _cli_time_pct_reported;
+      out_frame[i++] = _link_time_pct_reported;
       // beebo: headroom metrics, same reported (10s) tier (see
       // Beebo::_loops_per_sec_reported/_max_loop_latency_ms_reported and
       // plans/CPU_UTILIZATION.md's "New goals" #1/#2). Append-only.
@@ -5824,7 +5824,7 @@ void Beebo::loop() {
   }
 
 #ifdef BEEBO_CPU_ACCOUNTING
-  // beebo: RX/TX/CLI time accounting -- two decoupled cadences, see
+  // beebo: RX/TX/link time accounting -- two decoupled cadences, see
   // Beebo.h's member comment and plans/CPU_UTILIZATION.md. The live
   // (~1s) window always reflects just the most recent compute window --
   // a single instantaneous sample, not smoothed, so any consumer reading
@@ -5840,16 +5840,16 @@ void Beebo::loop() {
     uint32_t window_us = micros() - _cpu_window_start_us;
     uint32_t rx_us = getRxBusyUs(), tx_us = getTxBusyUs();
     if (window_us > 0) {
-      MonRing::computeTimePct(rx_us, tx_us, _cli_busy_us, window_us,
-                              _rx_time_pct, _tx_time_pct, _cli_time_pct);
+      MonRing::computeTimePct(rx_us, tx_us, _link_busy_us, window_us,
+                              _rx_time_pct, _tx_time_pct, _link_time_pct);
     }
     _rx_report_us += rx_us;
     _tx_report_us += tx_us;
-    _cli_report_us += _cli_busy_us;
+    _link_report_us += _link_busy_us;
     _rx_route_us += rx_us;
     _tx_route_us += tx_us;
     resetCpuAccounting();
-    _cli_busy_us = 0;
+    _link_busy_us = 0;
     _cpu_window_start_us = micros();
 
     // beebo: headroom metrics, same live (~1s)/reported (10s) two-tier
@@ -5870,8 +5870,8 @@ void Beebo::loop() {
     _next_cpu_report_ms = futureMillis(CPU_REPORT_MS);
     uint32_t report_us = micros() - _cpu_report_start_us;
     if (report_us > 0) {
-      MonRing::computeTimePct(_rx_report_us, _tx_report_us, _cli_report_us, report_us,
-                              _rx_time_pct_reported, _tx_time_pct_reported, _cli_time_pct_reported);
+      MonRing::computeTimePct(_rx_report_us, _tx_report_us, _link_report_us, report_us,
+                              _rx_time_pct_reported, _tx_time_pct_reported, _link_time_pct_reported);
       _loops_per_sec_reported = (uint16_t)(((uint64_t)(_loop_count - _loop_count_at_report) * 1000000ULL) / report_us);
       uint32_t rx_now = getNumRecvFlood() + getNumRecvDirect();
       uint32_t tx_now = getNumSentFlood() + getNumSentDirect();
@@ -5880,7 +5880,7 @@ void Beebo::loop() {
       _pkt_count_at_report_rx = rx_now;
       _pkt_count_at_report_tx = tx_now;
     }
-    _rx_report_us = _tx_report_us = _cli_report_us = 0;
+    _rx_report_us = _tx_report_us = _link_report_us = 0;
     _cpu_report_start_us = micros();
     _loop_count_at_report = _loop_count;
     _max_loop_latency_ms_reported = (uint16_t)min(_max_loop_latency_us_peak / 1000, (uint32_t)0xFFFF);
@@ -5913,9 +5913,9 @@ void Beebo::loop() {
     // purely for visual scanning; RouteRecord above stays the persisted,
     // higher-precision (0-10000) per-direction source of truth.
     uint8_t exec_pct = (uint8_t)min(_rx_time_pct + _tx_time_pct, 100);
-    uint8_t idle_pct = (uint8_t)max(0, 100 - _rx_time_pct - _tx_time_pct - _cli_time_pct);
+    uint8_t idle_pct = (uint8_t)max(0, 100 - _rx_time_pct - _tx_time_pct - _link_time_pct);
     int32_t cpu_detail = ((int32_t)exec_pct & 0xFF)
-                        | (((int32_t)_cli_time_pct & 0xFF) << 8)
+                        | (((int32_t)_link_time_pct & 0xFF) << 8)
                         | (((int32_t)idle_pct & 0xFF) << 16);
     RLOGL(RLOG_ID_CPU_SNAPSHOT, cpu_detail);
   }
