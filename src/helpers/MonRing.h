@@ -1288,33 +1288,41 @@ public:
   // comment above. Same lifetime-cumulative-counter caveat as everywhere
   // else this pattern is used: early history dominates, less responsive to
   // recent conditions as the denominator grows over uptime.
-  // beebo: RX/TX/LX busy time (micros(), accumulated over one compute
+  // beebo: RX/TX/LX/SYS busy time (micros(), accumulated over one compute
   // window) -> 0-10000 pct (two-decimal precision, same convention as
-  // computeRoutePct below) of that window, normalized so the three never
+  // computeRoutePct below) of that window, normalized so the four never
   // sum past 10000 (a stray timing overlap/rounding case, not expected in
-  // normal operation, would otherwise push idle = window-rx-tx-lx
-  // negative). Pulled out as a static helper (same shape as computeQos/
-  // computeSoh above) purely so this arithmetic is natively testable --
-  // the caller (Beebo::loop(), see kbase/CPU_UTILIZATION.md) is
-  // Arduino-only and can't run under the native GoogleTest env itself.
-  // window_us == 0 (shouldn't happen in practice -- loop() only calls this
-  // once the window's actual elapsed time is known -- but guards
-  // div-by-zero) yields all-zero pct.
-  static void computeBusyPct(uint32_t rx_us, uint32_t tx_us, uint32_t lx_us, uint32_t window_us,
-                              uint16_t &rx_busy, uint16_t &tx_busy, uint16_t &lx_busy) {
-    if (window_us == 0) { rx_busy = tx_busy = lx_busy = 0; return; }
+  // normal operation, would otherwise push idle = window-rx-tx-lx-sys
+  // negative). sys_us is the loop()-housekeeping work that isn't rx/tx/lx
+  // (battery ADC, slow-stat refresh, env sampling, OTA/echo timeout
+  // checks, ...) -- without it, that time was silently folded into idle,
+  // which mislabeled genuinely busy time (e.g. a ~76ms temperature read)
+  // as the CPU doing nothing, when loop() never actually sleeps/yields.
+  // Pulled out as a static helper (same shape as computeQos/computeSoh
+  // above) purely so this arithmetic is natively testable -- the caller
+  // (Beebo::loop(), see kbase/CPU_UTILIZATION.md) is Arduino-only and
+  // can't run under the native GoogleTest env itself. window_us == 0
+  // (shouldn't happen in practice -- loop() only calls this once the
+  // window's actual elapsed time is known -- but guards div-by-zero)
+  // yields all-zero pct.
+  static void computeBusyPct(uint32_t rx_us, uint32_t tx_us, uint32_t lx_us, uint32_t sys_us, uint32_t window_us,
+                              uint16_t &rx_busy, uint16_t &tx_busy, uint16_t &lx_busy, uint16_t &sys_busy) {
+    if (window_us == 0) { rx_busy = tx_busy = lx_busy = sys_busy = 0; return; }
     uint32_t rx = (uint32_t)((uint64_t)rx_us * 10000 / window_us);
     uint32_t tx = (uint32_t)((uint64_t)tx_us * 10000 / window_us);
     uint32_t lx = (uint32_t)((uint64_t)lx_us * 10000 / window_us);
-    uint32_t total = rx + tx + lx;
+    uint32_t sys = (uint32_t)((uint64_t)sys_us * 10000 / window_us);
+    uint32_t total = rx + tx + lx + sys;
     if (total > 10000) {
       rx = rx * 10000 / total;
       tx = tx * 10000 / total;
       lx = lx * 10000 / total;
+      sys = sys * 10000 / total;
     }
     rx_busy = (uint16_t)rx;
     tx_busy = (uint16_t)tx;
     lx_busy = (uint16_t)lx;
+    sys_busy = (uint16_t)sys;
   }
 
   // beebo: one busy-time accumulator (micros(), over one RouteRecord

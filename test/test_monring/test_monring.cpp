@@ -1026,52 +1026,57 @@ TEST(MonRing, QosAndSohAreIndependentAxes) {
 }
 
 TEST(MonRing, ComputeBusyPctSplitsWindowProportionally) {
-  uint16_t rx, tx, lx;
-  // 200ms RX + 100ms TX + 50ms LX out of a 1000ms window -> 2000/1000/500
-  // (0.01% precision), 65% idle.
-  MonRing::computeBusyPct(200000, 100000, 50000, 1000000, rx, tx, lx);
+  uint16_t rx, tx, lx, sys;
+  // 200ms RX + 100ms TX + 50ms LX + 30ms SYS out of a 1000ms window ->
+  // 2000/1000/500/300 (0.01% precision), 62% idle.
+  MonRing::computeBusyPct(200000, 100000, 50000, 30000, 1000000, rx, tx, lx, sys);
   EXPECT_EQ(2000, rx);
   EXPECT_EQ(1000, tx);
   EXPECT_EQ(500, lx);
+  EXPECT_EQ(300, sys);
 }
 
 TEST(MonRing, ComputeBusyPctAllIdleIsAllZero) {
-  uint16_t rx, tx, lx;
-  MonRing::computeBusyPct(0, 0, 0, 1000000, rx, tx, lx);
+  uint16_t rx, tx, lx, sys;
+  MonRing::computeBusyPct(0, 0, 0, 0, 1000000, rx, tx, lx, sys);
   EXPECT_EQ(0, rx);
   EXPECT_EQ(0, tx);
   EXPECT_EQ(0, lx);
+  EXPECT_EQ(0, sys);
 }
 
 TEST(MonRing, ComputeBusyPctZeroWindowIsAllZeroNotDivByZero) {
-  uint16_t rx, tx, lx;
-  MonRing::computeBusyPct(500000, 500000, 500000, 0, rx, tx, lx);
+  uint16_t rx, tx, lx, sys;
+  MonRing::computeBusyPct(500000, 500000, 500000, 500000, 0, rx, tx, lx, sys);
   EXPECT_EQ(0, rx);
   EXPECT_EQ(0, tx);
   EXPECT_EQ(0, lx);
+  EXPECT_EQ(0, sys);
 }
 
 TEST(MonRing, ComputeBusyPctFullyBusyLeavesNoIdle) {
-  uint16_t rx, tx, lx;
-  // Exactly the whole window split three ways -- sums to exactly 10000, no clamp needed.
-  MonRing::computeBusyPct(500000, 300000, 200000, 1000000, rx, tx, lx);
-  EXPECT_EQ(5000, rx);
+  uint16_t rx, tx, lx, sys;
+  // Exactly the whole window split four ways -- sums to exactly 10000, no clamp needed.
+  MonRing::computeBusyPct(400000, 300000, 200000, 100000, 1000000, rx, tx, lx, sys);
+  EXPECT_EQ(4000, rx);
   EXPECT_EQ(3000, tx);
   EXPECT_EQ(2000, lx);
-  EXPECT_EQ(10000, rx + tx + lx);
+  EXPECT_EQ(1000, sys);
+  EXPECT_EQ(10000, rx + tx + lx + sys);
 }
 
 TEST(MonRing, ComputeBusyPctOverBudgetClampsProportionally) {
-  uint16_t rx, tx, lx;
+  uint16_t rx, tx, lx, sys;
   // A stray timing overlap pushes the raw sum past 10000 (15000) -- clamp
-  // renormalizes down to 10000 while preserving the 2:1:1 ratio (verify
+  // renormalizes down to 10000 while preserving the 6:3:3:3 ratio (verify
   // the clamp keeps sum == 10000 and ratios preserved rather than any
   // specific naive expectation).
-  MonRing::computeBusyPct(600000, 300000, 300000, 1000000, rx, tx, lx);
-  EXPECT_EQ(10000, rx + tx + lx);
-  EXPECT_EQ(5000, rx);   // 6000 * 10000/12000 = 5000
-  EXPECT_EQ(2500, tx);   // 3000 * 10000/12000 = 2500
-  EXPECT_EQ(2500, lx);   // 3000 * 10000/12000 = 2500
+  MonRing::computeBusyPct(600000, 300000, 300000, 300000, 1000000, rx, tx, lx, sys);
+  EXPECT_EQ(10000, rx + tx + lx + sys);
+  EXPECT_EQ(4000, rx);   // 6000 * 10000/15000 = 4000
+  EXPECT_EQ(2000, tx);   // 3000 * 10000/15000 = 2000
+  EXPECT_EQ(2000, lx);   // 3000 * 10000/15000 = 2000
+  EXPECT_EQ(2000, sys);  // 3000 * 10000/15000 = 2000
 }
 
 TEST(MonRing, ComputeRoutePctHalfWindowIsHalfScale) {

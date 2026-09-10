@@ -1712,15 +1712,11 @@ private:
   void computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
                              uint16_t &tx_wait_airtime, uint16_t &tx_wait_cad,
                              uint16_t &rx_wait_relay);
-  // beebo: Phase 2 base calibration (kbase/CPU_UTILIZATION.md) --
-  // called once from begin(), right after beginTransports() (so _serial
-  // is valid) and before the repeater's deferred local advert can fire
-  // (that timer is only checked by the real loop(), not by this). Does
-  // NOT touch radio power state (see the function's own body for why an
-  // earlier powerOff()/wake()-bracketed version was a real regression).
-  // Runs a fixed number of loop() passes and derives
-  // rx/tx/lx_base_us_per_call from them.
-  void calibrateBaseCosts();
+  // beebo: Phase 2 base/work split disabled -- doubtful diagnostic value
+  // for the added complexity/fragility (see kbase/CPU_UTILIZATION.md's
+  // "Base/work calibration" section). calibrateBaseCosts() body is
+  // commented out in Beebo.cpp; not called from begin() anymore.
+  // void calibrateBaseCosts();
 #endif
   // beebo: true once the radio has been quiet for IDLE_MARGIN ms (see
   // Beebo.cpp) -- general-purpose idle probe (not RX/TX-specific), used to
@@ -1888,24 +1884,27 @@ private:
   unsigned long _next_cpu_window_ms = 0;
   unsigned long _next_cpu_report_ms = 0;
   uint32_t _link_busy_us = 0;          // beebo: micros() in checkSerialInterface() since last live-window reset
-  uint32_t _rx_report_us = 0, _tx_report_us = 0, _link_report_us = 0;  // accumulated across the current 10s report period
-  uint16_t _rx_busy = 0, _tx_busy = 0, _lx_busy = 0;                    // live (~1s), 0-10000
-  uint16_t _rx_busy_reported = 0, _tx_busy_reported = 0, _lx_busy_reported = 0;  // reported (10s average), 0-10000
-  uint16_t _lp_idle_reported = 0;  // system-wide: 10000 - (rx+tx+lx)_busy_reported, computed at report time, 0-10000
+  // beebo: sys_busy -- micros() spent in loop()'s own housekeeping (battery
+  // ADC, slow-stat refresh, env sampling, OTA/echo timeout checks, ...)
+  // since last live-window reset. Without this, that time (which can run
+  // to tens of ms -- temperatureRead()'s own comment cites ~76ms) was
+  // silently folded into lp_idle, mislabeling genuinely busy work as the
+  // CPU doing nothing (loop() never actually sleeps/yields). Same
+  // accounting shape as _link_busy_us, just timing a different span.
+  uint32_t _sys_busy_us = 0;
+  uint32_t _rx_report_us = 0, _tx_report_us = 0, _link_report_us = 0, _sys_report_us = 0;  // accumulated across the current 10s report period
+  uint16_t _rx_busy = 0, _tx_busy = 0, _lx_busy = 0, _sys_busy = 0;                    // live (~1s), 0-10000
+  uint16_t _rx_busy_reported = 0, _tx_busy_reported = 0, _lx_busy_reported = 0, _sys_busy_reported = 0;  // reported (10s average), 0-10000
+  uint16_t _lp_idle_reported = 0;  // system-wide: 10000 - (rx+tx+lx+sys)_busy_reported, computed at report time, 0-10000
 
-  // beebo: base/work split of busy (kbase/CPU_UTILIZATION.md's Phase
-  // 2) -- base is the fixed per-loop-iteration poll cost of a task's code
-  // path with nothing to do, calibrated once at boot in a silent
-  // environment (calibrateBaseCosts()) since it's a static property of
-  // the compiled code, not something worth measuring every call. work is
-  // the traffic-proportional remainder: busy - (base_us_per_call x loop
-  // count in the window), floored at 0 and clamped to busy_reported so
-  // calibration noise can never push it negative or push base above the
-  // busy figure it's subtracted from.
-  uint32_t rx_base_us_per_call = 0, tx_base_us_per_call = 0, lx_base_us_per_call = 0;  // fixed for the life of this boot
-  uint16_t _rx_base_reported = 0, _rx_work_reported = 0;    // 0-10000, rx_base_reported + rx_work_reported == _rx_busy_reported
-  uint16_t _tx_base_reported = 0, _tx_work_reported = 0;    // 0-10000, tx_base_reported + tx_work_reported == _tx_busy_reported
-  uint16_t _lx_base_reported = 0, _lx_work_reported = 0;    // 0-10000, lx_base_reported + lx_work_reported == _lx_busy_reported
+  // beebo: base/work split of busy (kbase/CPU_UTILIZATION.md's Phase 2)
+  // -- disabled, doubtful diagnostic value for the added complexity/
+  // fragility. Fields kept (commented) rather than removed in case this
+  // is revisited.
+  // uint32_t rx_base_us_per_call = 0, tx_base_us_per_call = 0, lx_base_us_per_call = 0;  // fixed for the life of this boot
+  // uint16_t _rx_base_reported = 0, _rx_work_reported = 0;    // 0-10000, rx_base_reported + rx_work_reported == _rx_busy_reported
+  // uint16_t _tx_base_reported = 0, _tx_work_reported = 0;    // 0-10000, tx_base_reported + tx_work_reported == _tx_busy_reported
+  // uint16_t _lx_base_reported = 0, _lx_work_reported = 0;    // 0-10000, lx_base_reported + lx_work_reported == _lx_busy_reported
 
   // beebo: RX/TX resource-wait duty-cycle, same live(~1s, feeding a 10s
   // report)/reported(10s average) shape as busy above -- see
