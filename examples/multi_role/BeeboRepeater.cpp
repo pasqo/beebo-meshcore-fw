@@ -82,7 +82,7 @@ void Beebo::loopRepeater(bool skip_radio) {
 // advert() call here -- loopRepeater()'s own periodic check
 // (`next_local_advert && millisHasNowPassed(...)`) fires it the first time
 // the real loop() runs, which is only after Beebo::begin() (and its
-// calibrateBaseCosts() call, plans/TASK_TIME_ACCOUNTING.md) has returned,
+// calibrateBaseCosts() call, kbase/CPU_UTILIZATION.md) has returned,
 // so a boot still always announces the node right away without a special-
 // cased send competing with calibration's own empty-TX-queue assumption.
 // Flood advert stays on its own normal schedule, unaffected.

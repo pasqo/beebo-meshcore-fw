@@ -1745,7 +1745,7 @@ void Beebo::computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
 #endif
 }
 
-// beebo: Phase 2 base calibration (plans/TASK_TIME_ACCOUNTING.md). Called
+// beebo: Phase 2 base calibration (kbase/CPU_UTILIZATION.md). Called
 // once from begin(), right after beginTransports() -- _serial is valid by
 // then (so checkSerialInterface() is safe to call), the TX queue is still
 // genuinely empty (the repeater's local advert is armed as already-due but
@@ -4092,7 +4092,7 @@ void Beebo::handleCmdFrame(size_t len) {
 #ifdef BEEBO_CPU_ACCOUNTING
       // beebo: RX/TX/LX busy + system lp_idle, latest 10s-reported window,
       // 0-10000 (two-decimal pct precision) -- see Beebo::_rx_busy_reported
-      // and plans/TASK_TIME_ACCOUNTING.md. Supersedes the old 0-100
+      // and kbase/CPU_UTILIZATION.md. Supersedes the old 0-100
       // uint8_t rx/tx/link_time_pct fields and the separate 60s-window
       // RouteRecord-only rx_busy/tx_busy live query (same underlying
       // rx/tx busy source, now unified onto this one 10s window/precision)
@@ -4104,12 +4104,12 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&out_frame[i], &_lp_idle_reported, 2); i += 2;
       // beebo: headroom metrics, same reported (10s) tier (see
       // Beebo::_loops_per_sec_reported/_max_loop_latency_ms_reported and
-      // plans/TASK_TIME_ACCOUNTING.md).
+      // kbase/CPU_UTILIZATION.md).
       memcpy(&out_frame[i], &_loops_per_sec_reported, 2); i += 2;
       memcpy(&out_frame[i], &_max_loop_latency_ms_reported, 2); i += 2;
       // beebo: resource-wait duty-cycle, now on the same 10s report window
       // as busy/idle above (was a separate ~60s-since-last-reset window) --
-      // see Beebo::_tx_wait_airtime_reported and plans/TASK_TIME_ACCOUNTING.md's
+      // see Beebo::_tx_wait_airtime_reported and kbase/CPU_UTILIZATION.md's
       // Windowing section. Never subtracted from busy/idle -- see that
       // plan's "Why not per-task idle".
       memcpy(&out_frame[i], &_tx_wait_airtime_reported, 2); i += 2;
@@ -4120,7 +4120,7 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&out_frame[i], &_rx_per_min_reported, 2); i += 2;
       memcpy(&out_frame[i], &_tx_per_min_reported, 2); i += 2;
       // beebo: Phase 2 base/work split of busy (see Beebo::_rx_base_reported
-      // and plans/TASK_TIME_ACCOUNTING.md), same reported (10s) tier as
+      // and kbase/CPU_UTILIZATION.md), same reported (10s) tier as
       // busy above. Genuinely append-only -- older/non-Phase-2 firmware
       // simply doesn't send these, length-gated on the decode side.
       memcpy(&out_frame[i], &_rx_base_reported, 2); i += 2;
@@ -5899,7 +5899,7 @@ void Beebo::loop() {
 
 #ifdef BEEBO_CPU_ACCOUNTING
   // beebo: RX/TX/LX busy-time accounting -- two decoupled cadences, see
-  // Beebo.h's member comment and plans/TASK_TIME_ACCOUNTING.md. The live
+  // Beebo.h's member comment and kbase/CPU_UTILIZATION.md. The live
   // (~1s) window always reflects just the most recent compute window --
   // a single instantaneous sample, not smoothed, so any consumer reading
   // it should expect it to reflect whatever happened in that specific
@@ -5948,11 +5948,11 @@ void Beebo::loop() {
                                _rx_busy_reported, _tx_busy_reported, _lx_busy_reported);
       // beebo: idle is system-wide, not per-task -- window minus every
       // task's busy time, full stop. Never subtract wait from it (see
-      // plans/TASK_TIME_ACCOUNTING.md's "Why not per-task idle").
+      // kbase/CPU_UTILIZATION.md's "Why not per-task idle").
       uint32_t busy_sum = (uint32_t)_rx_busy_reported + _tx_busy_reported + _lx_busy_reported;
       _lp_idle_reported = (uint16_t)(busy_sum >= 10000 ? 0 : 10000 - busy_sum);
 
-      // beebo: base/work split of busy (Phase 2, plans/TASK_TIME_ACCOUNTING.md)
+      // beebo: base/work split of busy (Phase 2, kbase/CPU_UTILIZATION.md)
       // -- base_us_per_call is a fixed per-boot constant (calibrateBaseCosts()),
       // so a window's total base cost still depends on how many loop()
       // iterations actually ran in it. base_reported is clamped to

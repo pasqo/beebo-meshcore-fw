@@ -573,7 +573,7 @@ struct __attribute__((packed)) CommandRecord {
   uint8_t  command[12];
 };
 // beebo: periodic (1-minute) routing-latency snapshot for QoS/tuning --
-// see plans/TASK_TIME_ACCOUNTING.md for the full busy/idle/wait framing
+// see kbase/CPU_UTILIZATION.md for the full busy/idle/wait framing
 // this follows. busy = CPU time actually spent running checkRecv()/
 // checkSend() (rx_busy/tx_busy -- the same signal as STATS_TYPE_SYSTEM's
 // live rx_busy/tx_busy, higher precision here); wait = elapsed wall-clock
@@ -1295,7 +1295,7 @@ public:
   // normal operation, would otherwise push idle = window-rx-tx-lx
   // negative). Pulled out as a static helper (same shape as computeQos/
   // computeSoh above) purely so this arithmetic is natively testable --
-  // the caller (Beebo::loop(), see plans/TASK_TIME_ACCOUNTING.md) is
+  // the caller (Beebo::loop(), see kbase/CPU_UTILIZATION.md) is
   // Arduino-only and can't run under the native GoogleTest env itself.
   // window_us == 0 (shouldn't happen in practice -- loop() only calls this
   // once the window's actual elapsed time is known -- but guards

@@ -214,7 +214,7 @@
 // int8 two's complement.
 #define RLOG_ID_RADIO_RECV_ERROR      47
 // beebo: 1-minute busy/idle snapshot for a live `--debug`/`-d` session
-// (visual-only, coarse) -- see plans/TASK_TIME_ACCOUNTING.md. detail packs
+// (visual-only, coarse) -- see kbase/CPU_UTILIZATION.md. detail packs
 // three unsigned 0-100 percentages (rescaled down from the live ~1s
 // 0-10000 tier) into the low 3 bytes (no sign-extension needed, unlike
 // RLOG_ID_RADIO_RECV_ERROR's signed dB values): bits 0-7 = exec_pct

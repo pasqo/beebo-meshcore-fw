@@ -1712,7 +1712,7 @@ private:
   void computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
                              uint16_t &tx_wait_airtime, uint16_t &tx_wait_cad,
                              uint16_t &rx_wait_relay);
-  // beebo: Phase 2 base calibration (plans/TASK_TIME_ACCOUNTING.md) --
+  // beebo: Phase 2 base calibration (kbase/CPU_UTILIZATION.md) --
   // called once from begin(), right after beginTransports() (so _serial
   // is valid) and before the repeater's deferred local advert can fire
   // (that timer is only checked by the real loop(), not by this). Does
@@ -1863,13 +1863,13 @@ private:
 
 #ifdef BEEBO_CPU_ACCOUNTING
   // beebo: RX/TX/LX busy-time accounting -- two decoupled cadences (see
-  // plans/TASK_TIME_ACCOUNTING.md). Named _busy, not _cpu: this is
+  // kbase/CPU_UTILIZATION.md). Named _busy, not _cpu: this is
   // wall-clock time spent inside each code path (checkRecv()/checkSend()/
   // checkSerialInterface()), including any blocking I/O within it (radio
   // SPI, USB/BLE transfer) -- not actual CPU cycles the way an OS "CPU
   // time" figure would be, and not yet split into base (fixed per-
   // iteration poll cost) vs. work (traffic-proportional) -- that split is
-  // plans/TASK_TIME_ACCOUNTING.md's Phase 2, not implemented here. The
+  // kbase/CPU_UTILIZATION.md's Phase 2, not implemented here. The
   // "live" set is a fast (~1s) window, always the freshest value, read
   // directly by any in-RAM consumer (TuneController) -- it can be skewed
   // by whatever happened in that specific second (e.g. a `beebo status`
@@ -1893,7 +1893,7 @@ private:
   uint16_t _rx_busy_reported = 0, _tx_busy_reported = 0, _lx_busy_reported = 0;  // reported (10s average), 0-10000
   uint16_t _lp_idle_reported = 0;  // system-wide: 10000 - (rx+tx+lx)_busy_reported, computed at report time, 0-10000
 
-  // beebo: base/work split of busy (plans/TASK_TIME_ACCOUNTING.md's Phase
+  // beebo: base/work split of busy (kbase/CPU_UTILIZATION.md's Phase
   // 2) -- base is the fixed per-loop-iteration poll cost of a task's code
   // path with nothing to do, calibrated once at boot in a silent
   // environment (calibrateBaseCosts()) since it's a static property of
@@ -1909,7 +1909,7 @@ private:
 
   // beebo: RX/TX resource-wait duty-cycle, same live(~1s, feeding a 10s
   // report)/reported(10s average) shape as busy above -- see
-  // plans/TASK_TIME_ACCOUNTING.md's Windowing section. Unlike busy, wait
+  // kbase/CPU_UTILIZATION.md's Windowing section. Unlike busy, wait
   // is never subtracted from idle: it's a duty-cycle measurement of a
   // specific resource (TX radio budget/CAD, RX relay queuing), not a
   // slice of occupied loop time -- see that plan's "Why not per-task
