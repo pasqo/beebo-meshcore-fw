@@ -1773,8 +1773,22 @@ void Beebo::computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
 // checkSerialInterface() is timed into a local accumulator rather than
 // the real _link_busy_us, so this window doesn't leave that accumulator
 // polluted for the first real 1s report tick.
+//
+// Residual risk accepted above (no radio mute) means a real inbound
+// packet could still land during this window and get genuinely
+// processed, contaminating rx_base_us_per_call with real packet-handling
+// cost instead of "nothing arrived" cost. Detected, not just accepted:
+// n_recv_flood/n_recv_direct (getNumRecvFlood()/getNumRecvDirect()) only
+// increment on an actual received packet (Dispatcher.cpp), so a change
+// across this loop means exactly that happened -- discard the RX sample
+// in that case (rx_base_us_per_call stays 0, so rx_work degrades to
+// rx_busy for this boot rather than silently reporting a corrupted
+// split). TX/LX aren't at risk the same way: the TX queue is genuinely
+// empty by construction (see above) and LX only reacts to a host that
+// hasn't had time to connect yet.
 void Beebo::calibrateBaseCosts() {
   const uint32_t N = 100;
+  uint32_t rx_pkt_count_before = getNumRecvFlood() + getNumRecvDirect();
   uint32_t link_total_us = 0;
   for (uint32_t i = 0; i < N; i++) {
     Mesh::loop();
@@ -1782,7 +1796,9 @@ void Beebo::calibrateBaseCosts() {
     checkSerialInterface();
     link_total_us += micros() - link_start_us;
   }
-  rx_base_us_per_call = getRxBusyUs() / N;
+  if (getNumRecvFlood() + getNumRecvDirect() == rx_pkt_count_before) {
+    rx_base_us_per_call = getRxBusyUs() / N;
+  }
   tx_base_us_per_call = getTxBusyUs() / N;
   lx_base_us_per_call = link_total_us / N;
   resetCpuAccounting();
