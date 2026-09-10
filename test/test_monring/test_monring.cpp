@@ -1097,13 +1097,13 @@ TEST(MonRing, ComputeRoutePctOverBudgetClampsAtMax) {
   EXPECT_EQ(10000, MonRing::computeRoutePct(90000000, 60000000));
 }
 
-RouteRecord makeRoute(uint16_t rx_exec = 1234, uint16_t tx_exec = 567,
+RouteRecord makeRoute(uint16_t rx_busy = 1234, uint16_t tx_busy = 567,
                       uint16_t tx_wait_airtime = 8901, uint16_t tx_wait_cad = 234) {
   RouteRecord route{};
-  route.rx_exec_pct = rx_exec;
-  route.tx_exec_pct = tx_exec;
-  route.tx_wait_airtime_pct = tx_wait_airtime;
-  route.tx_wait_cad_pct = tx_wait_cad;
+  route.rx_busy = rx_busy;
+  route.tx_busy = tx_busy;
+  route.tx_wait_airtime = tx_wait_airtime;
+  route.tx_wait_cad = tx_wait_cad;
   return route;
 }
 
@@ -1116,11 +1116,11 @@ TEST(MonRing, AppendRouteRoundTripsAllFields) {
   f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
   ASSERT_EQ(1u, returned);
   EXPECT_EQ(MON_ROUTE, out[0].kind);
-  EXPECT_EQ(1234, out[0].route.rx_exec_pct);
-  EXPECT_EQ(0, out[0].route.rx_wait_pct);
-  EXPECT_EQ(567, out[0].route.tx_exec_pct);
-  EXPECT_EQ(8901, out[0].route.tx_wait_airtime_pct);
-  EXPECT_EQ(234, out[0].route.tx_wait_cad_pct);
+  EXPECT_EQ(1234, out[0].route.rx_busy);
+  EXPECT_EQ(0, out[0].route.rx_wait_relay);
+  EXPECT_EQ(567, out[0].route.tx_busy);
+  EXPECT_EQ(8901, out[0].route.tx_wait_airtime);
+  EXPECT_EQ(234, out[0].route.tx_wait_cad);
   EXPECT_EQ(1u, f.ring.routeCount());
 }
 

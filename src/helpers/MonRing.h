@@ -573,30 +573,30 @@ struct __attribute__((packed)) CommandRecord {
   uint8_t  command[12];
 };
 // beebo: periodic (1-minute) routing-latency snapshot for QoS/tuning --
-// see plans/CPU_UTILIZATION.md's "Routing-latency: exec vs. wait" section
-// for the full exec/wait framing this follows. exec = CPU time actually
-// spent running checkRecv()/checkSend() (rx_exec_pct/tx_exec_pct -- the
-// same signal as rx_time_pct/tx_time_pct, higher precision); wait = elapsed
-// wall-clock time a packet is blocked before exec happens, orthogonal to
-// exec (e.g. checkSend() returns near-instantly while CAD-busy/airtime-
-// throttled, so tx_exec_pct can be near zero while tx_wait is high).
-// Every field is a %-of-window ratio (0-10000, computeQos's precision
-// convention) rather than a raw duration -- bounded by construction, no
-// overflow risk regardless of window size. tx_wait_pct itself (=
-// tx_wait_airtime_pct + tx_wait_cad_pct, clamped) is derived, not stored,
-// same reasoning as idle_time_pct not being stored. rx_wait_pct measures
-// how much a delayed flood-relay's actual send overran calcRxDelay()'s
-// own scheduled time (Packet::_rx_scheduled_for, Dispatcher's rx_wait_ms
+// see plans/TASK_TIME_ACCOUNTING.md for the full busy/idle/wait framing
+// this follows. busy = CPU time actually spent running checkRecv()/
+// checkSend() (rx_busy/tx_busy -- the same signal as STATS_TYPE_SYSTEM's
+// live rx_busy/tx_busy, higher precision here); wait = elapsed wall-clock
+// time a packet is blocked before busy happens, orthogonal to busy (e.g.
+// checkSend() returns near-instantly while CAD-busy/airtime-throttled, so
+// tx_busy can be near zero while tx_wait is high). Every field is a
+// %-of-window ratio (0-10000, computeQos's precision convention) rather
+// than a raw duration -- bounded by construction, no overflow risk
+// regardless of window size. tx_wait itself (= tx_wait_airtime +
+// tx_wait_cad, clamped) is derived, not stored, same reasoning as
+// lp_idle not being stored here. rx_wait_relay measures how much a
+// delayed flood-relay's actual send overran calcRxDelay()'s own
+// scheduled time (Packet::_rx_scheduled_for, Dispatcher's rx_wait_ms
 // accumulator) -- 0 when RX_DISPOSITION isn't compiled in (no staging
 // field on Packet in that case).
 struct __attribute__((packed)) RouteRecord {
   uint8_t  kind;                 // MON_ROUTE
   uint16_t offset;
-  uint16_t rx_exec_pct;          // 0-10000
-  uint16_t rx_wait_pct;          // 0-10000, relay-scheduling actual-vs-scheduled overdue time
-  uint16_t tx_exec_pct;          // 0-10000
-  uint16_t tx_wait_airtime_pct;  // 0-10000, duty-cycle/airtime-budget throttle
-  uint16_t tx_wait_cad_pct;      // 0-10000, CAD-busy portion
+  uint16_t rx_busy;              // 0-10000
+  uint16_t rx_wait_relay;        // 0-10000, relay-scheduling actual-vs-scheduled overdue time
+  uint16_t tx_busy;              // 0-10000
+  uint16_t tx_wait_airtime;      // 0-10000, duty-cycle/airtime-budget throttle
+  uint16_t tx_wait_cad;          // 0-10000, CAD-busy portion
   uint8_t  _rsvd[3];
 };
 

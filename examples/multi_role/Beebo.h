@@ -1703,15 +1703,15 @@ private:
   RadioRecord buildRadioRecord();  // beebo: snapshot current radio config, shared by initMonRing()/logRxRaw()/logTx()/logTxFail()/monring.clear() sites
   EnvRecord   buildEnvRecord();    // beebo: snapshot current env sample, shared by initMonRing()/logRxRaw()/logTx()/logTxFail()/monring.clear() sites
 #ifdef BEEBO_CPU_ACCOUNTING
-  // beebo: RouteRecord's exec/wait percentages, computed live against the
+  // beebo: RouteRecord's busy/wait percentages, computed live against the
   // CURRENT (not-yet-reset) route-window accumulators -- non-destructive,
   // safe to call from a live STATS_TYPE_SYSTEM query at any point in the
   // window. Shared by that live query and the periodic 1-minute
   // MON_ROUTE snapshot in loop() (which additionally resets the
   // accumulators after calling this).
-  void computeLiveRoutePcts(uint16_t &rx_exec_pct, uint16_t &tx_exec_pct,
-                             uint16_t &tx_wait_airtime_pct, uint16_t &tx_wait_cad_pct,
-                             uint16_t &rx_wait_pct);
+  void computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
+                             uint16_t &tx_wait_airtime, uint16_t &tx_wait_cad,
+                             uint16_t &rx_wait_relay);
 #endif
   // beebo: true once the radio has been quiet for IDLE_MARGIN ms (see
   // Beebo.cpp) -- general-purpose idle probe (not RX/TX-specific), used to
@@ -1882,7 +1882,7 @@ private:
   uint32_t _rx_report_us = 0, _tx_report_us = 0, _link_report_us = 0;  // accumulated across the current 10s report period
   uint16_t _rx_busy = 0, _tx_busy = 0, _lx_busy = 0;                    // live (~1s), 0-10000
   uint16_t _rx_busy_reported = 0, _tx_busy_reported = 0, _lx_busy_reported = 0;  // reported (10s average), 0-10000
-  uint16_t _idle_reported = 0;  // system-wide: 10000 - (rx+tx+lx)_busy_reported, computed at report time, 0-10000
+  uint16_t _lp_idle_reported = 0;  // system-wide: 10000 - (rx+tx+lx)_busy_reported, computed at report time, 0-10000
 
   // beebo: RX/TX resource-wait duty-cycle, same live(~1s, feeding a 10s
   // report)/reported(10s average) shape as busy above -- see
@@ -1894,8 +1894,8 @@ private:
   // continuously-running ms accumulators (getTxWaitAirtimeMs() etc.),
   // which keep their existing 1-minute-reset cadence for RouteRecord
   // unchanged -- this tier reads them without resetting them.
-  uint32_t _tx_wait_airtime_ms_at_report = 0, _tx_wait_cad_ms_at_report = 0, _rx_wait_ms_at_report = 0;
-  uint16_t _tx_wait_airtime_reported = 0, _tx_wait_cad_reported = 0, _rx_wait_reported = 0;  // 0-10000
+  uint32_t _tx_wait_airtime_ms_at_report = 0, _tx_wait_cad_ms_at_report = 0, _rx_wait_relay_ms_at_report = 0;
+  uint16_t _tx_wait_airtime_reported = 0, _tx_wait_cad_reported = 0, _rx_wait_relay_reported = 0;  // 0-10000
 
   // beebo: RouteRecord's own 1-minute report period (plans/CPU_UTILIZATION.md's
   // "Routing-latency" section) -- a third, coarser cadence than the busy

@@ -1727,18 +1727,18 @@ EnvRecord Beebo::buildEnvRecord() {
 }
 
 #ifdef BEEBO_CPU_ACCOUNTING
-void Beebo::computeLiveRoutePcts(uint16_t &rx_exec_pct, uint16_t &tx_exec_pct,
-                                  uint16_t &tx_wait_airtime_pct, uint16_t &tx_wait_cad_pct,
-                                  uint16_t &rx_wait_pct) {
+void Beebo::computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
+                                  uint16_t &tx_wait_airtime, uint16_t &tx_wait_cad,
+                                  uint16_t &rx_wait_relay) {
   uint32_t window_us = micros() - _route_start_us;
-  rx_exec_pct = MonRing::computeRoutePct(_rx_route_us, window_us);
-  tx_exec_pct = MonRing::computeRoutePct(_tx_route_us, window_us);
-  tx_wait_airtime_pct = MonRing::computeRoutePct(getTxWaitAirtimeMs() * 1000, window_us);
-  tx_wait_cad_pct = MonRing::computeRoutePct(getTxWaitCadMs() * 1000, window_us);
+  rx_busy = MonRing::computeRoutePct(_rx_route_us, window_us);
+  tx_busy = MonRing::computeRoutePct(_tx_route_us, window_us);
+  tx_wait_airtime = MonRing::computeRoutePct(getTxWaitAirtimeMs() * 1000, window_us);
+  tx_wait_cad = MonRing::computeRoutePct(getTxWaitCadMs() * 1000, window_us);
 #ifdef RX_DISPOSITION
-  rx_wait_pct = MonRing::computeRoutePct(getRxWaitMs() * 1000, window_us);
+  rx_wait_relay = MonRing::computeRoutePct(getRxWaitMs() * 1000, window_us);
 #else
-  rx_wait_pct = 0;  // no Packet::_rx_scheduled_for staging without RX_DISPOSITION
+  rx_wait_relay = 0;  // no Packet::_rx_scheduled_for staging without RX_DISPOSITION
 #endif
 }
 #endif
@@ -4027,18 +4027,18 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&out_frame[i], &monring_count, 4); i += 4;
       memcpy(&out_frame[i], &monring_cap, 4); i += 4;
 #ifdef BEEBO_CPU_ACCOUNTING
-      // beebo: RX/TX/LX busy + system idle, latest 10s-reported window,
+      // beebo: RX/TX/LX busy + system lp_idle, latest 10s-reported window,
       // 0-10000 (two-decimal pct precision) -- see Beebo::_rx_busy_reported
       // and plans/TASK_TIME_ACCOUNTING.md. Supersedes the old 0-100
       // uint8_t rx/tx/link_time_pct fields and the separate 60s-window
-      // rx_exec_pct/tx_exec_pct (same underlying rx/tx busy source, now
-      // unified onto this one 10s window/precision) -- this is a breaking
-      // wire-format change to this frame's tail, not append-only; bump any
-      // client decode alongside this build.
+      // RouteRecord-only rx_busy/tx_busy live query (same underlying
+      // rx/tx busy source, now unified onto this one 10s window/precision)
+      // -- this is a breaking wire-format change to this frame's tail, not
+      // append-only; bump any client decode alongside this build.
       memcpy(&out_frame[i], &_rx_busy_reported, 2); i += 2;
       memcpy(&out_frame[i], &_tx_busy_reported, 2); i += 2;
       memcpy(&out_frame[i], &_lx_busy_reported, 2); i += 2;
-      memcpy(&out_frame[i], &_idle_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_lp_idle_reported, 2); i += 2;
       // beebo: headroom metrics, same reported (10s) tier (see
       // Beebo::_loops_per_sec_reported/_max_loop_latency_ms_reported and
       // plans/TASK_TIME_ACCOUNTING.md).
@@ -4051,7 +4051,7 @@ void Beebo::handleCmdFrame(size_t len) {
       // plan's "Why not per-task idle".
       memcpy(&out_frame[i], &_tx_wait_airtime_reported, 2); i += 2;
       memcpy(&out_frame[i], &_tx_wait_cad_reported, 2); i += 2;
-      memcpy(&out_frame[i], &_rx_wait_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_rx_wait_relay_reported, 2); i += 2;
       // beebo: Phase 4 live packets/minute, same reported (10s) tier (see
       // Beebo::_rx_per_min_reported/_tx_per_min_reported). Append-only.
       memcpy(&out_frame[i], &_rx_per_min_reported, 2); i += 2;
@@ -5877,7 +5877,7 @@ void Beebo::loop() {
       // task's busy time, full stop. Never subtract wait from it (see
       // plans/TASK_TIME_ACCOUNTING.md's "Why not per-task idle").
       uint32_t busy_sum = (uint32_t)_rx_busy_reported + _tx_busy_reported + _lx_busy_reported;
-      _idle_reported = (uint16_t)(busy_sum >= 10000 ? 0 : 10000 - busy_sum);
+      _lp_idle_reported = (uint16_t)(busy_sum >= 10000 ? 0 : 10000 - busy_sum);
 
       // beebo: resource-wait duty-cycle, same 10s report window as busy
       // above -- see Beebo.h's member comment. Snapshot-diff Dispatcher's
@@ -5897,14 +5897,14 @@ void Beebo::loop() {
                               (cur_ta_ms - _tx_wait_airtime_ms_at_report) : cur_ta_ms;
       uint32_t delta_tc_ms = (cur_tc_ms >= _tx_wait_cad_ms_at_report) ?
                               (cur_tc_ms - _tx_wait_cad_ms_at_report) : cur_tc_ms;
-      uint32_t delta_rw_ms = (cur_rw_ms >= _rx_wait_ms_at_report) ?
-                              (cur_rw_ms - _rx_wait_ms_at_report) : cur_rw_ms;
+      uint32_t delta_rw_ms = (cur_rw_ms >= _rx_wait_relay_ms_at_report) ?
+                              (cur_rw_ms - _rx_wait_relay_ms_at_report) : cur_rw_ms;
       _tx_wait_airtime_reported = MonRing::computeRoutePct(delta_ta_ms * 1000, report_us);
       _tx_wait_cad_reported = MonRing::computeRoutePct(delta_tc_ms * 1000, report_us);
-      _rx_wait_reported = MonRing::computeRoutePct(delta_rw_ms * 1000, report_us);
+      _rx_wait_relay_reported = MonRing::computeRoutePct(delta_rw_ms * 1000, report_us);
       _tx_wait_airtime_ms_at_report = cur_ta_ms;
       _tx_wait_cad_ms_at_report = cur_tc_ms;
-      _rx_wait_ms_at_report = cur_rw_ms;
+      _rx_wait_relay_ms_at_report = cur_rw_ms;
 
       _loops_per_sec_reported = (uint16_t)(((uint64_t)(_loop_count - _loop_count_at_report) * 1000000ULL) / report_us);
       uint32_t rx_now = getNumRecvFlood() + getNumRecvDirect();
@@ -5929,13 +5929,13 @@ void Beebo::loop() {
       millisHasNowPassed(_next_route_ms)) {
     _next_route_ms = futureMillis(ROUTE_WINDOW_MS);
     RouteRecord route{};
-    uint16_t rx_exec_pct, tx_exec_pct, tx_wait_airtime_pct, tx_wait_cad_pct, rx_wait_pct;
-    computeLiveRoutePcts(rx_exec_pct, tx_exec_pct, tx_wait_airtime_pct, tx_wait_cad_pct, rx_wait_pct);
-    route.rx_exec_pct = rx_exec_pct;
-    route.tx_exec_pct = tx_exec_pct;
-    route.tx_wait_airtime_pct = tx_wait_airtime_pct;
-    route.tx_wait_cad_pct = tx_wait_cad_pct;
-    route.rx_wait_pct = rx_wait_pct;
+    uint16_t rx_busy, tx_busy, tx_wait_airtime, tx_wait_cad, rx_wait_relay;
+    computeLiveRoutePcts(rx_busy, tx_busy, tx_wait_airtime, tx_wait_cad, rx_wait_relay);
+    route.rx_busy = rx_busy;
+    route.tx_busy = tx_busy;
+    route.tx_wait_airtime = tx_wait_airtime;
+    route.tx_wait_cad = tx_wait_cad;
+    route.rx_wait_relay = rx_wait_relay;
     monring.appendRoute(route, (uint32_t)getRTCClock()->getCurrentTime());
     _rx_route_us = _tx_route_us = 0;
     resetRouteAccounting();

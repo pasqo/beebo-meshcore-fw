@@ -74,7 +74,7 @@ public:
   bool     _rx_logged;  // true if logRxRaw actually distilled/staged this capture
 #endif
 #if defined(RX_DISPOSITION) && defined(BEEBO_CPU_ACCOUNTING)
-  // beebo: RouteRecord's rx_wait_pct (plans/CPU_UTILIZATION.md) -- the
+  // beebo: RouteRecord's rx_wait_relay (plans/TASK_TIME_ACCOUNTING.md) -- the
   // millis() deadline Dispatcher::checkRecv() scheduled this flood-relay
   // for (calcRxDelay()), staged at Dispatcher::queueInbound() time and
   // read back the moment Dispatcher::getNextInbound() dequeues it, to

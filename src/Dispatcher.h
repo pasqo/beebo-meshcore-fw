@@ -179,7 +179,7 @@ class Dispatcher {
   uint32_t tx_wait_cad_ms;      // CAD-busy portion
   unsigned long last_checksend_ms;  // wall-clock of the previous checkSend() call, for the dt slice above
 #ifdef RX_DISPOSITION
-  // beebo: rx_wait_pct's accumulator -- how much a delayed flood-relay's
+  // beebo: rx_wait_relay's accumulator -- how much a delayed flood-relay's
   // actual send overran calcRxDelay()'s own scheduled time, summed since
   // last resetRouteAccounting(). Needs Packet::_rx_scheduled_for
   // (RX_DISPOSITION-gated, see Packet.h), so gated the same way here.
