@@ -1288,31 +1288,33 @@ public:
   // comment above. Same lifetime-cumulative-counter caveat as everywhere
   // else this pattern is used: early history dominates, less responsive to
   // recent conditions as the denominator grows over uptime.
-  // beebo: RX/TX/CLI busy time (micros(), accumulated over one compute
-  // window) -> 0-100 pct of that window, normalized so the three never sum
-  // past 100 (a stray timing overlap/rounding case, not expected in normal
-  // operation, would otherwise push idle_pct = 100-rx-tx-link negative).
-  // Pulled out as a static helper (same shape as computeQos/computeSoh
-  // above) purely so this arithmetic is natively testable -- the caller
-  // (Beebo::loop(), see plans/CPU_UTILIZATION.md) is Arduino-only and can't
-  // run under the native GoogleTest env itself. window_us == 0 (shouldn't
-  // happen in practice -- loop() only calls this once the window's actual
-  // elapsed time is known -- but guards div-by-zero) yields all-zero pct.
-  static void computeTimePct(uint32_t rx_us, uint32_t tx_us, uint32_t link_us, uint32_t window_us,
-                             uint8_t &rx_pct, uint8_t &tx_pct, uint8_t &link_pct) {
-    if (window_us == 0) { rx_pct = tx_pct = link_pct = 0; return; }
-    uint32_t rx = (uint32_t)((uint64_t)rx_us * 100 / window_us);
-    uint32_t tx = (uint32_t)((uint64_t)tx_us * 100 / window_us);
-    uint32_t link = (uint32_t)((uint64_t)link_us * 100 / window_us);
-    uint32_t total = rx + tx + link;
-    if (total > 100) {
-      rx = rx * 100 / total;
-      tx = tx * 100 / total;
-      link = link * 100 / total;
+  // beebo: RX/TX/LX busy time (micros(), accumulated over one compute
+  // window) -> 0-10000 pct (two-decimal precision, same convention as
+  // computeRoutePct below) of that window, normalized so the three never
+  // sum past 10000 (a stray timing overlap/rounding case, not expected in
+  // normal operation, would otherwise push idle = window-rx-tx-lx
+  // negative). Pulled out as a static helper (same shape as computeQos/
+  // computeSoh above) purely so this arithmetic is natively testable --
+  // the caller (Beebo::loop(), see plans/TASK_TIME_ACCOUNTING.md) is
+  // Arduino-only and can't run under the native GoogleTest env itself.
+  // window_us == 0 (shouldn't happen in practice -- loop() only calls this
+  // once the window's actual elapsed time is known -- but guards
+  // div-by-zero) yields all-zero pct.
+  static void computeBusyPct(uint32_t rx_us, uint32_t tx_us, uint32_t lx_us, uint32_t window_us,
+                              uint16_t &rx_busy, uint16_t &tx_busy, uint16_t &lx_busy) {
+    if (window_us == 0) { rx_busy = tx_busy = lx_busy = 0; return; }
+    uint32_t rx = (uint32_t)((uint64_t)rx_us * 10000 / window_us);
+    uint32_t tx = (uint32_t)((uint64_t)tx_us * 10000 / window_us);
+    uint32_t lx = (uint32_t)((uint64_t)lx_us * 10000 / window_us);
+    uint32_t total = rx + tx + lx;
+    if (total > 10000) {
+      rx = rx * 10000 / total;
+      tx = tx * 10000 / total;
+      lx = lx * 10000 / total;
     }
-    rx_pct = (uint8_t)rx;
-    tx_pct = (uint8_t)tx;
-    link_pct = (uint8_t)link;
+    rx_busy = (uint16_t)rx;
+    tx_busy = (uint16_t)tx;
+    lx_busy = (uint16_t)lx;
   }
 
   // beebo: one busy-time accumulator (micros(), over one RouteRecord

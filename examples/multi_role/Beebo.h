@@ -1853,39 +1853,59 @@ private:
   unsigned long _next_env_sample_ms = 0;
 
 #ifdef BEEBO_CPU_ACCOUNTING
-  // beebo: RX/TX/CLI time accounting -- two decoupled cadences (see
-  // plans/CPU_UTILIZATION.md). Named _time_pct, not _cpu_pct: this is
+  // beebo: RX/TX/LX busy-time accounting -- two decoupled cadences (see
+  // plans/TASK_TIME_ACCOUNTING.md). Named _busy, not _cpu: this is
   // wall-clock time spent inside each code path (checkRecv()/checkSend()/
   // checkSerialInterface()), including any blocking I/O within it (radio
   // SPI, USB/BLE transfer) -- not actual CPU cycles the way an OS "CPU
-  // time" figure would be. The "live" set is a fast (~1s) window,
-  // always the freshest value, read directly by any in-RAM consumer
-  // (TuneController) -- it can be skewed by whatever happened in that
-  // specific second (e.g. a `beebo status` round trip landing entirely
-  // inside one 1s window), same as any single-sample instantaneous
-  // reading. The "reported" set is a genuine average over the full 10s
-  // report period (its own accumulators below, run in parallel with the
-  // live ones, NOT reset every 1s) -- unlike a naive "just copy the
-  // latest 1s window every 10s", which would silently discard 9/10ths of
-  // the period and report whichever single second happened to align with
-  // the 10s boundary. Reported is the only tier that ever reaches
-  // MonRing/EnvRecord or the STATS_TYPE_SYSTEM wire frame.
+  // time" figure would be, and not yet split into base (fixed per-
+  // iteration poll cost) vs. work (traffic-proportional) -- that split is
+  // plans/TASK_TIME_ACCOUNTING.md's Phase 2, not implemented here. The
+  // "live" set is a fast (~1s) window, always the freshest value, read
+  // directly by any in-RAM consumer (TuneController) -- it can be skewed
+  // by whatever happened in that specific second (e.g. a `beebo status`
+  // round trip landing entirely inside one 1s window), same as any
+  // single-sample instantaneous reading. The "reported" set is a genuine
+  // average over the full 10s report period (its own accumulators below,
+  // run in parallel with the live ones, NOT reset every 1s) -- unlike a
+  // naive "just copy the latest 1s window every 10s", which would
+  // silently discard 9/10ths of the period and report whichever single
+  // second happened to align with the 10s boundary. Reported is the only
+  // tier that ever reaches MonRing/EnvRecord or the STATS_TYPE_SYSTEM
+  // wire frame. All fields 0-10000 (two-decimal pct precision, same
+  // convention as MonRing::computeRoutePct/computeQos), not 0-100.
   uint32_t _cpu_window_start_us = 0;   // start of the current 1s live window
   uint32_t _cpu_report_start_us = 0;   // start of the current 10s report period
   unsigned long _next_cpu_window_ms = 0;
   unsigned long _next_cpu_report_ms = 0;
   uint32_t _link_busy_us = 0;          // beebo: micros() in checkSerialInterface() since last live-window reset
   uint32_t _rx_report_us = 0, _tx_report_us = 0, _link_report_us = 0;  // accumulated across the current 10s report period
-  uint8_t  _rx_time_pct = 0, _tx_time_pct = 0, _link_time_pct = 0;                    // live (~1s)
-  uint8_t  _rx_time_pct_reported = 0, _tx_time_pct_reported = 0, _link_time_pct_reported = 0;  // reported (10s average)
+  uint16_t _rx_busy = 0, _tx_busy = 0, _lx_busy = 0;                    // live (~1s), 0-10000
+  uint16_t _rx_busy_reported = 0, _tx_busy_reported = 0, _lx_busy_reported = 0;  // reported (10s average), 0-10000
+  uint16_t _idle_reported = 0;  // system-wide: 10000 - (rx+tx+lx)_busy_reported, computed at report time, 0-10000
+
+  // beebo: RX/TX resource-wait duty-cycle, same live(~1s, feeding a 10s
+  // report)/reported(10s average) shape as busy above -- see
+  // plans/TASK_TIME_ACCOUNTING.md's Windowing section. Unlike busy, wait
+  // is never subtracted from idle: it's a duty-cycle measurement of a
+  // specific resource (TX radio budget/CAD, RX relay queuing), not a
+  // slice of occupied loop time -- see that plan's "Why not per-task
+  // idle" section. Sourced by snapshot-diffing Dispatcher's own
+  // continuously-running ms accumulators (getTxWaitAirtimeMs() etc.),
+  // which keep their existing 1-minute-reset cadence for RouteRecord
+  // unchanged -- this tier reads them without resetting them.
+  uint32_t _tx_wait_airtime_ms_at_report = 0, _tx_wait_cad_ms_at_report = 0, _rx_wait_ms_at_report = 0;
+  uint16_t _tx_wait_airtime_reported = 0, _tx_wait_cad_reported = 0, _rx_wait_reported = 0;  // 0-10000
 
   // beebo: RouteRecord's own 1-minute report period (plans/CPU_UTILIZATION.md's
-  // "Routing-latency" section) -- a third, coarser cadence than the time
+  // "Routing-latency" section) -- a third, coarser cadence than the busy
   // pct pair above. rx/tx exec accumulate off the same 1s live-window
-  // ticks as the time pct report tier (same rx_us/tx_us source, just a
-  // longer-running total); tx wait accumulates directly and continuously in Dispatcher
-  // (getTxWaitAirtimeMs()/getTxWaitCadMs()) since nothing else reads it in
-  // between, so it needs no intermediate tier of its own.
+  // ticks as the busy report tier (same rx_us/tx_us source, just a
+  // longer-running total); tx/rx wait accumulate directly and
+  // continuously in Dispatcher (getTxWaitAirtimeMs()/getTxWaitCadMs()/
+  // getRxWaitMs()), reset only at this 1-minute cadence -- unrelated to
+  // the 10s wait-reported tier above, which reads the same Dispatcher
+  // accumulators without resetting them.
   uint32_t _route_start_us = 0;        // start of the current 1-minute route window
   unsigned long _next_route_ms = 0;
   uint32_t _rx_route_us = 0, _tx_route_us = 0;  // accumulated across the current 1-minute route window

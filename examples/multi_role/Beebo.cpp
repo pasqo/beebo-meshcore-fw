@@ -4027,30 +4027,31 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&out_frame[i], &monring_count, 4); i += 4;
       memcpy(&out_frame[i], &monring_cap, 4); i += 4;
 #ifdef BEEBO_CPU_ACCOUNTING
-      // beebo: RX/TX/link time accounting, latest 10s-reported window (see
-      // Beebo::_rx_time_pct_reported and plans/CPU_UTILIZATION.md). Append-only,
-      // absent on older/non-accounting builds -- CLI decode length-gates it.
-      out_frame[i++] = _rx_time_pct_reported;
-      out_frame[i++] = _tx_time_pct_reported;
-      out_frame[i++] = _link_time_pct_reported;
+      // beebo: RX/TX/LX busy + system idle, latest 10s-reported window,
+      // 0-10000 (two-decimal pct precision) -- see Beebo::_rx_busy_reported
+      // and plans/TASK_TIME_ACCOUNTING.md. Supersedes the old 0-100
+      // uint8_t rx/tx/link_time_pct fields and the separate 60s-window
+      // rx_exec_pct/tx_exec_pct (same underlying rx/tx busy source, now
+      // unified onto this one 10s window/precision) -- this is a breaking
+      // wire-format change to this frame's tail, not append-only; bump any
+      // client decode alongside this build.
+      memcpy(&out_frame[i], &_rx_busy_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_tx_busy_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_lx_busy_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_idle_reported, 2); i += 2;
       // beebo: headroom metrics, same reported (10s) tier (see
       // Beebo::_loops_per_sec_reported/_max_loop_latency_ms_reported and
-      // plans/CPU_UTILIZATION.md's "New goals" #1/#2). Append-only.
+      // plans/TASK_TIME_ACCOUNTING.md).
       memcpy(&out_frame[i], &_loops_per_sec_reported, 2); i += 2;
       memcpy(&out_frame[i], &_max_loop_latency_ms_reported, 2); i += 2;
-      // beebo: RouteRecord's exec/wait percentages, computed live against
-      // the current (not-yet-reset) route-window accumulators -- same
-      // signal RouteRecord's own 1-minute MonRing snapshot carries, just
-      // readable without a ring download. Append-only.
-      {
-        uint16_t rx_exec_pct, tx_exec_pct, tx_wait_airtime_pct, tx_wait_cad_pct, rx_wait_pct;
-        computeLiveRoutePcts(rx_exec_pct, tx_exec_pct, tx_wait_airtime_pct, tx_wait_cad_pct, rx_wait_pct);
-        memcpy(&out_frame[i], &rx_exec_pct, 2); i += 2;
-        memcpy(&out_frame[i], &tx_exec_pct, 2); i += 2;
-        memcpy(&out_frame[i], &tx_wait_airtime_pct, 2); i += 2;
-        memcpy(&out_frame[i], &tx_wait_cad_pct, 2); i += 2;
-        memcpy(&out_frame[i], &rx_wait_pct, 2); i += 2;
-      }
+      // beebo: resource-wait duty-cycle, now on the same 10s report window
+      // as busy/idle above (was a separate ~60s-since-last-reset window) --
+      // see Beebo::_tx_wait_airtime_reported and plans/TASK_TIME_ACCOUNTING.md's
+      // Windowing section. Never subtracted from busy/idle -- see that
+      // plan's "Why not per-task idle".
+      memcpy(&out_frame[i], &_tx_wait_airtime_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_tx_wait_cad_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_rx_wait_reported, 2); i += 2;
       // beebo: Phase 4 live packets/minute, same reported (10s) tier (see
       // Beebo::_rx_per_min_reported/_tx_per_min_reported). Append-only.
       memcpy(&out_frame[i], &_rx_per_min_reported, 2); i += 2;
@@ -5824,8 +5825,8 @@ void Beebo::loop() {
   }
 
 #ifdef BEEBO_CPU_ACCOUNTING
-  // beebo: RX/TX/link time accounting -- two decoupled cadences, see
-  // Beebo.h's member comment and plans/CPU_UTILIZATION.md. The live
+  // beebo: RX/TX/LX busy-time accounting -- two decoupled cadences, see
+  // Beebo.h's member comment and plans/TASK_TIME_ACCOUNTING.md. The live
   // (~1s) window always reflects just the most recent compute window --
   // a single instantaneous sample, not smoothed, so any consumer reading
   // it should expect it to reflect whatever happened in that specific
@@ -5840,8 +5841,8 @@ void Beebo::loop() {
     uint32_t window_us = micros() - _cpu_window_start_us;
     uint32_t rx_us = getRxBusyUs(), tx_us = getTxBusyUs();
     if (window_us > 0) {
-      MonRing::computeTimePct(rx_us, tx_us, _link_busy_us, window_us,
-                              _rx_time_pct, _tx_time_pct, _link_time_pct);
+      MonRing::computeBusyPct(rx_us, tx_us, _link_busy_us, window_us,
+                               _rx_busy, _tx_busy, _lx_busy);
     }
     _rx_report_us += rx_us;
     _tx_report_us += tx_us;
@@ -5870,8 +5871,41 @@ void Beebo::loop() {
     _next_cpu_report_ms = futureMillis(CPU_REPORT_MS);
     uint32_t report_us = micros() - _cpu_report_start_us;
     if (report_us > 0) {
-      MonRing::computeTimePct(_rx_report_us, _tx_report_us, _link_report_us, report_us,
-                              _rx_time_pct_reported, _tx_time_pct_reported, _link_time_pct_reported);
+      MonRing::computeBusyPct(_rx_report_us, _tx_report_us, _link_report_us, report_us,
+                               _rx_busy_reported, _tx_busy_reported, _lx_busy_reported);
+      // beebo: idle is system-wide, not per-task -- window minus every
+      // task's busy time, full stop. Never subtract wait from it (see
+      // plans/TASK_TIME_ACCOUNTING.md's "Why not per-task idle").
+      uint32_t busy_sum = (uint32_t)_rx_busy_reported + _tx_busy_reported + _lx_busy_reported;
+      _idle_reported = (uint16_t)(busy_sum >= 10000 ? 0 : 10000 - busy_sum);
+
+      // beebo: resource-wait duty-cycle, same 10s report window as busy
+      // above -- see Beebo.h's member comment. Snapshot-diff Dispatcher's
+      // continuously-running ms accumulators (which keep resetting only
+      // every 1 minute for RouteRecord, unaffected by this read) rather
+      // than resetting them here; a decrease since the last snapshot means
+      // a 1-minute RouteRecord reset happened in between, so fall back to
+      // the current value alone (the portion accumulated since that
+      // reset) rather than underflowing.
+      uint32_t cur_ta_ms = getTxWaitAirtimeMs();
+      uint32_t cur_tc_ms = getTxWaitCadMs();
+      uint32_t cur_rw_ms = 0;
+#ifdef RX_DISPOSITION
+      cur_rw_ms = getRxWaitMs();
+#endif
+      uint32_t delta_ta_ms = (cur_ta_ms >= _tx_wait_airtime_ms_at_report) ?
+                              (cur_ta_ms - _tx_wait_airtime_ms_at_report) : cur_ta_ms;
+      uint32_t delta_tc_ms = (cur_tc_ms >= _tx_wait_cad_ms_at_report) ?
+                              (cur_tc_ms - _tx_wait_cad_ms_at_report) : cur_tc_ms;
+      uint32_t delta_rw_ms = (cur_rw_ms >= _rx_wait_ms_at_report) ?
+                              (cur_rw_ms - _rx_wait_ms_at_report) : cur_rw_ms;
+      _tx_wait_airtime_reported = MonRing::computeRoutePct(delta_ta_ms * 1000, report_us);
+      _tx_wait_cad_reported = MonRing::computeRoutePct(delta_tc_ms * 1000, report_us);
+      _rx_wait_reported = MonRing::computeRoutePct(delta_rw_ms * 1000, report_us);
+      _tx_wait_airtime_ms_at_report = cur_ta_ms;
+      _tx_wait_cad_ms_at_report = cur_tc_ms;
+      _rx_wait_ms_at_report = cur_rw_ms;
+
       _loops_per_sec_reported = (uint16_t)(((uint64_t)(_loop_count - _loop_count_at_report) * 1000000ULL) / report_us);
       uint32_t rx_now = getNumRecvFlood() + getNumRecvDirect();
       uint32_t tx_now = getNumSentFlood() + getNumSentDirect();
@@ -5911,11 +5945,16 @@ void Beebo::loop() {
     // as the RouteRecord append above -- see RLOG_ID_CPU_SNAPSHOT's own
     // comment in DebugRing.h. Coarse (0-100, live ~1s _*_time_pct values),
     // purely for visual scanning; RouteRecord above stays the persisted,
-    // higher-precision (0-10000) per-direction source of truth.
-    uint8_t exec_pct = (uint8_t)min(_rx_time_pct + _tx_time_pct, 100);
-    uint8_t idle_pct = (uint8_t)max(0, 100 - _rx_time_pct - _tx_time_pct - _link_time_pct);
+    // higher-precision (0-10000) per-direction source of truth. _rx_busy/
+    // _tx_busy/_lx_busy are the live (~1s) 0-10000 tier -- rescale to
+    // 0-100 for this byte-packed debug log, unchanged wire format.
+    uint8_t rx_busy_100 = (uint8_t)(_rx_busy / 100);
+    uint8_t tx_busy_100 = (uint8_t)(_tx_busy / 100);
+    uint8_t lx_busy_100 = (uint8_t)(_lx_busy / 100);
+    uint8_t exec_pct = (uint8_t)min(rx_busy_100 + tx_busy_100, 100);
+    uint8_t idle_pct = (uint8_t)max(0, 100 - rx_busy_100 - tx_busy_100 - lx_busy_100);
     int32_t cpu_detail = ((int32_t)exec_pct & 0xFF)
-                        | (((int32_t)_link_time_pct & 0xFF) << 8)
+                        | (((int32_t)lx_busy_100 & 0xFF) << 8)
                         | (((int32_t)idle_pct & 0xFF) << 16);
     RLOGL(RLOG_ID_CPU_SNAPSHOT, cpu_detail);
   }
