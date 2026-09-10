@@ -1471,6 +1471,9 @@ void Beebo::begin() {
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
 
   beginTransports();
+#ifdef BEEBO_CPU_ACCOUNTING
+  calibrateBaseCosts();
+#endif
   resetRxTimeoutClock();
 }
 
@@ -1740,6 +1743,50 @@ void Beebo::computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
 #else
   rx_wait_relay = 0;  // no Packet::_rx_scheduled_for staging without RX_DISPOSITION
 #endif
+}
+
+// beebo: Phase 2 base calibration (plans/TASK_TIME_ACCOUNTING.md). Called
+// once from begin(), right after beginTransports() -- _serial is valid by
+// then (so checkSerialInterface() is safe to call), the TX queue is still
+// genuinely empty (the repeater's local advert is armed as already-due but
+// only loopRepeater()'s own periodic check fires it, and that only runs
+// once the real loop() starts, after begin() returns), and no host has
+// had time to connect yet. Deliberately does NOT touch radio power state
+// (no powerOff()/wake()) -- an earlier version put the radio to sleep for
+// the duration, but Dispatcher::loop() also calls _radio->loop()
+// internally, which drives RadioLibWrapper's own noise-floor sampling
+// (gated only on its software `state == STATE_RX`, with no awareness the
+// chip was just told to sleep) -- reading RSSI from a sleeping chip, or
+// silently re-waking it via the SX126x's auto-wake-on-SPI-transaction
+// behaviour, either way corrupting that calibration hardware-verified as
+// a real regression (a companion-role boot got stuck with every
+// CPU-accounting figure frozen at 0, including loops_per_sec, and a
+// repeater-role boot showed a bogus clamped noise floor). checkRecv()'s
+// "nothing arrived" fast path is gated by that same software `state`, not
+// by whether the radio is physically asleep, so muting it was never
+// actually required for a clean measurement -- a stray real packet
+// landing in this ~100-iteration, sub-millisecond window this early in
+// boot (before mesh join) is negligible risk on its own. Mesh::loop()
+// (not the role-specific loopCompanion()/loopRepeater()) is used so this
+// doesn't depend on which role is live -- it's exactly what accumulates
+// rx_busy_us/tx_busy_us in normal operation regardless of role.
+// checkSerialInterface() is timed into a local accumulator rather than
+// the real _link_busy_us, so this window doesn't leave that accumulator
+// polluted for the first real 1s report tick.
+void Beebo::calibrateBaseCosts() {
+  const uint32_t N = 100;
+  uint32_t link_total_us = 0;
+  for (uint32_t i = 0; i < N; i++) {
+    Mesh::loop();
+    uint32_t link_start_us = micros();
+    checkSerialInterface();
+    link_total_us += micros() - link_start_us;
+  }
+  rx_base_us_per_call = getRxBusyUs() / N;
+  tx_base_us_per_call = getTxBusyUs() / N;
+  lx_base_us_per_call = link_total_us / N;
+  resetCpuAccounting();
+  _link_busy_us = 0;
 }
 #endif
 
@@ -4056,6 +4103,16 @@ void Beebo::handleCmdFrame(size_t len) {
       // Beebo::_rx_per_min_reported/_tx_per_min_reported). Append-only.
       memcpy(&out_frame[i], &_rx_per_min_reported, 2); i += 2;
       memcpy(&out_frame[i], &_tx_per_min_reported, 2); i += 2;
+      // beebo: Phase 2 base/work split of busy (see Beebo::_rx_base_reported
+      // and plans/TASK_TIME_ACCOUNTING.md), same reported (10s) tier as
+      // busy above. Genuinely append-only -- older/non-Phase-2 firmware
+      // simply doesn't send these, length-gated on the decode side.
+      memcpy(&out_frame[i], &_rx_base_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_rx_work_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_tx_base_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_tx_work_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_lx_base_reported, 2); i += 2;
+      memcpy(&out_frame[i], &_lx_work_reported, 2); i += 2;
 #endif
       _serial->writeFrame(out_frame, i);
     } else if (stats_type == STATS_TYPE_TRANSPORT || stats_type == STATS_TYPE_PROFILE) {
@@ -5878,6 +5935,30 @@ void Beebo::loop() {
       // plans/TASK_TIME_ACCOUNTING.md's "Why not per-task idle").
       uint32_t busy_sum = (uint32_t)_rx_busy_reported + _tx_busy_reported + _lx_busy_reported;
       _lp_idle_reported = (uint16_t)(busy_sum >= 10000 ? 0 : 10000 - busy_sum);
+
+      // beebo: base/work split of busy (Phase 2, plans/TASK_TIME_ACCOUNTING.md)
+      // -- base_us_per_call is a fixed per-boot constant (calibrateBaseCosts()),
+      // so a window's total base cost still depends on how many loop()
+      // iterations actually ran in it. base_reported is clamped to
+      // busy_reported (not just floored at 0) so calibration noise can
+      // never push work negative or base above the busy figure it's
+      // subtracted from; work_reported is exactly busy_reported minus
+      // that, so base + work == busy always holds by construction.
+      {
+        uint32_t loop_count_this_report = _loop_count - _loop_count_at_report;
+        uint32_t rx_base_total_us = rx_base_us_per_call * loop_count_this_report;
+        uint32_t tx_base_total_us = tx_base_us_per_call * loop_count_this_report;
+        uint32_t lx_base_total_us = lx_base_us_per_call * loop_count_this_report;
+        _rx_base_reported = MonRing::computeRoutePct(rx_base_total_us, report_us);
+        _tx_base_reported = MonRing::computeRoutePct(tx_base_total_us, report_us);
+        _lx_base_reported = MonRing::computeRoutePct(lx_base_total_us, report_us);
+        if (_rx_base_reported > _rx_busy_reported) _rx_base_reported = _rx_busy_reported;
+        if (_tx_base_reported > _tx_busy_reported) _tx_base_reported = _tx_busy_reported;
+        if (_lx_base_reported > _lx_busy_reported) _lx_base_reported = _lx_busy_reported;
+        _rx_work_reported = _rx_busy_reported - _rx_base_reported;
+        _tx_work_reported = _tx_busy_reported - _tx_base_reported;
+        _lx_work_reported = _lx_busy_reported - _lx_base_reported;
+      }
 
       // beebo: resource-wait duty-cycle, same 10s report window as busy
       // above -- see Beebo.h's member comment. Snapshot-diff Dispatcher's

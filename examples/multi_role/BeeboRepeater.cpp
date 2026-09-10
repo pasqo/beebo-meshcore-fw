@@ -77,13 +77,17 @@ void Beebo::loopRepeater(bool skip_radio) {
 // lazy load-on-first-repeater-entry model this function used to implement
 // itself. beginRepeater() (called from begin() only `if (isRepeater())` --
 // a role switch always reboots, see requestNodeRoleSwitch(), so begin() is
-// the only entry point) is now just the live-session part: send an
-// immediate local advert and (re-)arm the advert timers, so a boot always
-// announces the node right away instead of waiting out the first full
-// advert_interval.
+// the only entry point) is now just the live-session part: arm the local
+// advert timer as already-due (`futureMillis(0)`) instead of an explicit
+// advert() call here -- loopRepeater()'s own periodic check
+// (`next_local_advert && millisHasNowPassed(...)`) fires it the first time
+// the real loop() runs, which is only after Beebo::begin() (and its
+// calibrateBaseCosts() call, plans/TASK_TIME_ACCOUNTING.md) has returned,
+// so a boot still always announces the node right away without a special-
+// cased send competing with calibration's own empty-TX-queue assumption.
+// Flood advert stays on its own normal schedule, unaffected.
 void Beebo::beginRepeater() {
-  advert();
-  updateAdvertTimer();
+  next_local_advert = futureMillis(0);
   updateFloodAdvertTimer();
 }
 
