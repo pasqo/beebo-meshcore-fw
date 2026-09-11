@@ -6034,9 +6034,9 @@ void Beebo::loop() {
     uint8_t rx_busy_100 = (uint8_t)(_rx_busy / 100);
     uint8_t tx_busy_100 = (uint8_t)(_tx_busy / 100);
     uint8_t lx_busy_100 = (uint8_t)(_lx_busy / 100);
-    uint8_t exec_pct = (uint8_t)min(rx_busy_100 + tx_busy_100, 100);
+    uint8_t radio_pct = (uint8_t)min(rx_busy_100 + tx_busy_100, 100);
     uint8_t idle_pct = (uint8_t)max(0, 100 - rx_busy_100 - tx_busy_100 - lx_busy_100);
-    int32_t cpu_detail = ((int32_t)exec_pct & 0xFF)
+    int32_t cpu_detail = ((int32_t)radio_pct & 0xFF)
                         | (((int32_t)lx_busy_100 & 0xFF) << 8)
                         | (((int32_t)idle_pct & 0xFF) << 16);
     RLOGL(RLOG_ID_CPU_SNAPSHOT, cpu_detail);
