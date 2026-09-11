@@ -1663,6 +1663,7 @@ void Beebo::initMonRing() {
     monring.setConfig(_role_state->prefs.monring_config);  // apply persisted enable + per-kind capture mask
     monring.setEventTypeMask(_role_state->prefs.monring_event_mask);  // apply persisted per-event-type capture mask
     monring.setLiveSink(&pushMlogFrame);  // MLOG live relay, see plans/MLOG_LIVE_STREAM.md
+    profile_log.setEnabled(_role_state->prefs.profile_enabled);  // apply persisted ProfileLog enable gate
     MESH_DEBUG_PRINTLN("MonRing: %u records (%u KB PSRAM), %u KB PSRAM free after",
                        monring.capacity(), (unsigned)(want / 1024),
                        (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
@@ -2095,6 +2096,10 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   uint32_t env_count = monring.envCount(), batt_count = monring.battCount();
   uint32_t tune_count = monring.tuneCount(), event_count = monring.eventCount();
   uint32_t setting_count = monring.settingCount(), command_count = monring.commandCount();
+  // beebo: route_count was never wired into this header (a real gap, not
+  // intentional -- see plans/MONITORING_UNIFICATION.md Design #8); fixed
+  // here alongside adding debug_count for the new MON_DEBUG kind.
+  uint32_t route_count = monring.routeCount(), debug_count = monring.debugCount();
   memcpy(&out[i], &start, 4); i += 4;
   memcpy(&out[i], &end, 4); i += 4;
   memcpy(&out[i], &rx_count, 4); i += 4;
@@ -2107,6 +2112,8 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   memcpy(&out[i], &event_count, 4); i += 4;
   memcpy(&out[i], &setting_count, 4); i += 4;
   memcpy(&out[i], &command_count, 4); i += 4;
+  memcpy(&out[i], &route_count, 4); i += 4;
+  memcpy(&out[i], &debug_count, 4); i += 4;
   // Lifetime RX-drop counters -- the two dispositions with no MON_RX record
   // to reconstruct from a download (see MonRing::bumpRxDropCount()). Every
   // other RX/TX condition breakdown was removed from this header; recreate
@@ -2512,6 +2519,24 @@ bool Beebo::tlvSetMonringEventMask(Beebo* self, uint8_t role, uint32_t raw) {
   slot.prefs.monring_event_mask = raw;
   if (role == self->_board.role) {
     self->monring.setEventTypeMask(raw);
+    self->savePrefs();
+  } else {
+    persistRoleSlot(self, role, slot);
+  }
+  return true;
+}
+
+// beebo: ProfileLog's persisted enable gate (plans/MONITORING_UNIFICATION.md
+// Design #7) -- same per-role-persisted, live-vs-parked-slot side-effect
+// rule as tlvSetMonringConfig above.
+uint32_t Beebo::tlvGetProfileEnabled(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.profile_enabled;
+}
+bool Beebo::tlvSetProfileEnabled(Beebo* self, uint8_t role, uint32_t raw) {
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.profile_enabled = (uint8_t)(raw ? 1 : 0);
+  if (role == self->_board.role) {
+    profile_log.setEnabled(slot.prefs.profile_enabled);
     self->savePrefs();
   } else {
     persistRoleSlot(self, role, slot);

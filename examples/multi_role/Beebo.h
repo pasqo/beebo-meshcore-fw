@@ -1377,6 +1377,11 @@ private:
     // (127) means no central is connected, or a read hasn't completed
     // yet.
     PREFS_TLV_BLE_RSSI = 54,            // u32 (sign-extended int8), read-only
+    // beebo: ProfileLog::setEnabled() gate (plans/MONITORING_UNIFICATION.md
+    // Design #7) -- same per-role-persisted, live-vs-parked-slot pattern as
+    // PREFS_TLV_MONRING_CONFIG above. Default disabled, unlike monring_config's
+    // on-by-default kinds.
+    PREFS_TLV_PROFILE_ENABLED = 55,     // u32 (bool 0/1)
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1464,6 +1469,8 @@ private:
   static bool tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetMonringEventMask(Beebo* self, uint8_t role);
   static bool tlvSetMonringEventMask(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetProfileEnabled(Beebo* self, uint8_t role);
+  static bool tlvSetProfileEnabled(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRxDelayBase(Beebo* self, uint8_t role);
   static bool tlvSetRxDelayBase(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAirtimeFactor(Beebo* self, uint8_t role);

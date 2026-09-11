@@ -68,7 +68,23 @@ enum : uint8_t {
   // -- shares MON_CAP_EVENT, same reasoning as MON_COMMAND/MON_SETTING
   // above (no free MON_CAP_* bits remain).
   MON_ROUTE = 10,
+  // beebo: folded-in RLOG structured (type, detail) transport/session/boot
+  // trace (see plans/MONITORING_UNIFICATION.md) -- shares MON_CAP_EVENT,
+  // same reasoning as MON_COMMAND/MON_SETTING/MON_ROUTE above (no free
+  // MON_CAP_* bits remain).
+  MON_DEBUG = 11,
 };
+
+// ---- multi-record continuation: bit 7 (MSB) of a stored record's `kind`
+// byte is a continuation flag, not a stolen chunk of the kind namespace --
+// bits 0-6 carry the actual kind value (0-127) unchanged. Set on slot i
+// means "slot i+1 continues this same logical event"; clear on the last
+// slot of a multi-record event (and on every ordinary single-record event,
+// as today). Every kind in use today is well under 128, so an old decoder
+// reading `.kind` as a plain byte still gets the exact right value with no
+// reinterpretation -- see plans/MONITORING_UNIFICATION.md Design #4/#5.
+#define RLOG_KIND_MASK  0x7F
+#define RLOG_CONT_BIT   0x80
 
 // ---- TUNE param IDs: which NodePrefs knob a TuneRecord proposal concerns ---
 enum {
@@ -600,6 +616,28 @@ struct __attribute__((packed)) RouteRecord {
   uint8_t  _rsvd[3];
 };
 
+// beebo: RLOG's own (type, detail) event folded into MonRing (see
+// plans/MONITORING_UNIFICATION.md Design #3) -- reuses MonRing's SYNC/
+// offset time base and MLOG live-relay wire format instead of DebugRing's
+// own millis()-based push/ring. Severity packed into `type`'s own MSB
+// (only H/M ever reach MonRing -- L never persists, same rule RLOG
+// already follows) rather than a dedicated byte. file_id + line preserve
+// call-site provenance for RLOG_ID_*s logged from more than one file
+// (e.g. RLOG_ID_XSESSION_INIT/_CHANGE) -- see tools/gen_debug_names.py.
+#define DLOG_TYPE_MASK      0x7F
+#define DLOG_TYPE_SEV_BIT   0x80   // 0 = DLOG_SEV_H, 1 = DLOG_SEV_M (L never persists)
+
+struct __attribute__((packed)) DebugRecord {
+  uint8_t  kind;      // MON_DEBUG in bits 0-6 (RLOG_KIND_MASK); bit 7 = continuation flag (RLOG_CONT_BIT)
+  uint16_t offset;    // since sync base (head slot only)
+  uint8_t  type;      // RLOG_ID_* in bits 0-6 (DLOG_TYPE_MASK); severity in bit 7 (DLOG_TYPE_SEV_BIT)
+  uint8_t  file_id;   // generated id -- see tools/gen_debug_names.py extension
+  uint16_t line;      // __LINE__ from the call site, verbatim
+  int32_t  detail;    // same sub-id/bit-packing conventions RLOG's own detail already uses
+  uint8_t  _rsvd[5];
+};
+static_assert(sizeof(DebugRecord) == 16, "DebugRecord must be 16 bytes");
+
 union MonRecord {
   uint8_t     kind;     // common discriminant (byte 0 of every arm)
   SyncRecord  sync;
@@ -613,6 +651,7 @@ union MonRecord {
   SettingRecord setting;
   CommandRecord command;
   RouteRecord route;
+  DebugRecord debug;
   uint8_t     raw[16];
 };
 
@@ -771,6 +810,10 @@ private:
   // incremented-on-append/decremented-on-eviction pattern as _rx_count.
   uint32_t  _route_count = 0;
 
+  // Count of DEBUG records currently resident in the ring, same
+  // incremented-on-append/decremented-on-eviction pattern as _rx_count.
+  uint32_t  _debug_count = 0;
+
   // Resident counts for the reference kinds, same incremented-on-store,
   // decremented-on-eviction pattern as _rx_count (see _store()'s eviction
   // switch). Sync bumps in _ensureSync(), radio/env in noteRadio()/sampleEnv(),
@@ -854,7 +897,11 @@ private:
       // RX/TX evictions symmetrically un-bump the counters bumped at
       // append time, so _rx_count/_tx_count always reflect only what is
       // currently resident, never lifetime totals.
-      switch (_buf[_head].kind) {
+      // beebo: mask off the continuation bit (RLOG_CONT_BIT) before dispatch
+      // -- a continuation slot's raw kind byte is always >= 128 and would
+      // otherwise fall through to `default: break`, leaking its per-kind
+      // resident counter (see plans/MONITORING_UNIFICATION.md Design #5).
+      switch (_buf[_head].kind & RLOG_KIND_MASK) {
         case MON_SYNC:
           start_sync = _buf[_head].sync;
           if (_sync_count) _sync_count--;
@@ -890,6 +937,9 @@ private:
           break;
         case MON_ROUTE:
           if (_route_count) _route_count--;
+          break;
+        case MON_DEBUG:
+          if (_debug_count) _debug_count--;
           break;
         default: break;
       }
@@ -1008,6 +1058,7 @@ public:
   uint32_t settingCount() const { return _setting_count; }
   uint32_t commandCount() const { return _command_count; }
   uint32_t routeCount() const { return _route_count; }
+  uint32_t debugCount() const { return _debug_count; }
   uint32_t txCount() const { return _tx_count; }
   uint32_t syncCount() const { return _sync_count; }
   uint32_t radioCount() const { return _radio_count; }
@@ -1045,7 +1096,7 @@ public:
   // storing a fresh record after the clear.
   void clear(uint32_t now, const RadioRecord &radio, const EnvRecord &env) {
     _head = _count = 0; _next_seq = 0;
-    _rx_count = _tx_count = _sync_count = _radio_count = _env_count = _batt_count = _tune_count = _event_count = _setting_count = _command_count = _route_count = _end_time = 0;
+    _rx_count = _tx_count = _sync_count = _radio_count = _env_count = _batt_count = _tune_count = _event_count = _setting_count = _command_count = _route_count = _debug_count = _end_time = 0;
     // beebo: _rx_pool_exhausted_count/_rx_parse_error_count are deliberately
     // NOT reset here -- they're lifetime-since-boot counters (see their
     // declaration above), and clearing the ring shouldn't erase evidence that
@@ -1174,6 +1225,23 @@ public:
     r.route.offset = _ensureSync(now);
     _end_time = now;
     _route_count++;
+    _store(r);
+  }
+
+  // Append one folded-in RLOG debug event (kind/offset stamped here). Same
+  // capture gating as appendSetting()/appendCommand()/appendEvent()/
+  // appendRoute() -- see MON_DEBUG's comment for why this has its own
+  // kind/struct but shares the capture bit. Unconditional per call, like
+  // appendEvent() -- a debug event is a discrete occurrence, not a running
+  // state to diff against.
+  void appendDebug(DebugRecord debug, uint32_t now) {
+    if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
+    MonRecord r{};
+    r.debug = debug;
+    r.debug.kind = MON_DEBUG;
+    r.debug.offset = _ensureSync(now);
+    _end_time = now;
+    _debug_count++;
     _store(r);
   }
 

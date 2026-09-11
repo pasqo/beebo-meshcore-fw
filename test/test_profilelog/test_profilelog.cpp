@@ -4,6 +4,7 @@
 
 TEST(ProfileLog, EmptyRingReportsZeroCountAndTotal) {
   ProfileLog log;
+  log.setEnabled(true);
   EXPECT_EQ(0u, log.count());
   uint8_t dest[64];
   uint16_t total = 123;
@@ -14,18 +15,21 @@ TEST(ProfileLog, EmptyRingReportsZeroCountAndTotal) {
 
 TEST(ProfileLog, LogIncrementsCountUpToCapacity) {
   ProfileLog log;
+  log.setEnabled(true);
   for (int i = 0; i < 5; i++) log.log((uint16_t)i, 100u);
   EXPECT_EQ(5u, log.count());
 }
 
 TEST(ProfileLog, LogWrapsAtMaxEventsWithoutGrowingCount) {
   ProfileLog log;
+  log.setEnabled(true);
   for (int i = 0; i < PROFILE_MAX_EVENTS + 10; i++) log.log((uint16_t)i, 1u);
   EXPECT_EQ((uint16_t)PROFILE_MAX_EVENTS, log.count());
 }
 
 TEST(ProfileLog, DurationSaturatesAtUint16Max) {
   ProfileLog log;
+  log.setEnabled(true);
   log.log(0x1234, 100000u);  // exceeds 0xFFFF
 
   uint8_t dest[8];
@@ -43,6 +47,7 @@ TEST(ProfileLog, DurationSaturatesAtUint16Max) {
 
 TEST(ProfileLog, SerializeRoundTripsIdAndDuration) {
   ProfileLog log;
+  log.setEnabled(true);
   log.log(0xBEEF, 42u);
 
   uint8_t dest[8];
@@ -60,6 +65,7 @@ TEST(ProfileLog, SerializeRoundTripsIdAndDuration) {
 
 TEST(ProfileLog, SerializePaginatesAcrossMultipleCalls) {
   ProfileLog log;
+  log.setEnabled(true);
   for (int i = 0; i < 20; i++) log.log((uint16_t)i, (uint32_t)i);
 
   const int per_event = 8;
@@ -88,6 +94,7 @@ TEST(ProfileLog, SerializePaginatesAcrossMultipleCalls) {
 
 TEST(ProfileLog, ClearResetsCountAndSerializesEmpty) {
   ProfileLog log;
+  log.setEnabled(true);
   for (int i = 0; i < 10; i++) log.log((uint16_t)i, 1u);
   ASSERT_EQ(10u, log.count());
 
@@ -103,6 +110,7 @@ TEST(ProfileLog, ClearResetsCountAndSerializesEmpty) {
 
 TEST(ProfileLog, LogAfterClearStartsFromScratch) {
   ProfileLog log;
+  log.setEnabled(true);
   for (int i = 0; i < 10; i++) log.log((uint16_t)i, 1u);
   log.clear();
   log.log(0xABCD, 55u);
@@ -122,6 +130,7 @@ TEST(ProfileLog, LogAfterClearStartsFromScratch) {
 
 TEST(ProfileLog, SerializeRespectsMaxLenBudget) {
   ProfileLog log;
+  log.setEnabled(true);
   for (int i = 0; i < 10; i++) log.log((uint16_t)i, 1u);
 
   uint8_t dest[8 * 3];  // room for only 3 events
@@ -129,6 +138,28 @@ TEST(ProfileLog, SerializeRespectsMaxLenBudget) {
   int n = log.serialize(dest, sizeof(dest), 0, &total);
   EXPECT_EQ(8 * 3, n);
   EXPECT_EQ(10u, total);  // total still reflects the whole ring
+}
+
+// beebo: persisted enable gate (plans/MONITORING_UNIFICATION.md Design #7)
+// -- default disabled, unlike every other test above which explicitly
+// opts in via setEnabled(true). A fresh ProfileLog must not record
+// anything until enabled.
+TEST(ProfileLog, DisabledByDefaultLogIsNoOp) {
+  ProfileLog log;
+  EXPECT_FALSE(log.enabled());
+  log.log(1, 100u);
+  EXPECT_EQ(0u, log.count());
+}
+
+TEST(ProfileLog, SetEnabledFalseStopsLoggingWithoutClearing) {
+  ProfileLog log;
+  log.setEnabled(true);
+  log.log(1, 100u);
+  EXPECT_EQ(1u, log.count());
+
+  log.setEnabled(false);
+  log.log(2, 100u);
+  EXPECT_EQ(1u, log.count());  // still just the one from before disabling
 }
 
 int main(int argc, char **argv) {

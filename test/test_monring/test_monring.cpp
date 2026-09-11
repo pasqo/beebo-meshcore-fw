@@ -1148,6 +1148,74 @@ TEST(MonRing, RouteCountDecrementsOnEviction) {
   EXPECT_EQ(0u, f.ring.routeCount());
 }
 
+// beebo: MON_DEBUG (folded-in RLOG, plans/MONITORING_UNIFICATION.md).
+DebugRecord makeDebug(uint8_t type = 5, uint8_t file_id = 2, uint16_t line = 63,
+                       int32_t detail = 0x1234) {
+  DebugRecord d; memset(&d, 0, sizeof(d));
+  d.type = type; d.file_id = file_id; d.line = line; d.detail = detail;
+  return d;
+}
+
+TEST(MonRing, AppendDebugRoundTripsAllFields) {
+  RingFixture<8> f;
+  f.ring.appendDebug(makeDebug(), 1000);
+
+  MonRecord out[8];
+  uint32_t returned = 0;
+  f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
+  ASSERT_EQ(1u, returned);
+  EXPECT_EQ(MON_DEBUG, out[0].kind);
+  EXPECT_EQ(5, out[0].debug.type);
+  EXPECT_EQ(2, out[0].debug.file_id);
+  EXPECT_EQ(63, out[0].debug.line);
+  EXPECT_EQ(0x1234, out[0].debug.detail);
+  EXPECT_EQ(1u, f.ring.debugCount());
+}
+
+TEST(MonRing, AppendDebugNoOpWhenCapMissing) {
+  RingFixture<8> f;
+  f.ring.setConfig((MON_CAP_ALL & ~MON_CAP_EVENT) | MON_CAP_ENABLED);
+  f.ring.appendDebug(makeDebug(), 1000);
+  EXPECT_EQ(0u, f.ring.debugCount());
+}
+
+TEST(MonRing, DebugCountDecrementsOnEviction) {
+  RingFixture<2> f;
+  f.ring.appendDebug(makeDebug(), 1000);  // seq0=DEBUG
+  EXPECT_EQ(1u, f.ring.debugCount());
+
+  f.ring.appendTx(makeTx(), 1001);  // seq1=TX (ring full: [DEBUG0, TX1])
+  EXPECT_EQ(1u, f.ring.debugCount());
+
+  f.ring.appendTx(makeTx(), 1002);  // evicts seq0 -- the DEBUG record itself
+  EXPECT_EQ(0u, f.ring.debugCount());
+}
+
+// beebo: regression test for the eviction switch's continuation-bit
+// masking fix (plans/MONITORING_UNIFICATION.md Design #5) -- a record
+// whose stored `.kind` byte has RLOG_CONT_BIT set must still decrement
+// the correct per-kind resident counter on eviction, not fall through to
+// `default: break` and leak the counter. No production code sets this bit
+// yet (no multi-record writer exists), so this stores the bit directly to
+// exercise the eviction path in isolation.
+TEST(MonRing, EvictionMasksContinuationBitBeforeDispatch) {
+  RingFixture<2> f;
+  f.ring.appendDebug(makeDebug(), 1000);  // seq0=DEBUG, stored at buf[0]
+  EXPECT_EQ(1u, f.ring.debugCount());
+
+  // Simulate a continuation slot of a (hypothetical) multi-record DEBUG
+  // event occupying seq0's raw storage -- appendDebug() itself always
+  // clears this bit (single-slot events only), so flip it directly on the
+  // backing buffer to exercise the eviction masking fix in isolation.
+  f.buf[0].kind |= RLOG_CONT_BIT;
+  ASSERT_EQ(MON_DEBUG | RLOG_CONT_BIT, f.buf[0].kind);
+
+  f.ring.appendTx(makeTx(), 1001);  // ring full: [DEBUG0(cont-bit set), TX1]
+  f.ring.appendTx(makeTx(), 1002);  // evicts seq0 -- must still decrement debugCount()
+
+  EXPECT_EQ(0u, f.ring.debugCount());
+}
+
 // beebo: MLOG live-sink hook (plans/MLOG_LIVE_STREAM.md) -- a plain
 // function pointer, no per-call-site state, so these tests route through a
 // static capture vector rather than a lambda-with-capture (LiveSink can't

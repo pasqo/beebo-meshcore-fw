@@ -39,4 +39,8 @@ struct BeeboBasePrefs {
   uint32_t monring_event_mask = 0xFFFFFFFFu;  // per-event-type MON_EVENT capture bitmask
                                  // (MonRing::_event_type_mask), same per-role-differs
                                  // rationale as monring_config above.
+  uint8_t profile_enabled = 0;   // ProfileLog::setEnabled() gate -- default DISABLED,
+                                 // unlike monring_config's on-by-default kinds (see
+                                 // plans/MONITORING_UNIFICATION.md Design #7). Same
+                                 // per-role-differs rationale as monring_config above.
 };

@@ -577,6 +577,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_WIFI_IP,            TLV_STRING, nullptr, nullptr, tlvGetWifiIp,           nullptr },
   { PREFS_TLV_WIFI_RSSI,          TLV_U32,    tlvGetWifiRssi, nullptr, nullptr, nullptr },
   { PREFS_TLV_BLE_RSSI,           TLV_U32,    tlvGetBleRssi,  nullptr, nullptr, nullptr },
+  { PREFS_TLV_PROFILE_ENABLED,    TLV_U32,    tlvGetProfileEnabled, tlvSetProfileEnabled, nullptr, nullptr },
 };
 const size_t Beebo::PREFS_TLV_FIELD_COUNT = sizeof(PREFS_TLV_FIELDS) / sizeof(PREFS_TLV_FIELDS[0]);
 
