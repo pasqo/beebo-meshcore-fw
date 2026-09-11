@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "BaseSerialInterface.h"
+#include "MonRing.h"
 
 // beebo: unified debug-event subsystem -- one ring (this file, `debug_ring`,
 // was `TransportLog`/`transport_log`) and one live push mechanism (was
@@ -414,6 +415,14 @@ class DebugRing {
   bool _usb_enabled = false;
   bool _session_enabled = false;
 
+  // beebo: MLOG (live MonRing relay, plans/MLOG_LIVE_STREAM.md) is enabled
+  // independently of DLOG/RLOG above -- same per-path (raw USB tap vs.
+  // session) split, same reasoning (a raw USB tap must never also land on
+  // an unrelated BLE/WiFi companion session, see attach()'s own comment).
+  bool _usb_mlog_enabled = false;
+  bool _session_mlog_enabled = false;
+  uint8_t _mlog_sub_id = 0;
+
   bool _replay_active = false;
   uint16_t _replay_pos = 0;   // 0.._count-1, logical index of the next event replayStep() will push
 
@@ -433,18 +442,28 @@ public:
   // that session's own command-reply traffic for the same shallow
   // send_queue and dropping real app frames -- see BUGS.md).
   void attach(BaseSerialInterface* serial, BaseSerialInterface* usb, uint8_t resp_code,
-              uint8_t log_sub_id, uint8_t rlog_sub_id) {
+              uint8_t log_sub_id, uint8_t rlog_sub_id, uint8_t mlog_sub_id = 0) {
     _usb = usb;
     _serial = serial;
     _resp_code = resp_code;
     _log_sub_id = log_sub_id;
     _rlog_sub_id = rlog_sub_id;
+    _mlog_sub_id = mlog_sub_id;
   }
   void setUsbEnabled(bool enabled) { _usb_enabled = enabled; }
   void setSessionEnabled(bool enabled) { _session_enabled = enabled; }
   bool isUsbEnabled() const { return _usb_enabled; }
   bool isSessionEnabled() const { return _session_enabled; }
   bool isEnabled() const { return _usb_enabled || _session_enabled; }
+
+  // beebo: MLOG (plans/MLOG_LIVE_STREAM.md) -- independent DLOG/RLOG vs
+  // MLOG enable state per path, same reasoning as _usb_enabled/
+  // _session_enabled above.
+  void setUsbMlogEnabled(bool enabled) { _usb_mlog_enabled = enabled; }
+  void setSessionMlogEnabled(bool enabled) { _session_mlog_enabled = enabled; }
+  bool isUsbMlogEnabled() const { return _usb_mlog_enabled; }
+  bool isSessionMlogEnabled() const { return _session_mlog_enabled; }
+  bool isMlogEnabled() const { return _usb_mlog_enabled || _session_mlog_enabled; }
 
   // RLOGH/M/L: appended to the ring unless severity is Low (L is link-only,
   // like DLOGH/M/L); always live-pushed to physical USB *and* whichever
@@ -582,22 +601,26 @@ private:
   // actually asked for the live stream -- _usb only if the raw USB tap
   // enabled it (BEEBO_RAW_SUB_DEBUG_LOG_ENABLE), _serial only if a
   // companion session enabled it (BEEBO_CMD_DEBUG_LOG_ENABLE), skipping
-  // _serial when its locked transport is USB and _usb_enabled already
+  // _serial when its locked transport is USB and usb_enabled already
   // covers the same physical wire (no double send). A companion session's
   // stream is best-effort against that session's own traffic -- skipped
   // outright (not queued) while its transport isWriteBusy(), so a burst of
   // debug events never takes the last send_queue slot a real app command
   // reply needs (see SerialBLEInterface::isWriteBusy()'s own comment on
   // why that slot matters); the raw USB tap has no such shared traffic to
-  // protect, so it always pushes when armed.
-  void pushToTargets(const uint8_t* out, size_t pos) const {
-    if (_usb_enabled && _usb) {
+  // protect, so it always pushes when armed. Takes explicit usb_enabled/
+  // session_enabled flags rather than reading _usb_enabled/_session_enabled
+  // directly -- DLOG/RLOG and MLOG (plans/MLOG_LIVE_STREAM.md) are enabled
+  // independently, each with their own pair of flags, but route through
+  // this same targeting logic.
+  void pushToTargets(const uint8_t* out, size_t pos, bool usb_enabled, bool session_enabled) const {
+    if (usb_enabled && _usb) {
       const_cast<DebugRing*>(this)->_usb->writeFrameBestEffort(out, pos);
     }
-    if (_session_enabled && _serial) {
+    if (session_enabled && _serial) {
       BaseSerialInterface* serial = const_cast<DebugRing*>(this)->_serial;
       uint8_t active_type = serial->activeTransportType();
-      bool same_wire_as_usb = _usb_enabled && active_type == RLOG_ID_XPORT_USB;
+      bool same_wire_as_usb = usb_enabled && active_type == RLOG_ID_XPORT_USB;
       if (active_type != 0 && !same_wire_as_usb && !serial->isWriteBusy()) {
         serial->writeFrameBestEffort(out, pos);
       }
@@ -625,7 +648,24 @@ private:
     memcpy(&out[pos], &detail, 4);
     pos += 4;
 
-    pushToTargets(out, pos);
+    pushToTargets(out, pos, _usb_enabled, _session_enabled);
+  }
+
+public:
+  // beebo: MLOG live push (plans/MLOG_LIVE_STREAM.md) -- wired as
+  // MonRing's LiveSink, so it fires from MonRing::_store() for every record
+  // actually appended (and, during a disabled->enabled replay, once per
+  // record already resident in the ring). Wire frame: [resp_code:1]
+  // [mlog_sub_id:1][MonRecord:16 bytes, verbatim] -- the same 16 bytes
+  // GET_MONRING's page download already uses, so the host reuses that
+  // decoder rather than a second one (design decision 2).
+  void pushMlogFrame(const MonRecord &rec) const {
+    if (!isMlogEnabled() || (!_serial && !_usb)) return;
+    uint8_t out[2 + sizeof(MonRecord)];
+    out[0] = _resp_code;
+    out[1] = _mlog_sub_id;
+    memcpy(&out[2], &rec, sizeof(MonRecord));
+    pushToTargets(out, sizeof(out), _usb_mlog_enabled, _session_mlog_enabled);
   }
 };
 
@@ -659,3 +699,10 @@ extern DebugRing debug_ring;
 // keepalive during `beebo -i`.
 #define BEEBO_RAW_SUB_DEBUG_LOG_ENABLE 1
 #define BEEBO_RAW_SUB_KEEPALIVE 2
+
+// beebo: DEBUG_LOG_ENABLE/BEEBO_RAW_SUB_DEBUG_LOG_ENABLE's payload byte is a
+// bitmask, not a bare bool, as of plans/MLOG_LIVE_STREAM.md -- bit 0 is the
+// original DLOG/RLOG enable (an old client sending bare 0/1 is unaffected),
+// bit 1 is the new MLOG enable.
+#define DEBUG_LOG_ENABLE_BIT_DLOG 0x01
+#define DEBUG_LOG_ENABLE_BIT_MLOG 0x02

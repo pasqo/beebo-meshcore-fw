@@ -630,11 +630,26 @@ static_assert(sizeof(RouteRecord) == 16, "RouteRecord must be 16 bytes");
 static_assert(sizeof(MonRecord)   == 16, "MonRecord must be 16 bytes");
 
 class MonRing {
+public:
+  // beebo: fired from _store() for every record actually appended (after
+  // the per-kind MON_CAP_* capture gate every appendXxx() already applies --
+  // a record that wouldn't be captured into the ring never reaches _store()
+  // and so is never live-relayed either, see plans/MLOG_LIVE_STREAM.md
+  // design decision 4). Plain function pointer, not std::function, matching
+  // this codebase's no-dynamic-allocation convention. nullptr by default, so
+  // the native test suite (which never calls setLiveSink()) is unaffected.
+  using LiveSink = void (*)(const MonRecord &rec);
+
+private:
   MonRecord *_buf = nullptr;
   uint32_t  _cap = 0;       // capacity in records
   uint32_t  _head = 0;      // next slot to write
   uint32_t  _count = 0;     // valid records (<= _cap)
   uint32_t  _next_seq = 0;  // seq to assign to the next appended record
+  LiveSink  _live_sink = nullptr;
+  bool      _mlog_replay_active = false;
+  uint32_t  _mlog_replay_seq = 0;
+  bool      _mlog_replay_pending = false;
   // beebo: this in-class default is effectively unreachable in practice on
   // real hardware -- Beebo::begin() always calls
   // setConfig(_prefs.monring_config) right after computing/loading that
@@ -826,6 +841,7 @@ class MonRing {
 
   // Raw append of a fully-formed record. Assigns the next seq, wraps the ring.
   uint32_t _store(const MonRecord &rec) {
+    if (_live_sink) _live_sink(rec);
     if (_count == _cap) {
       // Full ring: _buf[_head] is the oldest record, about to be overwritten.
       // If it is a reference kind, it is the floor for whatever of its
@@ -914,6 +930,76 @@ public:
   uint32_t count() const { return _count; }
   uint32_t oldestSeq() const { return _next_seq - _count; }
   uint32_t nextSeq() const { return _next_seq; }
+  void     setLiveSink(LiveSink sink) { _live_sink = sink; }
+
+  // beebo: two-phase MLOG replay-on-enable -- requestMlogReplay() (called
+  // from the enable handler) only arms `_mlog_replay_pending`; the actual
+  // beginMlogReplay() is deferred until DebugRing's own replay has fully
+  // drained (Beebo.cpp's paced-stream chain checks `!debug_ring.
+  // isReplaying()`), so MLOG's replayed backlog always prints *after*
+  // DLOG/RLOG's rather than racing ahead of it -- MLOG's own start-refs are
+  // pushed synchronously the instant beginMlogReplay() runs, and DLOG/RLOG's
+  // replay is paced one event per loop() tick, so without this ordering
+  // MLOG's SYNC/RADIO lines (timestamped "now") always landed before
+  // DLOG/RLOG's replayed backlog (timestamped from actual boot, long
+  // before "now") in the printed file, even though DLOG/RLOG's events
+  // happened first. If DLOG/RLOG's replay was never active to begin with
+  // (nothing to wait for), this fires on the very next tick.
+  void requestMlogReplay() { _mlog_replay_pending = true; }
+  bool mlogReplayPending() const { return _mlog_replay_pending; }
+
+  // beebo: MLOG replay-on-enable (plans/MLOG_LIVE_STREAM.md decision 3) --
+  // mirrors DebugRing::beginReplay()/replayStep()'s own paced-not-a-burst
+  // shape, but walks this ring's own seq space instead of DebugRing's
+  // logical index, since the two rings have unrelated record shapes/sizes.
+  // Lives here rather than on DebugRing since only MonRing can iterate its
+  // own buffer; the caller (Beebo.cpp's paced-stream chain) drives one
+  // mlogReplayStep() per tick, same cadence as DebugRing's own replayStep(),
+  // once requestMlogReplay()'s own deferred-start condition is met.
+  void beginMlogReplay() {
+    _mlog_replay_pending = false;
+    // beebo: mirror BEEBO_CMD_GET_MONRING's own first-page start-ref splice
+    // (Beebo.cpp's GET_MONRING handler, `kSlotKind[3] = {MON_SYNC,
+    // MON_RADIO, MON_ENV}`) -- inject whichever of those isn't already the
+    // ring's own oldest resident record for that slot, pushed synchronously
+    // (unlike the real per-record walk below: at most 3 small records, not
+    // a burst-pacing concern the way the ring's full backlog is). Without
+    // this, a freshly-enabled MLOG stream has no time base at all until the
+    // next periodic real MON_SYNC record happens to be appended or
+    // replayed -- which can be minutes away (MonRing's own sync period),
+    // during which every live line's abs_time is unresolved. Pushed
+    // unconditionally, even when the ring itself is empty (start_sync is
+    // always populated from init()/clear() onward, per emitStartRef()'s
+    // own comment) -- see plans/MLOG_LIVE_STREAM.md.
+    if (_live_sink) {
+      static const uint8_t kSlotKind[3] = { MON_SYNC, MON_RADIO, MON_ENV };
+      uint32_t peek_pos = oldestSeq();
+      MonRecord rec;
+      for (int s = 0; s < 3; s++) {
+        if (peek(peek_pos, &rec) && rec.kind == kSlotKind[s]) {
+          peek_pos++;   // real record covers this slot; nothing to inject
+        } else {
+          MonRecord ref;
+          if (emitStartRef(kSlotKind[s], &ref)) _live_sink(ref);
+        }
+      }
+    }
+    _mlog_replay_active = (_count > 0);
+    _mlog_replay_seq = oldestSeq();
+  }
+  bool isMlogReplaying() const { return _mlog_replay_active; }
+  bool mlogReplayStep() {
+    if (!_mlog_replay_active) return false;
+    MonRecord rec;
+    if (!peek(_mlog_replay_seq, &rec)) {
+      _mlog_replay_active = false;
+      return false;
+    }
+    if (_live_sink) _live_sink(rec);
+    _mlog_replay_seq++;
+    if (_mlog_replay_seq >= _next_seq) _mlog_replay_active = false;
+    return _mlog_replay_active;
+  }
   void     setSyncPeriod(uint32_t s) { if (s) _sync_period = s; }
   uint32_t rxCount() const { return _rx_count; }
   uint32_t battCount() const { return _batt_count; }

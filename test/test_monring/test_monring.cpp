@@ -1148,6 +1148,157 @@ TEST(MonRing, RouteCountDecrementsOnEviction) {
   EXPECT_EQ(0u, f.ring.routeCount());
 }
 
+// beebo: MLOG live-sink hook (plans/MLOG_LIVE_STREAM.md) -- a plain
+// function pointer, no per-call-site state, so these tests route through a
+// static capture vector rather than a lambda-with-capture (LiveSink can't
+// bind one, matching this codebase's no-dynamic-allocation convention).
+namespace {
+std::vector<MonRecord> g_live_sink_calls;
+void captureLiveSink(const MonRecord &rec) { g_live_sink_calls.push_back(rec); }
+}  // namespace
+
+TEST(MonRingLiveSink, FiresOncePerStoreForEveryAppendKind) {
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setLiveSink(&captureLiveSink);
+
+  f.ring.appendRx(makeRx(), 1000);
+  f.ring.appendTx(makeTx(), 1001);
+  f.ring.sampleEnv(makeEnv(), 1002);
+
+  ASSERT_EQ(3u, g_live_sink_calls.size());
+  EXPECT_EQ(MON_RX, g_live_sink_calls[0].kind);
+  EXPECT_EQ(MON_TX, g_live_sink_calls[1].kind);
+  EXPECT_EQ(MON_ENV, g_live_sink_calls[2].kind);
+}
+
+TEST(MonRingLiveSink, NeverFiresWhenNoSinkSet) {
+  g_live_sink_calls.clear();
+  RingFixture<8> f;   // setLiveSink() never called -- native suite's default
+  f.ring.appendRx(makeRx(), 1000);
+  f.ring.appendTx(makeTx(), 1001);
+  EXPECT_TRUE(g_live_sink_calls.empty());
+}
+
+TEST(MonRingLiveSink, DisabledKindNeverReachesSink) {
+  // beebo: a MON_CAP_* gated-off kind never reaches _store() at all (design
+  // decision 4) -- appendXxx() itself is the gate, live-relay included.
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setLiveSink(&captureLiveSink);
+  f.ring.setConfig(MON_CAP_ENABLED);   // every per-kind bit off, RX included
+  f.ring.appendRx(makeRx(), 1000);
+  EXPECT_TRUE(g_live_sink_calls.empty());
+}
+
+TEST(MonRingMlogReplay, EmptyRingBeginReplayIsAlreadyDone) {
+  RingFixture<8> f;
+  f.ring.beginMlogReplay();
+  EXPECT_FALSE(f.ring.isMlogReplaying());
+  EXPECT_FALSE(f.ring.mlogReplayStep());
+}
+
+TEST(MonRingMlogReplay, OneRecordPerStepOldestFirst) {
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.appendRx(makeRx(0x1), 1000);
+  f.ring.appendTx(makeTx(0x2), 1001);
+  f.ring.appendRx(makeRx(0x3), 1002);
+  g_live_sink_calls.clear();   // the appends above didn't have a sink attached yet
+
+  f.ring.setLiveSink(&captureLiveSink);
+  f.ring.beginMlogReplay();
+  EXPECT_TRUE(f.ring.isMlogReplaying());
+
+  // beginMlogReplay() itself immediately injects the SYNC/RADIO start-refs
+  // (mirrors GET_MONRING's own first-page splice) before the real per-seq
+  // walk below -- ENV isn't injected (no sampleEnv() call in this fixture,
+  // see emitStartRef()'s own env-not-yet-sampled gate).
+  ASSERT_EQ(2u, g_live_sink_calls.size());
+  EXPECT_EQ(MON_SYNC, g_live_sink_calls[0].kind);
+  EXPECT_EQ(MON_RADIO, g_live_sink_calls[1].kind);
+
+  ASSERT_TRUE(f.ring.mlogReplayStep());
+  ASSERT_TRUE(f.ring.mlogReplayStep());
+  EXPECT_FALSE(f.ring.mlogReplayStep());   // 3rd (last) record: replay completes
+  EXPECT_FALSE(f.ring.isMlogReplaying());
+
+  ASSERT_EQ(5u, g_live_sink_calls.size());
+  EXPECT_EQ(MON_RX, g_live_sink_calls[2].kind);
+  EXPECT_EQ(0x1u, g_live_sink_calls[2].rx.pkt_hash);
+  EXPECT_EQ(MON_TX, g_live_sink_calls[3].kind);
+  EXPECT_EQ(0x2u, g_live_sink_calls[3].tx.pkt_hash);
+  EXPECT_EQ(MON_RX, g_live_sink_calls[4].kind);
+  EXPECT_EQ(0x3u, g_live_sink_calls[4].rx.pkt_hash);
+
+  // Further calls are no-ops once done.
+  EXPECT_FALSE(f.ring.mlogReplayStep());
+  EXPECT_EQ(5u, g_live_sink_calls.size());
+}
+
+TEST(MonRingMlogReplay, StartRefNotInjectedWhenRealRecordAlreadyCoversSlot) {
+  // beebo: if the ring's own oldest resident record already IS a MON_SYNC
+  // (a real one was captured recently enough to still be resident), don't
+  // also inject a synthetic start-ref for that slot -- same "nothing
+  // skipped or duplicated" invariant GET_MONRING's own splice documents.
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setSyncPeriod(1);       // force a real SYNC record on the next append
+  f.ring.appendRx(makeRx(0x1), 5000);   // elapsed since init's seed -> relatches -> real MON_SYNC, then RX
+  g_live_sink_calls.clear();
+
+  f.ring.setLiveSink(&captureLiveSink);
+  f.ring.beginMlogReplay();
+
+  // Only RADIO is injected (still no real RADIO record); SYNC's slot is
+  // already covered by the real record at oldestSeq().
+  ASSERT_EQ(1u, g_live_sink_calls.size());
+  EXPECT_EQ(MON_RADIO, g_live_sink_calls[0].kind);
+}
+
+TEST(MonRingMlogReplay, StartRefInjectedEvenWhenRingEmpty) {
+  // beebo: start_sync/start_radio are populated from init() onward, so a
+  // freshly-enabled MLOG stream against a totally empty ring still gets an
+  // immediate time base rather than waiting for the ring to hold anything.
+  g_live_sink_calls.clear();
+  RingFixture<8> f;   // never appended to -- count() == 0
+  f.ring.setLiveSink(&captureLiveSink);
+  f.ring.beginMlogReplay();
+  EXPECT_FALSE(f.ring.isMlogReplaying());   // nothing real to replay
+  ASSERT_EQ(2u, g_live_sink_calls.size());
+  EXPECT_EQ(MON_SYNC, g_live_sink_calls[0].kind);
+  EXPECT_EQ(MON_RADIO, g_live_sink_calls[1].kind);
+}
+
+// beebo: two-phase replay (plans/MLOG_LIVE_STREAM.md) -- requestMlogReplay()
+// only arms a pending flag; beginMlogReplay() (and its synchronous start-ref
+// push) doesn't fire until the caller actually calls it, letting Beebo.cpp
+// defer that call until DLOG/RLOG's own replay has drained, so MLOG's
+// "now"-timestamped lines never print ahead of DLOG/RLOG's replayed
+// (chronologically earlier) backlog.
+TEST(MonRingMlogReplay, RequestOnlyArmsPendingDoesNotPushYet) {
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setLiveSink(&captureLiveSink);
+  EXPECT_FALSE(f.ring.mlogReplayPending());
+
+  f.ring.requestMlogReplay();
+
+  EXPECT_TRUE(f.ring.mlogReplayPending());
+  EXPECT_FALSE(f.ring.isMlogReplaying());
+  EXPECT_TRUE(g_live_sink_calls.empty());   // no start-refs pushed yet
+}
+
+TEST(MonRingMlogReplay, BeginMlogReplayClearsPending) {
+  RingFixture<8> f;
+  f.ring.requestMlogReplay();
+  ASSERT_TRUE(f.ring.mlogReplayPending());
+
+  f.ring.beginMlogReplay();
+
+  EXPECT_FALSE(f.ring.mlogReplayPending());
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

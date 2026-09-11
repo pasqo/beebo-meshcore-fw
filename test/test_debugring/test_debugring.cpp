@@ -21,6 +21,7 @@ class FakeSerial : public BaseSerialInterface {
 public:
   int push_count = 0;
   uint8_t active_transport_type = kFakeNonUsbTransportType;
+  std::vector<uint8_t> last_frame;
 
   void enable() override {}
   void disable() override {}
@@ -31,6 +32,7 @@ public:
   size_t writeFrame(const uint8_t src[], size_t len) override { return len; }
   size_t writeFrameBestEffort(const uint8_t src[], size_t len) override {
     push_count++;
+    last_frame.assign(src, src + len);
     return len;
   }
   size_t checkRecvFrame(uint8_t dest[], size_t max_len = MAX_FRAME_SIZE,
@@ -68,7 +70,8 @@ TEST(DebugRingReplay, OneEventPerStepNotABurst) {
   DebugRing ring;
   FakeSerial serial;
   ring.attach(&serial, nullptr, 0xDE, 1, 2);
-  ring.setEnabled(true);
+  ring.setUsbEnabled(true);
+  ring.setSessionEnabled(true);
   for (int i = 0; i < 5; i++) {
     ring.logRing(__FILE__, __LINE__, /*type=*/i, DLOG_SEV_H, /*detail=*/i * 10);
   }
@@ -102,7 +105,8 @@ TEST(DebugRingReplay, ReplayOrderIsOldestFirstAcrossWraparound) {
   DebugRing ring;
   FakeSerial serial;
   ring.attach(&serial, nullptr, 0xDE, 1, 2);
-  ring.setEnabled(true);
+  ring.setUsbEnabled(true);
+  ring.setSessionEnabled(true);
   // beebo: overfill the ring so it wraps -- RLOG_MAX_EVENTS events plus a
   // few more, confirming replayStep() walks the wrapped buffer in true
   // chronological order (oldest surviving event first), not raw buffer
@@ -144,7 +148,8 @@ TEST(DebugRingPushTargets, NoSessionLockedPushesUsbOnly) {
   FakeSerial usb, serial;
   serial.active_transport_type = 0;   // SESSION_IDLE -- nothing locked
   ring.attach(&serial, &usb, 0xDE, 1, 2);
-  ring.setEnabled(true);
+  ring.setUsbEnabled(true);
+  ring.setSessionEnabled(true);
   ring.logRing(__FILE__, __LINE__, /*type=*/1, DLOG_SEV_H, /*detail=*/0);
   EXPECT_EQ(usb.push_count, 1) << "raw USB tap must work with no session locked at all";
   EXPECT_EQ(serial.push_count, 0);
@@ -155,7 +160,8 @@ TEST(DebugRingPushTargets, NonUsbSessionLockedPushesBoth) {
   FakeSerial usb, serial;
   serial.active_transport_type = kFakeNonUsbTransportType;   // TCP/BLE session locked
   ring.attach(&serial, &usb, 0xDE, 1, 2);
-  ring.setEnabled(true);
+  ring.setUsbEnabled(true);
+  ring.setSessionEnabled(true);
   ring.logRing(__FILE__, __LINE__, /*type=*/1, DLOG_SEV_H, /*detail=*/0);
   EXPECT_EQ(usb.push_count, 1) << "raw USB tap must keep working alongside a live TCP/BLE session";
   EXPECT_EQ(serial.push_count, 1) << "TCP/BLE session must also see the event (TCP_DEBUG_STREAM)";
@@ -166,10 +172,70 @@ TEST(DebugRingPushTargets, UsbSessionLockedPushesOnceNotTwice) {
   FakeSerial usb, serial;
   serial.active_transport_type = RLOG_ID_XPORT_USB;   // session locked on USB itself
   ring.attach(&serial, &usb, 0xDE, 1, 2);
-  ring.setEnabled(true);
+  ring.setUsbEnabled(true);
+  ring.setSessionEnabled(true);
   ring.logRing(__FILE__, __LINE__, /*type=*/1, DLOG_SEV_H, /*detail=*/0);
   EXPECT_EQ(usb.push_count, 1);
   EXPECT_EQ(serial.push_count, 0) << "same physical wire as usb -- must not double-send";
+}
+
+// beebo: MLOG (plans/MLOG_LIVE_STREAM.md) -- pushMlogFrame() gated on its
+// own _usb_mlog_enabled/_session_mlog_enabled flags, independent of DLOG/
+// RLOG's _usb_enabled/_session_enabled, but routed through the same
+// pushToTargets() targeting logic (attach()'s usb-always/session-if-
+// non-usb-and-not-same-wire rules).
+TEST(DebugRingMlog, NotSentWhenMlogDisabledEvenIfDlogEnabled) {
+  DebugRing ring;
+  FakeSerial usb, serial;
+  ring.attach(&serial, &usb, 0xDE, 1, 2, 3);
+  ring.setUsbEnabled(true);
+  ring.setSessionEnabled(true);
+  // MLOG bits left off.
+  MonRecord rec; memset(&rec, 0, sizeof(rec)); rec.kind = MON_RX;
+  ring.pushMlogFrame(rec);
+  EXPECT_EQ(usb.push_count, 0);
+  EXPECT_EQ(serial.push_count, 0);
+}
+
+TEST(DebugRingMlog, UsbMlogEnabledPushesUsbOnly) {
+  DebugRing ring;
+  FakeSerial usb, serial;
+  serial.active_transport_type = 0;   // no session locked
+  ring.attach(&serial, &usb, 0xDE, 1, 2, 3);
+  ring.setUsbMlogEnabled(true);
+  MonRecord rec; memset(&rec, 0, sizeof(rec)); rec.kind = MON_TX;
+  ring.pushMlogFrame(rec);
+  EXPECT_EQ(usb.push_count, 1);
+  EXPECT_EQ(serial.push_count, 0);
+}
+
+TEST(DebugRingMlog, SessionMlogEnabledPushesSessionOnly) {
+  DebugRing ring;
+  FakeSerial usb, serial;
+  serial.active_transport_type = kFakeNonUsbTransportType;
+  ring.attach(&serial, &usb, 0xDE, 1, 2, 3);
+  ring.setSessionMlogEnabled(true);
+  MonRecord rec; memset(&rec, 0, sizeof(rec)); rec.kind = MON_RADIO;
+  ring.pushMlogFrame(rec);
+  EXPECT_EQ(usb.push_count, 0);
+  EXPECT_EQ(serial.push_count, 1);
+}
+
+TEST(DebugRingMlog, FrameCarriesRecordVerbatim) {
+  DebugRing ring;
+  FakeSerial usb, serial;
+  ring.attach(&serial, &usb, 0xDE, 1, 2, 3);
+  ring.setUsbMlogEnabled(true);
+  MonRecord rec; memset(&rec, 0, sizeof(rec)); rec.kind = MON_RX;
+  rec.rx.pkt_hash = 0xCAFEBABE;
+  ring.pushMlogFrame(rec);
+  ASSERT_EQ(usb.last_frame.size(), 2 + sizeof(MonRecord));
+  EXPECT_EQ(usb.last_frame[0], 0xDE);   // resp_code
+  EXPECT_EQ(usb.last_frame[1], 3);      // mlog_sub_id
+  MonRecord decoded;
+  memcpy(&decoded, &usb.last_frame[2], sizeof(MonRecord));
+  EXPECT_EQ(decoded.kind, MON_RX);
+  EXPECT_EQ(decoded.rx.pkt_hash, 0xCAFEBABEu);
 }
 
 }  // namespace

@@ -42,6 +42,14 @@
 #define MAX_LOOP_LATENCY_THRESHOLD_MS  500u
 #define TUNE_TICK_INTERVAL_MS 300000u         // beebo: dynamic-tuning optimizer re-tune cadence (5 min)
 
+// beebo: MonRing's LiveSink hook target (plans/MLOG_LIVE_STREAM.md) -- a
+// plain free function (MonRing.h stays Arduino-free, so it can't call
+// debug_ring, which is Arduino-dependent, directly). Wired via
+// monring.setLiveSink() once monring.init() succeeds.
+static void pushMlogFrame(const MonRecord &rec) {
+  debug_ring.pushMlogFrame(rec);
+}
+
 #ifndef TCP_PORT
   #define TCP_PORT 5000
 #endif
@@ -1563,7 +1571,7 @@ void Beebo::beginTransports() {
   driveUsb(usb_on);
 
   startInterface(serial_interface);
-  debug_ring.attach(_serial, &usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG);
+  debug_ring.attach(_serial, &usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG, BEEBO_RESP_DEBUG_MLOG);
 
   for (int i = 0; i < RLOG_XPORT_VAR_COUNT; i++) _last_xport_var[i] = -1;
   _checkTransportStateChanges();   // logs every var's boot value as "changed from -1"
@@ -1654,6 +1662,7 @@ void Beebo::initMonRing() {
                                     buildRadioRecord(), buildEnvRecord())) {
     monring.setConfig(_role_state->prefs.monring_config);  // apply persisted enable + per-kind capture mask
     monring.setEventTypeMask(_role_state->prefs.monring_event_mask);  // apply persisted per-event-type capture mask
+    monring.setLiveSink(&pushMlogFrame);  // MLOG live relay, see plans/MLOG_LIVE_STREAM.md
     MESH_DEBUG_PRINTLN("MonRing: %u records (%u KB PSRAM), %u KB PSRAM free after",
                        monring.capacity(), (unsigned)(want / 1024),
                        (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
@@ -5263,12 +5272,19 @@ void Beebo::handleCmdFrame(size_t len) {
       // an already-enabled state triggers no second replay), and for why
       // this is paced (checkSerialInterface()'s own paced-stream chain)
       // rather than a synchronous burst.
-      bool enabling = sub[1] != 0;
+      bool enabling = (sub[1] & DEBUG_LOG_ENABLE_BIT_DLOG) != 0;
+      bool mlog_enabling = (sub[1] & DEBUG_LOG_ENABLE_BIT_MLOG) != 0;
       if (enabling && !debug_ring.isEnabled()) {
         debug_ring.setSessionEnabled(true);
         debug_ring.beginReplay();
       } else {
         debug_ring.setSessionEnabled(enabling);
+      }
+      if (mlog_enabling && !debug_ring.isMlogEnabled()) {
+        debug_ring.setSessionMlogEnabled(true);
+        monring.requestMlogReplay();
+      } else {
+        debug_ring.setSessionMlogEnabled(mlog_enabling);
       }
       writeOKFrame();
     }
@@ -5392,7 +5408,8 @@ void Beebo::checkSerialInterface() {
     // below the app/session request-reply layer entirely.
     uint8_t raw_sub = cmd_frame[0], raw_data = cmd_frame[1];
     if (raw_sub == BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) {
-      bool enabling = raw_data != 0;
+      bool enabling = (raw_data & DEBUG_LOG_ENABLE_BIT_DLOG) != 0;
+      bool mlog_enabling = (raw_data & DEBUG_LOG_ENABLE_BIT_MLOG) != 0;
       // beebo: replay the ring's full backlog on every disabled -> enabled
       // transition, not just the first one this boot -- a resend of the
       // *same* enable byte within one still-live connection (debug_link.py's
@@ -5406,12 +5423,20 @@ void Beebo::checkSerialInterface() {
       // own comment for how this is also what gets a boot-time event
       // (RLOG_ID_BOOT_START, logged before any client could possibly be
       // listening) to a host at all, and for why replay is paced rather
-      // than a synchronous burst.
+      // than a synchronous burst. MLOG's own bit gets the same treatment,
+      // independently, against MonRing's backlog instead (MonRing::
+      // beginMlogReplay()/mlogReplayStep()).
       if (enabling && !debug_ring.isEnabled()) {
         debug_ring.setUsbEnabled(true);
         debug_ring.beginReplay();
       } else {
         debug_ring.setUsbEnabled(enabling);
+      }
+      if (mlog_enabling && !debug_ring.isMlogEnabled()) {
+        debug_ring.setUsbMlogEnabled(true);
+        monring.requestMlogReplay();
+      } else {
+        debug_ring.setUsbMlogEnabled(mlog_enabling);
       }
     }
     // BEEBO_RAW_SUB_KEEPALIVE: no action needed here -- checkRecvFrame()'s
@@ -5659,6 +5684,21 @@ void Beebo::checkSerialInterface() {
     // why an unpaced synchronous burst overflowed SerialWifiInterface's
     // send_queue.
     debug_ring.replayStep();
+  } else if (monring.mlogReplayPending() && !debug_ring.isReplaying()) {
+    // beebo: only actually start MLOG's replay once DLOG/RLOG's own replay
+    // has fully drained (or was never active) -- see MonRing::
+    // requestMlogReplay()'s own comment for why: MLOG's start-refs are
+    // pushed synchronously the instant beginMlogReplay() runs, so calling
+    // it eagerly (right when the enable command was handled) always beat
+    // DLOG/RLOG's own paced replay to the wire, printing MLOG's "now"-
+    // timestamped SYNC/RADIO lines ahead of DLOG/RLOG's replayed backlog
+    // even though that backlog happened first, chronologically.
+    monring.beginMlogReplay();
+  } else if (monring.isMlogReplaying() && !_serial->isWriteBusy()) {
+    // beebo: MLOG's own replay-on-enable backlog (plans/MLOG_LIVE_STREAM.md
+    // decision 3), same one-record-per-loop pacing as debug_ring's replay
+    // above, walking MonRing's own ring instead.
+    monring.mlogReplayStep();
   //} else if (!_serial->isWriteBusy()) {
   //  checkConnections();    // TODO - deprecate the 'Connections' stuff
   }

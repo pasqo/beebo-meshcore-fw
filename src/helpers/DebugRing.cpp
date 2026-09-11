@@ -61,5 +61,5 @@ void DebugRing::logLink(const char* file, int line, uint16_t id, uint8_t severit
   if (n < 0) n = 0;
   size_t msg_len = (size_t)n < text_cap ? (size_t)n : (text_cap > 0 ? text_cap - 1 : 0);
 
-  pushToTargets(out, pos + msg_len);
+  pushToTargets(out, pos + msg_len, _usb_enabled, _session_enabled);
 }
