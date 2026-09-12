@@ -17,13 +17,17 @@
 #endif
 
 // beebo: monitor ring sizing. This board has only ~2 MB PSRAM total (NOT the
-// 16 MB flash). Size as a fraction of the PSRAM actually free when the ring is
-// allocated (after transports are up), so it can never exceed the total and
-// always leaves a comfortable amount free for WiFi/BLE/LWIP/general use.
-#define MONRING_FREE_FRACTION 2               // take 1/N of free PSRAM (leave the rest)
-#define MONRING_MAX_BYTES     (1024u * 1024)  // hard cap (~32k records)
-#define MONRING_MIN_BYTES     (64u * 1024)    // below this, don't bother (~2k records)
-#define MONRING_ALIGN_BYTES   4096            // round allocation down to a page-size multiple
+// 16 MB flash). Fixed 1MiB claimed as early as possible in setup() (see
+// initMonRingEarly() below, plans/MONITORING_UNIFICATION.md Design #2) --
+// PSRAM is already available before setup() runs (configured by the ESP-IDF/
+// Arduino bootloader, not gated on anything setup() itself does), and the
+// total budget comfortably covers this fixed reservation alongside WiFi/BLE/
+// LWIP's own needs. Replaces the old free-PSRAM-fraction sizing (computed
+// AFTER transports were already up) -- that ordering meant boot events had
+// nowhere to land; this fixed-size, claim-it-first approach trades that for
+// a small, unverified-on-hardware risk of transport PSRAM starvation (see
+// this plan section's own Progress note -- needs a real device to confirm).
+#define MONRING_FIXED_BYTES   (1024u * 1024)  // fixed size (~64k records at 16 bytes each)
 #define SLOWSTAT_REFRESH_MS   60000u          // beebo: cadence to refresh cached FS usage + MCU temp
 #define ENV_SAMPLE_MS         300000u         // beebo: EnvRecord (noise_floor/temp_c) fixed sampling cadence (5 min, plans/CPU_UTILIZATION.md)
 #define ENV_RETRY_MS          1000u           // beebo: retry cadence while waiting for noise_floor calibration to complete post-boot
@@ -1668,13 +1672,53 @@ static void captureTimeAnchor(mesh::RTCClock *clock, uint32_t *out_epoch_sec, ui
   *out_millis_ms = start_millis;
 }
 
+// beebo: claims MonRing's fixed 1MiB PSRAM block as early as possible --
+// called as the literal first statement of setup() (main.cpp), before even
+// RLOGH(RLOG_ID_BOOT_START, ...), so boot events have somewhere to land from
+// the earliest possible point (plans/MONITORING_UNIFICATION.md Design #2).
+// Seeds with PLACEHOLDER radio/env (all-zero RadioRecord{}/EnvRecord{}) and
+// a provisional anchor (epoch 0, paired with millis() -- both real values
+// are unknowable this early: _role_state->prefs/board/_radio don't exist
+// yet, and the RTC hasn't been begin()'d) -- initMonRing() below corrects
+// the anchor once the RTC is valid and supersedes the placeholder radio/env
+// via noteRadio()/sampleEnv()'s own diff-on-change (they differ from zero,
+// so a real record is naturally stored once real values are known, visible
+// in a downloaded trace as an explicit placeholder->real transition rather
+// than a silent seed). Any record captured before that correction carries a
+// meaningless placeholder-epoch absolute timestamp -- bounded to at most the
+// handful of events between this call and initMonRing(), self-correcting
+// from there on, same as any other forward time correction.
+void Beebo::forwardDebugToMonRing(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms) {
+  // beebo: severity DLOG_SEV_L never reaches this sink at all (DebugRing::
+  // logRing() only calls it inside the `severity != DLOG_SEV_L` branch) --
+  // only H/M ever need packing here, matching DLOG_TYPE_SEV_BIT's own
+  // 0=H/1=M convention (MonRing.h).
+  DebugRecord d{};
+  d.type = (type & DLOG_TYPE_MASK) | (severity == DLOG_SEV_M ? DLOG_TYPE_SEV_BIT : 0);
+  d.detail = detail;
+  beebo.monring.appendDebug(d, ms);
+}
+
+void Beebo::initMonRingEarly() {
+  uint8_t *ring = (uint8_t *)heap_caps_malloc(MONRING_FIXED_BYTES, MALLOC_CAP_SPIRAM);
+  if (ring == NULL) return;   // monring stays unallocated; every append becomes a no-op
+  monring.init(ring, MONRING_FIXED_BYTES, /*anchor_epoch_sec=*/0, (uint32_t)millis(),
+               RadioRecord{}, EnvRecord{});
+  // beebo: wire RLOG forwarding as early as MonRing itself exists, so even
+  // RLOG_ID_BOOT_START (fired immediately after this call returns, see
+  // main.cpp) reaches MON_DEBUG -- purely additive, DebugRing's own live
+  // push/ring is unaffected either way.
+  debug_ring.setDebugSink(&Beebo::forwardDebugToMonRing);
+}
+
+// beebo: applies MonRing's real, boot-known state on top of
+// initMonRingEarly()'s placeholder -- persisted config, the corrected time
+// anchor, and the flood-echo/battery/slow-stat wiring that all depend on
+// state (_role_state->prefs, board, _store, the RTC) not available at the
+// early call site above. Deliberately does NOT call monring.init() again --
+// that would wipe out any real boot events already captured since
+// initMonRingEarly() ran.
 void Beebo::initMonRing() {
-  size_t free_ps = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-  size_t want = free_ps / MONRING_FREE_FRACTION;   // leave the rest of PSRAM free
-  if (want > MONRING_MAX_BYTES) want = MONRING_MAX_BYTES;
-  want &= ~(MONRING_ALIGN_BYTES - 1);   // round down to a page-aligned size
-  uint8_t *ring = (want >= MONRING_MIN_BYTES)
-                  ? (uint8_t *)heap_caps_malloc(want, MALLOC_CAP_SPIRAM) : NULL;
   // beebo: not radioIsIdle()-verified at this point in boot -- reset the
   // trend anchor/state instead of seeding it directly, so updateBattTrend()
   // won't classify against it until a confirmed-idle sample replaces it.
@@ -1683,27 +1727,30 @@ void Beebo::initMonRing() {
   // (getStorageUsedKb() is a live block-scan; getMCUTemperature() averages four
   // ~76 ms sensor reads); loop() refreshes them thereafter. Storage total is the
   // partition size — constant, so read once here. Done BEFORE buildEnvRecord()
-  // below/in monring.init(): it reads _mcu_temp_scaled, which must already
-  // hold a real reading rather than its zero-initialized default.
+  // below: it reads _mcu_temp_scaled, which must already hold a real reading
+  // rather than its zero-initialized default.
   _fs_total_kb = _store->getStorageTotalKb();
   _fs_used_kb = _store->getStorageUsedKb();
   _mcu_temp_scaled = (int16_t)(board.getMCUTemperature() * 10);
   _next_slowstat_refresh = futureMillis(SLOWSTAT_REFRESH_MS);
-  uint32_t anchor_epoch_sec, anchor_millis_ms;
-  captureTimeAnchor(getRTCClock(), &anchor_epoch_sec, &anchor_millis_ms);
-  if (ring != NULL && monring.init(ring, want, anchor_epoch_sec, anchor_millis_ms,
-                                    buildRadioRecord(), buildEnvRecord())) {
+  if (monring.allocated()) {
+    uint32_t anchor_epoch_sec, anchor_millis_ms;
+    captureTimeAnchor(getRTCClock(), &anchor_epoch_sec, &anchor_millis_ms);
+    monring.setTimeAnchor(anchor_epoch_sec, anchor_millis_ms);  // correct the placeholder anchor
     monring.setConfig(_role_state->prefs.monring_config);  // apply persisted enable + per-kind capture mask
     monring.setEventTypeMask(_role_state->prefs.monring_event_mask);  // apply persisted per-event-type capture mask
     monring.setLiveSink(&pushMlogFrame);  // MLOG live relay, see plans/MLOG_LIVE_STREAM.md
     profile_log.setEnabled(_role_state->prefs.profile_enabled);  // apply persisted ProfileLog enable gate
+    // beebo: supersede initMonRingEarly()'s placeholder radio/env with the
+    // real, now-known snapshot -- diff-on-change stores a real record since
+    // the placeholder (all-zero) essentially never matches real config.
+    monring.noteRadio(buildRadioRecord(), (uint32_t)millis());
+    monring.sampleEnv(buildEnvRecord(), (uint32_t)millis());
     MESH_DEBUG_PRINTLN("MonRing: %u records (%u KB PSRAM), %u KB PSRAM free after",
-                       monring.capacity(), (unsigned)(want / 1024),
+                       monring.capacity(), (unsigned)(MONRING_FIXED_BYTES / 1024),
                        (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
   } else {
-    if (ring != NULL) heap_caps_free(ring);
-    MESH_DEBUG_PRINTLN("MonRing: PSRAM unavailable (%u KB free), capture disabled",
-                       (unsigned)(free_ps / 1024));
+    MESH_DEBUG_PRINTLN("MonRing: PSRAM unavailable at boot, capture disabled");
   }
   // beebo: wire the flood-echo side's
   // EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT emission to this now-(maybe-)allocated ring.

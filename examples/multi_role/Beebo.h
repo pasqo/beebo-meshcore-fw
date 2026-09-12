@@ -403,7 +403,15 @@ public:
   Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store);
 
   void begin();
-  void initMonRing();  // beebo: allocate the monitoring capture ring (call last in setup())
+  void initMonRingEarly();  // beebo: claim MonRing's fixed PSRAM block (call FIRST in setup(), before RLOG_ID_BOOT_START)
+  void initMonRing();  // beebo: apply MonRing's real boot-known state (call after beebo.begin(), same position as before)
+  // beebo: DebugRing::DebugSink target -- forwards every H/M-severity RLOG
+  // event into the global `beebo` instance's own monring (private, so this
+  // must be a Beebo member, not a free function -- see DebugRing.h's own
+  // comment on why the sink is a plain callback rather than a hardcoded
+  // cross-class reference). References the single global `beebo` object
+  // directly, same as this file's other single-instance assumptions.
+  static void forwardDebugToMonRing(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms);
   void startInterface(BaseSerialInterface &serial);
 
   // beebo: build one RESP_CODE_MONRING frame (status header + up to max_len of

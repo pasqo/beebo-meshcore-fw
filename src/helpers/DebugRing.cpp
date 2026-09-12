@@ -25,6 +25,11 @@ void DebugRing::logRing(const char* file, int line, uint8_t type, uint8_t severi
     _buf[_head] = { ms, type, detail, severity, file, (uint16_t)line };
     _head = (_head + 1) % RLOG_MAX_EVENTS;
     if (_count < RLOG_MAX_EVENTS) _count++;
+    // beebo: also forward to MonRing's MON_DEBUG kind, if a sink is wired up
+    // (see this member's own comment, plans/MONITORING_UNIFICATION.md
+    // Design #3/#6) -- purely additive, this ring's own storage above is
+    // unchanged either way.
+    if (_debug_sink) _debug_sink(type, severity, detail, ms);
   }
 
   TRANSPORT_DEBUG_PRINTLN("type=%u detail=%ld", (unsigned)type, (long)detail);

@@ -238,6 +238,46 @@ TEST(DebugRingMlog, FrameCarriesRecordVerbatim) {
   EXPECT_EQ(decoded.rx.pkt_hash, 0xCAFEBABEu);
 }
 
+// beebo: DebugSink forwarding (plans/MONITORING_UNIFICATION.md Design #3/#6)
+// -- logRing() must call the sink for every H/M event (matching the exact
+// same `severity != DLOG_SEV_L` gate its own ring-storage branch uses), and
+// never for L (Low is link-only, never persisted anywhere, including this
+// new sink).
+namespace {
+struct SinkCall { uint8_t type; uint8_t severity; int32_t detail; uint32_t ms; };
+std::vector<SinkCall> g_sink_calls;
+void captureDebugSink(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms) {
+  g_sink_calls.push_back({type, severity, detail, ms});
+}
+}  // namespace
+
+TEST(DebugRingSink, FiresForHighAndMediumSeverity) {
+  g_sink_calls.clear();
+  DebugRing ring;
+  ring.setDebugSink(&captureDebugSink);
+  ring.logRing(__FILE__, __LINE__, 5, DLOG_SEV_H, 0x1234);
+  ring.logRing(__FILE__, __LINE__, 6, DLOG_SEV_M, 0x5678);
+  ASSERT_EQ(2u, g_sink_calls.size());
+  EXPECT_EQ(5, g_sink_calls[0].type);
+  EXPECT_EQ(DLOG_SEV_H, g_sink_calls[0].severity);
+  EXPECT_EQ(0x1234, g_sink_calls[0].detail);
+  EXPECT_EQ(6, g_sink_calls[1].type);
+  EXPECT_EQ(DLOG_SEV_M, g_sink_calls[1].severity);
+}
+
+TEST(DebugRingSink, NeverFiresForLowSeverity) {
+  g_sink_calls.clear();
+  DebugRing ring;
+  ring.setDebugSink(&captureDebugSink);
+  ring.logRing(__FILE__, __LINE__, 7, DLOG_SEV_L, 0);
+  EXPECT_TRUE(g_sink_calls.empty());
+}
+
+TEST(DebugRingSink, NoOpWhenNoSinkSet) {
+  DebugRing ring;   // no setDebugSink() call -- must not crash calling through nullptr
+  ring.logRing(__FILE__, __LINE__, 5, DLOG_SEV_H, 0);
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {

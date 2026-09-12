@@ -49,6 +49,13 @@ static const char* reset_reason_str(esp_reset_reason_t r) {
 }
 
 void setup() {
+  // beebo: claim MonRing's fixed 1MiB PSRAM block before anything else,
+  // even the boot marker right below -- see Beebo::initMonRingEarly()'s own
+  // comment (plans/MONITORING_UNIFICATION.md Design #2). PSRAM is already
+  // configured by the bootloader at this point, no other setup() work
+  // needed first.
+  beebo.initMonRingEarly();
+
   // beebo: the true earliest possible boot marker -- RLOGH()
   // only touches RAM/millis() (already ticking well before setup() runs),
   // no Serial dependency at all, so this runs ahead of even
@@ -122,8 +129,10 @@ void setup() {
 
   board.onBootComplete();
 
-  // beebo: allocate the monitor ring last in setup, after the transports are
-  // up so it only claims spare PSRAM. Deliberately BEFORE the validity mark
+  // beebo: apply MonRing's real boot-known state (persisted config, the
+  // corrected time anchor, real radio/env snapshot) on top of
+  // initMonRingEarly()'s placeholder from the very top of setup() -- see
+  // that function's own comment. Deliberately BEFORE the validity mark
   // below: if the ring (or anything in setup) wedges the node, we want the
   // bootloader to roll back to the previous working firmware, not confirm a
   // broken image as healthy.

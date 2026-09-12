@@ -423,6 +423,20 @@ class DebugRing {
   bool _session_mlog_enabled = false;
   uint8_t _mlog_sub_id = 0;
 
+  // beebo: optional forward of every H/M-severity RLOG event to MonRing's
+  // new MON_DEBUG kind (plans/MONITORING_UNIFICATION.md Design #3/#6) --
+  // a plain function pointer, not a hardcoded MonRing/Beebo reference, so
+  // this shared-location file (fw/src/helpers/) stays decoupled from
+  // multi_role's own Beebo::monring (private, and not every board target
+  // that could include this file necessarily has one) -- same "caller
+  // supplies a callback" shape as MonRing::LiveSink. nullptr by default,
+  // so nothing changes for any build that never calls setDebugSink().
+  // Purely additive for now: DebugRing's own ring/live-push behavior
+  // below is unchanged either way -- retiring DebugRing's ring storage
+  // once MonRing is trusted to carry this data is a separate, later step.
+  using DebugSink = void (*)(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms);
+  DebugSink _debug_sink = nullptr;
+
   bool _replay_active = false;
   uint16_t _replay_pos = 0;   // 0.._count-1, logical index of the next event replayStep() will push
 
@@ -471,6 +485,7 @@ public:
   // DEBUG_TLOG frame) whenever the debug link is enabled, regardless of
   // severity -- see attach()'s own comment.
   void logRing(const char* file, int line, uint8_t type, uint8_t severity, int32_t detail = 0);
+  void setDebugSink(DebugSink sink) { _debug_sink = sink; }
 
   // DLOGH/M/L: never touches the ring (fixed-size records can't hold
   // arbitrary text) -- only live-pushed to physical USB *and* whichever
