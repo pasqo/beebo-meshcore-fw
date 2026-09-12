@@ -10,12 +10,22 @@ namespace {
 // 1000, matching the capture times most tests use), without consuming a ring
 // slot -- so unless a test forces a relatch (setSyncPeriod()) or an actual
 // radio/env change, the ring starts out genuinely empty.
+// beebo: `period` (seconds, forwarded to setSyncPeriod()) defaults to 1 --
+// with a 1-second bucket, _base always comes out exactly equal to `now`
+// (bucket_ms cancels the *1000/1000 in _seed()'s bucketing arithmetic
+// regardless of `now`'s value), matching every test's existing "seeded at
+// now=1000" numeric assumption. Set BEFORE init() (not after, via a
+// separate setSyncPeriod() call in the test body) so the very first
+// _base is already bucketed under the period the test actually wants --
+// changing period after seeding leaves the old, differently-bucketed
+// _base in place until the next real relatch recomputes it.
 template <uint32_t N>
 struct RingFixture {
   MonRecord buf[N];
   MonRing ring;
-  RingFixture(uint32_t now = 1000) {
-    ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), now, RadioRecord{}, EnvRecord{});
+  RingFixture(uint32_t now = 1000, uint32_t period = 1) {
+    ring.setSyncPeriod(period);
+    ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), now, now, RadioRecord{}, EnvRecord{});
     // MON_CAP_ENV is opt-in in production (excluded from the default config),
     // but most of these tests exercise sampleEnv() directly, so enable every
     // kind here; tests that care about masking set their own config.
@@ -103,9 +113,9 @@ RadioRecord makeRadio(uint32_t freq = 915000000, uint8_t sf = 7, uint16_t bw = 2
 
 TEST(MonRing, InitRejectsNullOrUndersizedBuffer) {
   MonRing ring;
-  EXPECT_FALSE(ring.init(nullptr, 1024, 1000, RadioRecord{}, EnvRecord{}));
+  EXPECT_FALSE(ring.init(nullptr, 1024, 1000, 1000, RadioRecord{}, EnvRecord{}));
   uint8_t tiny[4];
-  EXPECT_FALSE(ring.init(tiny, sizeof(tiny), 1000, RadioRecord{}, EnvRecord{}));
+  EXPECT_FALSE(ring.init(tiny, sizeof(tiny), 1000, 1000, RadioRecord{}, EnvRecord{}));
   EXPECT_FALSE(ring.allocated());
 }
 
@@ -182,20 +192,20 @@ TEST(MonRing, SerializeAfterSeqPastHeadReturnsNothing) {
 
 TEST(MonRing, EvictionReanchorsStartSyncAndOldestSeqAdvances) {
   // Capacity 4. init() at now=1000 seeds start_sync but stores no record. A
-  // short sync period forces the very next capture to relatch (store a real
-  // SYNC record), which then fills the ring and gets evicted.
+  // 1-second sync period (the fixture default) + a now-delta that crosses a
+  // full 1000ms bucket forces the very next capture to relatch (store a
+  // real SYNC record), which then fills the ring and gets evicted.
   RingFixture<4> f;
-  f.ring.setSyncPeriod(1);
-  f.ring.appendRx(makeRx(1), 1002);  // period elapsed: seq0=SYNC(1002) seq1=RX
-  f.ring.appendRx(makeRx(2), 1002);  // seq2=RX
-  f.ring.appendRx(makeRx(3), 1002);  // seq3=RX  (ring now full: 0,1,2,3)
+  f.ring.appendRx(makeRx(1), 2002);  // bucket crossed: seq0=SYNC(1001) seq1=RX
+  f.ring.appendRx(makeRx(2), 2002);  // same bucket: seq2=RX
+  f.ring.appendRx(makeRx(3), 2002);  // seq3=RX  (ring now full: 0,1,2,3)
   EXPECT_EQ(0u, f.ring.oldestSeq());
 
-  f.ring.appendRx(makeRx(4), 1002);  // seq4=RX, evicts seq0 (SYNC)
+  f.ring.appendRx(makeRx(4), 2002);  // seq4=RX, evicts seq0 (SYNC)
   EXPECT_EQ(1u, f.ring.oldestSeq());
   EXPECT_EQ(5u, f.ring.nextSeq());
   EXPECT_EQ(4u, f.ring.count());
-  EXPECT_EQ(1002u, f.ring.startTime());  // reanchored from the evicted SYNC
+  EXPECT_EQ(1001u, f.ring.startTime());  // reanchored from the evicted SYNC
 }
 
 TEST(MonRing, EmitStartRefAlwaysValidFromBootSeedBeforeAnyEviction) {
@@ -242,7 +252,7 @@ TEST(MonRing, ClearReseedsEnvAsAlreadyValid) {
   // sampleEnv() call.
   RingFixture<8> f;
   f.ring.sampleEnv(makeEnv(-80), 1000);  // establish a real sample pre-clear
-  f.ring.clear(2000, makeRadio(), makeEnv(-60));
+  f.ring.clear(2000, 2000, makeRadio(), makeEnv(-60));
 
   MonRecord dest;
   ASSERT_TRUE(f.ring.emitStartRef(MON_ENV, &dest));
@@ -305,10 +315,9 @@ TEST(MonRing, InjectionPlanEmptyWhenNotWrapped) {
   // relatch forces a real SYNC ahead of the radio/env that depend on it), so
   // nothing needs to be synthesized.
   RingFixture<8> f;
-  f.ring.setSyncPeriod(1);
-  f.ring.noteRadio(makeRadio(), 1002);  // period elapsed: seq0=SYNC seq1=RADIO
-  f.ring.sampleEnv(makeEnv(), 1002);    // seq2=ENV
-  f.ring.appendRx(makeRx(), 1002);      // seq3=RX
+  f.ring.noteRadio(makeRadio(), 2002);  // bucket crossed: seq0=SYNC seq1=RADIO
+  f.ring.sampleEnv(makeEnv(), 2002);    // seq2=ENV
+  f.ring.appendRx(makeRx(), 2002);      // seq3=RX
 
   EXPECT_TRUE(injectionPlan(f.ring, f.ring.oldestSeq()).empty());
 }
@@ -316,12 +325,17 @@ TEST(MonRing, InjectionPlanEmptyWhenNotWrapped) {
 TEST(MonRing, InjectionPlanEvictedSyncOnly) {
   // Ring wraps just enough to evict the real SYNC(0); RADIO(1) and ENV(2)
   // are still resident, so only sync needs to be synthesized ahead of them.
+  // Deliberately never changes the sync period mid-test (unlike the older
+  // "setSyncPeriod(10000) to freeze further relatches" pattern) -- with
+  // bucket-epoch-aligned relatching (Design #1), changing the bucket width
+  // after seeding almost always looks like an immediate spurious relatch
+  // of its own, since the stored `_base` was computed under the OLD bucket
+  // size. Staying inside the same already-latched bucket for every
+  // subsequent call achieves "no more relatches" just as well.
   RingFixture<3> f;
-  f.ring.setSyncPeriod(1);
-  f.ring.noteRadio(makeRadio(), 1002);  // period elapsed: relatch (seq0=SYNC seq1=RADIO)
-  f.ring.setSyncPeriod(10000);          // no more relatches for the rest of this test
-  f.ring.sampleEnv(makeEnv(), 1002);    // seq2=ENV (ring full)
-  f.ring.appendTx(makeTx(), 1003);      // evicts SYNC(0)
+  f.ring.noteRadio(makeRadio(), 2002);  // bucket crossed: relatch (seq0=SYNC seq1=RADIO)
+  f.ring.sampleEnv(makeEnv(), 2002);    // same bucket: seq2=ENV (ring full)
+  f.ring.appendTx(makeTx(), 2003);      // same bucket: evicts SYNC(0)
 
   auto plan = injectionPlan(f.ring, f.ring.oldestSeq());
   ASSERT_EQ(1u, plan.size());
@@ -435,13 +449,12 @@ TEST(MonRing, InjectionPlanEnvReappearsBeforeRadioAfterWrap) {
 }
 
 TEST(MonRing, EnsureSyncRelatchesAfterPeriodElapses) {
-  RingFixture<8> f;  // seeded at now=1000
-  f.ring.setSyncPeriod(100);
-  f.ring.appendRx(makeRx(), 1000);  // within period, base already latched by init(): seq0=RX
-  f.ring.appendRx(makeRx(), 1050);  // within period: no new SYNC (seq1=RX)
+  RingFixture<8> f(1000, 100);  // seeded at now=1000, sync period=100s (100000ms bucket)
+  f.ring.appendRx(makeRx(), 1000);   // same instant as anchor: still current bucket: seq0=RX
+  f.ring.appendRx(makeRx(), 51000);  // 50000ms elapsed: still same 100s bucket (seq1=RX)
   EXPECT_EQ(2u, f.ring.nextSeq());
 
-  f.ring.appendRx(makeRx(), 1101);  // period elapsed: relatch (seq2=SYNC seq3=RX)
+  f.ring.appendRx(makeRx(), 101001);  // 100001ms elapsed: crosses into the next bucket -- relatch (seq2=SYNC seq3=RX)
   MonRecord out[8];
   uint32_t returned = 0;
   f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
@@ -449,30 +462,85 @@ TEST(MonRing, EnsureSyncRelatchesAfterPeriodElapses) {
   EXPECT_EQ(MON_RX, out[0].kind);
   EXPECT_EQ(MON_RX, out[1].kind);
   EXPECT_EQ(MON_SYNC, out[2].kind);  // relatch inserted before the 3rd RX
-  EXPECT_EQ(1101u, out[2].sync.timestamp);
+  EXPECT_EQ(1100u, out[2].sync.timestamp);  // new 100s bucket: floor(1000 + 100.001s) rounded down to a 100s boundary
   EXPECT_EQ(MON_RX, out[3].kind);
 }
 
-TEST(MonRing, EnsureSyncHandlesUint32EpochRolloverAsAForwardRelatch) {
-  // beebo: plain unsigned `now - _base` modular subtraction already
-  // computes the correct small elapsed value across the real uint32 epoch
-  // rollover (7 Feb 2106) -- the wrapped difference IS the true elapsed
-  // time, same as any other wrapping-counter difference. Verifies that
-  // directly rather than assuming it.
-  RingFixture<8> f(0xFFFFFFFFu - 50);  // seeded 50s before the uint32 rollover
-  f.ring.setSyncPeriod(100);
-  f.ring.appendRx(makeRx(), 30);  // wrapped clock: 50s before rollover + 30s after = 80s elapsed
-  EXPECT_EQ(1u, f.ring.nextSeq());  // period (100) not elapsed yet: no relatch, still just seq0=RX
+// beebo: `now` means millis() (uptime), not epoch seconds -- see Design #1
+// -- so the wraparound this arithmetic actually has to survive is
+// millis()'s own ~49.7-day 32-bit rollover, not the RTC's 2106 epoch-
+// seconds rollover (that one is never subtracted from anything in the new
+// formula -- only multiplied/added in uint64 -- so it has no wraparound
+// hazard left to test). Renamed and rewritten accordingly from the
+// previous epoch-seconds-focused version of this test.
+TEST(MonRing, EnsureSyncHandlesMillisRolloverAsAForwardRelatch) {
+  RingFixture<8> f(1000, 100);  // anchor_epoch_sec=1000 (ordinary, nowhere near 2106)
+  // beebo: anchor_millis defaults to the same `now` as anchor_epoch_sec
+  // (RingFixture's own convention) -- re-anchor millis() specifically to
+  // just before its own rollover point, without disturbing anchor_epoch_sec.
+  f.ring.setTimeAnchor(1000, 0xFFFFFFFFu - 50);
+  f.ring.appendRx(makeRx(), 30);  // millis() wrapped: 50ms before rollover + 30ms after = 81ms elapsed
+  EXPECT_EQ(1u, f.ring.nextSeq());  // nowhere near the 100000ms bucket yet: no relatch, still just seq0=RX
 
-  f.ring.appendRx(makeRx(), 60);  // 50 + 60 = 110s elapsed since base: relatch due
+  f.ring.appendRx(makeRx(), 100100);  // ~100151ms elapsed since anchor: crosses the 100000ms bucket
   MonRecord out[8];
   uint32_t returned = 0;
   f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
   ASSERT_EQ(3u, returned);
   EXPECT_EQ(MON_RX, out[0].kind);
   EXPECT_EQ(MON_SYNC, out[1].kind);
-  EXPECT_EQ(60u, out[1].sync.timestamp);  // relatched to the new (wrapped, small) `now`
+  EXPECT_EQ(1100u, out[1].sync.timestamp);
   EXPECT_EQ(MON_RX, out[2].kind);
+}
+
+// beebo: production sync period (60s = 60000ms bucket) -- verifies `base`
+// always lands on a real minute boundary (base % 60 == 0), the actual
+// design invariant plans/MONITORING_UNIFICATION.md Design #1 wants, not
+// just "some bucket edge" as the smaller test periods elsewhere in this
+// file exercise for convenience.
+TEST(MonRing, EnsureSyncBucketsToRealMinuteBoundaryAtProductionPeriod) {
+  RingFixture<8> f(1234567, 60);  // anchor mid-minute: 1234567 % 60 == 7, anchor_millis == 1234567 too
+  EXPECT_EQ(0u, f.ring.startTime() % 60);  // _seed() already floors to the minute
+  EXPECT_EQ(1234560u, f.ring.startTime());
+
+  f.ring.appendRx(makeRx(), 1235567);    // +1000ms: 8s into the same minute -- no relatch
+  EXPECT_EQ(1u, f.ring.nextSeq());
+
+  f.ring.appendRx(makeRx(), 1288567);    // +54000ms total: 61s since anchor -- crosses into the next minute
+  MonRecord out[8];
+  uint32_t returned = 0;
+  f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
+  ASSERT_EQ(3u, returned);
+  EXPECT_EQ(MON_SYNC, out[1].kind);
+  EXPECT_EQ(0u, out[1].sync.timestamp % 60);
+  EXPECT_EQ(1234620u, out[1].sync.timestamp);  // the next real minute boundary
+}
+
+// beebo: setTimeAnchor() must not touch ring contents/counts -- only the
+// anchor used for the NEXT _ensureSync() computation. Separate from the
+// rollover test above, which exercises setTimeAnchor() as a side effect of
+// re-anchoring millis(); this isolates the "no side effects on the ring
+// itself" contract directly.
+TEST(MonRing, SetTimeAnchorDoesNotTouchRingContents) {
+  RingFixture<8> f(1000, 60);
+  f.ring.appendRx(makeRx(), 1000);
+  uint32_t count_before = f.ring.count();
+  uint32_t next_seq_before = f.ring.nextSeq();
+
+  f.ring.setTimeAnchor(5000, 1000);  // jump the epoch forward, same millis()
+
+  EXPECT_EQ(count_before, f.ring.count());
+  EXPECT_EQ(next_seq_before, f.ring.nextSeq());
+
+  // The NEXT append resolves against the new anchor, though -- confirming
+  // the anchor update actually took effect, not just that nothing broke.
+  f.ring.appendRx(makeRx(), 1000);  // same millis() as the anchor: elapsed 0
+  MonRecord out[8];
+  uint32_t returned = 0;
+  f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
+  ASSERT_EQ(3u, returned);  // RX, SYNC(new anchor), RX
+  EXPECT_EQ(MON_SYNC, out[1].kind);
+  EXPECT_EQ(4980u, out[1].sync.timestamp);  // new anchor's epoch (5000) bucketed down to the minute
 }
 
 TEST(MonRing, NoteRadioAndSampleEnvAreNoOpsWhenUnchanged) {
@@ -513,14 +581,13 @@ TEST(MonRing, ResumeAfterReadLeavesManuallyPausedRingPaused) {
 
 TEST(MonRing, ClearResetsCountersAndReseedsStartRefs) {
   RingFixture<4> f;
-  f.ring.setSyncPeriod(1);
-  f.ring.appendRx(makeRx(), 1002);  // relatch: seq0=SYNC seq1=RX
-  f.ring.appendRx(makeRx(), 1002);  // seq2=RX
-  f.ring.appendRx(makeRx(), 1002);  // seq3=RX  (ring full)
-  f.ring.appendRx(makeRx(), 1002);  // wraps, reanchors start_sync
-  ASSERT_EQ(1002u, f.ring.startTime());
+  f.ring.appendRx(makeRx(), 2002);  // bucket crossed: relatch: seq0=SYNC(1001) seq1=RX
+  f.ring.appendRx(makeRx(), 2002);  // seq2=RX
+  f.ring.appendRx(makeRx(), 2002);  // seq3=RX  (ring full)
+  f.ring.appendRx(makeRx(), 2002);  // wraps, reanchors start_sync
+  ASSERT_EQ(1001u, f.ring.startTime());
 
-  f.ring.clear(2000, makeRadio(), makeEnv());
+  f.ring.clear(2000, 2000, makeRadio(), makeEnv());
   EXPECT_EQ(0u, f.ring.count());
   EXPECT_EQ(0u, f.ring.nextSeq());
   EXPECT_EQ(0u, f.ring.oldestSeq());
@@ -536,7 +603,7 @@ TEST(MonRing, ClearReseedsBaseSoImmediateCaptureNeedsNoRelatch) {
   // the clear.
   RingFixture<8> f;
   f.ring.appendRx(makeRx(), 1000);
-  f.ring.clear(2000, makeRadio(), makeEnv());
+  f.ring.clear(2000, 2000, makeRadio(), makeEnv());
   f.ring.appendRx(makeRx(), 2001);  // well within the fresh sync period
 
   EXPECT_EQ(0u, f.ring.syncCount());  // no real SYNC record needed -- start_sync covers it
@@ -645,7 +712,7 @@ TEST(MonRing, TuneCapExcludedFromDefaultConfig) {
   // explicitly opted in via setConfig(), the same way tests must opt ENV in.
   MonRing ring;
   MonRecord buf[8];
-  ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), 1000, RadioRecord{}, EnvRecord{});
+  ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), 1000, 1000, RadioRecord{}, EnvRecord{});
   EXPECT_EQ(0u, ring.config() & MON_CAP_TUNE);
 }
 
@@ -917,7 +984,7 @@ TEST(MonRing, EventCapIncludedInDefaultConfig) {
   // experimental feature someone has to remember to enable.
   MonRing ring;
   MonRecord buf[8];
-  ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), 1000, RadioRecord{}, EnvRecord{});
+  ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), 1000, 1000, RadioRecord{}, EnvRecord{});
   EXPECT_NE(0u, ring.config() & MON_CAP_EVENT);
 }
 

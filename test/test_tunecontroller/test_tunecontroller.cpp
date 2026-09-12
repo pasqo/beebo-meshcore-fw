@@ -9,7 +9,7 @@ struct RingFixture {
   MonRecord buf[N];
   MonRing ring;
   RingFixture(uint32_t now = 1000) {
-    ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), now, RadioRecord{}, EnvRecord{});
+    ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), now, now, RadioRecord{}, EnvRecord{});
     ring.setConfig(MON_CAP_ALL | MON_CAP_ENABLED);
   }
 };

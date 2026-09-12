@@ -446,7 +446,14 @@ enum { TXR_OK = 0, TXR_TIMEOUT = 1 };
 // (monitor.py's _build_sequence) can gate on abi_version and null out
 // `hops` for any record governed by a SYNC stamped < 2, rather than
 // silently misreporting every pre-bump rx record as zero-hop.
-#define MONRING_ABI_VERSION 2
+// 3: `offset`'s meaning changes ring-wide from seconds-since-base to
+// milliseconds-since-minute-boundary-base (plans/MONITORING_UNIFICATION.md
+// Design #1) -- the byte layout is unchanged (still uint16_t), but a
+// decoder reading an old capture's `offset` as milliseconds would compute
+// a wildly wrong (and much smaller) elapsed time. `base + offset` must be
+// gated on this version: `abi_version < 3` means `base + offset` (seconds
+// arithmetic), `>= 3` means `base*1000 + offset` (milliseconds).
+#define MONRING_ABI_VERSION 3
 
 // ---- the union members (each exactly 16 bytes, packed, kind at byte 0) -----
 struct __attribute__((packed)) SyncRecord {
@@ -721,8 +728,23 @@ private:
   bool      _paused_for_read = false;  // capture was force-disabled by pauseForRead()
 
   // time base (bookkeeping, never evicts)
-  uint32_t  _base = 0;            // running absolute base (epoch seconds)
-  uint32_t  _sync_period = 3600;  // re-latch cadence (seconds); variable
+  uint32_t  _base = 0;            // running absolute base (epoch seconds), always a whole _sync_period bucket
+  uint32_t  _sync_period = 60;    // re-latch bucket width (seconds); variable
+
+  // beebo: epoch/millis anchor (plans/MONITORING_UNIFICATION.md Design #1)
+  // -- a single (epoch_sec, millis) pair, pushed in from outside via
+  // setTimeAnchor()/init()/clear() only, never read from a clock directly
+  // (MonRing has no Arduino/RTC dependency by design, so it stays fully
+  // native-testable). Refreshed only at boot and on an explicit RTC
+  // correction, NOT on every relatch -- on ESP32 without an external RTC
+  // chip, time()/millis() share the same underlying esp_timer counter, so
+  // there is no drift between them to compensate for between corrections
+  // (see the plan for the cross-referenced evidence). Every _ensureSync()
+  // call derives both the minute-bucket `_base` and the ms-resolution
+  // offset from this anchor by pure arithmetic -- no RTC read on the hot
+  // append path.
+  uint32_t  _anchor_epoch_sec = 0;
+  uint32_t  _anchor_millis = 0;
 
   // running RADIO config
   RadioRecord _radio;
@@ -751,11 +773,14 @@ private:
   RadioRecord start_radio{};
   EnvRecord   start_env{};
 
-  // Shared by init()/clear(): latch the base and running radio/env state, and
-  // (re)seed the three start-refs from them directly, without consuming a
-  // ring slot.
-  void _seed(uint32_t now, const RadioRecord &radio, const EnvRecord &env) {
-    _base = now;
+  // Shared by init()/clear(): latch the epoch/millis anchor + the bucketed
+  // base derived from it, and the running radio/env state, then (re)seed
+  // the three start-refs from them directly, without consuming a ring slot.
+  void _seed(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms, const RadioRecord &radio, const EnvRecord &env) {
+    _anchor_epoch_sec = anchor_epoch_sec;
+    _anchor_millis = anchor_now_ms;
+    uint64_t bucket_ms = (uint64_t)_sync_period * 1000;
+    _base = (uint32_t)(((uint64_t)anchor_epoch_sec * 1000 / bucket_ms) * _sync_period);
     _radio = radio; _radio.kind = MON_RADIO; _radio.offset = 0; _radio_valid = true;
     _env   = env;   _env.kind   = MON_ENV;   _env.offset   = 0; _env_valid   = true;
 
@@ -827,43 +852,36 @@ private:
   // evicts — 0 until the first capture.
   uint32_t  _end_time = 0;
 
-  // Called first by every append*/note*/sample* entry point. Latches a new
-  // base (and stores a SYNC record carrying it immediately) once the
-  // current epoch has run its course — forward semantics: "from here on
-  // this is the base", so SYNC always precedes anything using it. Returns
-  // the caller's own offset from whichever base is now current, so the
-  // caller never needs a separate call to compute it: every entry point
-  // calls this exactly once with the same `now` it stamps its own record
-  // with, immediately before building that record, so folding the offset
-  // computation in here removes a redundant `now - _base` (recomputed
-  // from scratch each time it was a separate call) and the two-call
-  // pattern every entry point otherwise had to repeat.
+  // Called first by every append*/note*/sample* entry point, with `now`
+  // meaning millis() (NOT epoch seconds -- see setTimeAnchor()'s own
+  // comment for why the anchor, not a raw epoch read, is the source of
+  // truth here). Derives the current minute-bucketed `_base` (epoch
+  // seconds) and this record's own ms-resolution offset from the anchor
+  // by pure arithmetic, relatching (storing a fresh SYNC) whenever the
+  // bucket has advanced since the last one -- forward semantics: "from
+  // here on this is the base", so SYNC always precedes anything using it.
+  // Every entry point calls this exactly once with the same `now` it
+  // stamps its own record with, immediately before building that record.
   //
-  // beebo: no `_base == 0`/"never seeded" branch here -- every caller
+  // beebo: no `_buf == nullptr`/"never seeded" branch here -- every caller
   // (append*/note*/sample*) already bails out on `_buf == nullptr` before
   // reaching this, and `_buf` only becomes non-null via init(), which
-  // always seeds `_base` first via _seed(). So `_ensureSync()` can never
-  // actually run before `_base` holds a real value; a dead-code branch
-  // handling that case was removed 2026-08-25.
+  // always seeds the anchor first via _seed(). So `_ensureSync()` can
+  // never actually run before the anchor holds a real value.
   //
-  // `now - _base` is plain UNSIGNED subtraction, no signed reinterpretation
-  // needed: a real backward `now` never happens (within a session `_base`
-  // only ever comes from this same clock, a clock correction is only ever
-  // applied forward -- see CMD_SET_DEVICE_TIME's `secs >= curr` guard --
-  // and a reboot resets `_base`/`_next_seq` together via clear()/init()),
-  // and the real uint32 epoch rollover this clock will hit in 2106 is
-  // already handled correctly by plain modular subtraction (`now - _base`
-  // wraps to the true small elapsed value in that case, same as any other
-  // wrapping-counter difference) -- there is no case here where the
-  // difference needs a sign at all. And `now - _base` can never exceed
-  // ~3600 in any real build regardless (_sync_period is a fixed
-  // compile-time constant, setSyncPeriod() is test-only), nowhere close to
-  // uint16_t's range, so the narrowing cast on return is always exact,
-  // never a truncation.
+  // `now - _anchor_millis` is plain UNSIGNED subtraction -- correct across
+  // a millis() rollover (~49.7 days) by the same wrapping-counter
+  // reasoning this file already documents elsewhere, and the anchor is
+  // refreshed far more often than that in any real deployment (boot, plus
+  // every RTC correction). `estimated_epoch_ms`/`bucket_ms` use uint64_t
+  // explicitly: `anchor_epoch_sec * 1000` alone already exceeds uint32_t's
+  // range for any real epoch value (~1.7e12 vs ~4.3e9 max).
   uint16_t _ensureSync(uint32_t now) {
-    uint32_t elapsed = now - _base;
-    if (elapsed >= _sync_period) {
-      _base = now;
+    uint64_t bucket_ms = (uint64_t)_sync_period * 1000;
+    uint64_t estimated_epoch_ms = (uint64_t)_anchor_epoch_sec * 1000 + (uint64_t)(now - _anchor_millis);
+    uint32_t new_base = (uint32_t)((estimated_epoch_ms / bucket_ms) * _sync_period);
+    if (new_base != _base) {
+      _base = new_base;
       MonRecord r{};
       r.sync.kind = MON_SYNC;
       r.sync.timestamp = _base;
@@ -877,9 +895,11 @@ private:
       if (_sync_count == 0) start_sync = r.sync;
       _sync_count++;
       _store(r);
-      return 0;  // this record's own offset from the base it just latched
     }
-    return (uint16_t)elapsed;
+    // This record's own offset from whichever base is now current --
+    // always < bucket_ms (< 65536 for the real 60s default), so the
+    // narrowing cast is exact, never a truncation.
+    return (uint16_t)(estimated_epoch_ms - (uint64_t)_base * 1000);
   }
 
   // Raw append of a fully-formed record. Assigns the next seq, wraps the ring.
@@ -956,18 +976,38 @@ public:
   // Allocate `bytes` of PSRAM for the ring and seed start_sync/start_radio/
   // start_env from the given radio/env snapshot, in one call. Returns false
   // if allocation fails (ring then stays disabled and appends are no-ops).
-  // Call once at boot.
-  bool init(uint8_t *psram, uint32_t bytes, uint32_t now, const RadioRecord &radio, const EnvRecord &env) {
+  // Call once at boot. `anchor_epoch_sec`/`anchor_now_ms` are a single
+  // (epoch seconds, millis()) pair sampled at the same instant -- see
+  // setTimeAnchor()'s own comment for why this replaces a plain epoch-only
+  // `now`.
+  bool init(uint8_t *psram, uint32_t bytes, uint32_t anchor_epoch_sec, uint32_t anchor_now_ms,
+            const RadioRecord &radio, const EnvRecord &env) {
     if (psram == nullptr || bytes < sizeof(MonRecord)) return false;
     _buf = (MonRecord *)psram;
     _cap = bytes / sizeof(MonRecord);
     _head = _count = _next_seq = 0;
-    _seed(now, radio, env);
+    _seed(anchor_epoch_sec, anchor_now_ms, radio, env);
     // beebo: explicit, even though this is also the member default --
     // init()'s env snapshot is the boot-time one (not yet a genuine
     // sample, see _env_ever_sampled's own comment), unlike clear()'s.
     _env_ever_sampled = false;
     return true;
+  }
+
+  // beebo: refresh the epoch/millis anchor without touching the ring
+  // contents -- called on an explicit RTC correction (CMD_SET_DEVICE_TIME,
+  // mesh time sync), NOT on any schedule. `anchor_epoch_sec`/`anchor_now_ms`
+  // must be sampled at (as close as practical to) the same real instant --
+  // the caller is responsible for that pairing, e.g. reading millis()
+  // immediately after `getRTCClock()->setCurrentTime(secs)` returns (that
+  // path already knows `secs` exactly, no polling needed), or briefly
+  // polling for the RTC's own second-rollover edge at boot when the
+  // anchor's absolute accuracy matters (cross-device log comparison) --
+  // see the plan's own precision note. The next _ensureSync() call re-buckets
+  // `_base` against the new anchor on its own; no forced relatch here.
+  void setTimeAnchor(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms) {
+    _anchor_epoch_sec = anchor_epoch_sec;
+    _anchor_millis = anchor_now_ms;
   }
 
   bool     allocated() const { return _buf != nullptr; }
@@ -1094,14 +1134,14 @@ public:
   // a valid sync/radio/env reference, and a stale pre-clear config can't be
   // mistaken for "unchanged" by noteRadio()/sampleEnv() and silently skip
   // storing a fresh record after the clear.
-  void clear(uint32_t now, const RadioRecord &radio, const EnvRecord &env) {
+  void clear(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms, const RadioRecord &radio, const EnvRecord &env) {
     _head = _count = 0; _next_seq = 0;
     _rx_count = _tx_count = _sync_count = _radio_count = _env_count = _batt_count = _tune_count = _event_count = _setting_count = _command_count = _route_count = _debug_count = _end_time = 0;
     // beebo: _rx_pool_exhausted_count/_rx_parse_error_count are deliberately
     // NOT reset here -- they're lifetime-since-boot counters (see their
     // declaration above), and clearing the ring shouldn't erase evidence that
     // the packet pool was exhausted earlier in this boot.
-    _seed(now, radio, env);
+    _seed(anchor_epoch_sec, anchor_now_ms, radio, env);
     // beebo: unlike init()'s boot-time seed, clear()'s env snapshot is a
     // live read taken at clear time -- already a genuine sample, so
     // emitStartRef(MON_ENV, ...) may inject it right away (see
