@@ -5,13 +5,13 @@
 
 // beebo: general-purpose command/span latency profiling ring.
 //
-// DebugRing captures connection/coexistence churn (link up/down, MULTI
+// DebugLog captures connection/coexistence churn (link up/down, MULTI
 // lock/release) with a 1-byte detail field and millis() resolution -- it
 // answers "what happened, when". This ring answers "how long did it take":
 // each event is a completed span, `id` identifying the call site (caller's
 // choice of encoding -- companion command dispatch packs the two command
 // bytes as (cmd<<8)|sub, so CMD_BEEBO sub-commands are distinguishable,
-// unlike DebugRing's RLOG_ID_CMD_* which only ever sees the outer byte) and
+// unlike DebugLog's RLOG_ID_CMD_* which only ever sees the outer byte) and
 // `duration_us` its measured length, captured via the PROFILE_SCOPE RAII
 // guard below so any call site -- not just command dispatch -- can be
 // instrumented with one line.

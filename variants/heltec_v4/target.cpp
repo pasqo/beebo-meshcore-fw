@@ -28,8 +28,23 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
   MomentaryButton user_btn(PIN_USER_BTN, 1000, true);
 #endif
 
-bool radio_init() {
+// beebo: split out of radio_init() below so a caller that wants the RTC
+// valid earlier than board/radio bring-up can call it directly --
+// fallback_clock.begin() only touches NVS (Preferences)/settimeofday(), no
+// hardware pin dependency, so it's safe to run before board.begin(). Guarded
+// so calling it both explicitly early and again from radio_init() (every
+// other example's existing call site, unchanged) runs the real logic
+// exactly once -- ESP32RTCClock::begin()'s drift-offset correction isn't
+// idempotent (a second call would subtract the same drift again).
+static bool s_clock_initialized = false;
+void clock_init() {
+  if (s_clock_initialized) return;
+  s_clock_initialized = true;
   fallback_clock.begin();
+}
+
+bool radio_init() {
+  clock_init();
 #ifndef HELTEC_LORA_V4_BARE
   // The bare/headless board has no external RTC chip; skip the I2C probe
   // entirely rather than risk a false-positive ACK on floating SDA/SCL

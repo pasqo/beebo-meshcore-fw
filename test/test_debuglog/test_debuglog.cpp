@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 #include <vector>
-#include <helpers/DebugRing.h>
+#include <string>
+#include <cstring>
+#include <helpers/DebugLog.h>
 
 namespace {
 
-// beebo: stands in for whichever transport DebugRing::attach() points at --
+// beebo: stands in for whichever transport DebugLog::attach() points at --
 // records every writeFrameBestEffort() call so a test can count exactly how
 // many replay pushes happened per replayStep() call (never more than one),
 // pinning down the 2026-09-07 bug where beginReplay()'s predecessor
@@ -13,7 +15,7 @@ namespace {
 // beebo: a distinct non-zero, non-USB RLOG_ID_XPORT_* value -- stands in
 // for "a TCP/BLE session is currently locked" (activeTransportType()'s
 // 0 means idle/none, RLOG_ID_XPORT_USB(2) means the same physical wire
-// DebugRing already reaches via its separate `usb` target -- see
+// DebugLog already reaches via its separate `usb` target -- see
 // PushesTo* tests below for both of those cases specifically).
 constexpr uint8_t kFakeNonUsbTransportType = 3;
 
@@ -41,100 +43,7 @@ public:
   }
 };
 
-// beebo: every existing replay test below attaches `serial` as the
-// aggregator target only (usb=nullptr) with its default
-// kFakeNonUsbTransportType, i.e. "a TCP/BLE session is locked, no USB
-// tap" -- preserves these tests' original single-target push_count
-// semantics. The dual-push fix itself (both targets reached correctly
-// depending on session state) is covered separately by the
-// PushesTo* tests at the bottom of this file.
-
-TEST(DebugRingReplay, NotReplayingBeforeBeginReplay) {
-  DebugRing ring;
-  FakeSerial serial;
-  ring.attach(&serial, nullptr, 0xDE, 1, 2);
-  EXPECT_FALSE(ring.isReplaying());
-  EXPECT_FALSE(ring.replayStep());   // no-op, never armed
-  EXPECT_EQ(serial.push_count, 0);
-}
-
-TEST(DebugRingReplay, EmptyRingBeginReplayIsAlreadyDone) {
-  DebugRing ring;
-  FakeSerial serial;
-  ring.attach(&serial, nullptr, 0xDE, 1, 2);
-  ring.beginReplay();
-  EXPECT_FALSE(ring.isReplaying());   // nothing to replay
-}
-
-TEST(DebugRingReplay, OneEventPerStepNotABurst) {
-  DebugRing ring;
-  FakeSerial serial;
-  ring.attach(&serial, nullptr, 0xDE, 1, 2);
-  ring.setUsbEnabled(true);
-  ring.setSessionEnabled(true);
-  for (int i = 0; i < 5; i++) {
-    ring.logRing(__FILE__, __LINE__, /*type=*/i, DLOG_SEV_H, /*detail=*/i * 10);
-  }
-  // beebo: logRing() itself also live-pushes (see its own comment) --
-  // reset the counter so this test only counts beginReplay()'s pushes.
-  serial.push_count = 0;
-
-  ring.beginReplay();
-  EXPECT_TRUE(ring.isReplaying());
-
-  for (int i = 0; i < 5; i++) {
-    EXPECT_EQ(serial.push_count, i)
-        << "replayStep() must push exactly one event per call, not a burst";
-    bool more = ring.replayStep();
-    EXPECT_EQ(serial.push_count, i + 1);
-    if (i < 4) {
-      EXPECT_TRUE(more);
-      EXPECT_TRUE(ring.isReplaying());
-    } else {
-      EXPECT_FALSE(more);
-      EXPECT_FALSE(ring.isReplaying());
-    }
-  }
-
-  // Further calls are no-ops once done.
-  EXPECT_FALSE(ring.replayStep());
-  EXPECT_EQ(serial.push_count, 5);
-}
-
-TEST(DebugRingReplay, ReplayOrderIsOldestFirstAcrossWraparound) {
-  DebugRing ring;
-  FakeSerial serial;
-  ring.attach(&serial, nullptr, 0xDE, 1, 2);
-  ring.setUsbEnabled(true);
-  ring.setSessionEnabled(true);
-  // beebo: overfill the ring so it wraps -- RLOG_MAX_EVENTS events plus a
-  // few more, confirming replayStep() walks the wrapped buffer in true
-  // chronological order (oldest surviving event first), not raw buffer
-  // index order.
-  for (int i = 0; i < RLOG_MAX_EVENTS + 3; i++) {
-    ring.logRing(__FILE__, __LINE__, /*type=*/(uint8_t)(i % 250), DLOG_SEV_H, i);
-  }
-  EXPECT_EQ(ring.count(), RLOG_MAX_EVENTS);
-  serial.push_count = 0;   // logRing() above also live-pushed each event
-
-  ring.beginReplay();
-  int expected_detail = 3;   // the first 3 events were evicted by wraparound
-  int steps = 0;
-  while (ring.isReplaying()) {
-    ring.replayStep();
-    steps++;
-  }
-  // beebo: replayStep() doesn't expose the pushed record's own detail to
-  // the caller (pushRlogFrame() writes straight to the transport), so this
-  // test only pins down the step count/completion contract directly --
-  // full-detail-value verification would need a FakeSerial that decodes
-  // its own writeFrameBestEffort() payload, out of scope for this bug fix.
-  EXPECT_EQ(steps, RLOG_MAX_EVENTS);
-  EXPECT_EQ(serial.push_count, RLOG_MAX_EVENTS);
-  (void)expected_detail;
-}
-
-// beebo: pins down the 2026-09-07 regression -- DebugRing::attach()
+// beebo: pins down the 2026-09-07 regression -- DebugLog::attach()
 // briefly took only the MultiSerialInterface aggregator as its push
 // target (mid-TCP_DEBUG_STREAM development), so the session-less raw USB
 // debug tap (BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, no MultiSerialInterface
@@ -143,38 +52,42 @@ TEST(DebugRingReplay, ReplayOrderIsOldestFirstAcrossWraparound) {
 // These three cases are exactly the ones attach()'s own comment commits
 // to: usb always reached; serial reached additionally, but only when it
 // has something genuinely non-USB locked.
-TEST(DebugRingPushTargets, NoSessionLockedPushesUsbOnly) {
-  DebugRing ring;
+TEST(DebugLogPushTargets, NoSessionLockedPushesUsbOnly) {
+  DebugLog ring;
   FakeSerial usb, serial;
   serial.active_transport_type = 0;   // SESSION_IDLE -- nothing locked
-  ring.attach(&serial, &usb, 0xDE, 1, 2);
+  ring.attach(&serial, &usb, 0xDE, 1);
   ring.setUsbEnabled(true);
   ring.setSessionEnabled(true);
-  ring.logRing(__FILE__, __LINE__, /*type=*/1, DLOG_SEV_H, /*detail=*/0);
+  // beebo: logLink() (DLOG) via a real transport target -- the only push
+  // DebugLog still does itself now that RLOGH/M go straight to the sink
+  // (MON_DEBUG) with no transport push of their own (see DebugLog.h's own
+  // top comment) and RLOGL doesn't exist anymore.
+  ring.logLink(__FILE__, __LINE__, /*id=*/1, DLOG_SEV_H, "msg");
   EXPECT_EQ(usb.push_count, 1) << "raw USB tap must work with no session locked at all";
   EXPECT_EQ(serial.push_count, 0);
 }
 
-TEST(DebugRingPushTargets, NonUsbSessionLockedPushesBoth) {
-  DebugRing ring;
+TEST(DebugLogPushTargets, NonUsbSessionLockedPushesBoth) {
+  DebugLog ring;
   FakeSerial usb, serial;
   serial.active_transport_type = kFakeNonUsbTransportType;   // TCP/BLE session locked
-  ring.attach(&serial, &usb, 0xDE, 1, 2);
+  ring.attach(&serial, &usb, 0xDE, 1);
   ring.setUsbEnabled(true);
   ring.setSessionEnabled(true);
-  ring.logRing(__FILE__, __LINE__, /*type=*/1, DLOG_SEV_H, /*detail=*/0);
+  ring.logLink(__FILE__, __LINE__, /*id=*/1, DLOG_SEV_H, "msg");
   EXPECT_EQ(usb.push_count, 1) << "raw USB tap must keep working alongside a live TCP/BLE session";
   EXPECT_EQ(serial.push_count, 1) << "TCP/BLE session must also see the event (TCP_DEBUG_STREAM)";
 }
 
-TEST(DebugRingPushTargets, UsbSessionLockedPushesOnceNotTwice) {
-  DebugRing ring;
+TEST(DebugLogPushTargets, UsbSessionLockedPushesOnceNotTwice) {
+  DebugLog ring;
   FakeSerial usb, serial;
   serial.active_transport_type = RLOG_ID_XPORT_USB;   // session locked on USB itself
-  ring.attach(&serial, &usb, 0xDE, 1, 2);
+  ring.attach(&serial, &usb, 0xDE, 1);
   ring.setUsbEnabled(true);
   ring.setSessionEnabled(true);
-  ring.logRing(__FILE__, __LINE__, /*type=*/1, DLOG_SEV_H, /*detail=*/0);
+  ring.logLink(__FILE__, __LINE__, /*id=*/1, DLOG_SEV_H, "msg");
   EXPECT_EQ(usb.push_count, 1);
   EXPECT_EQ(serial.push_count, 0) << "same physical wire as usb -- must not double-send";
 }
@@ -184,10 +97,10 @@ TEST(DebugRingPushTargets, UsbSessionLockedPushesOnceNotTwice) {
 // RLOG's _usb_enabled/_session_enabled, but routed through the same
 // pushToTargets() targeting logic (attach()'s usb-always/session-if-
 // non-usb-and-not-same-wire rules).
-TEST(DebugRingMlog, NotSentWhenMlogDisabledEvenIfDlogEnabled) {
-  DebugRing ring;
+TEST(DebugLogMlog, NotSentWhenMlogDisabledEvenIfDlogEnabled) {
+  DebugLog ring;
   FakeSerial usb, serial;
-  ring.attach(&serial, &usb, 0xDE, 1, 2, 3);
+  ring.attach(&serial, &usb, 0xDE, 1, 3);
   ring.setUsbEnabled(true);
   ring.setSessionEnabled(true);
   // MLOG bits left off.
@@ -197,11 +110,11 @@ TEST(DebugRingMlog, NotSentWhenMlogDisabledEvenIfDlogEnabled) {
   EXPECT_EQ(serial.push_count, 0);
 }
 
-TEST(DebugRingMlog, UsbMlogEnabledPushesUsbOnly) {
-  DebugRing ring;
+TEST(DebugLogMlog, UsbMlogEnabledPushesUsbOnly) {
+  DebugLog ring;
   FakeSerial usb, serial;
   serial.active_transport_type = 0;   // no session locked
-  ring.attach(&serial, &usb, 0xDE, 1, 2, 3);
+  ring.attach(&serial, &usb, 0xDE, 1, 3);
   ring.setUsbMlogEnabled(true);
   MonRecord rec; memset(&rec, 0, sizeof(rec)); rec.kind = MON_TX;
   ring.pushMlogFrame(rec);
@@ -209,11 +122,11 @@ TEST(DebugRingMlog, UsbMlogEnabledPushesUsbOnly) {
   EXPECT_EQ(serial.push_count, 0);
 }
 
-TEST(DebugRingMlog, SessionMlogEnabledPushesSessionOnly) {
-  DebugRing ring;
+TEST(DebugLogMlog, SessionMlogEnabledPushesSessionOnly) {
+  DebugLog ring;
   FakeSerial usb, serial;
   serial.active_transport_type = kFakeNonUsbTransportType;
-  ring.attach(&serial, &usb, 0xDE, 1, 2, 3);
+  ring.attach(&serial, &usb, 0xDE, 1, 3);
   ring.setSessionMlogEnabled(true);
   MonRecord rec; memset(&rec, 0, sizeof(rec)); rec.kind = MON_RADIO;
   ring.pushMlogFrame(rec);
@@ -221,10 +134,10 @@ TEST(DebugRingMlog, SessionMlogEnabledPushesSessionOnly) {
   EXPECT_EQ(serial.push_count, 1);
 }
 
-TEST(DebugRingMlog, FrameCarriesRecordVerbatim) {
-  DebugRing ring;
+TEST(DebugLogMlog, FrameCarriesRecordVerbatim) {
+  DebugLog ring;
   FakeSerial usb, serial;
-  ring.attach(&serial, &usb, 0xDE, 1, 2, 3);
+  ring.attach(&serial, &usb, 0xDE, 1, 3);
   ring.setUsbMlogEnabled(true);
   MonRecord rec; memset(&rec, 0, sizeof(rec)); rec.kind = MON_RX;
   rec.rx.pkt_hash = 0xCAFEBABE;
@@ -239,42 +152,44 @@ TEST(DebugRingMlog, FrameCarriesRecordVerbatim) {
 }
 
 // beebo: DebugSink forwarding (plans/MONITORING_UNIFICATION.md Design #3/#6)
-// -- logRing() must call the sink for every H/M event (matching the exact
-// same `severity != DLOG_SEV_L` gate its own ring-storage branch uses), and
-// never for L (Low is link-only, never persisted anywhere, including this
-// new sink).
+// -- logRing() must call the sink for every H/M event. RLOGL doesn't exist
+// (every former call site converted to DLOGL, since MON_DEBUG can't
+// represent Low severity), so there's no "never for L" case left to test.
 namespace {
-struct SinkCall { uint8_t type; uint8_t severity; int32_t detail; uint32_t ms; };
+struct SinkCall {
+  uint8_t type; uint8_t severity; int32_t detail; uint32_t ms; std::string file; int line;
+  uint8_t user[5];
+};
 std::vector<SinkCall> g_sink_calls;
-void captureDebugSink(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms) {
-  g_sink_calls.push_back({type, severity, detail, ms});
+void captureDebugSink(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms,
+                       const char* file, int line, const uint8_t user[5]) {
+  SinkCall call{type, severity, detail, ms, file, line, {}};
+  memcpy(call.user, user, sizeof(call.user));
+  g_sink_calls.push_back(call);
 }
 }  // namespace
 
-TEST(DebugRingSink, FiresForHighAndMediumSeverity) {
+TEST(DebugLogSink, FiresForHighAndMediumSeverity) {
   g_sink_calls.clear();
-  DebugRing ring;
+  DebugLog ring;
   ring.setDebugSink(&captureDebugSink);
+  int line1 = __LINE__ + 1;
   ring.logRing(__FILE__, __LINE__, 5, DLOG_SEV_H, 0x1234);
+  int line2 = __LINE__ + 1;
   ring.logRing(__FILE__, __LINE__, 6, DLOG_SEV_M, 0x5678);
   ASSERT_EQ(2u, g_sink_calls.size());
   EXPECT_EQ(5, g_sink_calls[0].type);
   EXPECT_EQ(DLOG_SEV_H, g_sink_calls[0].severity);
   EXPECT_EQ(0x1234, g_sink_calls[0].detail);
+  EXPECT_EQ(__FILE__, g_sink_calls[0].file);
+  EXPECT_EQ(line1, g_sink_calls[0].line);
   EXPECT_EQ(6, g_sink_calls[1].type);
   EXPECT_EQ(DLOG_SEV_M, g_sink_calls[1].severity);
+  EXPECT_EQ(line2, g_sink_calls[1].line);
 }
 
-TEST(DebugRingSink, NeverFiresForLowSeverity) {
-  g_sink_calls.clear();
-  DebugRing ring;
-  ring.setDebugSink(&captureDebugSink);
-  ring.logRing(__FILE__, __LINE__, 7, DLOG_SEV_L, 0);
-  EXPECT_TRUE(g_sink_calls.empty());
-}
-
-TEST(DebugRingSink, NoOpWhenNoSinkSet) {
-  DebugRing ring;   // no setDebugSink() call -- must not crash calling through nullptr
+TEST(DebugLogSink, NoOpWhenNoSinkSet) {
+  DebugLog ring;   // no setDebugSink() call -- must not crash calling through nullptr
   ring.logRing(__FILE__, __LINE__, 5, DLOG_SEV_H, 0);
 }
 

@@ -3,7 +3,8 @@
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 #include <SHA256.h>  // beebo: rxlog-compatible packet hash for the monitor ring
-#include <helpers/DebugRing.h>
+#include <helpers/DebugLog.h>
+#include <helpers/DebugFileNames.h>
 #include <helpers/ProfileLog.h>
 #include <helpers/BattTrend.h>
 #include "BeeboProtocol.h"
@@ -18,7 +19,7 @@
 
 // beebo: monitor ring sizing. This board has only ~2 MB PSRAM total (NOT the
 // 16 MB flash). Fixed 1MiB claimed as early as possible in setup() (see
-// initMonRingEarly() below, plans/MONITORING_UNIFICATION.md Design #2) --
+// startMonRing() below, plans/MONITORING_UNIFICATION.md Design #2) --
 // PSRAM is already available before setup() runs (configured by the ESP-IDF/
 // Arduino bootloader, not gated on anything setup() itself does), and the
 // total budget comfortably covers this fixed reservation alongside WiFi/BLE/
@@ -48,10 +49,10 @@
 
 // beebo: MonRing's LiveSink hook target (plans/MLOG_LIVE_STREAM.md) -- a
 // plain free function (MonRing.h stays Arduino-free, so it can't call
-// debug_ring, which is Arduino-dependent, directly). Wired via
+// debug_log, which is Arduino-dependent, directly). Wired via
 // monring.setLiveSink() once monring.init() succeeds.
 static void pushMlogFrame(const MonRecord &rec) {
-  debug_ring.pushMlogFrame(rec);
+  debug_log.pushMlogFrame(rec);
 }
 
 #ifndef TCP_PORT
@@ -365,8 +366,12 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
       // beebo: close out any stale radio epoch before this capture --
       // env sampling moved off this RX-opportunistic trigger onto its own
       // fixed cadence in loop() (ENV_SAMPLE_MS), see
-      // plans/CPU_UTILIZATION.md's "Fixed-cadence sampling" section.
+      // plans/CPU_UTILIZATION.md's "Fixed-cadence sampling" section --
+      // except for the one-time catch-up in ensureFirstEnvSample() (see
+      // its own comment), so this first RX/TX always has a governing env
+      // record ahead of it even if loop() hasn't sampled one yet.
       monring.noteRadio(buildRadioRecord(), (uint32_t)millis());
+      ensureFirstEnvSample();
     }
   }
   _rx_staged = want_monring;
@@ -490,8 +495,11 @@ void Beebo::logTx(mesh::Packet* pkt, int len) {
     fillTxRecordCommon(rec, pkt, len, _radio);
     rec.result = TXR_OK;
     // beebo: close out any stale radio epoch before this capture -- env
-    // sampling is on its own fixed cadence in loop(), not this trigger
+    // sampling is on its own fixed cadence in loop(), not this trigger,
+    // except for ensureFirstEnvSample()'s own one-time catch-up (see its
+    // comment) so this first TX always has a governing env record ahead of it.
     monring.noteRadio(buildRadioRecord(), (uint32_t)millis());
+    ensureFirstEnvSample();
     monring.appendTx(rec, (uint32_t)millis());
   }
 }
@@ -503,8 +511,11 @@ void Beebo::logTxFail(mesh::Packet* pkt, int len) {
     fillTxRecordCommon(rec, pkt, len, _radio);
     rec.result = TXR_TIMEOUT;
     // beebo: close out any stale radio epoch before this capture -- env
-    // sampling is on its own fixed cadence in loop(), not this trigger
+    // sampling is on its own fixed cadence in loop(), not this trigger,
+    // except for ensureFirstEnvSample()'s own one-time catch-up (see its
+    // comment) so this first TX always has a governing env record ahead of it.
     monring.noteRadio(buildRadioRecord(), (uint32_t)millis());
+    ensureFirstEnvSample();
     monring.appendTx(rec, (uint32_t)millis());
   }
 }
@@ -1517,7 +1528,7 @@ void Beebo::_onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 // beebo: see this method's own declaration comment in Beebo.h. Var ids are
 // defined once, alongside RLOG_ID_XPORT_INIT/_CHANGE themselves, in
-// DebugRing.h -- keep the two in sync if a field is added or removed here.
+// DebugLog.h -- keep the two in sync if a field is added or removed here.
 void Beebo::_checkTransportStateChanges() {
   auto check = [this](int id, int val, int change_type = RLOG_ID_XPORT_CHANGE,
                        int init_type = RLOG_ID_XPORT_INIT) -> bool {
@@ -1540,7 +1551,7 @@ void Beebo::_checkTransportStateChanges() {
     // of the transport-state dump (boot, or a live "set ble on"), instead
     // of eagerly from SerialBLEInterface::initRadio() at its own,
     // out-of-order timestamp -- see RLOG_ID_BLE_LOCAL_ADDR_HI/LO's own
-    // comment in DebugRing.h and getLocalAddress()'s in SerialBLEInterface.h.
+    // comment in DebugLog.h and getLocalAddress()'s in SerialBLEInterface.h.
     const uint8_t* bda = ble_interface.getLocalAddress();
     int32_t addr_hi = ((int32_t)bda[0] << 8) | (int32_t)bda[1];
     int32_t addr_lo = ((int32_t)bda[2] << 24) | ((int32_t)bda[3] << 16)
@@ -1555,7 +1566,7 @@ void Beebo::_checkTransportStateChanges() {
   check(RLOG_ID_XPORT_LINK_MULTI_CONNECTED,       serial_interface.isConnected());
   // FSM transitions get their own event id pair (RLOG_ID_XLINK_INIT/_CHANGE)
   // instead of the generic RLOG_ID_XPORT_INIT/_CHANGE every plain
-  // tracked flag above uses -- see DebugRing.h's own comment.
+  // tracked flag above uses -- see DebugLog.h's own comment.
   check(RLOG_ID_XPORT_LINK_BTP_STATE,             (int)_btp_state, RLOG_ID_XLINK_CHANGE, RLOG_ID_XLINK_INIT);
   check(RLOG_ID_XPORT_LINK_USB_STATE,             (int)_usb_state, RLOG_ID_XLINK_CHANGE, RLOG_ID_XLINK_INIT);
   check(RLOG_ID_XPORT_LINK_WL_STATUS,             (int)WiFi.status());
@@ -1575,7 +1586,7 @@ void Beebo::beginTransports() {
   driveUsb(usb_on);
 
   startInterface(serial_interface);
-  debug_ring.attach(_serial, &usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_TLOG, BEEBO_RESP_DEBUG_MLOG);
+  debug_log.attach(_serial, &usb_interface, RESP_CODE_BEEBO, BEEBO_RESP_DEBUG_LOG, BEEBO_RESP_DEBUG_MLOG);
 
   for (int i = 0; i < RLOG_XPORT_VAR_COUNT; i++) _last_xport_var[i] = -1;
   _checkTransportStateChanges();   // logs every var's boot value as "changed from -1"
@@ -1672,52 +1683,134 @@ static void captureTimeAnchor(mesh::RTCClock *clock, uint32_t *out_epoch_sec, ui
   *out_millis_ms = start_millis;
 }
 
-// beebo: claims MonRing's fixed 1MiB PSRAM block as early as possible --
-// called as the literal first statement of setup() (main.cpp), before even
-// RLOGH(RLOG_ID_BOOT_START, ...), so boot events have somewhere to land from
-// the earliest possible point (plans/MONITORING_UNIFICATION.md Design #2).
-// Seeds with PLACEHOLDER radio/env (all-zero RadioRecord{}/EnvRecord{}) and
-// a provisional anchor (epoch 0, paired with millis() -- both real values
-// are unknowable this early: _role_state->prefs/board/_radio don't exist
-// yet, and the RTC hasn't been begin()'d) -- initMonRing() below corrects
-// the anchor once the RTC is valid and supersedes the placeholder radio/env
-// via noteRadio()/sampleEnv()'s own diff-on-change (they differ from zero,
-// so a real record is naturally stored once real values are known, visible
-// in a downloaded trace as an explicit placeholder->real transition rather
-// than a silent seed). Any record captured before that correction carries a
-// meaningless placeholder-epoch absolute timestamp -- bounded to at most the
-// handful of events between this call and initMonRing(), self-correcting
-// from there on, same as any other forward time correction.
-void Beebo::forwardDebugToMonRing(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms) {
-  // beebo: severity DLOG_SEV_L never reaches this sink at all (DebugRing::
+// beebo: claims MonRing's fixed 1MiB PSRAM block AND resolves its real time
+// anchor, both as early as possible -- called as the literal first thing in
+// setup() (main.cpp), right after clock_init() (which calls
+// ESP32RTCClock::begin() -- the earliest point a real epoch exists, no
+// board/hardware pin dependency, so it costs nothing to run it first) and
+// before even RLOGH(RLOG_ID_BOOT_START, ...) (plans/MONITORING_UNIFICATION.md
+// Design #2). Because the anchor is already real by construction here, every
+// boot debug event from RLOG_ID_BOOT_START onward resolves live through
+// forwardDebugToMonRing() below with no buffering at all -- MonRing's own
+// ring is simply where they land, the same way DLOG/RLOG's ring already
+// does. RLOG_ID_CLOCK_DRIFT_APPLIED is the one exception that can't just
+// resolve live -- ESP32RTCClock::begin() (called from clock_init(), before
+// this function) applies the correction before MonRing's sink even exists,
+// so it can't log it directly there either. Rather than lose it from
+// MON_DEBUG entirely, it stashes the event (ESP32Board.h's
+// takePendingDriftLog()) and this function logs it below, once the sink
+// actually exists to receive it.
+//
+// Seeds with a PLACEHOLDER radio/env (all-zero RadioRecord{}/EnvRecord{}) --
+// unlike the anchor, these genuinely aren't known yet (_role_state->prefs/
+// _radio don't exist this early) -- initMonRing() below supersedes them once
+// real, via noteRadio()/sampleEnv()'s own diff-on-change (they differ from
+// zero, so a real record is naturally stored once real values are known,
+// visible in a downloaded trace as an explicit placeholder->real transition
+// rather than a silent seed).
+// beebo: resolves FILE (a full __FILE__ path) to its generated index in
+// kDebugFileNames (tools/gen_debug_names.py, DebugFileNames.h) -- matches
+// against the basename only, same as DebugLog.h's own writeHeader()
+// strips to a basename before sending it over the live DLOG/RLOG stream, so
+// a call site logged from any build path resolves the same way. Linear
+// scan over a handful of entries (kDebugFileNamesCount), no allocation.
+// 255 is the "unknown file" sentinel -- only reachable if a new RLOGH/M/L
+// call site is added without re-running the generator.
+static uint8_t debugFileId(const char* file) {
+  const char* base = strrchr(file, '/');
+  base = base ? base + 1 : file;
+  for (uint8_t i = 0; i < kDebugFileNamesCount; i++) {
+    if (strcmp(base, kDebugFileNames[i]) == 0) return i;
+  }
+  return 255;
+}
+
+void Beebo::forwardDebugToMonRing(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms,
+                                   const char* file, int line, const uint8_t user[5]) {
+  if (!beebo.monring.timeAnchorValid()) return;   // belt-and-suspenders -- see startMonRing()'s comment
+  // beebo: severity DLOG_SEV_L never reaches this sink at all (DebugLog::
   // logRing() only calls it inside the `severity != DLOG_SEV_L` branch) --
   // only H/M ever need packing here, matching DLOG_TYPE_SEV_BIT's own
   // 0=H/1=M convention (MonRing.h).
   DebugRecord d{};
   d.type = (type & DLOG_TYPE_MASK) | (severity == DLOG_SEV_M ? DLOG_TYPE_SEV_BIT : 0);
   d.detail = detail;
+  d.file_id = debugFileId(file);
+  d.line = (uint16_t)line;
+  memcpy(d._user, user, sizeof(d._user));
   beebo.monring.appendDebug(d, ms);
 }
 
-void Beebo::initMonRingEarly() {
+void Beebo::startMonRing() {
   uint8_t *ring = (uint8_t *)heap_caps_malloc(MONRING_FIXED_BYTES, MALLOC_CAP_SPIRAM);
   if (ring == NULL) return;   // monring stays unallocated; every append becomes a no-op
-  monring.init(ring, MONRING_FIXED_BYTES, /*anchor_epoch_sec=*/0, (uint32_t)millis(),
+  uint32_t anchor_epoch_sec, anchor_millis_ms;
+  captureTimeAnchor(getRTCClock(), &anchor_epoch_sec, &anchor_millis_ms);
+  monring.init(ring, MONRING_FIXED_BYTES, anchor_epoch_sec, anchor_millis_ms,
                RadioRecord{}, EnvRecord{});
   // beebo: wire RLOG forwarding as early as MonRing itself exists, so even
   // RLOG_ID_BOOT_START (fired immediately after this call returns, see
-  // main.cpp) reaches MON_DEBUG -- purely additive, DebugRing's own live
-  // push/ring is unaffected either way.
-  debug_ring.setDebugSink(&Beebo::forwardDebugToMonRing);
+  // main.cpp) reaches MON_DEBUG with an already-real timestamp -- purely
+  // additive, DebugLog's own live push/ring is unaffected either way.
+  debug_log.setDebugSink(&Beebo::forwardDebugToMonRing);
+  // beebo: also tell the plain DLOG/RLOG live stream the real epoch is now
+  // known, the same way an explicit CMD_SET_DEVICE_TIME/"time" correction
+  // does (RLOG_ID_CLOCK_SET's own doc comment) -- otherwise a host watching
+  // --debug has no absolute time at all until some later explicit
+  // correction happens to arrive, even though the persisted+drift-corrected
+  // RTC (ESP32RTCClock::begin(), via clock_init() in main.cpp) already gave
+  // us a real epoch this early.
+#ifdef BEEBO_RTC_PERSIST
+  // beebo: logged first, before CLOCK_SET/CLOCK_SRC -- direct evidence of
+  // what time() held before begin() touched it at all, so a client isn't
+  // stuck inferring it from CLOCK_SET's post-correction value (see
+  // RLOG_ID_CLOCK_RTC's own DebugLog.h comment).
+  uint32_t clock_rtc_value;
+  if (fallback_clock.takePendingClockRtc(&clock_rtc_value)) {
+    RLOGH(RLOG_ID_CLOCK_RTC, (int32_t)clock_rtc_value);
+  }
+  // beebo: states *why* the epoch below is what it is -- see
+  // kbase/CLOCK_DRIFT_COMPENSATION.md's "Behavior across reset kinds" and
+  // RLOG_CLOCK_SRC_*'s own DebugLog.h comment. bootClockSource() reflects
+  // exactly one of the three branches ESP32RTCClock::begin() took, set
+  // unconditionally every boot (not a one-shot "pending" flag like the
+  // other takePending*() calls below). Packed into this CLOCK_SET's own
+  // DebugRecord._user[0] rather than a separate event -- see logRing()'s
+  // `user` parameter.
+  const uint8_t clock_src_user[5] = {fallback_clock.bootClockSource(), 0, 0, 0, 0};
+  RLOGH(RLOG_ID_CLOCK_SET, anchor_epoch_sec, clock_src_user);
+#else
+  RLOGH(RLOG_ID_CLOCK_SET, anchor_epoch_sec);
+#endif
+#ifdef BEEBO_RTC_PERSIST
+  // beebo: clock_init() (main.cpp, called just before this function) may
+  // have applied a drift correction via ESP32RTCClock::begin() -- that ran
+  // before the sink above existed, so it stashed the event instead of
+  // logging it directly (see takePendingDriftLog()'s own comment). Log it
+  // now that MON_DEBUG can actually receive it.
+  uint32_t nvm_pull_value;
+  if (fallback_clock.takePendingNvmPull(&nvm_pull_value)) {
+    RLOGH(RLOG_ID_CLOCK_NVM_PULL, (int32_t)nvm_pull_value);
+  }
+  uint32_t drift_offset;
+  if (fallback_clock.takePendingDriftLog(&drift_offset)) {
+    RLOGH(RLOG_ID_CLOCK_DRIFT_APPLIED, (int32_t)drift_offset);
+  }
+  if (fallback_clock.takePendingDriftCleared()) {
+    RLOGH(RLOG_ID_CLOCK_DRIFT, 0);
+  }
+#endif
 }
 
 // beebo: applies MonRing's real, boot-known state on top of
-// initMonRingEarly()'s placeholder -- persisted config, the corrected time
-// anchor, and the flood-echo/battery/slow-stat wiring that all depend on
-// state (_role_state->prefs, board, _store, the RTC) not available at the
-// early call site above. Deliberately does NOT call monring.init() again --
-// that would wipe out any real boot events already captured since
-// initMonRingEarly() ran.
+// startMonRing()'s placeholder radio/env -- persisted config and the
+// flood-echo/battery/slow-stat wiring that all depend on state
+// (_role_state->prefs, board, _store) not available at the early call site
+// above. The time anchor itself doesn't need any correction here anymore --
+// startMonRing() already resolved it against the real RTC from the
+// start (see its own comment). Deliberately does NOT call monring.init()
+// again -- that would wipe out any real boot events already captured since
+// startMonRing() ran.
 void Beebo::initMonRing() {
   // beebo: not radioIsIdle()-verified at this point in boot -- reset the
   // trend anchor/state instead of seeding it directly, so updateBattTrend()
@@ -1734,18 +1827,28 @@ void Beebo::initMonRing() {
   _mcu_temp_scaled = (int16_t)(board.getMCUTemperature() * 10);
   _next_slowstat_refresh = futureMillis(SLOWSTAT_REFRESH_MS);
   if (monring.allocated()) {
-    uint32_t anchor_epoch_sec, anchor_millis_ms;
-    captureTimeAnchor(getRTCClock(), &anchor_epoch_sec, &anchor_millis_ms);
-    monring.setTimeAnchor(anchor_epoch_sec, anchor_millis_ms);  // correct the placeholder anchor
     monring.setConfig(_role_state->prefs.monring_config);  // apply persisted enable + per-kind capture mask
     monring.setEventTypeMask(_role_state->prefs.monring_event_mask);  // apply persisted per-event-type capture mask
     monring.setLiveSink(&pushMlogFrame);  // MLOG live relay, see plans/MLOG_LIVE_STREAM.md
     profile_log.setEnabled(_role_state->prefs.profile_enabled);  // apply persisted ProfileLog enable gate
-    // beebo: supersede initMonRingEarly()'s placeholder radio/env with the
+    // beebo: supersede startMonRing()'s placeholder radio/env with the
     // real, now-known snapshot -- diff-on-change stores a real record since
-    // the placeholder (all-zero) essentially never matches real config.
-    monring.noteRadio(buildRadioRecord(), (uint32_t)millis());
-    monring.sampleEnv(buildEnvRecord(), (uint32_t)millis());
+    // the placeholder (all-zero) essentially never matches real config. But
+    // only if that snapshot is itself actually valid yet -- freq reads 0
+    // here on a real boot if _role_state->prefs hasn't been fully settled by
+    // this point, and noise_floor's own 0 sentinel (not yet calibrated) is
+    // already the loop()-side env sampler's own validity gate (see its
+    // "_radio->getNoiseFloor() != 0" check below) -- storing an
+    // all-zero/uncalibrated record here would just be a second, redundant
+    // placeholder->real transition on top of the one startMonRing()
+    // already documents, confirmed confusing on real hardware (2026-09-11:
+    // freq=0.0/noise_floor=0 lines in a live --dbg-level E capture). Skip
+    // silently if not yet valid -- the loop()'s own periodic retry (env) and
+    // the other noteRadio() call sites (role switch, config apply) will
+    // store the real first record whenever it actually becomes known.
+    RadioRecord radio = buildRadioRecord();
+    if (radio.freq != 0) monring.noteRadio(radio, (uint32_t)millis());
+    if (_radio->getNoiseFloor() != 0) monring.sampleEnv(buildEnvRecord(), (uint32_t)millis());
     MESH_DEBUG_PRINTLN("MonRing: %u records (%u KB PSRAM), %u KB PSRAM free after",
                        monring.capacity(), (unsigned)(MONRING_FIXED_BYTES / 1024),
                        (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
@@ -1818,6 +1921,24 @@ EnvRecord Beebo::buildEnvRecord() {
   env.noise_floor = (int8_t)_radio->getNoiseFloor();
   env.temp_c = (int8_t)(_mcu_temp_scaled / 10);
   return env;
+}
+
+// beebo: env sampling normally lives entirely on its own fixed cadence in
+// loop() (ENV_SAMPLE_MS, plans/CPU_UTILIZATION.md's "Fixed-cadence
+// sampling"), not opportunistically on RX/TX -- but that leaves a real gap
+// right after boot: if the first RX/TX happens before loop()'s own
+// getNoiseFloor()!=0 retry has landed a valid sample (initMonRing() itself
+// now skips storing one at all if it's not yet valid -- see its own
+// comment), a downloaded/live trace would show RX/TX records with no
+// governing env record before them at all. Called from logRxRaw()/logTx()/
+// logTxFail() (alongside their existing noteRadio() call) purely as a
+// one-time catch-up -- a no-op via monring.envCount() once loop() or this
+// itself has landed the real first sample, so it never duplicates or
+// fights the periodic cadence afterward.
+void Beebo::ensureFirstEnvSample() {
+  if (monring.envCount() != 0) return;
+  if (_radio->getNoiseFloor() == 0) return;
+  monring.sampleEnv(buildEnvRecord(), (uint32_t)millis());
 }
 
 #ifdef BEEBO_CPU_ACCOUNTING
@@ -3324,6 +3445,15 @@ void Beebo::handleCmdFrame(size_t len) {
     uint32_t now = getRTCClock()->getCurrentTime();
     memcpy(&reply[1], &now, 4);
     _serial->writeFrame(reply, 5);
+#ifdef BEEBO_RTC_PERSIST
+    // beebo: `beebo clock` always queries this (connect.py's
+    // _sync_clock_if_drifted reads get_time() to decide whether to sync at
+    // all), so logging the current persisted drift here -- not just on an
+    // actual accepted correction -- is what makes CLOCK_DRIFT visible on
+    // every "clock" call, including a no-op one where the client is
+    // already in tolerance and never even sends CMD_SET_DEVICE_TIME.
+    RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+#endif
   } else if (cmd_frame[0] == CMD_SET_DEVICE_TIME && len >= 5) {
     uint32_t secs;
     memcpy(&secs, &cmd_frame[1], 4);
@@ -3336,7 +3466,24 @@ void Beebo::handleCmdFrame(size_t len) {
       // no ~999ms phase ambiguity when we're the ones who just wrote the
       // value). See plans/MONITORING_UNIFICATION.md Design #1.
       monring.setTimeAnchor(secs, (uint32_t)millis());
-      RLOGM(RLOG_ID_CLOCK_SET, secs);
+#ifdef BEEBO_RTC_PERSIST
+      {
+        const uint8_t clock_src_user[5] = {RLOG_CLOCK_SRC_CMD, 0, 0, 0, 0};
+        RLOGH(RLOG_ID_CLOCK_SET, secs, clock_src_user);
+      }
+#else
+      RLOGH(RLOG_ID_CLOCK_SET, secs);
+#endif
+#ifdef BEEBO_RTC_PERSIST
+      // beebo: keep rtc_ts fresh on every accepted correction, not just an
+      // explicit reboot -- otherwise a genuine cold-boot ESP_RST_POWERON
+      // (see kbase/CLOCK_DRIFT_COMPENSATION.md's "Behavior across reset
+      // kinds") restores whatever the *last* reboot() happened to persist,
+      // which can be arbitrarily stale if the device has been corrected via
+      // ordinary syncs since then without an intervening reboot.
+      beebo_persistRTCTimeForReboot(secs);
+      RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+#endif
       writeOKFrame();
     } else if (secs == curr) {
       writeOKFrame();
@@ -4227,27 +4374,19 @@ void Beebo::handleCmdFrame(size_t len) {
       // memcpy(&out_frame[i], &_lx_work_reported, 2); i += 2;
 #endif
       _serial->writeFrame(out_frame, i);
-    } else if (stats_type == STATS_TYPE_TRANSPORT || stats_type == STATS_TYPE_PROFILE) {
+    } else if (stats_type == STATS_TYPE_PROFILE) {
       // Paginated fetch: optional 2-byte LE start offset in cmd_frame[2..3].
       // Response: [STATS][type][total LE16][offset LE16][events...]
       //
       // beebo: same page-size/streaming uplevel as BEEBO_CMD_GET_MONRING --
-      // a full ring is small (RLOG_MAX_EVENTS records) but was always paged
-      // at the legacy 176-byte MAX_FRAME_SIZE with one command round trip
-      // per page (e.g. ~57 round trips for a 1024-event ring), unlike
-      // GET_MONRING which already rides _app_max_tx/_app_stream once
-      // negotiated via SET_XFER_CAPS. Every extra round trip is a fresh
-      // chance to hit the rare single-command USB stall this was chasing;
-      // fewer, bigger, self-driving pages cuts that exposure directly.
-      // If the app negotiated streaming, a bare offset==0 request just arms
-      // the loop pump (see checkSerialInterface()) instead of replying
+      // paged at the legacy 176-byte MAX_FRAME_SIZE with one command round
+      // trip per page unless the app negotiated streaming via
+      // SET_XFER_CAPS, in which case a bare offset==0 request just arms the
+      // loop pump (see checkSerialInterface()) instead of replying
       // immediately -- same shape as BEEBO_CMD_GET_MONRING's _monread. An
       // explicit offset!=0 (a pre-streaming app, or an app that decided not
       // to negotiate) always gets the legacy single-page reply.
       uint16_t offset = (len >= 4) ? (cmd_frame[2] | ((uint16_t)cmd_frame[3] << 8)) : 0;
-      // Mark the read boundary once per fetch (first page) so the next debuglog
-      // clearly shows which events are new.
-      if (stats_type == STATS_TYPE_TRANSPORT && offset == 0) RLOGL(RLOG_ID_DEBUGLOG_READ);
       if (_app_stream && offset == 0) {
         _statread.active = true;
         _statread.kind = stats_type;
@@ -4261,10 +4400,7 @@ void Beebo::handleCmdFrame(size_t len) {
       i += 4;  // reserve total + offset
       uint16_t total = 0;
       size_t page_cap = _app_max_tx;   // larger paged frames if negotiated (else 176)
-      if (stats_type == STATS_TYPE_TRANSPORT)
-        i += debug_ring.serialize(&out_frame[i], page_cap - i, offset, &total);
-      else
-        i += profile_log.serialize(&out_frame[i], page_cap - i, offset, &total);
+      i += profile_log.serialize(&out_frame[i], page_cap - i, offset, &total);
       out_frame[hdr + 0] = total & 0xFF;
       out_frame[hdr + 1] = (total >> 8) & 0xFF;
       out_frame[hdr + 2] = offset & 0xFF;
@@ -5373,7 +5509,7 @@ void Beebo::handleCmdFrame(size_t len) {
     writeDisabledFrame();
 #endif
   } else if (sub[0] == BEEBO_CMD_DEBUG_LOG_ENABLE && sub_len >= 2) {
-    // beebo: DebugRing targets serial_interface (the same aggregator _serial
+    // beebo: DebugLog targets serial_interface (the same aggregator _serial
     // already points at), which forwards writeFrame()/writeFrameBestEffort()
     // to whichever transport currently holds the companion session -- so
     // the live stream follows the session, not a fixed transport. Refuse
@@ -5382,10 +5518,11 @@ void Beebo::handleCmdFrame(size_t len) {
     if (!serial_interface.isConnected()) {
       writeErrFrame(ERR_CODE_BAD_STATE);
     } else {
-      // beebo: replay the ring's backlog on every disabled -> enabled
-      // transition, same as the raw sub-frame USB path's own
-      // BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling above -- see
-      // DebugRing::beginReplay()/replayStep()'s own comment for why (a
+      // beebo: DLOG has no backlog/replay of its own (live-only, see
+      // DebugLog.h's own top comment) -- only MLOG replays its ring's
+      // backlog on every disabled -> enabled transition, same as the raw
+      // sub-frame USB path's own BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling
+      // below -- see MonRing::requestMlogReplay()'s own comment for why (a
       // fresh `-d`/`-i` session should see recent history, not just events
       // from the moment it happened to attach; a same-connection resend of
       // an already-enabled state triggers no second replay), and for why
@@ -5393,17 +5530,12 @@ void Beebo::handleCmdFrame(size_t len) {
       // rather than a synchronous burst.
       bool enabling = (sub[1] & DEBUG_LOG_ENABLE_BIT_DLOG) != 0;
       bool mlog_enabling = (sub[1] & DEBUG_LOG_ENABLE_BIT_MLOG) != 0;
-      if (enabling && !debug_ring.isEnabled()) {
-        debug_ring.setSessionEnabled(true);
-        debug_ring.beginReplay();
-      } else {
-        debug_ring.setSessionEnabled(enabling);
-      }
-      if (mlog_enabling && !debug_ring.isMlogEnabled()) {
-        debug_ring.setSessionMlogEnabled(true);
+      debug_log.setSessionEnabled(enabling);
+      if (mlog_enabling && !debug_log.isMlogEnabled()) {
+        debug_log.setSessionMlogEnabled(true);
         monring.requestMlogReplay();
       } else {
-        debug_ring.setSessionMlogEnabled(mlog_enabling);
+        debug_log.setSessionMlogEnabled(mlog_enabling);
       }
       writeOKFrame();
     }
@@ -5529,39 +5661,63 @@ void Beebo::checkSerialInterface() {
     if (raw_sub == BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) {
       bool enabling = (raw_data & DEBUG_LOG_ENABLE_BIT_DLOG) != 0;
       bool mlog_enabling = (raw_data & DEBUG_LOG_ENABLE_BIT_MLOG) != 0;
-      // beebo: replay the ring's full backlog on every disabled -> enabled
-      // transition, not just the first one this boot -- a resend of the
-      // *same* enable byte within one still-live connection (debug_link.py's
-      // _resend_enable_after_boot(), covering a lost first attempt) sees
-      // debug_ring already enabled here and so triggers no second replay,
-      // but a genuinely new connection (a fresh `-d`/`-i` invocation,
-      // possibly long after an earlier one ended) gets the ring's current
-      // history again -- useful for a one-shot `beebo -d` session that
-      // wants to see recent history, not just live events from the moment
-      // it happened to attach. See DebugRing::beginReplay()/replayStep()'s
-      // own comment for how this is also what gets a boot-time event
-      // (RLOG_ID_BOOT_START, logged before any client could possibly be
-      // listening) to a host at all, and for why replay is paced rather
-      // than a synchronous burst. MLOG's own bit gets the same treatment,
-      // independently, against MonRing's backlog instead (MonRing::
-      // beginMlogReplay()/mlogReplayStep()).
-      if (enabling && !debug_ring.isEnabled()) {
-        debug_ring.setUsbEnabled(true);
-        debug_ring.beginReplay();
-      } else {
-        debug_ring.setUsbEnabled(enabling);
-      }
-      if (mlog_enabling && !debug_ring.isMlogEnabled()) {
-        debug_ring.setUsbMlogEnabled(true);
+      // beebo: DLOG is live-only (no backlog/replay of its own, see
+      // DebugLog.h's own top comment) -- a boot-time event like
+      // RLOG_ID_BOOT_START now only reaches a host via MON_DEBUG/MLOG's
+      // replay below (MonRing::beginMlogReplay()/mlogReplayStep()), not
+      // this bit. MLOG's bit gets that replay treatment, independently,
+      // against MonRing's backlog.
+      debug_log.setUsbEnabled(enabling);
+      if (mlog_enabling && !debug_log.isMlogEnabled()) {
+        debug_log.setUsbMlogEnabled(true);
         monring.requestMlogReplay();
       } else {
-        debug_ring.setUsbMlogEnabled(mlog_enabling);
+        debug_log.setUsbMlogEnabled(mlog_enabling);
       }
     }
     // BEEBO_RAW_SUB_KEEPALIVE: no action needed here -- checkRecvFrame()'s
     // own MODE_RAW_DATA completion already refreshed usb_interface's
     // _last_byte_at for this sub_id, which is the only thing this one
-    // exists to do (see DebugRing.h's own comment).
+    // exists to do (see DebugLog.h's own comment).
+    if (raw_sub == BEEBO_RAW_SUB_TIME_SYNC && len >= 5) {
+      // beebo: same forward-only-correction rule as CMD_SET_DEVICE_TIME
+      // (Beebo.cpp's binary handler above) -- fire-and-forget, no OK/ERR
+      // reply, since this sits below the session/request-reply layer
+      // entirely (see this block's own top comment). checkRecvFrame()'s
+      // MODE_RAW_DATA completion already refreshed usb_interface's
+      // _last_byte_at for this sub_id, same as BEEBO_RAW_SUB_KEEPALIVE.
+      uint32_t secs;
+      memcpy(&secs, &cmd_frame[1], 4);
+      uint32_t curr = getRTCClock()->getCurrentTime();
+      if (secs > curr) {
+        getRTCClock()->setCurrentTime(secs);
+        monring.setTimeAnchor(secs, (uint32_t)millis());
+#ifdef BEEBO_RTC_PERSIST
+        {
+          const uint8_t clock_src_user[5] = {RLOG_CLOCK_SRC_CMD, 0, 0, 0, 0};
+          RLOGH(RLOG_ID_CLOCK_SET, secs, clock_src_user);
+        }
+        beebo_persistRTCTimeForReboot(secs);
+        RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+#else
+        RLOGH(RLOG_ID_CLOCK_SET, secs);
+#endif
+      } else if (secs < curr) {
+#ifdef BEEBO_RTC_PERSIST
+        beebo_recordClockDrift(curr - secs);
+        RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+#endif
+      } else {
+#ifdef BEEBO_RTC_PERSIST
+        // beebo: a no-op tick (already in sync) still logs the current
+        // persisted drift -- same "visible on every clock-syncing event,
+        // not just an accepted correction" rule CMD_GET_DEVICE_TIME/`clock`
+        // already follows, so this periodic keepalive shows up in the
+        // debug log even when it has nothing to correct.
+        RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+#endif
+      }
+    }
     return;
   }
   if (len > 0) {
@@ -5590,22 +5746,22 @@ void Beebo::checkSerialInterface() {
     // for the same reason.
     bool trace = !((cmd_frame[0] == CMD_BEEBO && len >= 2 && cmd_frame[1] == BEEBO_CMD_OTA_WRITE)
                     || (cmd_frame[0] == CMD_GET_STATS && len >= 2
-                        && (cmd_frame[1] == STATS_TYPE_TRANSPORT || cmd_frame[1] == STATS_TYPE_PROFILE)));
+                        && cmd_frame[1] == STATS_TYPE_PROFILE));
     if (trace) {
       // (cmd<<8)|sub so CMD_BEEBO sub-commands (OTA/WiFi/RF measurement/…)
-      // and CMD_GET_STATS sub-types are distinguishable, unlike RLOG_ID_CMD_*'s
-      // old 1-byte outer-command-only detail. Only these two commands' second
-      // byte is actually a sub-id; every other command's byte[1] is just
-      // payload data (e.g. SET_RADIO_TX_POWER's power value), so folding it
-      // in unconditionally would fragment their stats across many ids.
-      // Also fed into RLOGL() below (DebugRing.h's `detail`
-      // is a full int32_t, plenty of room) so `beebo monitor transport`
-      // shows the real sub-command instead of a generic "BEEBO"/"GET_STATS"
-      // row for every one of these -- see debuglog.py's BEEBO_CMD_NAMES.
+      // and CMD_GET_STATS sub-types are distinguishable, unlike a plain
+      // outer-command-only detail. Only these two commands' second byte is
+      // actually a sub-id; every other command's byte[1] is just payload
+      // data (e.g. SET_RADIO_TX_POWER's power value), so folding it in
+      // unconditionally would fragment their stats across many ids. Also
+      // fed into DLOGL() below so a live `--debug` capture shows the real
+      // sub-command instead of a generic "BEEBO"/"GET_STATS" row for every
+      // one of these (as raw hex -- DLOG has no host-side name-decode
+      // table to keep in sync, unlike the former RLOGL/DEBUG_TLOG path).
       uint16_t prof_id = (uint16_t)cmd_frame[0] << 8;
       if (len >= 2 && (cmd_frame[0] == CMD_BEEBO || cmd_frame[0] == CMD_GET_STATS))
         prof_id |= cmd_frame[1];
-      RLOGL(RLOG_ID_CMD_RECV, prof_id);
+      DLOGL(DLOG_ID_CMD_RECV, "cmd=0x%04x", prof_id);
       PROFILE_SCOPE(prof_id);
       // beebo: MON_COMMAND (MonRing.h) -- deliberately narrower than
       // `trace`: excludes every routine/repeated read path (all of
@@ -5622,7 +5778,7 @@ void Beebo::checkSerialInterface() {
                 cmd_frame[1] == BEEBO_CMD_GET_PREFS_TLV));
       if (command_run_eligible) appendCommandRunEvent(prof_id);
       handleCmdFrame(len);
-      RLOGL(RLOG_ID_CMD_DONE, prof_id);
+      DLOGL(DLOG_ID_CMD_DONE, "cmd=0x%04x", prof_id);
     } else {
       handleCmdFrame(len);
     }
@@ -5720,11 +5876,11 @@ void Beebo::checkSerialInterface() {
     // per-record wire size to get the record count the offset/total fields
     // (and the client's own pagination) are actually counted in. Confirmed
     // live: using the raw byte count here overshoots `total` (a record
-    // count) after a single page, ending the stream 9x/8x too early.
-    const int per_event = (_statread.kind == STATS_TYPE_TRANSPORT) ? 9 : 8;
-    int body_n = (_statread.kind == STATS_TYPE_TRANSPORT)
-        ? debug_ring.serialize(&out_frame[i], body_cap, _statread.offset, &total)
-        : profile_log.serialize(&out_frame[i], body_cap, _statread.offset, &total);
+    // count) after a single page, ending the stream too early. _statread.kind
+    // is always STATS_TYPE_PROFILE now (STATS_TYPE_TRANSPORT retired --
+    // MON_DEBUG/GET_MONRING covers the same ground).
+    const int per_event = 8;
+    int body_n = profile_log.serialize(&out_frame[i], body_cap, _statread.offset, &total);
     int n_records = body_n / per_event;
     i += body_n;
     out_frame[hdr + 0] = total & 0xFF;
@@ -5796,26 +5952,14 @@ void Beebo::checkSerialInterface() {
       _serial->writeFrame(out_frame, 2);
       _pathread.active = false;
     }
-  } else if (debug_ring.isReplaying() && !_serial->isWriteBusy()) {
-    // beebo: stream the debug-event ring's replay backlog one event per
-    // loop, same pacing as GET_NEIGHBORS/GET_MONRING/the contacts iterator
-    // above -- see DebugRing::beginReplay()/replayStep()'s own comment for
-    // why an unpaced synchronous burst overflowed SerialWifiInterface's
-    // send_queue.
-    debug_ring.replayStep();
-  } else if (monring.mlogReplayPending() && !debug_ring.isReplaying()) {
-    // beebo: only actually start MLOG's replay once DLOG/RLOG's own replay
-    // has fully drained (or was never active) -- see MonRing::
-    // requestMlogReplay()'s own comment for why: MLOG's start-refs are
-    // pushed synchronously the instant beginMlogReplay() runs, so calling
-    // it eagerly (right when the enable command was handled) always beat
-    // DLOG/RLOG's own paced replay to the wire, printing MLOG's "now"-
-    // timestamped SYNC/RADIO lines ahead of DLOG/RLOG's replayed backlog
-    // even though that backlog happened first, chronologically.
+  } else if (monring.mlogReplayPending()) {
+    // beebo: DLOG has no ring/replay of its own anymore (live-only, see
+    // DebugLog.h's own top comment), so MLOG's replay-on-enable no longer
+    // has anything else to wait for -- starts as soon as it's requested.
     monring.beginMlogReplay();
   } else if (monring.isMlogReplaying() && !_serial->isWriteBusy()) {
     // beebo: MLOG's own replay-on-enable backlog (plans/MLOG_LIVE_STREAM.md
-    // decision 3), same one-record-per-loop pacing as debug_ring's replay
+    // decision 3), same one-record-per-loop pacing as debug_log's replay
     // above, walking MonRing's own ring instead.
     monring.mlogReplayStep();
   //} else if (!_serial->isWriteBusy()) {
@@ -6184,21 +6328,18 @@ void Beebo::loop() {
     _route_start_us = micros();
 
     // beebo: live-only CPU snapshot for a --debug/-d session, same cadence
-    // as the RouteRecord append above -- see RLOG_ID_CPU_SNAPSHOT's own
-    // comment in DebugRing.h. Coarse (0-100, live ~1s _*_time_pct values),
+    // as the RouteRecord append above -- see DLOG_ID_CPU_SNAPSHOT's own
+    // comment in DebugLog.h. Coarse (0-100, live ~1s _*_time_pct values),
     // purely for visual scanning; RouteRecord above stays the persisted,
     // higher-precision (0-10000) per-direction source of truth. _rx_busy/
     // _tx_busy/_lx_busy are the live (~1s) 0-10000 tier -- rescale to
-    // 0-100 for this byte-packed debug log, unchanged wire format.
+    // 0-100 for this human-readable debug line.
     uint8_t rx_busy_100 = (uint8_t)(_rx_busy / 100);
     uint8_t tx_busy_100 = (uint8_t)(_tx_busy / 100);
     uint8_t lx_busy_100 = (uint8_t)(_lx_busy / 100);
     uint8_t radio_pct = (uint8_t)min(rx_busy_100 + tx_busy_100, 100);
     uint8_t idle_pct = (uint8_t)max(0, 100 - rx_busy_100 - tx_busy_100 - lx_busy_100);
-    int32_t cpu_detail = ((int32_t)radio_pct & 0xFF)
-                        | (((int32_t)lx_busy_100 & 0xFF) << 8)
-                        | (((int32_t)idle_pct & 0xFF) << 16);
-    RLOGL(RLOG_ID_CPU_SNAPSHOT, cpu_detail);
+    DLOGL(DLOG_ID_CPU_SNAPSHOT, "radio=%u%% link=%u%% idle=%u%%", radio_pct, lx_busy_100, idle_pct);
   }
 #endif
 
@@ -6328,13 +6469,13 @@ void Beebo::updateStatusLed() {
 void Beebo::loopTransports() {
   // Re-check every tracked transport variable and log a line for each one
   // that changed since last tick -- see RLOG_ID_XPORT_INIT/_CHANGE's own
-  // comment in DebugRing.h. This one call covers session start/end too
+  // comment in DebugLog.h. This one call covers session start/end too
   // (via the "active" variable going 0 <-> nonzero), so no separate
   // start/end hook is needed here.
   _checkTransportStateChanges();
 
-  // beebo: periodic low-level WiFi health sample -- see RLOG_ID_WIFI_HEALTH's
-  // own comment in DebugRing.h. Gated on _btp_state == BTP_TCP_UP (not
+  // beebo: periodic low-level WiFi health sample -- see DLOG_ID_WIFI_HEALTH's
+  // own comment in DebugLog.h. Gated on _btp_state == BTP_TCP_UP (not
   // tcp_enabled -- this is about the radio actually being live right now)
   // so it stays silent while WiFi is off, and unconditional on any session
   // being live (RSSI/heap sampling never touches deviceConnected/the
@@ -6344,14 +6485,13 @@ void Beebo::loopTransports() {
     uint16_t heap_kb = (uint16_t)(ESP.getFreeHeap() / 1024);
     int8_t rssi = (int8_t)WiFi.RSSI();
     uint8_t channel = (uint8_t)WiFi.channel();
-    int32_t detail = (int32_t)heap_kb | ((int32_t)(uint8_t)rssi << 16) | ((int32_t)channel << 24);
-    RLOGL(RLOG_ID_WIFI_HEALTH, detail);
+    DLOGL(DLOG_ID_WIFI_HEALTH, "heap=%uKB rssi=%ddBm ch=%u", heap_kb, (int)rssi, channel);
     _wifi_rssi_cache = rssi;
   }
 
-  // beebo: periodic low-level BLE health sample -- see RLOG_ID_BLE_HEALTH's own
-  // comment in DebugRing.h. Only kicks off the async RSSI read here; the
-  // actual RLOG_ID_BLE_HEALTH log call happens later, once the result lands
+  // beebo: periodic low-level BLE health sample -- see DLOG_ID_BLE_HEALTH's own
+  // comment in DebugLog.h. Only kicks off the async RSSI read here; the
+  // actual DLOG_ID_BLE_HEALTH log call happens later, once the result lands
   // (drained from checkRecvFrame() -- see SerialBLEInterface.cpp).
   ble_interface.requestHealthSample();
 
@@ -7173,10 +7313,16 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     }
   } else if (memcmp(command, "clock.epoch", 11) == 0) {
     sprintf(reply, "%lu", (unsigned long)getRTCClock()->getCurrentTime());
+#ifdef BEEBO_RTC_PERSIST
+    RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+#endif
   } else if (memcmp(command, "clock", 5) == 0) {
     uint32_t now = getRTCClock()->getCurrentTime();
     DateTime dt = DateTime(now);
     sprintf(reply, "%02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+#ifdef BEEBO_RTC_PERSIST
+    RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+#endif
   } else if (memcmp(command, "time ", 5) == 0) {
     uint32_t secs = (uint32_t)atol(&command[5]);
     uint32_t curr = getRTCClock()->getCurrentTime();
@@ -7184,7 +7330,17 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       getRTCClock()->setCurrentTime(secs);
       // beebo: see the binary CMD_SET_DEVICE_TIME handler's identical comment.
       monring.setTimeAnchor(secs, (uint32_t)millis());
-      RLOGM(RLOG_ID_CLOCK_SET, secs);
+#ifdef BEEBO_RTC_PERSIST
+      {
+        const uint8_t clock_src_user[5] = {RLOG_CLOCK_SRC_CMD, 0, 0, 0, 0};
+        RLOGH(RLOG_ID_CLOCK_SET, secs, clock_src_user);
+      }
+      // beebo: see the binary CMD_SET_DEVICE_TIME handler's identical comment.
+      beebo_persistRTCTimeForReboot(secs);
+      RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+#else
+      RLOGH(RLOG_ID_CLOCK_SET, secs);
+#endif
       uint32_t now = getRTCClock()->getCurrentTime();
       DateTime dt = DateTime(now);
       sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());

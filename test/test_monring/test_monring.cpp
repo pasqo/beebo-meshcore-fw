@@ -111,6 +111,26 @@ RadioRecord makeRadio(uint32_t freq = 915000000, uint8_t sf = 7, uint16_t bw = 2
 
 }  // namespace
 
+TEST(MonRingGlobalTimeAnchor, InitSetsSharedGlobalNotJustPrivateState) {
+  // beebo: g_time_anchor_epoch_sec/g_time_anchor_millis (MonRing.h) are
+  // shared, ring-agnostic globals now -- not MonRing's own private state --
+  // so DebugLog's DLOG live push (DebugLog.h's writeHeader()) can read
+  // the exact same anchor directly, with no dependency on MonRing's wire
+  // protocol (MLOG) at all. init()/setTimeAnchor() must write through to
+  // these globals, not some now-removed private copy.
+  MonRing ring;
+  uint8_t buf[1024];
+  ring.init(buf, sizeof(buf), 5000, 6000, RadioRecord{}, EnvRecord{});
+  EXPECT_EQ(5000u, g_time_anchor_epoch_sec);
+  EXPECT_EQ(6000u, g_time_anchor_millis);
+  EXPECT_TRUE(globalTimeAnchorValid());
+  EXPECT_TRUE(ring.timeAnchorValid());
+
+  ring.setTimeAnchor(7777, 8888);
+  EXPECT_EQ(7777u, g_time_anchor_epoch_sec);
+  EXPECT_EQ(8888u, g_time_anchor_millis);
+}
+
 TEST(MonRing, InitRejectsNullOrUndersizedBuffer) {
   MonRing ring;
   EXPECT_FALSE(ring.init(nullptr, 1024, 1000, 1000, RadioRecord{}, EnvRecord{}));
@@ -208,23 +228,46 @@ TEST(MonRing, EvictionReanchorsStartSyncAndOldestSeqAdvances) {
   EXPECT_EQ(1001u, f.ring.startTime());  // reanchored from the evicted SYNC
 }
 
-TEST(MonRing, EmitStartRefAlwaysValidFromBootSeedBeforeAnyEviction) {
-  // start_sync/start_radio are always populated once init() has run -- even
-  // before anything has actually changed or been evicted -- so
-  // emitStartRef() must report a value for both immediately. MON_ENV is
-  // the one exception -- see EmitStartRefEnvWithheldUntilFirstRealSample
-  // below: init()'s boot-time env snapshot isn't a genuine sample (radio
-  // noise-floor calibration/MCU temp aren't settled that early), so it
-  // must NOT be handed out as if it were one.
+TEST(MonRing, EmitStartRefSyncAlwaysValidFromBootSeedBeforeAnyEviction) {
+  // start_sync is always populated once init() has run -- even before
+  // anything has actually changed or been evicted -- so emitStartRef()
+  // must report a value for it immediately. MON_RADIO/MON_ENV are both
+  // withheld until a real noteRadio()/sampleEnv() call has actually
+  // happened -- see EmitStartRefRadioWithheldUntilFirstRealSample/
+  // EmitStartRefEnvWithheldUntilFirstRealSample below: init()'s boot-time
+  // radio/env snapshots aren't genuine samples (startMonRing()'s
+  // placeholder RadioRecord{} is all-zero; radio noise-floor calibration/
+  // MCU temp aren't settled that early either), so neither must be handed
+  // out as if it were one. Confirmed as a real bug on hardware
+  // (2026-09-11): before MON_RADIO got this same treatment, a fresh MLOG
+  // replay-on-enable kept injecting the all-zero boot placeholder as
+  // "the current radio config" on every reconnect, long after a real
+  // MON_RADIO record already existed further into the ring.
   RingFixture<8> f;
   MonRecord dest;
   ASSERT_TRUE(f.ring.emitStartRef(MON_SYNC, &dest));
   EXPECT_EQ(MON_SYNC, dest.kind);
   EXPECT_EQ(1000u, dest.sync.timestamp);  // the init() boot seed
   EXPECT_EQ(MONRING_ABI_VERSION, dest.sync.abi_version);
+  EXPECT_FALSE(f.ring.emitStartRef(MON_RADIO, &dest));
+  EXPECT_FALSE(f.ring.emitStartRef(MON_ENV, &dest));
+}
+
+TEST(MonRing, EmitStartRefRadioWithheldUntilFirstRealSample) {
+  // Mirrors EmitStartRefEnvWithheldUntilFirstRealSample exactly -- before
+  // any real noteRadio() call, MON_RADIO must not be injected at all
+  // (init()'s boot-time seed is startMonRing()'s all-zero placeholder,
+  // not a real config). Once a real config lands, it must be handed back
+  // immediately -- not just after some later eviction reanchors it.
+  RingFixture<8> f;
+  MonRecord dest;
+  EXPECT_FALSE(f.ring.emitStartRef(MON_RADIO, &dest));
+
+  f.ring.noteRadio(makeRadio(915000000), 1000);
+
   ASSERT_TRUE(f.ring.emitStartRef(MON_RADIO, &dest));
   EXPECT_EQ(MON_RADIO, dest.kind);
-  EXPECT_FALSE(f.ring.emitStartRef(MON_ENV, &dest));
+  EXPECT_EQ(915000000u, dest.radio.freq);
 }
 
 TEST(MonRing, EmitStartRefEnvWithheldUntilFirstRealSample) {
@@ -243,6 +286,19 @@ TEST(MonRing, EmitStartRefEnvWithheldUntilFirstRealSample) {
   ASSERT_TRUE(f.ring.emitStartRef(MON_ENV, &dest));
   EXPECT_EQ(MON_ENV, dest.kind);
   EXPECT_EQ(-77, dest.env.noise_floor);
+}
+
+TEST(MonRing, ClearReseedsRadioAsAlreadyValid) {
+  // Mirrors ClearReseedsEnvAsAlreadyValid -- clear()'s radio snapshot is a
+  // live read taken at clear time, already a genuine sample, so
+  // emitStartRef() must return it right away even with no prior noteRadio()
+  // call in this ring's lifetime.
+  RingFixture<8> f;
+  f.ring.clear(2000, 2000, makeRadio(915000000), makeEnv(-60));
+
+  MonRecord dest;
+  ASSERT_TRUE(f.ring.emitStartRef(MON_RADIO, &dest));
+  EXPECT_EQ(915000000u, dest.radio.freq);
 }
 
 TEST(MonRing, ClearReseedsEnvAsAlreadyValid) {
@@ -516,11 +572,57 @@ TEST(MonRing, EnsureSyncBucketsToRealMinuteBoundaryAtProductionPeriod) {
   EXPECT_EQ(1234620u, out[1].sync.timestamp);  // the next real minute boundary
 }
 
+// beebo: regression for a real bug -- endTime() (GET_MONRING's "end" header
+// field, shown by `beebo monitor` as the ring's newest-record time) used to
+// be set directly to `now`, which was epoch seconds before
+// plans/MONITORING_UNIFICATION.md Design #1's time-model change but is
+// millis() after it -- appendXxx() was never updated, so endTime() started
+// returning a raw millis() value (e.g. "end: 31978618") instead of a real
+// epoch. Verifies it's derived through the same anchor math _ensureSync()
+// uses, not the raw millis() parameter.
+TEST(MonRing, EndTimeIsRealEpochNotRawMillis) {
+  RingFixture<8> f(1000, 60);  // anchor: epoch_sec=1000, millis=1000
+  f.ring.appendRx(makeRx(), 5000);  // +4000ms elapsed -> epoch 1004, not raw 5000
+  EXPECT_EQ(1004u, f.ring.endTime());
+}
+
+// beebo: noteRadio()/sampleEnv() are the two appendXxx()-family members that
+// don't share the common "assign a fresh RxRecord/TxRecord/etc. and append"
+// shape (they diff-and-store-on-change instead) -- confirmed by direct code
+// read they were the only two NOT updating _end_time at all, so the ring's
+// reported "end" time went stale (kept showing whatever RX/TX/etc. record
+// last advanced it) whenever the actual newest resident record was a
+// RADIO/ENV change instead.
+TEST(MonRing, EndTimeAdvancesOnRadioAndEnvChangesToo) {
+  RingFixture<8> f(1000, 60);
+  RadioRecord radio{}; radio.freq = 915000000;
+  f.ring.noteRadio(radio, 5000);
+  EXPECT_EQ(1004u, f.ring.endTime());
+
+  EnvRecord env{}; env.noise_floor = -90;
+  f.ring.sampleEnv(env, 9000);  // +8000ms elapsed -> epoch 1008
+  EXPECT_EQ(1008u, f.ring.endTime());
+}
+
 // beebo: setTimeAnchor() must not touch ring contents/counts -- only the
 // anchor used for the NEXT _ensureSync() computation. Separate from the
 // rollover test above, which exercises setTimeAnchor() as a side effect of
 // re-anchoring millis(); this isolates the "no side effects on the ring
 // itself" contract directly.
+TEST(MonRing, TimeAnchorValidFalseUntilRealEpochSet) {
+  // Regression test for a real bug found on hardware (2026-09-11):
+  // startMonRing()'s boot-time init() call always seeds anchor_epoch_sec
+  // as the placeholder 0 -- timeAnchorValid() must report false until a
+  // real setTimeAnchor() call corrects it, so callers appending events with
+  // an absolute-timestamp requirement (Beebo::forwardDebugToMonRing()) know
+  // to hold off rather than store a record timestamped against epoch 0.
+  RingFixture<8> f(/*now=*/0);
+  EXPECT_FALSE(f.ring.timeAnchorValid());
+
+  f.ring.setTimeAnchor(1789184340, 0);
+  EXPECT_TRUE(f.ring.timeAnchorValid());
+}
+
 TEST(MonRing, SetTimeAnchorDoesNotTouchRingContents) {
   RingFixture<8> f(1000, 60);
   f.ring.appendRx(makeRx(), 1000);
@@ -1345,37 +1447,39 @@ TEST(MonRingMlogReplay, OneRecordPerStepOldestFirst) {
   f.ring.beginMlogReplay();
   EXPECT_TRUE(f.ring.isMlogReplaying());
 
-  // beginMlogReplay() itself immediately injects the SYNC/RADIO start-refs
-  // (mirrors GET_MONRING's own first-page splice) before the real per-seq
-  // walk below -- ENV isn't injected (no sampleEnv() call in this fixture,
-  // see emitStartRef()'s own env-not-yet-sampled gate).
-  ASSERT_EQ(2u, g_live_sink_calls.size());
+  // beginMlogReplay() itself immediately injects the SYNC start-ref (mirrors
+  // GET_MONRING's own first-page splice) before the real per-seq walk below
+  // -- RADIO/ENV aren't injected (no noteRadio()/sampleEnv() call in this
+  // fixture, see emitStartRef()'s own not-yet-sampled gates for both).
+  ASSERT_EQ(1u, g_live_sink_calls.size());
   EXPECT_EQ(MON_SYNC, g_live_sink_calls[0].kind);
-  EXPECT_EQ(MON_RADIO, g_live_sink_calls[1].kind);
 
   ASSERT_TRUE(f.ring.mlogReplayStep());
   ASSERT_TRUE(f.ring.mlogReplayStep());
   EXPECT_FALSE(f.ring.mlogReplayStep());   // 3rd (last) record: replay completes
   EXPECT_FALSE(f.ring.isMlogReplaying());
 
-  ASSERT_EQ(5u, g_live_sink_calls.size());
-  EXPECT_EQ(MON_RX, g_live_sink_calls[2].kind);
-  EXPECT_EQ(0x1u, g_live_sink_calls[2].rx.pkt_hash);
-  EXPECT_EQ(MON_TX, g_live_sink_calls[3].kind);
-  EXPECT_EQ(0x2u, g_live_sink_calls[3].tx.pkt_hash);
-  EXPECT_EQ(MON_RX, g_live_sink_calls[4].kind);
-  EXPECT_EQ(0x3u, g_live_sink_calls[4].rx.pkt_hash);
+  ASSERT_EQ(4u, g_live_sink_calls.size());
+  EXPECT_EQ(MON_RX, g_live_sink_calls[1].kind);
+  EXPECT_EQ(0x1u, g_live_sink_calls[1].rx.pkt_hash);
+  EXPECT_EQ(MON_TX, g_live_sink_calls[2].kind);
+  EXPECT_EQ(0x2u, g_live_sink_calls[2].tx.pkt_hash);
+  EXPECT_EQ(MON_RX, g_live_sink_calls[3].kind);
+  EXPECT_EQ(0x3u, g_live_sink_calls[3].rx.pkt_hash);
 
   // Further calls are no-ops once done.
   EXPECT_FALSE(f.ring.mlogReplayStep());
-  EXPECT_EQ(5u, g_live_sink_calls.size());
+  EXPECT_EQ(4u, g_live_sink_calls.size());
 }
 
-TEST(MonRingMlogReplay, StartRefNotInjectedWhenRealRecordAlreadyCoversSlot) {
-  // beebo: if the ring's own oldest resident record already IS a MON_SYNC
-  // (a real one was captured recently enough to still be resident), don't
-  // also inject a synthetic start-ref for that slot -- same "nothing
-  // skipped or duplicated" invariant GET_MONRING's own splice documents.
+TEST(MonRingMlogReplay, StartRefAlwaysInjectedForSyncEvenWhenRealRecordCoversSlot) {
+  // beebo: unlike RADIO/ENV, MON_SYNC is injected unconditionally even when
+  // the ring's own oldest resident record already IS a MON_SYNC -- found on
+  // real hardware (2026-09-11) that skipping it left a brand-new live
+  // noteRadio()/sampleEnv() append's abs_time unresolved whenever it raced
+  // ahead of that real SYNC record still queued in mlogReplayStep()'s paced
+  // (one-per-tick) walk. A duplicate real SYNC arriving later via that walk
+  // is harmless, so there's no reason to withhold the synthetic one here.
   g_live_sink_calls.clear();
   RingFixture<8> f;
   f.ring.setSyncPeriod(1);       // force a real SYNC record on the next append
@@ -1385,24 +1489,27 @@ TEST(MonRingMlogReplay, StartRefNotInjectedWhenRealRecordAlreadyCoversSlot) {
   f.ring.setLiveSink(&captureLiveSink);
   f.ring.beginMlogReplay();
 
-  // Only RADIO is injected (still no real RADIO record); SYNC's slot is
-  // already covered by the real record at oldestSeq().
+  // SYNC is injected despite the real record already covering that slot;
+  // RADIO still isn't (no real noteRadio() call to draw from, see
+  // emitStartRef()'s own not-yet-sampled gate).
   ASSERT_EQ(1u, g_live_sink_calls.size());
-  EXPECT_EQ(MON_RADIO, g_live_sink_calls[0].kind);
+  EXPECT_EQ(MON_SYNC, g_live_sink_calls[0].kind);
 }
 
 TEST(MonRingMlogReplay, StartRefInjectedEvenWhenRingEmpty) {
-  // beebo: start_sync/start_radio are populated from init() onward, so a
-  // freshly-enabled MLOG stream against a totally empty ring still gets an
-  // immediate time base rather than waiting for the ring to hold anything.
+  // beebo: start_sync is populated from init() onward, so a freshly-enabled
+  // MLOG stream against a totally empty ring still gets an immediate time
+  // base rather than waiting for the ring to hold anything. RADIO/ENV are
+  // still withheld either way (see emitStartRef()'s own not-yet-sampled
+  // gates) -- neither has a real noteRadio()/sampleEnv() call in this
+  // fixture, empty ring or not.
   g_live_sink_calls.clear();
   RingFixture<8> f;   // never appended to -- count() == 0
   f.ring.setLiveSink(&captureLiveSink);
   f.ring.beginMlogReplay();
   EXPECT_FALSE(f.ring.isMlogReplaying());   // nothing real to replay
-  ASSERT_EQ(2u, g_live_sink_calls.size());
+  ASSERT_EQ(1u, g_live_sink_calls.size());
   EXPECT_EQ(MON_SYNC, g_live_sink_calls[0].kind);
-  EXPECT_EQ(MON_RADIO, g_live_sink_calls[1].kind);
 }
 
 // beebo: two-phase replay (plans/MLOG_LIVE_STREAM.md) -- requestMlogReplay()
@@ -1411,6 +1518,32 @@ TEST(MonRingMlogReplay, StartRefInjectedEvenWhenRingEmpty) {
 // defer that call until DLOG/RLOG's own replay has drained, so MLOG's
 // "now"-timestamped lines never print ahead of DLOG/RLOG's replayed
 // (chronologically earlier) backlog.
+TEST(MonRingMlogReplay, StartRefInjectsRadioOnceReallySampled) {
+  // Regression test for a real bug found on hardware (2026-09-11): once a
+  // real noteRadio() call has happened, its config must be injected as the
+  // RADIO start-ref on every subsequent beginMlogReplay() -- confirming the
+  // withheld-until-sampled behavior above doesn't withhold it forever.
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  // beebo: an RX ahead of the RADIO record means oldestSeq() itself is
+  // neither a SYNC nor a RADIO record, so beginMlogReplay()'s "already
+  // covers this slot" skip doesn't fire for either -- both get injected as
+  // synthetic start-refs (see beginMlogReplay()'s own comment), letting
+  // this test check RADIO's injected value directly.
+  f.ring.appendRx(makeRx(0x1), 1000);
+  f.ring.noteRadio(makeRadio(915000000), 1001);
+  g_live_sink_calls.clear();
+
+  f.ring.setLiveSink(&captureLiveSink);
+  f.ring.beginMlogReplay();
+
+  bool saw_radio = false;
+  for (auto &rec : g_live_sink_calls) {
+    if (rec.kind == MON_RADIO) { saw_radio = true; EXPECT_EQ(915000000u, rec.radio.freq); }
+  }
+  EXPECT_TRUE(saw_radio);
+}
+
 TEST(MonRingMlogReplay, RequestOnlyArmsPendingDoesNotPushYet) {
   g_live_sink_calls.clear();
   RingFixture<8> f;

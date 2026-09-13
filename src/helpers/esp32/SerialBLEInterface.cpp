@@ -1,6 +1,6 @@
 #include "SerialBLEInterface.h"
 #include "esp_mac.h"
-#include "../DebugRing.h"
+#include "../DebugLog.h"
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -47,7 +47,7 @@ void SerialBLEInterface::_gattsEventHandler(esp_gatts_cb_event_t event, esp_gatt
   }
 
   // beebo: RLOG_ID_BLE_HANDSHAKE's CCCD_WRITE step -- see its own comment
-  // in DebugRing.h. BLE2902's value is 2 raw bytes (bit0 = notifications
+  // in DebugLog.h. BLE2902's value is 2 raw bytes (bit0 = notifications
   // enabled), same layout esp_ble_gatts_send_indicate()'s peer checks
   // against (BLECharacteristic::notify()).
   if (event == ESP_GATTS_WRITE_EVT && !param->write.is_prep) {
@@ -128,7 +128,7 @@ void SerialBLEInterface::initRadio() {
   // real hardware (2026-09-09) to cost several seconds of silent stall
   // during the key-exchange step on a *fresh* pair (never on a reconnect,
   // which skips key distribution and reuses the existing LTK) -- see
-  // BUGS.md and RLOG_ID_BLE_HANDSHAKE's own comment in DebugRing.h.
+  // BUGS.md and RLOG_ID_BLE_HANDSHAKE's own comment in DebugLog.h.
   sec.setRespEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
   sec.setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
 
@@ -156,7 +156,7 @@ void SerialBLEInterface::initRadio() {
 
 void SerialBLEInterface::deinitRadio() {
   // beebo: pure tracing -- see RLOG_ID_BLE_RSSI_TEARDOWN_WHILE_INFLIGHT's
-  // own comment in DebugRing.h. Logged, not waited/cancelled on: this is
+  // own comment in DebugLog.h. Logged, not waited/cancelled on: this is
   // exactly the scenario that used to hang the BT stack (see
   // requestHealthSample()'s own comment) -- capturing it in the ring lets
   // a real hang be correlated after the fact with "yes, a read was
@@ -545,7 +545,7 @@ bool SerialBLEInterface::isConnected() const {
 }
 
 // beebo: RSSI-read tracing (RLOG_ID_BLE_RSSI_REQUESTED/_COMPLETE/
-// _TEARDOWN_WHILE_INFLIGHT's own comment in DebugRing.h has the full
+// _TEARDOWN_WHILE_INFLIGHT's own comment in DebugLog.h has the full
 // story). esp_ble_gap_read_rssi() is async -- an earlier version of
 // requestHealthSample() issued it unconditionally whenever a central was
 // connected, which raced applyTransportConfig()'s BLE teardown
@@ -568,7 +568,7 @@ void SerialBLEInterface::_requestRssiReadIfIdle() {
 }
 
 void SerialBLEInterface::requestHealthSample() {
-  // beebo: unlike RLOG_ID_WIFI_HEALTH (gated on the radio being up, not a
+  // beebo: unlike DLOG_ID_WIFI_HEALTH (gated on the radio being up, not a
   // live app session -- WiFi's heap/channel reading is meaningful the
   // moment the STA associates, before any companion app connects), BLE's
   // own heap number never actually moves between samples while
@@ -580,7 +580,10 @@ void SerialBLEInterface::requestHealthSample() {
   if (millis() - _last_health_sample_ms < BLE_HEALTH_SAMPLE_MS) return;
   _last_health_sample_ms = millis();
   uint16_t heap_kb = (uint16_t)(ESP.getFreeHeap() / 1024);
-  int32_t detail = (int32_t)heap_kb | ((int32_t)(uint8_t)BLE_RSSI_UNAVAILABLE << 16);
-  RLOGL(RLOG_ID_BLE_HEALTH, detail);
+  // beebo: rssi isn't logged here -- it's always BLE_RSSI_UNAVAILABLE at
+  // this call site (the async read this kicks off below hasn't completed
+  // yet), so it would just be noise; see RLOG_ID_BLE_RSSI_COMPLETE's
+  // former comment for the real value once it lands.
+  DLOGL(DLOG_ID_BLE_HEALTH, "heap=%uKB", heap_kb);
   _requestRssiReadIfIdle();
 }

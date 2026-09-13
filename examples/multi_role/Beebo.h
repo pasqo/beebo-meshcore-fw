@@ -188,7 +188,10 @@
 #define STATS_TYPE_RADIO              1
 #define STATS_TYPE_PACKETS             2
 #define STATS_TYPE_SYSTEM             3   // beebo: free heap, free PSRAM, flash size, MCU temp
-#define STATS_TYPE_TRANSPORT          4   // beebo: transport event ring buffer
+// 4 (STATS_TYPE_TRANSPORT) retired 2026-09-11 -- was DebugLog's own H/M
+// event ring, fully redundant with MonRing's MON_DEBUG kind/GET_MONRING
+// (file:line, live+downloadable) once that existed; removing the duplicate
+// backlog-replay path also fixed a real duplicate-event bug (BUGS.md).
 #define STATS_TYPE_PROFILE            5   // beebo: command-latency profiling ring buffer
 
 #define RESP_CODE_OK                  0
@@ -403,15 +406,16 @@ public:
   Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store);
 
   void begin();
-  void initMonRingEarly();  // beebo: claim MonRing's fixed PSRAM block (call FIRST in setup(), before RLOG_ID_BOOT_START)
+  void startMonRing();  // beebo: claim MonRing's fixed PSRAM block + resolve the real time anchor (call FIRST in setup(), after clock_init(), before RLOG_ID_BOOT_START)
   void initMonRing();  // beebo: apply MonRing's real boot-known state (call after beebo.begin(), same position as before)
-  // beebo: DebugRing::DebugSink target -- forwards every H/M-severity RLOG
+  // beebo: DebugLog::DebugSink target -- forwards every H/M-severity RLOG
   // event into the global `beebo` instance's own monring (private, so this
-  // must be a Beebo member, not a free function -- see DebugRing.h's own
+  // must be a Beebo member, not a free function -- see DebugLog.h's own
   // comment on why the sink is a plain callback rather than a hardcoded
   // cross-class reference). References the single global `beebo` object
   // directly, same as this file's other single-instance assumptions.
-  static void forwardDebugToMonRing(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms);
+  static void forwardDebugToMonRing(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms,
+                                     const char* file, int line, const uint8_t user[5]);
   void startInterface(BaseSerialInterface &serial);
 
   // beebo: build one RESP_CODE_MONRING frame (status header + up to max_len of
@@ -853,8 +857,8 @@ private:
   static const int8_t WIFI_RSSI_UNAVAILABLE = 127;
   int8_t _wifi_rssi_cache = WIFI_RSSI_UNAVAILABLE;
 
-  // beebo: RLOG_ID_WIFI_HEALTH sample cadence -- see that event's own comment
-  // in DebugRing.h for why it exists (nothing else logged catches the
+  // beebo: DLOG_ID_WIFI_HEALTH sample cadence -- see that event's own comment
+  // in DebugLog.h for why it exists (nothing else logged catches the
   // TCP-reachability-degrades-after-a-live-switch bug, BUGS.md 2026-08-31).
   unsigned long _last_wifi_health_sample_ms = 0;
   static const uint32_t WIFI_HEALTH_SAMPLE_MS = 60000;
@@ -908,7 +912,7 @@ private:
   void _onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info);
 
   // beebo: last-known value of every RLOG_ID_XPORT_VAR_* tracked variable
-  // (DebugRing.h), indexed by var id. beginTransports() seeds every
+  // (DebugLog.h), indexed by var id. beginTransports() seeds every
   // entry to -1 ("no previous value" -- see RLOG_ID_XPORT_INIT/_CHANGE's
   // own comment) before the first _checkTransportStateChanges() call, so
   // that call logs each var's real boot value under the INIT id instead of
@@ -1717,6 +1721,7 @@ private:
 
   RadioRecord buildRadioRecord();  // beebo: snapshot current radio config, shared by initMonRing()/logRxRaw()/logTx()/logTxFail()/monring.clear() sites
   EnvRecord   buildEnvRecord();    // beebo: snapshot current env sample, shared by initMonRing()/logRxRaw()/logTx()/logTxFail()/monring.clear() sites
+  void ensureFirstEnvSample();     // beebo: one-time env capture before the first RX/TX if loop()'s own periodic sampler hasn't landed one yet -- see its own comment (Beebo.cpp)
 #ifdef BEEBO_CPU_ACCOUNTING
   // beebo: RouteRecord's busy/wait percentages, computed live against the
   // CURRENT (not-yet-reset) route-window accumulators -- non-destructive,

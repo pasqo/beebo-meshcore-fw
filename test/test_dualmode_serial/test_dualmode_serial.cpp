@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <string.h>
 #include "helpers/DualModeSerialInterface.h"
-#include "helpers/DebugRing.h"
+#include "helpers/DebugLog.h"
 #include "Stream.h"
 #include "Arduino.h"
 
@@ -92,6 +92,30 @@ TEST_F(DualModeSerial, KeepaliveRawFrameCountsAsLivenessButNothingElseDoes) {
   stream.feed(keepalive_frame, sizeof(keepalive_frame));
   poll(type);
   EXPECT_TRUE(iface.isConnected());   // keepalive is the one sub-frame that counts
+}
+
+TEST_F(DualModeSerial, TimeSyncRawFrameCarriesFourByteEpochAndCountsAsLiveness) {
+  EXPECT_FALSE(iface.isConnected());
+
+  uint8_t time_sync_frame[] = {
+    DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_TIME_SYNC, 0x78, 0x56, 0x34, 0x12,
+  };
+  RecvFrameType type;
+  for (size_t i = 0; i + 1 < sizeof(time_sync_frame); i++) {
+    stream.feed(time_sync_frame[i]);
+    EXPECT_EQ(0u, poll(type));   // payload still incomplete
+  }
+  stream.feed(time_sync_frame[sizeof(time_sync_frame) - 1]);
+  size_t len = poll(type);
+
+  EXPECT_EQ(5u, len);
+  EXPECT_EQ(RecvFrameType::DEBUG, type);
+  EXPECT_EQ(BEEBO_RAW_SUB_TIME_SYNC, dest[0]);
+  EXPECT_EQ(0x78, dest[1]);
+  EXPECT_EQ(0x56, dest[2]);
+  EXPECT_EQ(0x34, dest[3]);
+  EXPECT_EQ(0x12, dest[4]);
+  EXPECT_TRUE(iface.isConnected());   // time-sync also counts as liveness
 }
 
 TEST_F(DualModeSerial, StuckRawFrameSelfHealsAfterResyncTimeout) {

@@ -12,7 +12,7 @@
 // radio-level overrides -- that both roles actually share.
 
 #include "Beebo.h"
-#include <helpers/DebugRing.h>
+#include <helpers/DebugLog.h>
 
 #if BEEBO_ENABLE_COMPANION_ROLE
 void Beebo::beginCompanion() {

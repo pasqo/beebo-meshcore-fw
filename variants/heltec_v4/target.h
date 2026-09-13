@@ -20,6 +20,7 @@
 extern HeltecV4Board board;
 extern WRAPPER_CLASS radio_driver;
 extern AutoDiscoverRTCClock rtc_clock;
+extern ESP32RTCClock fallback_clock;  // beebo: needed directly (not just via rtc_clock) for takePendingDriftLog()
 extern EnvironmentSensorManager sensors;
 
 #ifdef DISPLAY_CLASS
@@ -27,6 +28,7 @@ extern EnvironmentSensorManager sensors;
   extern MomentaryButton user_btn;
 #endif
 
+void clock_init();  // beebo: RTC-only subset of radio_init(), safe to call before board.begin() -- see target.cpp
 bool radio_init();
 mesh::LocalIdentity radio_new_identity();
 

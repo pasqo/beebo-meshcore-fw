@@ -5,37 +5,36 @@
 #include "BaseSerialInterface.h"
 #include "MonRing.h"
 
-// beebo: unified debug-event subsystem -- one ring (this file, `debug_ring`,
-// was `TransportLog`/`transport_log`) and one live push mechanism (was
-// the separate DebugLog.h/.cpp, folded in here) behind two macro families:
+// beebo: unified debug-event subsystem -- one live push mechanism (was the
+// separate DebugLog.h/.cpp, folded in here) behind two macro families:
 //
-// - RLOGH/M/L(type, detail) -- a structured (type, detail) event, always
-//   live-pushed over physical USB *and* over whichever transport currently
-//   holds the companion session, if any and if not USB itself (see
-//   attach()'s own comment) whenever the debug link is enabled, and also
-//   appended to the ring *unless* severity is Low -- L is link-only, same
-//   as DLOGH/M/L below, never occupies a ring slot. `type`
-//   is a hand-picked, sometimes-reused-on-purpose per-call-site tag (e.g.
-//   RLOG_ID_XSESSION_INIT/_CHANGE is logged from a different file than every
-//   other RLOG_ID_XPORT_*/RLOG_ID_XLINK_* id) that doubles as the live
-//   frame's id.
+// - RLOGH/M(type, detail) -- a structured (type, detail) event, forwarded to
+//   MonRing's MON_DEBUG kind (see _debug_sink below) whenever a sink is
+//   wired up -- MON_DEBUG carries file:line and is the sole record of these,
+//   both for post-mortem fetch/replay (GET_MONRING/beginMlogReplay()) and
+//   live (`_usb_raw.py`'s `_fmt_mlog_line()` renders it). This file used to
+//   also keep its own ring + live DEBUG_TLOG push + replay-on-enable for
+//   RLOG (retired 2026-09-11 once MON_DEBUG covered the same ground -- see
+//   git history for the removed `serialize()`/`beginReplay()`/
+//   `replayStep()`/`pushRlogFrame()` machinery).
+//   `type` is a hand-picked, sometimes-reused-on-purpose per-call-site tag
+//   (e.g. RLOG_ID_XSESSION_INIT/_CHANGE is logged from a different file than
+//   every other RLOG_ID_XPORT_*/RLOG_ID_XLINK_* id) that doubles as
+//   MON_DEBUG's own id. RLOGL doesn't exist -- MON_DEBUG structurally can't
+//   represent Low severity (DebugRecord.type only encodes H vs M), so every
+//   former RLOGL call site was converted to DLOGL (free text) instead.
 // - DLOGH/M/L(id, fmt, ...) -- a free-text printf-style event, live-pushed
-//   the same way whenever the debug link is enabled, but never stored in
-//   the ring (which only ever holds fixed-size structured records).
+//   over physical USB *and* over whichever transport currently holds the
+//   companion session, if any and if not USB itself (see attach()'s own
+//   comment) whenever the debug link is enabled. Never stored anywhere
+//   (fixed-size MonRing records can't hold arbitrary text) -- live-only,
+//   with no post-mortem fetch/replay of its own.
 //
 // Severity is a compile-time gate, not just a runtime label: H is always
 // compiled in; M/L only exist when DEBUG_LOG_VERBOSE is defined (1) for the
-// build, otherwise every RLOGM/L/DLOGM/L call site compiles to nothing at
-// all -- e.g. RLOG_ID_WIFI_HEALTH/RLOG_ID_BLE_HEALTH (both Low) cost nothing in a
-// regular build. Both families are unconditionally live-pushed while
-// the debug link is enabled -- the ring is a separate, always-on record of
-// H/M-severity events only, for post-mortem fetch.
-//
-// Ring sized to capture a full interactive session (e.g. a measurement sweep
-// of ~40 commands = ~80 cmd recv/done events) for post-mortem fetch. Each
-// event is 9 bytes on the wire; the ring is fetched paginated (see serialize).
-// 512 events * ~13 bytes (in-memory, padded) = ~6.5KB static/.bss.
-#define RLOG_MAX_EVENTS 512
+// build, otherwise every RLOGM/DLOGM/L call site compiles to nothing at
+// all -- e.g. DLOG_ID_WIFI_HEALTH/DLOG_ID_BLE_HEALTH (both Low) cost nothing in a
+// regular build.
 
 // beebo: the app-level companion session, transport-agnostic (whichever of
 // BLE/USB/TCP wins the MultiSerialInterface lock) -- named APP_SESSION_* to
@@ -67,8 +66,8 @@
 // already visible via RLOG_ID_XPORT_LINK_WL_STATUS transitioning off its 255
 // (uninitialized) sentinel -- see RLOG_ID_BLE_POWER_ON/OFF below for why BLE
 // needed a real dedicated pair instead.
-#define RLOG_ID_CMD_RECV        12   // detail = (cmd_frame[0]<<8)|cmd_frame[1] for CMD_BEEBO/CMD_GET_STATS (their second byte is a real sub-id), else just cmd_frame[0] (companion frame received)
-#define RLOG_ID_CMD_DONE        13   // detail = same (cmd<<8)|sub encoding as RLOG_ID_CMD_RECV (handler returned)
+// 12 (RLOG_ID_CMD_RECV) and 13 (RLOG_ID_CMD_DONE) retired 2026-09-11 --
+// converted to DLOG_ID_CMD_RECV/DLOG_ID_CMD_DONE (RLOGL/DEBUG_TLOG retired).
 #define RLOG_ID_WIFI_STA_DISCONNECTED 14   // detail = disconnect reason code
 #define RLOG_ID_WIFI_STA_GOT_IP       15   // station (re)associated and got an IP; detail = the IPv4 address, packed MSB-first (octet1<<24 | octet2<<16 | octet3<<8 | octet4)
 // beebo: BLE session-FSM bring-up sequence, one grouped id instead of a
@@ -82,7 +81,8 @@
 // bring-up only.
 #define RLOG_ID_BLE_HANDSHAKE         16
 #define RLOG_ID_BLE_DISCONNECT        17   // BLE GATT link down (onDisconnect callback)
-#define RLOG_ID_DEBUGLOG_READ         18   // marker: debuglog was fetched (boundary)
+// 18 (RLOG_ID_DEBUGLOG_READ) retired 2026-09-11 -- was a read-boundary
+// marker for the now-removed STATS_TYPE_TRANSPORT offline fetch.
 // 19 retired 2026-09-01 (was RLOG_ID_COEX_PREFER_WIFI, esp_coex_preference_set()
 // after a BLE teardown) -- wrong framing: that API arbitrates airtime
 // between two *simultaneously* active radios, which BLE/TCP's enforced
@@ -91,23 +91,10 @@
 // reordering applyTransportConfig() to a teardown-pass-then-bring-up-pass
 // shape; see that function's own comment.
 #define RLOG_ID_WIFI_CLIENT_REJECTED  20   // a second peer's TCP connect was accepted at the OS level (WiFiServer's backlog) while a live session was already locked in -- rejected instead of preempting it; detail = the rejected client's remote port
-#define RLOG_ID_CLOCK_SET             21   // RTC epoch changed via CMD_SET_DEVICE_TIME or the text-CLI "time" command; detail = new epoch seconds, so a reader can re-anchor every earlier event's millis() offset against the old epoch and every later one against the new
+#define RLOG_ID_CLOCK_SET             21   // RTC epoch (re)established -- via CMD_SET_DEVICE_TIME/the text-CLI "time" command, or Beebo::initMonRing()'s boot-time anchor capture; detail = the epoch seconds now in effect, so a reader can re-anchor every earlier event's millis() offset against the old epoch (or none, if this is the first) and every later one against the new
 // 22, 23 retired -- folded into RLOG_ID_XPORT_INIT/_CHANGE below.
-// beebo: periodic low-level WiFi health sample, gated to every
-// WIFI_HEALTH_SAMPLE_MS while WiFi is up (loopTransports()) -- unlike
-// RLOG_ID_XPORT_CHANGE's change-triggered vars above, none of which
-// moved during the TCP-reachability-degrades-after-a-live-switch bug
-// (BUGS.md 2026-08-31): the failure is invisible to every high-level
-// state flag Beebo already tracks, so this samples one level lower
-// (free heap, RSSI, channel) to catch a silent degradation those flags
-// don't see. WiFiServer exposes no public listening-socket fd, so this
-// can't read the listening socket's own SO_ERROR the way
-// RLOG_ID_WIFI_SESSION_OFF already does for a live client's -- heap/RSSI
-// are what's actually reachable without patching the third-party
-// arduino-esp32 framework. Low severity -- periodic and high-volume.
-// detail: bits 0-15 = free heap in KB (uint16), bits 16-23 = RSSI dBm
-// (int8, two's complement), bits 24-31 = WiFi channel (uint8).
-#define RLOG_ID_WIFI_HEALTH           24
+// 24 (RLOG_ID_WIFI_HEALTH) retired 2026-09-11 -- converted to
+// DLOG_ID_WIFI_HEALTH (RLOGL/DEBUG_TLOG retired).
 // beebo: BT controller status (esp_bt_controller_status_t: 0=IDLE,
 // 1=INITED, 2=ENABLED) read right before WiFi bring-up starts in
 // applyTransportConfig(), only when a BLE teardown preceded it in the
@@ -126,22 +113,8 @@
 // own octet packing.
 #define RLOG_ID_BLE_CLIENT_ADDR_HI    27
 #define RLOG_ID_BLE_CLIENT_ADDR_LO    28
-// beebo: periodic low-level BLE health sample, mirroring RLOG_ID_WIFI_HEALTH --
-// triggered every BLE_HEALTH_SAMPLE_MS (loopTransports() ->
-// SerialBLEInterface::requestHealthSample()), but gated on deviceConnected
-// (a central actually connected), unlike RLOG_ID_WIFI_HEALTH's _wifi_up
-// (not a live app session) -- BLE's own heap number never moves while
-// just advertising with nobody connected, and rssi is unavailable until
-// then anyway, so a sample logged in that state would be pure noise. Low
-// severity, same reasoning as RLOG_ID_WIFI_HEALTH.
-// detail's rssi field is still always 127 (SerialBLEInterface's
-// BLE_RSSI_UNAVAILABLE) -- the real value only shows up separately, via
-// RLOG_ID_BLE_RSSI_COMPLETE below, once its own async read completes; see
-// RLOG_ID_BLE_RSSI_REQUESTED's own comment for why this event doesn't
-// just read RSSI synchronously into the same detail the way WiFi does.
-// detail: bits 0-15 = free heap in KB (uint16), bits 16-23 = RSSI dBm
-// (int8, two's complement; always 127 -- see above).
-#define RLOG_ID_BLE_HEALTH            29
+// 29 (RLOG_ID_BLE_HEALTH) retired 2026-09-11 -- converted to
+// DLOG_ID_BLE_HEALTH (RLOGL/DEBUG_TLOG retired).
 // beebo: MultiSerialInterface's session FSM forcibly dropped a non-owner
 // link that reported itself connected while another transport already held
 // the session lock (see plans/TRANSPORT_STATE_MACHINE.md's "Session
@@ -154,7 +127,7 @@
 // Serial.begin() -- RLOGH() only touches RAM/millis(), no Serial
 // dependency, so this captures reset_reason from the earliest possible
 // point rather than waiting on any transport to come up. detail =
-// esp_reset_reason_t. See DebugRing::replayRing()'s own comment for how
+// esp_reset_reason_t. See DebugLog::replayRing()'s own comment for how
 // this (and everything else logged before a client attaches) ever reaches
 // the host despite predating any live connection.
 #define RLOG_ID_BOOT_START            31
@@ -214,16 +187,9 @@
 // enough for this diagnostic), and the current noise floor dBm -- all as
 // int8 two's complement.
 #define RLOG_ID_RADIO_RECV_ERROR      47
-// beebo: 1-minute busy/idle snapshot for a live `--debug`/`-d` session
-// (visual-only, coarse) -- see kbase/CPU_UTILIZATION.md. detail packs
-// three unsigned 0-100 percentages (rescaled down from the live ~1s
-// 0-10000 tier) into the low 3 bytes (no sign-extension needed, unlike
-// RLOG_ID_RADIO_RECV_ERROR's signed dB values): bits 0-7 = exec_pct
-// (rx_busy+tx_busy, clamped at 100), bits 8-15 = lx_busy, bits 16-23 =
-// idle_pct. RLOGL (DLOG_SEV_L) only -- never persisted
-// to the in-RAM debug ring retrievable later via GET_STATS/
-// STATS_TYPE_TRANSPORT, genuinely live-only like the values it reports.
-#define RLOG_ID_CPU_SNAPSHOT          48
+// 48 (RLOG_ID_CPU_SNAPSHOT) retired 2026-09-11 -- converted to
+// DLOG_ID_CPU_SNAPSHOT (RLOGL/DEBUG_TLOG retired; see kbase/
+// CPU_UTILIZATION.md for the 1-minute busy/idle snapshot itself).
 // beebo: this device's own local BLE link-layer address (esp_bd_addr_t, 6
 // bytes) -- BLE's counterpart to RLOG_ID_BLE_CLIENT_ADDR_HI/LO, but for
 // the advertising side rather than a connecting peer, so a scan/connect
@@ -237,18 +203,23 @@
 #define RLOG_ID_BLE_LOCAL_ADDR_HI     49
 #define RLOG_ID_BLE_LOCAL_ADDR_LO     50
 // beebo: clock-drift compensation tracing (see kbase/CLOCK_DRIFT_COMPENSATION.md)
-// -- added to pin down a discrepancy between the offset recorded right
-// before a flash and the offset actually applied after it, rather than
-// inferring both from before/after `beebo clock` readings. detail =
-// the offset in seconds (curr - secs, always positive -- see
-// beebo_recordClockDrift()'s own comment for why only an ahead-drift is
-// ever recorded).
-#define RLOG_ID_CLOCK_DRIFT_RECORDED  51
+// -- reports the *current* persisted drift_off (0 = none), so a client
+// watching --debug sees this device's drift state on every event that
+// could change or consume it, not just the moment it's first recorded:
+// - beebo_recordClockDrift(): a client's sync attempt was rejected
+//   (device measured ahead) -- detail = the newly-recorded offset.
+// - every accepted clock-set call site (CommonCLI.cpp's "clock sync"/
+//   "time ", Beebo.cpp's CMD_SET_DEVICE_TIME/"time ") -- detail = whatever
+//   is currently persisted (normally 0, unless an old offset predates
+//   this correction and hasn't been consumed by a reboot yet).
+// - applyDriftOffset_(): after it clears drift_off post-apply -- detail
+//   is always 0.
+#define RLOG_ID_CLOCK_DRIFT  51
 // beebo: logged from applyDriftOffset_() every time it actually subtracts
 // (i.e. has_offset was true and the device_now_t > drift_offset guard
 // passed) -- detail = the drift_off value it read from NVS and applied,
 // so it can be compared directly against the nearest preceding
-// RLOG_ID_CLOCK_DRIFT_RECORDED's detail across a reset.
+// RLOG_ID_CLOCK_DRIFT's detail across a reset.
 #define RLOG_ID_CLOCK_DRIFT_APPLIED   52
 // beebo: boot-time sub-checkpoints inside Beebo::begin(), between
 // RLOG_ID_BOOT_STORAGE_READY and RLOG_ID_BOOT_TRANSPORTS_READY -- added to
@@ -258,10 +229,40 @@
 // the other RLOG_ID_BOOT_* events.
 #define RLOG_ID_BOOT_ROLE_STATE_LOADED 53   // both loadRoleState() calls done
 #define RLOG_ID_BOOT_ROLE_BEGIN_DONE   54   // beginCompanion()/beginRepeater() done
+// beebo: NVS rtc_ts read/write tracing (see
+// kbase/CLOCK_DRIFT_COMPENSATION.md) -- added to make the "Behavior across
+// reset kinds" cases directly observable instead of inferred from CLOCK_SET
+// alone: a stale post-reset clock is either a genuinely lost RTC (no PULL
+// logged at all this boot -- see ESP32RTCClock::begin()'s live-clock
+// plausibility check) or a PULL that restored an old PUSH because nothing
+// refreshed rtc_ts in between. detail = the epoch seconds value in both
+// cases.
+#define RLOG_ID_CLOCK_NVM_PUSH  55   // beebo_persistRTCTimeForReboot() wrote rtc_ts
+#define RLOG_ID_CLOCK_NVM_PULL  56   // ESP32RTCClock::begin() restored rtc_ts on ESP_RST_POWERON
+// beebo: unconditionally logs exactly what time() returned at the very top
+// of ESP32RTCClock::begin(), before any correction/restore touches it --
+// direct evidence of whether a given reset actually left the RTC-backed
+// clock intact (a real, recent epoch) or genuinely reset it (~0), instead
+// of inferring it from RLOG_ID_CLOCK_SET's post-correction value or the
+// plausibility check's own output. detail = the raw epoch seconds read.
+#define RLOG_ID_CLOCK_RTC  57
 // GEN_RLOG_NAMES_END
-// 55, 56, 57 retired 2026-09-09 -- folded into RLOG_ID_BLE_HANDSHAKE above.
 // 22, 26 retired -- subsumed by RLOG_ID_XPORT_LINK_WIFI_LISTENING.
 // 24/25 never assigned.
+// 57 was briefly a standalone RLOG_ID_CLOCK_SRC event 2026-09-12, replaced
+// same-day by packing the value into RLOG_ID_CLOCK_SET's own record instead
+// (see that event's comment and MonRing.h's DebugRecord._user) before ever
+// shipping -- now reassigned to RLOG_ID_CLOCK_LIVE_AT_BOOT above.
+
+// beebo: RLOG_ID_CLOCK_SET's DebugRecord._user[0] -- states *why* the
+// epoch in `detail` is what it is, since that alone doesn't distinguish
+// "this is just the live RTC that was never touched" from a genuine NVS
+// restore/correction (the exact confusion a real user hit 2026-09-12
+// watching a plain reflash's CLOCK_SET with no explanation). One of:
+#define RLOG_CLOCK_SRC_RTC      0   // live RTC counter survived the reset untouched (ESP_RST_UNKNOWN/SW, or a plausible-live ESP_RST_POWERON -- see kbase/CLOCK_DRIFT_COMPENSATION.md)
+#define RLOG_CLOCK_SRC_NVM      1   // restored from the persisted rtc_ts (genuine cold-boot ESP_RST_POWERON, RLOG_ID_CLOCK_NVM_PULL logged alongside)
+#define RLOG_CLOCK_SRC_FALLBACK 2   // no rtc_ts ever persisted -- fell back to the fixed placeholder date (RTC_FALLBACK_EPOCH)
+#define RLOG_CLOCK_SRC_CMD      3   // set by an explicit client command (CMD_SET_DEVICE_TIME, "time ", "clock sync")
 
 // beebo: RLOG_ID_BLE_HANDSHAKE sub-ids (detail bits 0-7) -- bits 8-31 are
 // this sub-id's own payload, interpreted per step below. CONNECT has none
@@ -372,73 +373,64 @@
 #define DLOG_ID_USB_RX_DISCARD_STALE       102   // discardStaleRx(): bytes drained from a newly-(re)polled sub's stale hardware RX buffer
 #define DLOG_ID_USB_RX_RESET_PARSER        103   // resetParserState(): mid-command parser state discarded at session end
 #define DLOG_ID_USB_RX_BODY                105   // checkRecvFrame()'s MODE_FRAMED_BODY read progress
+// beebo: converted from RLOGL 2026-09-11 (RLOGL/DEBUG_TLOG retired --
+// MON_DEBUG can't represent Low severity, and DLOG's plain live-only push
+// already covers exactly the same ground with no host-side decode table to
+// keep in sync).
+#define DLOG_ID_CMD_RECV                   110   // Beebo.cpp checkSerialInterface(): command received, message = "cmd=0x%04x" ((cmd<<8)|sub, hex)
+#define DLOG_ID_CMD_DONE                   111   // Beebo.cpp checkSerialInterface(): command handler returned, same id encoding as DLOG_ID_CMD_RECV
+#define DLOG_ID_CPU_SNAPSHOT               112   // Beebo.cpp: 1-minute busy/idle snapshot for a live `--debug`/`-d` session, message = "radio=N%% link=N%% idle=N%%"
+#define DLOG_ID_WIFI_HEALTH                113   // Beebo.cpp: periodic low-level WiFi health sample, message = "heap=NKB rssi=NdBm ch=N"
+#define DLOG_ID_BLE_HEALTH                 114   // SerialBLEInterface.cpp: periodic low-level BLE health sample, message = "heap=NKB"
 // GEN_DLOG_NAMES_END
 
 #ifndef DEBUG_LOG_VERBOSE
 #define DEBUG_LOG_VERBOSE 0
 #endif
 
-struct DebugEvent {
-  uint32_t millis;
-  uint8_t  type;
-  int32_t  detail;
-  uint8_t  severity;   // in-RAM only -- serialize()'s 9-byte wire shape omits it, see that method's own comment
-  // beebo: __FILE__/__LINE__ from the RLOG call site, kept only so
-  // replayRing() can report the real origin instead of a synthetic
-  // "replay:0" -- in-RAM only, never on the wire (serialize()'s 9-byte
-  // shape doesn't carry it either, same as severity above). `file` is a
-  // string-literal pointer (always the same address for a given call
-  // site, valid for the process lifetime) -- no copy needed.
-  const char* file;
-  uint16_t line;
-};
-
-class DebugRing {
-  DebugEvent _buf[RLOG_MAX_EVENTS];
-  uint16_t _head = 0;
-  uint16_t _count = 0;
-
+class DebugLog {
   BaseSerialInterface* _serial = nullptr;
   BaseSerialInterface* _usb = nullptr;
   uint8_t _resp_code = 0;
   uint8_t _log_sub_id = 0;
-  uint8_t _rlog_sub_id = 0;
   // beebo: enabling is tracked per requesting path, not one shared bool --
   // the raw session-less USB tap (BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) and the
   // session-owning opcode (BEEBO_CMD_DEBUG_LOG_ENABLE, arriving over
   // whichever transport currently holds the companion session) are
-  // independent clients that can each be live or not. pushRlogFrame()/
-  // logLink() route to _usb only when _usb_enabled and to _serial only
-  // when _session_enabled, so a `beebo -d` session tapping raw USB never
-  // also gets mirrored onto an unrelated BLE/WiFi companion session (and
-  // vice versa) -- see those functions' own comments.
+  // independent clients that can each be live or not. logLink() routes to
+  // _usb only when _usb_enabled and to _serial only when _session_enabled,
+  // so a `beebo -d` session tapping raw USB never also gets mirrored onto
+  // an unrelated BLE/WiFi companion session (and vice versa) -- see that
+  // function's own comment.
   bool _usb_enabled = false;
   bool _session_enabled = false;
 
   // beebo: MLOG (live MonRing relay, plans/MLOG_LIVE_STREAM.md) is enabled
-  // independently of DLOG/RLOG above -- same per-path (raw USB tap vs.
+  // independently of DLOG above -- same per-path (raw USB tap vs.
   // session) split, same reasoning (a raw USB tap must never also land on
   // an unrelated BLE/WiFi companion session, see attach()'s own comment).
   bool _usb_mlog_enabled = false;
   bool _session_mlog_enabled = false;
   uint8_t _mlog_sub_id = 0;
 
-  // beebo: optional forward of every H/M-severity RLOG event to MonRing's
-  // new MON_DEBUG kind (plans/MONITORING_UNIFICATION.md Design #3/#6) --
-  // a plain function pointer, not a hardcoded MonRing/Beebo reference, so
-  // this shared-location file (fw/src/helpers/) stays decoupled from
+  // beebo: forward of every H/M-severity RLOG event to MonRing's MON_DEBUG
+  // kind (plans/MONITORING_UNIFICATION.md Design #3/#6) -- a plain function
+  // pointer, not a hardcoded MonRing/Beebo reference, so this
+  // shared-location file (fw/src/helpers/) stays decoupled from
   // multi_role's own Beebo::monring (private, and not every board target
   // that could include this file necessarily has one) -- same "caller
-  // supplies a callback" shape as MonRing::LiveSink. nullptr by default,
-  // so nothing changes for any build that never calls setDebugSink().
-  // Purely additive for now: DebugRing's own ring/live-push behavior
-  // below is unchanged either way -- retiring DebugRing's ring storage
-  // once MonRing is trusted to carry this data is a separate, later step.
-  using DebugSink = void (*)(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms);
+  // supplies a callback" shape as MonRing::LiveSink. nullptr by default, so
+  // nothing changes for any build that never calls setDebugSink() -- but
+  // MON_DEBUG is now the *only* place an RLOG event goes (this file no
+  // longer keeps its own ring/replay for it), so a build that never wires
+  // this sink loses RLOG entirely, not just its MonRing mirror.
+  // beebo: `user` is always a valid pointer to 5 bytes (logRing() zero-fills
+  // its own local array when the caller passes none), never nullptr --
+  // simpler for every DebugSink implementation than also handling a null
+  // case.
+  using DebugSink = void (*)(uint8_t type, uint8_t severity, int32_t detail, uint32_t ms,
+                             const char* file, int line, const uint8_t user[5]);
   DebugSink _debug_sink = nullptr;
-
-  bool _replay_active = false;
-  uint16_t _replay_pos = 0;   // 0.._count-1, logical index of the next event replayStep() will push
 
 public:
   // beebo: `serial` is the MultiSerialInterface aggregator (Beebo::_serial/
@@ -456,12 +448,11 @@ public:
   // that session's own command-reply traffic for the same shallow
   // send_queue and dropping real app frames -- see BUGS.md).
   void attach(BaseSerialInterface* serial, BaseSerialInterface* usb, uint8_t resp_code,
-              uint8_t log_sub_id, uint8_t rlog_sub_id, uint8_t mlog_sub_id = 0) {
+              uint8_t log_sub_id, uint8_t mlog_sub_id = 0) {
     _usb = usb;
     _serial = serial;
     _resp_code = resp_code;
     _log_sub_id = log_sub_id;
-    _rlog_sub_id = rlog_sub_id;
     _mlog_sub_id = mlog_sub_id;
   }
   void setUsbEnabled(bool enabled) { _usb_enabled = enabled; }
@@ -479,119 +470,42 @@ public:
   bool isSessionMlogEnabled() const { return _session_mlog_enabled; }
   bool isMlogEnabled() const { return _usb_mlog_enabled || _session_mlog_enabled; }
 
-  // RLOGH/M/L: appended to the ring unless severity is Low (L is link-only,
-  // like DLOGH/M/L); always live-pushed to physical USB *and* whichever
-  // transport (if any, if not USB) holds the session (RESP_CODE_BEEBO/
-  // DEBUG_TLOG frame) whenever the debug link is enabled, regardless of
-  // severity -- see attach()'s own comment.
-  void logRing(const char* file, int line, uint8_t type, uint8_t severity, int32_t detail = 0);
+  // RLOGH/M: forwarded to MonRing's MON_DEBUG kind via _debug_sink (see that
+  // member's own comment) -- the sole delivery, live and for post-mortem
+  // fetch alike (GET_MONRING). No ring/replay/offline-fetch of its own
+  // anymore (retired, along with RLOGL -- see this file's own top comment).
+  // beebo: `user`, when non-null, points at 5 bytes copied verbatim into
+  // MonRing's DebugRecord._user -- meaning defined per RLOG_ID_* (see that
+  // field's own comment), not a general-purpose payload. Almost every
+  // call site passes none (defaults to all-zero); RLOG_ID_CLOCK_SET is the
+  // first to use it.
+  void logRing(const char* file, int line, uint8_t type, uint8_t severity, int32_t detail = 0,
+               const uint8_t* user = nullptr);
   void setDebugSink(DebugSink sink) { _debug_sink = sink; }
 
-  // DLOGH/M/L: never touches the ring (fixed-size records can't hold
-  // arbitrary text) -- only live-pushed to physical USB *and* whichever
+  // DLOGH/M/L: never persisted anywhere (fixed-size MonRing records can't
+  // hold arbitrary text) -- only live-pushed to physical USB *and* whichever
   // transport (if any, if not USB) holds the session (RESP_CODE_BEEBO/
   // DEBUG_LOG frame) whenever the debug link is enabled -- see attach()'s
   // own comment.
   void logLink(const char* file, int line, uint16_t id, uint8_t severity, const char* fmt, ...) __attribute__((format(printf, 6, 7)));
 
-  uint16_t count() const { return _count; }
-
-  // beebo: re-emits every event currently in the ring as a live DEBUG_TLOG
-  // push, oldest first -- armed once from Beebo::checkSerialInterface()'s
-  // DEBUG_LOG_ENABLE handling (both the raw sub-frame USB path and the
-  // session-owning BEEBO_CMD_DEBUG_LOG_ENABLE opcode), on the transition
-  // into enabled, then drained one event per loop() tick from
-  // checkSerialInterface()'s own paced-stream chain -- the same
-  // !_serial->isWriteBusy()-gated pattern GET_NEIGHBORS/GET_MONRING/the
-  // contacts iterator already use. This is how a boot-time event
-  // (RLOG_ID_BOOT_START, or anything else logged before a client ever
-  // attached -- see writeFrameBestEffort()'s own no-ring-buffer comment in
-  // DualModeSerialInterface.cpp for why a *live* push that early is simply
-  // lost) still reaches a `--debug` host: nothing needs to reach the wire
-  // before the host is listening, since the ring already held it and this
-  // walks it again once the host actually can receive it.
-  //
-  // Paced deliberately, not a single synchronous burst -- confirmed on real
-  // hardware (`gatto`, 2026-09-07) that a tight unpaced loop calling
-  // writeFrameBestEffort() for every ring event overflows
-  // SerialWifiInterface's own send_queue (only FRAME_QUEUE_SIZE slots deep)
-  // well before a full boot sequence's worth of events got out -- the
-  // replay silently stopped after exactly as many events as the queue could
-  // hold, with no indication anything had been dropped. USB doesn't hit
-  // this (DualModeSerialInterface's writeFrameBestEffort() is a cheap,
-  // genuinely non-blocking drop, no shallow intermediate queue involved),
-  // but the ring can hold up to RLOG_MAX_EVENTS regardless of transport, so
-  // pacing applies uniformly rather than only over TCP/BLE.
-  bool isReplaying() const { return _replay_active; }
-
-  void beginReplay() {
-    _replay_active = (_count > 0);
-    _replay_pos = 0;
-  }
-
-  // Push one more ring event (oldest-first) and advance the cursor.
-  // Returns true while replay is still in progress (call again next tick,
-  // once the caller's own !_serial->isWriteBusy() gate opens again), false
-  // once done (nothing pushed this call).
-  bool replayStep() {
-    if (!_replay_active) return false;
-    if (_replay_pos >= _count) {
-      _replay_active = false;
-      return false;
-    }
-    uint16_t logical_start = (_count < RLOG_MAX_EVENTS) ? 0 : _head;
-    uint16_t idx = (logical_start + _replay_pos) % RLOG_MAX_EVENTS;
-    pushRlogFrame(_buf[idx].file, _buf[idx].line, _buf[idx].type, _buf[idx].severity, _buf[idx].detail, _buf[idx].millis);
-    _replay_pos++;
-    if (_replay_pos >= _count) _replay_active = false;
-    return _replay_active;
-  }
-
-  // Serialize a page of events (9 bytes each) starting at logical index
-  // `offset` (0 = oldest). Writes the total event count to *total so the
-  // caller can paginate. Returns the number of bytes written (n_events * 9).
-  // beebo: this 9-byte-per-event wire shape (millis:4 + type:1 + detail:4,
-  // no severity) predates severity and is left unchanged -- `beebo monitor
-  // transport`'s GET_STATS/STATS_TYPE_TRANSPORT paging protocol stays wire-
-  // compatible; severity is only ever transmitted on the *live* DEBUG_TLOG
-  // push (logRing()/replayRing()), not this offline fetch.
-  int serialize(uint8_t *dest, size_t max_len, uint16_t offset, uint16_t *total) const {
-    *total = _count;
-    if (offset >= _count) return 0;
-
-    const int per_event = 9;
-    int avail = max_len / per_event;
-    int remaining = _count - offset;
-    int n = remaining < avail ? remaining : avail;
-
-    // Oldest logical event is at index 0 (not yet wrapped) or _head (wrapped).
-    uint16_t logical_start = (_count < RLOG_MAX_EVENTS) ? 0 : _head;
-
-    int pos = 0;
-    for (int j = 0; j < n; j++) {
-      uint16_t idx = (logical_start + offset + j) % RLOG_MAX_EVENTS;
-      memcpy(&dest[pos], &_buf[idx].millis, 4); pos += 4;
-      dest[pos++] = _buf[idx].type;
-      memcpy(&dest[pos], &_buf[idx].detail, 4); pos += 4;
-    }
-    return pos;
-  }
-
 private:
-  // beebo: shared header both live frame kinds write --
-  // [resp_code:1][sub_id:1][millis:4 LE][id:2 LE][severity:1][line:2 LE]
-  // [file_len:1][file], 12 bytes fixed + file_len bytes. Returns the
-  // position past the file field, or 0 if there wasn't even room for the
-  // fixed header (caller must bail out without sending). base_len is
-  // clamped to what fits in the caller's remaining budget (avail_after,
-  // e.g. detail's fixed 4 bytes for pushRlogFrame()) so a very long file
-  // path degrades to a truncated name instead of starving the caller's
-  // own trailing fields.
+  // beebo: logLink()'s (DLOG's) live DEBUG_LOG frame header --
+  // [anchor_epoch_sec:4][anchor_millis:4][file_len:1][file], 20 bytes fixed
+  // + file_len bytes. anchor_epoch_sec/anchor_millis are the *current*
+  // shared time anchor (MonRing.h's g_time_anchor_epoch_sec/_millis, set by
+  // Beebo::startMonRing()/an explicit RTC correction) -- carried on every
+  // DLOG frame so a client can resolve `millis` to absolute wall-clock time
+  // directly, with no dependency on MonRing's own wire protocol (MLOG)
+  // being enabled at all. 0/0 (both fields) means the anchor isn't known
+  // yet (real epoch is never 0 in practice) -- a client falls back to
+  // boot-relative duration in that case.
   static size_t writeHeader(uint8_t* out, size_t cap, size_t avail_after,
                              uint8_t resp_code, uint8_t sub_id, uint16_t id,
                              uint8_t severity, int line, const char* file,
                              uint32_t ms) {
-    if (cap < 12) return 0;
+    if (cap < 20) return 0;
     out[0] = resp_code;
     out[1] = sub_id;
     memcpy(&out[2], &ms, 4);
@@ -599,17 +513,19 @@ private:
     out[8] = severity;
     uint16_t line16 = (uint16_t)line;
     memcpy(&out[9], &line16, 2);
+    memcpy(&out[11], &g_time_anchor_epoch_sec, 4);
+    memcpy(&out[15], &g_time_anchor_millis, 4);
 
     const char* base = strrchr(file, '/');
     base = base ? base + 1 : file;
     size_t base_len = strlen(base);
-    size_t room = (cap >= 12 + avail_after) ? cap - 12 - avail_after : 0;
+    size_t room = (cap >= 20 + avail_after) ? cap - 20 - avail_after : 0;
     if (base_len > room) base_len = room;
     if (base_len > 255) base_len = 255;
 
-    out[11] = (uint8_t)base_len;
-    memcpy(&out[12], base, base_len);
-    return 12 + base_len;
+    out[19] = (uint8_t)base_len;
+    memcpy(&out[20], base, base_len);
+    return 20 + base_len;
   }
 
   // beebo: routes one already-serialized frame to whichever target(s)
@@ -630,40 +546,16 @@ private:
   // this same targeting logic.
   void pushToTargets(const uint8_t* out, size_t pos, bool usb_enabled, bool session_enabled) const {
     if (usb_enabled && _usb) {
-      const_cast<DebugRing*>(this)->_usb->writeFrameBestEffort(out, pos);
+      const_cast<DebugLog*>(this)->_usb->writeFrameBestEffort(out, pos);
     }
     if (session_enabled && _serial) {
-      BaseSerialInterface* serial = const_cast<DebugRing*>(this)->_serial;
+      BaseSerialInterface* serial = const_cast<DebugLog*>(this)->_serial;
       uint8_t active_type = serial->activeTransportType();
       bool same_wire_as_usb = usb_enabled && active_type == RLOG_ID_XPORT_USB;
       if (active_type != 0 && !same_wire_as_usb && !serial->isWriteBusy()) {
         serial->writeFrameBestEffort(out, pos);
       }
     }
-  }
-
-  void pushRlogFrame(const char* file, int line, uint16_t id, uint8_t severity,
-                      int32_t detail, uint32_t ms) const {
-    // beebo: no isConnected() gate -- DualModeSerialInterface::isConnected()
-    // is an unconditional `return true` stub (no real way to detect a host-
-    // side close on the native USB-Serial-JTAG peripheral, see that file's
-    // own comment), so it never actually prevented a push into the void.
-    // writeFrameBestEffort() below is what makes an unread push cheap now,
-    // not this check -- confirmed on real hardware that relying on
-    // isConnected() here let every push retry-block the main loop for up to
-    // ZERO_WRITE_GIVEUP_MS (3s) whenever nothing was draining the USB TX
-    // side, stalling completely unrelated traffic (BLE/TCP included) on
-    // every single event while armed.
-    if (!isEnabled() || (!_serial && !_usb)) return;
-
-    uint8_t out[64];   // plenty for header + a file basename + the 4-byte detail
-    size_t pos = writeHeader(out, sizeof(out), 4, _resp_code, _rlog_sub_id, id, severity, line, file, ms);
-    if (pos == 0) return;
-
-    memcpy(&out[pos], &detail, 4);
-    pos += 4;
-
-    pushToTargets(out, pos, _usb_enabled, _session_enabled);
   }
 
 public:
@@ -684,23 +576,21 @@ public:
   }
 };
 
-extern DebugRing debug_ring;
+extern DebugLog debug_log;
 
 // beebo: RLOGH/DLOGH are always compiled in; RLOGM/L and DLOGM/L only
 // exist in a DEBUG_LOG_VERBOSE build -- in a normal build those call sites
 // vanish entirely (not even evaluated), so a hot/high-volume Low-severity
 // site (RLOG_ID_WIFI_HEALTH, RLOG_ID_BLE_HEALTH) costs nothing by default.
-#define RLOGH(type, ...) debug_ring.logRing(__FILE__, __LINE__, type, DLOG_SEV_H, ##__VA_ARGS__)
-#define DLOGH(id, fmt, ...) debug_ring.logLink(__FILE__, __LINE__, id, DLOG_SEV_H, fmt, ##__VA_ARGS__)
+#define RLOGH(type, ...) debug_log.logRing(__FILE__, __LINE__, type, DLOG_SEV_H, ##__VA_ARGS__)
+#define DLOGH(id, fmt, ...) debug_log.logLink(__FILE__, __LINE__, id, DLOG_SEV_H, fmt, ##__VA_ARGS__)
 
 #if DEBUG_LOG_VERBOSE
-#define RLOGM(type, ...) debug_ring.logRing(__FILE__, __LINE__, type, DLOG_SEV_M, ##__VA_ARGS__)
-#define RLOGL(type, ...) debug_ring.logRing(__FILE__, __LINE__, type, DLOG_SEV_L, ##__VA_ARGS__)
-#define DLOGM(id, fmt, ...) debug_ring.logLink(__FILE__, __LINE__, id, DLOG_SEV_M, fmt, ##__VA_ARGS__)
-#define DLOGL(id, fmt, ...) debug_ring.logLink(__FILE__, __LINE__, id, DLOG_SEV_L, fmt, ##__VA_ARGS__)
+#define RLOGM(type, ...) debug_log.logRing(__FILE__, __LINE__, type, DLOG_SEV_M, ##__VA_ARGS__)
+#define DLOGM(id, fmt, ...) debug_log.logLink(__FILE__, __LINE__, id, DLOG_SEV_M, fmt, ##__VA_ARGS__)
+#define DLOGL(id, fmt, ...) debug_log.logLink(__FILE__, __LINE__, id, DLOG_SEV_L, fmt, ##__VA_ARGS__)
 #else
 #define RLOGM(type, ...) do {} while (0)
-#define RLOGL(type, ...) do {} while (0)
 #define DLOGM(id, fmt, ...) do {} while (0)
 #define DLOGL(id, fmt, ...) do {} while (0)
 #endif
@@ -712,8 +602,17 @@ extern DebugRing debug_ring;
 // keep an otherwise-idle USB session's liveness timer alive without
 // touching this enable/disable state -- see connect.py's periodic
 // keepalive during `beebo -i`.
+// BEEBO_RAW_SUB_TIME_SYNC=3 carries a 4-byte little-endian epoch-seconds
+// payload (unlike the other two sub-ids' single data byte -- see
+// DualModeSerialInterface's per-sub-id payload length) and doubles as a
+// keepalive: the --debug link sends it periodically instead of
+// BEEBO_RAW_SUB_KEEPALIVE whenever it wants to also keep the device clock
+// corrected without a full authenticated CMD_SET_DEVICE_TIME session
+// (see beebo_applyRawTimeSync()'s forward-only-correction rule, same as
+// CMD_SET_DEVICE_TIME).
 #define BEEBO_RAW_SUB_DEBUG_LOG_ENABLE 1
 #define BEEBO_RAW_SUB_KEEPALIVE 2
+#define BEEBO_RAW_SUB_TIME_SYNC 3
 
 // beebo: DEBUG_LOG_ENABLE/BEEBO_RAW_SUB_DEBUG_LOG_ENABLE's payload byte is a
 // bitmask, not a bare bool, as of plans/MLOG_LIVE_STREAM.md -- bit 0 is the

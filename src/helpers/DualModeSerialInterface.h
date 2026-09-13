@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BaseSerialInterface.h"
+#include "DebugLog.h"
 #include <Arduino.h>
 
 // beebo: USB CLI that lets the classic raw-text repeater CLI (`meshcli -r`:
@@ -43,6 +44,17 @@ class DualModeSerialInterface : public BaseSerialInterface {
   // beebo: sub_id read in MODE_RAW_SUB, held until MODE_RAW_DATA completes
   // the frame. Only meaningful while _state is one of the two raw states.
   uint8_t _raw_sub_id;
+  // beebo: most raw sub-frames carry exactly 1 data byte, but
+  // BEEBO_RAW_SUB_TIME_SYNC carries a 4-byte little-endian epoch --
+  // _raw_data buffers whichever length rawSubDataLen(_raw_sub_id) reports
+  // and _raw_data_idx tracks how many of those bytes MODE_RAW_DATA has
+  // consumed so far.
+  uint8_t _raw_data[4];
+  uint8_t _raw_data_idx;
+
+  static uint8_t rawSubDataLen(uint8_t sub_id) {
+    return sub_id == BEEBO_RAW_SUB_TIME_SYNC ? 4 : 1;
+  }
   // beebo: separate from _last_byte_at -- a raw control frame's own marker/
   // sub_id bytes deliberately do NOT refresh _last_byte_at/_seen_traffic
   // (see isConnected()'s own comment: only BEEBO_RAW_SUB_KEEPALIVE, once the
@@ -102,7 +114,7 @@ public:
 
   DualModeSerialInterface() {
     _isEnabled = false; _state = MODE_IDLE; _lastWasText = false; _last_byte_at = 0; _seen_traffic = false;
-    _raw_sub_id = 0; _raw_frame_started_at = 0;
+    _raw_sub_id = 0; _raw_frame_started_at = 0; _raw_data_idx = 0;
   }
 
   void begin(Stream& serial) {

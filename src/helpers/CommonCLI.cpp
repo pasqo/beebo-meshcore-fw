@@ -24,6 +24,8 @@ mesh::LocalIdentity radio_new_identity();
 
 #ifdef BEEBO_RTC_PERSIST
 void beebo_recordClockDrift(uint32_t offset);
+void beebo_logCurrentClockDrift();
+void beebo_persistRTCTimeForReboot(uint32_t ts);
 #endif
 
 // Believe it or not, this std C function is busted on some platforms!
@@ -250,6 +252,12 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (sender_timestamp > curr) {
         getRTCClock()->setCurrentTime(sender_timestamp);
+#ifdef BEEBO_RTC_PERSIST
+        // beebo: keep rtc_ts fresh on every accepted correction -- see
+        // kbase/CLOCK_DRIFT_COMPENSATION.md's "Behavior across reset kinds".
+        beebo_persistRTCTimeForReboot(sender_timestamp);
+        beebo_logCurrentClockDrift();
+#endif
         uint32_t now = getRTCClock()->getCurrentTime();
         DateTime dt = DateTime(now);
         sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
@@ -269,15 +277,25 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       // beebo: bare epoch seconds, for CLI clients that don't want to parse
       // the "HH:MM - D/M/Y UTC" format of the plain "clock" command below.
       sprintf(reply, "%lu", (unsigned long)getRTCClock()->getCurrentTime());
+#ifdef BEEBO_RTC_PERSIST
+      beebo_logCurrentClockDrift();
+#endif
     } else if (memcmp(command, "clock", 5) == 0) {
       uint32_t now = getRTCClock()->getCurrentTime();
       DateTime dt = DateTime(now);
       sprintf(reply, "%02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+#ifdef BEEBO_RTC_PERSIST
+      beebo_logCurrentClockDrift();
+#endif
     } else if (memcmp(command, "time ", 5) == 0) {  // set time (to epoch seconds)
       uint32_t secs = _atoi(&command[5]);
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (secs > curr) {
         getRTCClock()->setCurrentTime(secs);
+#ifdef BEEBO_RTC_PERSIST
+        beebo_persistRTCTimeForReboot(secs);
+        beebo_logCurrentClockDrift();
+#endif
         uint32_t now = getRTCClock()->getCurrentTime();
         DateTime dt = DateTime(now);
         sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());

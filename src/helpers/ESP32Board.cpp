@@ -1,16 +1,45 @@
 #ifdef ESP_PLATFORM
 
 #include "ESP32Board.h"
-#include "DebugRing.h"
+#include "DebugLog.h"
 
 #ifdef BEEBO_RTC_PERSIST
+void beebo_persistRTCTimeForReboot(uint32_t ts) {
+  Preferences prefs;
+  if (prefs.begin("beebo", false)) {
+    prefs.putULong("rtc_ts", ts);
+    prefs.end();
+  }
+  RLOGH(RLOG_ID_CLOCK_NVM_PUSH, (int32_t)ts);
+}
+
+void beebo_persistRTCTimeForReboot() {
+  time_t now;
+  time(&now);
+  beebo_persistRTCTimeForReboot((uint32_t)now);
+}
+
 void beebo_recordClockDrift(uint32_t offset) {
   Preferences prefs;
   if (prefs.begin("beebo", false)) {
     prefs.putUInt("drift_off", offset);
     prefs.end();
   }
-  RLOGM(RLOG_ID_CLOCK_DRIFT_RECORDED, (int32_t)offset);
+  RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)offset);
+}
+
+uint32_t beebo_currentClockDrift() {
+  Preferences prefs;
+  uint32_t offset = 0;
+  if (prefs.begin("beebo", true)) {
+    offset = prefs.getUInt("drift_off", 0);
+    prefs.end();
+  }
+  return offset;
+}
+
+void beebo_logCurrentClockDrift() {
+  RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
 }
 
 // beebo: applies the last-known drift offset (see
@@ -34,8 +63,24 @@ void ESP32RTCClock::applyDriftOffset_() {
         tv.tv_sec = device_now_t - drift_offset;
         tv.tv_usec = 0;
         settimeofday(&tv, NULL);
-        RLOGM(RLOG_ID_CLOCK_DRIFT_APPLIED, (int32_t)drift_offset);
+        _pending_drift_log = true;   // logged later by Beebo::startMonRing() -- see takePendingDriftLog()'s comment
+        _pending_drift_offset = drift_offset;
       }
+      // beebo: clear the recorded offset once consumed -- otherwise the same
+      // stale drift gets re-applied (and re-subtracted) on every subsequent
+      // boot that hits this function, compounding indefinitely instead of
+      // being a one-time correction. Cleared even when the device_now_t
+      // guard above didn't fire, since a stale/inapplicable offset is just
+      // as wrong to keep around for the next boot. Logging the clear as
+      // CLOCK_DRIFT(0) is deferred the same way CLOCK_DRIFT_APPLIED is
+      // (see _pending_drift_log's own comment) -- this runs from begin(),
+      // before MonRing/DebugLog's sink exists, so an RLOGH() here would
+      // silently go nowhere.
+      if (prefs.begin("beebo", false)) {
+        prefs.remove("drift_off");
+        prefs.end();
+      }
+      _pending_drift_cleared = true;
     }
   }
 }

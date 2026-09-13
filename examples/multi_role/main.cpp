@@ -1,6 +1,6 @@
 #include "Beebo.h"
 
-#include <helpers/DebugRing.h>
+#include <helpers/DebugLog.h>
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 #include <SPIFFS.h>
@@ -49,12 +49,21 @@ static const char* reset_reason_str(esp_reset_reason_t r) {
 }
 
 void setup() {
+  // beebo: resolve the RTC before anything else -- clock_init() only
+  // touches NVS/settimeofday (no board/hardware pin dependency, see
+  // target.cpp's own comment), so there's no reason to wait for
+  // board.begin()/radio_init() (which calls it again, a guarded no-op by
+  // then) to know the real epoch. Called before startMonRing() below so
+  // MonRing's very first record already carries a real anchor instead of a
+  // placeholder -- no boot event needs buffering as a result.
+  clock_init();
+
   // beebo: claim MonRing's fixed 1MiB PSRAM block before anything else,
-  // even the boot marker right below -- see Beebo::initMonRingEarly()'s own
+  // even the boot marker right below -- see Beebo::startMonRing()'s own
   // comment (plans/MONITORING_UNIFICATION.md Design #2). PSRAM is already
   // configured by the bootloader at this point, no other setup() work
   // needed first.
-  beebo.initMonRingEarly();
+  beebo.startMonRing();
 
   // beebo: the true earliest possible boot marker -- RLOGH()
   // only touches RAM/millis() (already ticking well before setup() runs),
@@ -64,7 +73,7 @@ void setup() {
   // listening on the wire yet, see writeFrameBestEffort()'s own comment),
   // this just lands in transport_log's RAM ring and survives to be
   // replayed once a client actually attaches and enables the debug link
-  // (DebugRing::replayRing(), called from checkSerialInterface()'s
+  // (DebugLog::replayRing(), called from checkSerialInterface()'s
   // BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling).
   //
   RLOGH(RLOG_ID_BOOT_START, (int32_t)esp_reset_reason());
@@ -131,7 +140,7 @@ void setup() {
 
   // beebo: apply MonRing's real boot-known state (persisted config, the
   // corrected time anchor, real radio/env snapshot) on top of
-  // initMonRingEarly()'s placeholder from the very top of setup() -- see
+  // startMonRing()'s placeholder from the very top of setup() -- see
   // that function's own comment. Deliberately BEFORE the validity mark
   // below: if the ring (or anything in setup) wedges the node, we want the
   // bootloader to roll back to the previous working firmware, not confirm a

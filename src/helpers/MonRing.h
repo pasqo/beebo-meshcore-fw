@@ -625,7 +625,7 @@ struct __attribute__((packed)) RouteRecord {
 
 // beebo: RLOG's own (type, detail) event folded into MonRing (see
 // plans/MONITORING_UNIFICATION.md Design #3) -- reuses MonRing's SYNC/
-// offset time base and MLOG live-relay wire format instead of DebugRing's
+// offset time base and MLOG live-relay wire format instead of DebugLog's
 // own millis()-based push/ring. Severity packed into `type`'s own MSB
 // (only H/M ever reach MonRing -- L never persists, same rule RLOG
 // already follows) rather than a dedicated byte. file_id + line preserve
@@ -641,7 +641,15 @@ struct __attribute__((packed)) DebugRecord {
   uint8_t  file_id;   // generated id -- see tools/gen_debug_names.py extension
   uint16_t line;      // __LINE__ from the call site, verbatim
   int32_t  detail;    // same sub-id/bit-packing conventions RLOG's own detail already uses
-  uint8_t  _rsvd[5];
+  // beebo: previously dead padding (_rsvd) -- now general per-RLOG_ID_*
+  // scratch space, meaning defined independently per event type (like
+  // `detail` already is), not shared across event types. All-zero for
+  // every RLOGH/M call site that doesn't pass a `user` array to logRing()
+  // -- see DebugLog.h's own comment on logRing()'s `user` parameter.
+  // RLOG_ID_CLOCK_SET is the first consumer: _user[0] = one of
+  // RLOG_CLOCK_SRC_* (DebugLog.h), so a client doesn't have to infer why
+  // the epoch in `detail` is what it is.
+  uint8_t  _user[5];
 };
 static_assert(sizeof(DebugRecord) == 16, "DebugRecord must be 16 bytes");
 
@@ -674,6 +682,28 @@ static_assert(sizeof(SettingRecord) == 16, "SettingRecord must be 16 bytes");
 static_assert(sizeof(CommandRecord) == 16, "CommandRecord must be 16 bytes");
 static_assert(sizeof(RouteRecord) == 16, "RouteRecord must be 16 bytes");
 static_assert(sizeof(MonRecord)   == 16, "MonRecord must be 16 bytes");
+
+// beebo: the device's own (epoch_sec, millis()) time anchor -- shared,
+// ring-agnostic global state, not owned by MonRing. Both MonRing (offset-
+// from-sync-base bucketing, below) and DebugLog (DLOG's own live
+// wall-clock resolution, DebugLog.h's logLink()/writeHeader()) read this
+// directly, so DLOG never needs MonRing's wire protocol (MLOG) involved
+// just to learn what time it is. Declared here (extern) and defined once
+// in DebugLog.cpp -- same pattern as `debug_log` itself -- so it links
+// correctly across every translation unit; native tests link fine too,
+// since fw/platformio.ini's [env:native] build_src_filter already compiles
+// DebugLog.cpp into every native test binary, this one included. Set only
+// via setGlobalTimeAnchor() (Beebo::startMonRing()'s boot-time
+// captureTimeAnchor() call, or an explicit RTC correction via
+// CMD_SET_DEVICE_TIME) -- never read from a clock directly, so MonRing
+// itself stays fully native-testable with no Arduino/RTC dependency.
+extern uint32_t g_time_anchor_epoch_sec;
+extern uint32_t g_time_anchor_millis;
+inline void setGlobalTimeAnchor(uint32_t epoch_sec, uint32_t millis_ms) {
+  g_time_anchor_epoch_sec = epoch_sec;
+  g_time_anchor_millis = millis_ms;
+}
+inline bool globalTimeAnchorValid() { return g_time_anchor_epoch_sec != 0; }
 
 class MonRing {
 public:
@@ -731,11 +761,15 @@ private:
   uint32_t  _base = 0;            // running absolute base (epoch seconds), always a whole _sync_period bucket
   uint32_t  _sync_period = 60;    // re-latch bucket width (seconds); variable
 
-  // beebo: epoch/millis anchor (plans/MONITORING_UNIFICATION.md Design #1)
-  // -- a single (epoch_sec, millis) pair, pushed in from outside via
+  // beebo: the epoch/millis anchor (plans/MONITORING_UNIFICATION.md Design
+  // #1) is g_time_anchor_epoch_sec/g_time_anchor_millis now -- a shared,
+  // ring-agnostic global (declared above), not private MonRing state, so
+  // DebugLog's own DLOG live push can read the exact same anchor directly
+  // instead of needing MonRing's wire protocol involved at all (see
+  // DebugLog.h's own use of it). Pushed in from outside via
   // setTimeAnchor()/init()/clear() only, never read from a clock directly
-  // (MonRing has no Arduino/RTC dependency by design, so it stays fully
-  // native-testable). Refreshed only at boot and on an explicit RTC
+  // here (MonRing has no Arduino/RTC dependency by design, so it stays
+  // fully native-testable). Refreshed only at boot and on an explicit RTC
   // correction, NOT on every relatch -- on ESP32 without an external RTC
   // chip, time()/millis() share the same underlying esp_timer counter, so
   // there is no drift between them to compensate for between corrections
@@ -743,8 +777,6 @@ private:
   // call derives both the minute-bucket `_base` and the ms-resolution
   // offset from this anchor by pure arithmetic -- no RTC read on the hot
   // append path.
-  uint32_t  _anchor_epoch_sec = 0;
-  uint32_t  _anchor_millis = 0;
 
   // running RADIO config
   RadioRecord _radio;
@@ -765,6 +797,20 @@ private:
   // reference reading.
   bool      _env_ever_sampled = false;
 
+  // Mirrors _env_ever_sampled exactly, for the same reason: init()'s radio
+  // snapshot is a transient boot-time placeholder (Beebo::initMonRing() now
+  // skips even storing it if invalid -- see its own comment -- but init()
+  // itself still seeds start_radio from whatever RadioRecord it was called
+  // with, all-zero for startMonRing()'s placeholder), not a real
+  // reading. Gates emitStartRef(MON_RADIO, ...) below so a fresh MLOG
+  // replay-on-enable (Beebo.cpp's beginMlogReplay() call) never injects
+  // that placeholder as if it were the current governing radio config, even
+  // though a real MON_RADIO record may already be resident further into
+  // the ring (confirmed on real hardware, 2026-09-11: a live --dbg-level E
+  // capture showed a freq=0.0 "radio" context line on every reconnect,
+  // long after the real config had already been noted).
+  bool      _radio_ever_sampled = false;
+
   // The reference record that governs the current oldest surviving prefix of
   // the ring, for each of the three reference kinds — seeded by init()/
   // clear(), reanchored in O(1) at eviction time (see _store()), replayed via
@@ -777,8 +823,7 @@ private:
   // base derived from it, and the running radio/env state, then (re)seed
   // the three start-refs from them directly, without consuming a ring slot.
   void _seed(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms, const RadioRecord &radio, const EnvRecord &env) {
-    _anchor_epoch_sec = anchor_epoch_sec;
-    _anchor_millis = anchor_now_ms;
+    setGlobalTimeAnchor(anchor_epoch_sec, anchor_now_ms);
     uint64_t bucket_ms = (uint64_t)_sync_period * 1000;
     _base = (uint32_t)(((uint64_t)anchor_epoch_sec * 1000 / bucket_ms) * _sync_period);
     _radio = radio; _radio.kind = MON_RADIO; _radio.offset = 0; _radio_valid = true;
@@ -869,16 +914,29 @@ private:
   // always seeds the anchor first via _seed(). So `_ensureSync()` can
   // never actually run before the anchor holds a real value.
   //
-  // `now - _anchor_millis` is plain UNSIGNED subtraction -- correct across
-  // a millis() rollover (~49.7 days) by the same wrapping-counter
+  // `now - g_time_anchor_millis` is plain UNSIGNED subtraction -- correct
+  // across a millis() rollover (~49.7 days) by the same wrapping-counter
   // reasoning this file already documents elsewhere, and the anchor is
   // refreshed far more often than that in any real deployment (boot, plus
   // every RTC correction). `estimated_epoch_ms`/`bucket_ms` use uint64_t
   // explicitly: `anchor_epoch_sec * 1000` alone already exceeds uint32_t's
   // range for any real epoch value (~1.7e12 vs ~4.3e9 max).
+  // Converts a millis() reading into real epoch seconds via the same
+  // anchor math _ensureSync() uses internally -- needed anywhere a caller
+  // wants an absolute epoch value from `now` directly (currently just
+  // _end_time, below) rather than a per-record offset. Kept as its own
+  // helper instead of inlining at each of _end_time's several call sites,
+  // and instead of having appendXxx() reuse _ensureSync()'s own return
+  // value, since that return is deliberately the *offset* (ms since the
+  // current minute-bucket base), not an absolute epoch.
+  uint32_t _epochSecFromMillis(uint32_t now) const {
+    uint64_t estimated_epoch_ms = (uint64_t)g_time_anchor_epoch_sec * 1000 + (uint64_t)(now - g_time_anchor_millis);
+    return (uint32_t)(estimated_epoch_ms / 1000);
+  }
+
   uint16_t _ensureSync(uint32_t now) {
     uint64_t bucket_ms = (uint64_t)_sync_period * 1000;
-    uint64_t estimated_epoch_ms = (uint64_t)_anchor_epoch_sec * 1000 + (uint64_t)(now - _anchor_millis);
+    uint64_t estimated_epoch_ms = (uint64_t)g_time_anchor_epoch_sec * 1000 + (uint64_t)(now - g_time_anchor_millis);
     uint32_t new_base = (uint32_t)((estimated_epoch_ms / bucket_ms) * _sync_period);
     if (new_base != _base) {
       _base = new_base;
@@ -988,9 +1046,11 @@ public:
     _head = _count = _next_seq = 0;
     _seed(anchor_epoch_sec, anchor_now_ms, radio, env);
     // beebo: explicit, even though this is also the member default --
-    // init()'s env snapshot is the boot-time one (not yet a genuine
-    // sample, see _env_ever_sampled's own comment), unlike clear()'s.
+    // init()'s env/radio snapshots are the boot-time ones (not yet a
+    // genuine sample, see _env_ever_sampled's/_radio_ever_sampled's own
+    // comment), unlike clear()'s.
     _env_ever_sampled = false;
+    _radio_ever_sampled = false;
     return true;
   }
 
@@ -1006,8 +1066,7 @@ public:
   // see the plan's own precision note. The next _ensureSync() call re-buckets
   // `_base` against the new anchor on its own; no forced relatch here.
   void setTimeAnchor(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms) {
-    _anchor_epoch_sec = anchor_epoch_sec;
-    _anchor_millis = anchor_now_ms;
+    setGlobalTimeAnchor(anchor_epoch_sec, anchor_now_ms);
   }
 
   bool     allocated() const { return _buf != nullptr; }
@@ -1024,8 +1083,8 @@ public:
 
   // beebo: two-phase MLOG replay-on-enable -- requestMlogReplay() (called
   // from the enable handler) only arms `_mlog_replay_pending`; the actual
-  // beginMlogReplay() is deferred until DebugRing's own replay has fully
-  // drained (Beebo.cpp's paced-stream chain checks `!debug_ring.
+  // beginMlogReplay() is deferred until DebugLog's own replay has fully
+  // drained (Beebo.cpp's paced-stream chain checks `!debug_log.
   // isReplaying()`), so MLOG's replayed backlog always prints *after*
   // DLOG/RLOG's rather than racing ahead of it -- MLOG's own start-refs are
   // pushed synchronously the instant beginMlogReplay() runs, and DLOG/RLOG's
@@ -1039,12 +1098,12 @@ public:
   bool mlogReplayPending() const { return _mlog_replay_pending; }
 
   // beebo: MLOG replay-on-enable (plans/MLOG_LIVE_STREAM.md decision 3) --
-  // mirrors DebugRing::beginReplay()/replayStep()'s own paced-not-a-burst
-  // shape, but walks this ring's own seq space instead of DebugRing's
+  // mirrors DebugLog::beginReplay()/replayStep()'s own paced-not-a-burst
+  // shape, but walks this ring's own seq space instead of DebugLog's
   // logical index, since the two rings have unrelated record shapes/sizes.
-  // Lives here rather than on DebugRing since only MonRing can iterate its
+  // Lives here rather than on DebugLog since only MonRing can iterate its
   // own buffer; the caller (Beebo.cpp's paced-stream chain) drives one
-  // mlogReplayStep() per tick, same cadence as DebugRing's own replayStep(),
+  // mlogReplayStep() per tick, same cadence as DebugLog's own replayStep(),
   // once requestMlogReplay()'s own deferred-start condition is met.
   void beginMlogReplay() {
     _mlog_replay_pending = false;
@@ -1061,14 +1120,29 @@ public:
     // unconditionally, even when the ring itself is empty (start_sync is
     // always populated from init()/clear() onward, per emitStartRef()'s
     // own comment) -- see plans/MLOG_LIVE_STREAM.md.
+    //
+    // beebo: MON_SYNC is always injected below regardless of whether the
+    // ring's real oldest record already "covers" that slot -- unlike
+    // RADIO/ENV, skipping it left every live line's abs_time unresolved
+    // (rendered as dashes) whenever a brand-new live noteRadio()/
+    // sampleEnv() append raced ahead of the real SYNC record still queued
+    // in mlogReplayStep()'s paced (one-per-tick) backlog walk below
+    // (confirmed on real hardware, 2026-09-11: `radio`/`env` rendered with
+    // dashes, followed ~29s later by the real `sync` once the paced walk
+    // finally reached it). When that slot IS covered, the real record is
+    // identical to the synthetic ref just pushed (same governing sync), so
+    // _mlog_replay_seq below is advanced past it -- otherwise the paced walk
+    // would deliver that exact same record again a moment later (confirmed
+    // on real hardware, 2026-09-11: a duplicate `sync` line back-to-back
+    // with the synthetic one).
+    uint32_t peek_pos = oldestSeq();
     if (_live_sink) {
       static const uint8_t kSlotKind[3] = { MON_SYNC, MON_RADIO, MON_ENV };
-      uint32_t peek_pos = oldestSeq();
       MonRecord rec;
       for (int s = 0; s < 3; s++) {
-        if (peek(peek_pos, &rec) && rec.kind == kSlotKind[s]) {
-          peek_pos++;   // real record covers this slot; nothing to inject
-        } else {
+        bool covered = peek(peek_pos, &rec) && rec.kind == kSlotKind[s];
+        if (covered && kSlotKind[s] != MON_SYNC) peek_pos++;   // real record covers this slot
+        if (kSlotKind[s] == MON_SYNC || !covered) {
           MonRecord ref;
           if (emitStartRef(kSlotKind[s], &ref)) _live_sink(ref);
         }
@@ -1076,6 +1150,10 @@ public:
     }
     _mlog_replay_active = (_count > 0);
     _mlog_replay_seq = oldestSeq();
+    {
+      MonRecord rec;
+      if (peek(_mlog_replay_seq, &rec) && rec.kind == MON_SYNC) _mlog_replay_seq++;
+    }
   }
   bool isMlogReplaying() const { return _mlog_replay_active; }
   bool mlogReplayStep() {
@@ -1103,6 +1181,18 @@ public:
   uint32_t syncCount() const { return _sync_count; }
   uint32_t radioCount() const { return _radio_count; }
   uint32_t envCount() const { return _env_count; }
+  // beebo: true once g_time_anchor_epoch_sec holds a real epoch (real epoch
+  // is never 0 in practice) -- Beebo::startMonRing() resolves it as soon as
+  // the RTC allows (right after clock_init(), before board/radio bring-up),
+  // so in practice this is true from the very first record MonRing ever
+  // appends onward; it's a defensive check for anything appended before
+  // that (e.g. if PSRAM allocation itself failed) rather than a normal
+  // two-phase placeholder-then-correct window. Callers that append events
+  // which must have a valid absolute timestamp (e.g.
+  // Beebo::forwardDebugToMonRing()) check this first and skip storing until
+  // it's true, rather than storing a record whose timestamp doesn't match
+  // the same event's own DLOG line.
+  bool timeAnchorValid() const { return globalTimeAnchorValid(); }
   // See bumpRxDropCount()/_rx_pool_exhausted_count/_rx_parse_error_count above.
   uint32_t rxPoolExhaustedCount() const { return _rx_pool_exhausted_count; }
   uint32_t rxParseErrorCount() const { return _rx_parse_error_count; }
@@ -1142,11 +1232,12 @@ public:
     // declaration above), and clearing the ring shouldn't erase evidence that
     // the packet pool was exhausted earlier in this boot.
     _seed(anchor_epoch_sec, anchor_now_ms, radio, env);
-    // beebo: unlike init()'s boot-time seed, clear()'s env snapshot is a
-    // live read taken at clear time -- already a genuine sample, so
-    // emitStartRef(MON_ENV, ...) may inject it right away (see
-    // _env_ever_sampled's own comment).
+    // beebo: unlike init()'s boot-time seed, clear()'s env/radio snapshots
+    // are live reads taken at clear time -- already genuine samples, so
+    // emitStartRef(MON_ENV/MON_RADIO, ...) may inject them right away (see
+    // _env_ever_sampled's/_radio_ever_sampled's own comment).
     _env_ever_sampled = true;
+    _radio_ever_sampled = true;
   }
 
   // Append one fully-resolved reception: the caller fills every RxRecord field
@@ -1159,7 +1250,7 @@ public:
     r.rx = rx;
     r.rx.kind = MON_RX;
     r.rx.offset = _ensureSync(now);
-    _end_time = now;
+    _end_time = _epochSecFromMillis(now);
     _rx_count++;
     return _store(r);
   }
@@ -1171,7 +1262,7 @@ public:
     r.tx = tx;
     r.tx.kind = MON_TX;
     r.tx.offset = _ensureSync(now);
-    _end_time = now;
+    _end_time = _epochSecFromMillis(now);
     _tx_count++;
     _store(r);
   }
@@ -1186,7 +1277,7 @@ public:
     r.batt = batt;
     r.batt.kind = MON_BATT;
     r.batt.offset = _ensureSync(now);
-    _end_time = now;
+    _end_time = _epochSecFromMillis(now);
     _batt_count++;
     _store(r);
   }
@@ -1202,7 +1293,7 @@ public:
     r.tune = tune;
     r.tune.kind = MON_TUNE;
     r.tune.offset = _ensureSync(now);
-    _end_time = now;
+    _end_time = _epochSecFromMillis(now);
     _tune_count++;
     _store(r);
   }
@@ -1218,7 +1309,7 @@ public:
     r.event = event;
     r.event.kind = MON_EVENT;
     r.event.offset = _ensureSync(now);
-    _end_time = now;
+    _end_time = _epochSecFromMillis(now);
     _event_count++;
     _store(r);
   }
@@ -1232,7 +1323,7 @@ public:
     r.setting = setting;
     r.setting.kind = MON_SETTING;
     r.setting.offset = _ensureSync(now);
-    _end_time = now;
+    _end_time = _epochSecFromMillis(now);
     _setting_count++;
     _store(r);
   }
@@ -1245,7 +1336,7 @@ public:
     r.command = command;
     r.command.kind = MON_COMMAND;
     r.command.offset = _ensureSync(now);
-    _end_time = now;
+    _end_time = _epochSecFromMillis(now);
     _command_count++;
     _store(r);
   }
@@ -1263,7 +1354,7 @@ public:
     r.route = route;
     r.route.kind = MON_ROUTE;
     r.route.offset = _ensureSync(now);
-    _end_time = now;
+    _end_time = _epochSecFromMillis(now);
     _route_count++;
     _store(r);
   }
@@ -1280,7 +1371,7 @@ public:
     r.debug = debug;
     r.debug.kind = MON_DEBUG;
     r.debug.offset = _ensureSync(now);
-    _end_time = now;
+    _end_time = _epochSecFromMillis(now);
     _debug_count++;
     _store(r);
   }
@@ -1292,16 +1383,29 @@ public:
   // identically.
   void noteRadio(RadioRecord radio, uint32_t now) {
     if (!enabled() || !(_config & MON_CAP_RADIO) || _buf == nullptr) return;
-    bool changed = !_radio_valid || _radio.freq != radio.freq || _radio.sf != radio.sf ||
-                   _radio.bw != radio.bw || _radio.cr != radio.cr ||
+    // beebo: mirrors sampleEnv()'s first_real_sample handling exactly (see
+    // its own comment) -- on the first real call, also replace start_radio
+    // immediately rather than waiting for the eviction-time reanchor in
+    // _store(), so emitStartRef(MON_RADIO, ...) stops injecting the
+    // boot-time placeholder the instant a real config is known.
+    bool first_real_sample = !_radio_ever_sampled;
+    _radio_ever_sampled = true;
+    bool changed = first_real_sample || !_radio_valid || _radio.freq != radio.freq ||
+                   _radio.sf != radio.sf || _radio.bw != radio.bw || _radio.cr != radio.cr ||
                    _radio.tx_power != radio.tx_power || _radio.flags != radio.flags;
     if (!changed) return;
     _radio = radio;
     _radio_valid = true;
+    if (first_real_sample) {
+      start_radio = _radio;
+      start_radio.kind = MON_RADIO;
+      start_radio.offset = 0;
+    }
     MonRecord r{};
     r.radio = _radio;
     r.radio.kind = MON_RADIO;
     r.radio.offset = _ensureSync(now);
+    _end_time = _epochSecFromMillis(now);
     _radio_count++;
     _store(r);
   }
@@ -1340,6 +1444,7 @@ public:
     r.env = _env;
     r.env.kind = MON_ENV;
     r.env.offset = _ensureSync(now);
+    _end_time = _epochSecFromMillis(now);
     _env_count++;
     _store(r);
   }
@@ -1362,7 +1467,12 @@ public:
   bool emitStartRef(uint8_t kind, MonRecord *dest) const {
     switch (kind) {
       case MON_SYNC:  dest->sync  = start_sync;  return true;
-      case MON_RADIO: dest->radio = start_radio; return true;
+      // beebo: only once a real noteRadio() has actually happened -- see
+      // _radio_ever_sampled's own comment. Before that, start_radio still
+      // holds init()'s boot-time placeholder (all-zero), which would
+      // otherwise get injected as if it were the current governing config.
+      case MON_RADIO: if (!_radio_ever_sampled) return false;
+                       dest->radio = start_radio; return true;
       // beebo: only once a real sampleEnv() has actually happened -- see
       // _env_ever_sampled's own comment. Before that, start_env still
       // holds init()/clear()'s boot-time seed (radio noise-floor

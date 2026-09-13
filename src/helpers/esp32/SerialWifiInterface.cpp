@@ -2,7 +2,7 @@
 #include <WiFi.h>
 #include <lwip/sockets.h>   // send(MSG_DONTWAIT) for the non-blocking queue drain
 #include <string.h>   // memcpy
-#include "../DebugRing.h"
+#include "../DebugLog.h"
 
 void SerialWifiInterface::begin(int port) {
   _port = port;
@@ -121,7 +121,7 @@ size_t SerialWifiInterface::checkRecvFrame(uint8_t dest[], size_t max_len, RecvF
     // exclusivity close above, and an uncommanded listener death -- either
     // way, _checkTransportStateChanges() (Beebo.cpp) picks up the resulting
     // wifi.listening 0 -> 1 transition on this same loop() tick and logs it,
-    // so no separate event is logged here (see DebugRing.h's retired
+    // so no separate event is logged here (see DebugLog.h's retired
     // RLOG_ID_WIFI_LISTEN_ENABLED entry).
     DLOGM(DLOG_ID_WIFI_LISTENER_REBUILD, "listening socket was dead, rebuilding");
     server.begin(_port);

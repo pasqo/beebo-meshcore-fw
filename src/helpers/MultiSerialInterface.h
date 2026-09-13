@@ -1,7 +1,7 @@
 #pragma once
 
 #include "BaseSerialInterface.h"
-#include "DebugRing.h"
+#include "DebugLog.h"
 #include <string.h>
 
 // Aggregates several BaseSerialInterface transports (e.g. BLE / WiFi / USB)
@@ -187,7 +187,7 @@ class MultiSerialInterface : public BaseSerialInterface {
       // the success path reboots before the next checkRecvFrame() tick ever
       // processes the queued REQ_DISABLE), but guarded anyway in case a
       // debug session happens to be live when it is.
-      if (!(_transports[_active].type == RLOG_ID_XPORT_USB && debug_ring.isEnabled())) {
+      if (!(_transports[_active].type == RLOG_ID_XPORT_USB && debug_log.isEnabled())) {
         _transports[_active].iface->resetParserState();
       }
       _active = -1;
@@ -274,8 +274,8 @@ public:
 
   // beebo: forwards to the active sub-transport's own writeFrameBestEffort()
   // rather than falling back to BaseSerialInterface's default (which would
-  // silently redirect to writeFrame() instead) -- DebugRing's live push
-  // (DebugRing.h::pushRlogFrame()) relies on this being genuinely
+  // silently redirect to writeFrame() instead) -- DebugLog's live push
+  // (DebugLog.h::pushRlogFrame()) relies on this being genuinely
   // non-blocking on USB specifically (DualModeSerialInterface's own
   // writeFrameBestEffort() override), since its target is now this
   // aggregator, not a fixed usb_interface. Falling through to writeFrame()
@@ -393,7 +393,7 @@ public:
         if (_pending_request == REQ_ENABLE) {
           _pending_request = REQ_NONE;
           for (int i = 0; i < _count; i++) {
-            if (_transports[i].type == RLOG_ID_XPORT_USB && debug_ring.isEnabled())
+            if (_transports[i].type == RLOG_ID_XPORT_USB && debug_log.isEnabled())
               continue;
             _transports[i].iface->discardStaleRx();
           }

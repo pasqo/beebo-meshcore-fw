@@ -29,12 +29,12 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   static const uint32_t BLE_HEALTH_SAMPLE_MS = 60000;   // same cadence as SerialWifiInterface's WIFI_HEALTH_SAMPLE_MS
   // BLE_RSSI_UNAVAILABLE: esp_ble_gap_read_rssi()'s own "couldn't read"
   // value (see ble_read_rssi_cmpl_evt_param's doc comment in
-  // esp_gap_ble_api.h) -- reused as RLOG_ID_BLE_HEALTH's logged RSSI
+  // esp_gap_ble_api.h) -- reused as DLOG_ID_BLE_HEALTH's logged RSSI
   // whenever no read is currently outstanding (no central connected, or the
   // last request hasn't completed yet).
   static const int8_t BLE_RSSI_UNAVAILABLE = 127;
   // beebo: tracing-only, see RLOG_ID_BLE_RSSI_REQUESTED/_COMPLETE/
-  // _TEARDOWN_WHILE_INFLIGHT's own comment in DebugRing.h -- set when
+  // _TEARDOWN_WHILE_INFLIGHT's own comment in DebugLog.h -- set when
   // requestHealthSample() issues esp_ble_gap_read_rssi(), cleared by
   // _gapEventHandler() on ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT. deinitRadio()
   // checks it purely to log an anomaly if a teardown lands mid-read; it
@@ -177,7 +177,7 @@ public:
   bool isEnabled() const override { return _isEnabled; }
 
   // beebo: this device's own advertised BLE address, cached by initRadio()
-  // -- see RLOG_ID_BLE_LOCAL_ADDR_HI/LO's own comment in DebugRing.h.
+  // -- see RLOG_ID_BLE_LOCAL_ADDR_HI/LO's own comment in DebugLog.h.
   // Beebo::_checkTransportStateChanges() calls this (not initRadio()
   // itself) right when RLOG_ID_XPORT_LINK_BLE_IFACE_ENABLED transitions
   // on, so the address lands in the ring alongside the rest of the
@@ -199,9 +199,9 @@ public:
   uint32_t getRecvQueueFullCount() const { return _recv_queue_full_count; }
 
   // beebo: called from Beebo::loopTransports() every tick; no-ops unless a
-  // central is actually connected (see RLOG_ID_BLE_HEALTH's own comment in
-  // DebugRing.h), then at most once per BLE_HEALTH_SAMPLE_MS -- logs
-  // RLOG_ID_BLE_HEALTH itself and kicks off the async RSSI read via
+  // central is actually connected (see DLOG_ID_BLE_HEALTH's own comment in
+  // DebugLog.h), then at most once per BLE_HEALTH_SAMPLE_MS -- logs
+  // DLOG_ID_BLE_HEALTH itself and kicks off the async RSSI read via
   // _requestRssiReadIfIdle(); the read's own result is logged separately,
   // later, once it actually arrives (_gapEventHandler(), RLOG_ID_BLE_RSSI_COMPLETE).
   void requestHealthSample();

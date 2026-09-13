@@ -1,19 +1,19 @@
 #include "DualModeSerialInterface.h"
-#include "DebugRing.h"
+#include "DebugLog.h"
 #include <string.h>
 
 // beebo: opt-in (-D BEEBO_USB_RXTX_TRACE), temporary root-cause diagnostic
 // for the boot/reconnect text-vs-binary parser desync -- one DLOG line per
 // raw byte read (with the state it was read into) and per outgoing
 // writeFrame() call. Only guards writeFrame(), never writeFrameBestEffort()
-// -- DebugRing's own pushes (including these trace lines) go out through
+// -- DebugLog's own pushes (including these trace lines) go out through
 // writeFrameBestEffort() exclusively, so tracing that call too would
 // recurse into itself. Off by default: this is a temporary hunting tool,
 // not a shipped feature -- only heltec_v4_3_multi_role_debug's build_flags
 // define the macro (see fw/variants/heltec_v4/platformio.ini). Medium
 // severity -- opt-in and high-volume already gated by BEEBO_USB_RXTX_TRACE
 // itself, but noisy enough not to warrant High -- so hunting this bug also
-// requires defining DEBUG_LOG_VERBOSE=1 (DebugRing.h) alongside it, or these
+// requires defining DEBUG_LOG_VERBOSE=1 (DebugLog.h) alongside it, or these
 // two macros compile to nothing.
 #ifdef BEEBO_USB_RXTX_TRACE
 // beebo: fixed "USBRX"/"USBTX" basename (not __FILE__ via the DLOGM
@@ -175,9 +175,10 @@ bool DualModeSerialInterface::isConnected() const {
   // alone (_last_byte_at's value is irrelevant while it's false). A byte
   // arriving via the framed/text parser sets _seen_traffic, as does
   // checkRecvFrame()'s own
-  // MODE_RAW_DATA completion for a BEEBO_RAW_SUB_KEEPALIVE sub-frame (see
-  // connect.py's periodic write during an otherwise-idle `beebo -i`
-  // session) -- so a genuinely idle-but-alive app session never trips this
+  // MODE_RAW_DATA completion for a BEEBO_RAW_SUB_KEEPALIVE or
+  // BEEBO_RAW_SUB_TIME_SYNC sub-frame (see connect.py's periodic write
+  // during an otherwise-idle `beebo -i` session) -- so a genuinely
+  // idle-but-alive app session never trips this
   // on its own. Every other raw sub-frame (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE,
   // `beebo dbglog`/`beebo -d`'s standalone enable/resend) deliberately does
   // NOT set _seen_traffic -- a debug-log-only link is an observer, not an
@@ -314,7 +315,7 @@ size_t DualModeSerialInterface::writeFrame(const uint8_t src[], size_t len) {
 
 // beebo: single-attempt counterpart to writeFrame() above -- see this
 // method's own declaration comment in BaseSerialInterface.h for why
-// DebugRing's live push needs this instead of writeFrame()'s retry-until-sent
+// DebugLog's live push needs this instead of writeFrame()'s retry-until-sent
 // writeAll(). The naive fix (just call write() once, no retry loop) turned
 // out not to be enough on real hardware: on the native USB-Serial-JTAG
 // peripheral (HWCDC.cpp), a single write() call itself blocks internally
@@ -484,28 +485,32 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len, R
         break;   // unreachable -- handled at the top of this loop
       case MODE_RAW_SUB:
         _raw_sub_id = (uint8_t)c;
+        _raw_data_idx = 0;
         _state = MODE_RAW_DATA;
         break;
       case MODE_RAW_DATA: {
-        uint8_t raw_data = (uint8_t)c;
+        uint8_t need = rawSubDataLen(_raw_sub_id);
+        _raw_data[_raw_data_idx++] = (uint8_t)c;
+        if (_raw_data_idx < need) break;   // more payload bytes still to come
         uint8_t raw_sub_id = _raw_sub_id;
         _state = MODE_IDLE;
-        // beebo: only BEEBO_RAW_SUB_KEEPALIVE (a real app session's own
-        // liveness poke, see connect.py's periodic write during `beebo -i`)
-        // counts toward isConnected()'s idle timer -- every other sub-frame
-        // (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, `beebo dbglog`/`beebo -d`'s
-        // standalone enable/resend) is an observer, not a session, and must
-        // never look like a connected app session on its own.
-        if (raw_sub_id == BEEBO_RAW_SUB_KEEPALIVE) {
+        // beebo: BEEBO_RAW_SUB_KEEPALIVE and BEEBO_RAW_SUB_TIME_SYNC (a real
+        // app session's own liveness poke, see connect.py's periodic write
+        // during `beebo -i`) count toward isConnected()'s idle timer --
+        // every other sub-frame (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, `beebo
+        // dbglog`/`beebo -d`'s standalone enable/resend) is an observer, not
+        // a session, and must never look like a connected app session on its
+        // own.
+        if (raw_sub_id == BEEBO_RAW_SUB_KEEPALIVE || raw_sub_id == BEEBO_RAW_SUB_TIME_SYNC) {
           _last_byte_at = now;
           _seen_traffic = true;
         }
-        if (max_len >= 2) {
+        if (max_len >= (size_t)need + 1) {
           dest[0] = raw_sub_id;
-          dest[1] = raw_data;
+          memcpy(&dest[1], _raw_data, need);
         }
         if (type) *type = RecvFrameType::DEBUG;
-        return 2;
+        return need + 1;
       }
     }
   }
