@@ -745,13 +745,12 @@ public:
   bool saveRegions() override { return region_map.save(_store->getPrimaryFS()); }
   void onDefaultRegionChanged(const RegionEntry* r) override { /* beebo: region_map's own default-region flag is persisted by saveRegions() above; no separate live-scoping consumer wired yet, unlike _role_state->prefs.default_scope_key's own periodic-advert path */ }
   void setRxBoostedGain(bool enable) override { radio_driver.setRxBoostedGainMode(enable); }
-#ifdef BEEBO_RTC_PERSIST
   // beebo: no timestamp to carry through scheduleReboot() -- the caller
   // already persisted the drift itself (beebo_clockDrift()) before
   // requesting this, so the next boot's applyDriftOffset_() corrects the
-  // clock on its own, the same way any other reboot would.
+  // clock on its own, the same way any other reboot would. Unconditional --
+  // BEEBO_RTC_PERSIST guards NVM read/write only, not this.
   void scheduleRebootWithTime() override { scheduleReboot(); }
-#endif
 #endif
 
 private:
@@ -797,7 +796,6 @@ private:
   // value this function's own decision was based on, instead of
   // re-deriving an approximation of it from SECS/the returned prior time.
   uint32_t applyClockSync(uint32_t secs, bool boot, uint16_t ms = 0, int32_t *out_delta_ms = nullptr);
-  void applyRawTimeSync(uint32_t secs, uint16_t ms = 0);
 
   // Returns true (once) when CMD_SET_WIFI_CREDS was received; loop()'s own
   // transport-management block (below) uses this as an edge-triggered input

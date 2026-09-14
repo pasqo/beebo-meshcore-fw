@@ -45,15 +45,19 @@ class DualModeSerialInterface : public BaseSerialInterface {
   // the frame. Only meaningful while _state is one of the two raw states.
   uint8_t _raw_sub_id;
   // beebo: most raw sub-frames carry exactly 1 data byte, but
-  // BEEBO_RAW_SUB_TIME_SYNC carries a 4-byte little-endian epoch --
-  // _raw_data buffers whichever length rawSubDataLen(_raw_sub_id) reports
-  // and _raw_data_idx tracks how many of those bytes MODE_RAW_DATA has
-  // consumed so far.
-  uint8_t _raw_data[4];
+  // BEEBO_RAW_SUB_TIME_SYNC carries a 4-byte little-endian epoch plus a
+  // 2-byte little-endian ms fraction (6 bytes total) -- _raw_data buffers
+  // whichever length rawSubDataLen(_raw_sub_id) reports and _raw_data_idx
+  // tracks how many of those bytes MODE_RAW_DATA has consumed so far. This
+  // is a fixed count decided up front by sub_id, not a self-describing
+  // length -- there's no "optional trailing" data at this layer, unlike a
+  // <len>-prefixed framed command; every byte rawSubDataLen() promises must
+  // actually be on the wire, or the parser is left waiting mid-frame.
+  uint8_t _raw_data[6];
   uint8_t _raw_data_idx;
 
   static uint8_t rawSubDataLen(uint8_t sub_id) {
-    return sub_id == BEEBO_RAW_SUB_TIME_SYNC ? 4 : 1;
+    return sub_id == BEEBO_RAW_SUB_TIME_SYNC ? 6 : 1;
   }
   // beebo: separate from _last_byte_at -- a raw control frame's own marker/
   // sub_id bytes deliberately do NOT refresh _last_byte_at/_seen_traffic

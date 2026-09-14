@@ -15,13 +15,24 @@
 #include "soc/rtc.h"
 #include "esp_system.h"
 
+#ifdef BEEBO_RTC_PERSIST
+#include <Preferences.h>
+#endif
+
 // beebo: opt-in (-D BEEBO_RTC_PERSIST) persistence of the RTC across a true
 // power cycle (ESP_RST_POWERON), where settimeofday()'s state is lost. Soft
 // reboots (esp_restart()) already keep the RTC alive on ESP32-S3, so this is
 // only read back on power-on. Off by default: upstream behavior (always
 // falling back to the fixed recent-past date below) is unchanged.
-#ifdef BEEBO_RTC_PERSIST
-#include <Preferences.h>
+//
+// beebo: the functions below are declared unconditionally -- only their
+// *implementation* (ESP32Board.cpp) is guarded by BEEBO_RTC_PERSIST, the
+// actual NVM/Preferences access. With the macro off, both fall back to a
+// plain no-op/upstream-equivalent body there, so no call site here,
+// Beebo.cpp, or CommonCLI.cpp needs its own #ifdef BEEBO_RTC_PERSIST just
+// to call these -- the guard's job is protecting the NVM save/restore
+// itself, not gating every caller.
+//
 // beebo: non-static (unlike the rest of this file's small helpers) so
 // ESP32Board.cpp's definition can log RLOG_ID_CLOCK_NVM_PUSH -- this header
 // deliberately stays free of DebugLog.h (compiled for many non-beebo board
@@ -35,34 +46,12 @@ void beebo_persistRTCTimeForReboot();
 
 // beebo: beebo_clockDrift(offset) persists OFFSET as the new drift_off and
 // returns it; beebo_clockDrift() (no args) reads back whatever's currently
-// persisted, read-only -- 0 if never recorded or already cleared. Same
-// set-vs-read overload split as beebo_persistRTCTimeForReboot() above.
-// Used directly by Beebo.cpp (which already includes DebugLog.h/RLOGM) to
-// log RLOG_ID_CLOCK_SYNC itself; CommonCLI.cpp uses
-// beebo_logCurrentClockDrift() below instead, since it's shared code that
-// doesn't pull in DebugLog.h.
+// persisted, read-only -- 0 if never recorded or already cleared (also the
+// permanent behavior when BEEBO_RTC_PERSIST is off, matching upstream: no
+// drift ever recorded, so nothing to read back). Same set-vs-read overload
+// split as beebo_persistRTCTimeForReboot() above.
 uint32_t beebo_clockDrift(uint32_t offset);
 uint32_t beebo_clockDrift();
-
-// beebo: reads the current persisted drift_off and logs RLOG_ID_CLOCK_SYNC
-// with it -- for callers (CommonCLI.cpp) that can't call RLOGM directly
-// (this is shared code compiled for boards with no DebugLog.h at all).
-// Called on a no-op clock query (nothing was corrected this call), so a
-// client watching --debug sees this device's persisted-drift state on
-// every "clock"/sync, whether or not that particular call changed it. For
-// a call that DID just correct or reject a sync, log the immediate signed
-// delta via beebo_logClockDrift() below instead -- it says what just
-// happened, not what's still pending from a previous rejection.
-void beebo_logCurrentClockDrift();
-
-// beebo: same shared-code reason as beebo_logCurrentClockDrift() above --
-// logs RLOG_ID_CLOCK_SYNC(delta) directly, for a caller that already knows
-// the exact signed delta of what just happened: negative when a sync was
-// just accepted and applied (curr - secs, curr < secs), positive when one
-// was just rejected and persisted for a future boot to apply (curr - secs,
-// curr > secs).
-void beebo_logClockDrift(int32_t delta);
-#endif
 
 class ESP32Board : public mesh::MainBoard {
 protected:
@@ -196,9 +185,7 @@ public:
   }
 
   void reboot() override {
-#ifdef BEEBO_RTC_PERSIST
     beebo_persistRTCTimeForReboot();
-#endif
     esp_restart();
   }
 
@@ -219,9 +206,7 @@ public:
   // only refines the live-clock correction's tv_usec below; rtc_ts (the
   // NVS backup) stays seconds-only, unaffected.
   void rebootWithTime(uint32_t ts, uint16_t ts_ms = 0) {
-#ifdef BEEBO_RTC_PERSIST
     beebo_persistRTCTimeForReboot(ts);
-#endif
     struct timeval tv;
     tv.tv_sec = ts;
     tv.tv_usec = (long)ts_ms * 1000;
@@ -274,32 +259,28 @@ public:
     // plausible (i.e. this really was a cold boot).
     time_t live_now;
     time(&live_now);
-#ifdef BEEBO_RTC_PERSIST
     _pending_clock_rtc_log = true;
     _pending_clock_rtc_value = (uint32_t)live_now;
-#endif
     bool live_clock_plausible = (uint32_t)live_now > RTC_FALLBACK_EPOCH;
     if (reason == ESP_RST_POWERON && !live_clock_plausible) {
       struct timeval tv;
-#ifdef BEEBO_RTC_PERSIST
       // beebo: recover the timestamp saved by reboot() so a power cycle
       // only loses however long the boot itself took, not the RTC state --
-      // falls back to a fixed recent-past date on the very first boot ever,
-      // when nothing has been persisted yet.
+      // falls back to a fixed recent-past date (matching plain upstream
+      // behavior) when nothing has been persisted yet, including whenever
+      // BEEBO_RTC_PERSIST is off -- saved_ts just stays 0 in that case,
+      // since only the NVM read itself needs the guard.
       uint32_t saved_ts = 0;
+#ifdef BEEBO_RTC_PERSIST
       Preferences prefs;
       if (prefs.begin("beebo", true)) {
         saved_ts = prefs.getULong("rtc_ts", 0);
         prefs.end();
       }
-      tv.tv_sec = saved_ts != 0 ? saved_ts : RTC_FALLBACK_EPOCH;
-#else
-      // start with some date/time in the recent past
-      tv.tv_sec = RTC_FALLBACK_EPOCH;
 #endif
+      tv.tv_sec = saved_ts != 0 ? saved_ts : RTC_FALLBACK_EPOCH;
       tv.tv_usec = 0;
       settimeofday(&tv, NULL);
-#ifdef BEEBO_RTC_PERSIST
       // beebo: deferred the same way RLOG_ID_CLOCK_SYNC is
       // (see takePendingDriftLog()'s comment) -- this runs before MonRing's
       // sink exists. detail = what was actually applied (tv.tv_sec), so a
@@ -311,12 +292,11 @@ public:
       // beebo: deferred alongside CLOCK_NVM_PULL, logged next to CLOCK_SET
       // at the same point (see Beebo::startMonRing()) -- distinguishes a
       // genuine NVS restore from the fixed-date fallback used on a device
-      // that's never persisted anything yet.
+      // that's never persisted anything yet (saved_ts == 0, whether that's
+      // because nothing was ever saved or because BEEBO_RTC_PERSIST is off).
       _pending_clock_src = saved_ts != 0 ? CLOCK_SRC_NVM : CLOCK_SRC_FALLBACK;
       applyDriftOffset_();
-#endif
     }
-#ifdef BEEBO_RTC_PERSIST
     // beebo: ESP_RST_UNKNOWN covers an esptool flash; ESP_RST_SW covers an
     // ordinary reboot() (esp_restart()); a plausible-live-clock
     // ESP_RST_POWERON covers an RST-button toggle (see above) -- the RTC
@@ -324,13 +304,14 @@ public:
     // need the same drift correction. Found missing 2026-09-09: `beebo
     // clock`'s own "Reboot the device to correct it" message pointed at a
     // plain reboot, which this branch never covered -- the RTC free-ran
-    // straight through it, uncorrected.
+    // straight through it, uncorrected. applyDriftOffset_() is a plain
+    // no-op when BEEBO_RTC_PERSIST is off (nothing was ever persisted to
+    // apply), so this branch needs no guard of its own.
     else if (reason == ESP_RST_UNKNOWN || reason == ESP_RST_SW ||
              (reason == ESP_RST_POWERON && live_clock_plausible)) {
       _pending_clock_src = CLOCK_SRC_RTC;
       applyDriftOffset_();
     }
-#endif
   }
   uint32_t getCurrentTime() override {
     time_t _now;
@@ -344,7 +325,6 @@ public:
     settimeofday(&tv, NULL);
   }
 
-#ifdef BEEBO_RTC_PERSIST
   // beebo: applyDriftOffset_() below runs from begin(), called via
   // clock_init() before MonRing exists at all -- an RLOGM() call there could
   // never reach MON_DEBUG (DebugLog's sink isn't wired yet). It stashes the
@@ -395,10 +375,13 @@ public:
     *out_value = _pending_clock_rtc_value;
     return true;
   }
-#endif
 
 private:
-#ifdef BEEBO_RTC_PERSIST
+  // beebo: unconditional -- only applyDriftOffset_()'s own implementation
+  // (ESP32Board.cpp) is guarded by BEEBO_RTC_PERSIST, the actual NVM
+  // access; with the macro off it's a plain no-op (nothing was ever
+  // persisted to apply), so these fields/the deferred-log mechanism above
+  // need no guard of their own.
   void applyDriftOffset_();
   bool _pending_drift_log = false;
   uint32_t _pending_drift_offset = 0;
@@ -407,7 +390,6 @@ private:
   uint32_t _pending_nvm_pull_value = 0;
   bool _pending_clock_rtc_log = false;
   uint32_t _pending_clock_rtc_value = 0;
-#endif
 };
 
 #endif

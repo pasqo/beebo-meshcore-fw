@@ -256,11 +256,18 @@
 // epoch in `detail` is what it is, since that alone doesn't distinguish
 // "this is just the live RTC that was never touched" from a genuine NVS
 // restore/correction (the exact confusion a real user hit 2026-09-12
-// watching a plain reflash's CLOCK_SET with no explanation). _user[1..4]
-// (little-endian uint32) carries the clock's own value immediately before
-// this correction -- 0 for the boot-time anchor capture (nothing to
-// compare against) -- so a reader can see the delta directly, without
-// cross-referencing the nearest preceding RLOG_ID_CLOCK_SYNC. One of:
+// watching a plain reflash's CLOCK_SET with no explanation). _user[1..2]
+// (little-endian uint16) is the new epoch's own ms fraction (0-999) --
+// `detail` (SECS) alone is only whole-second precision, same as RTCClock
+// itself, so this is what lets a reader recover the full ms-precision
+// timestamp actually anchored (plans/MS_PRECISION_CLOCK_ANCHOR.md); 0 for
+// a plain seconds-only correction. _user[3..4] is unused/reserved -- an
+// earlier design carried the clock's own pre-correction value there so a
+// reader could see the delta without cross-referencing the nearest
+// preceding RLOG_ID_CLOCK_SYNC, but every real correction path logs that
+// RLOG_ID_CLOCK_SYNC (with the exact ms-precision delta) immediately
+// before its own RLOG_ID_CLOCK_SET, making the duplicate encoding
+// redundant. _user[0] is one of:
 #define RLOG_CLOCK_SRC_RTC      0   // live RTC counter survived the reset untouched (ESP_RST_UNKNOWN/SW, or a plausible-live ESP_RST_POWERON -- see kbase/CLOCK_DRIFT_COMPENSATION.md)
 #define RLOG_CLOCK_SRC_NVM      1   // restored from the persisted rtc_ts (genuine cold-boot ESP_RST_POWERON, RLOG_ID_CLOCK_NVM_PULL logged alongside)
 #define RLOG_CLOCK_SRC_FALLBACK 2   // no rtc_ts ever persisted -- fell back to the fixed placeholder date (RTC_FALLBACK_EPOCH)
@@ -611,12 +618,12 @@ extern DebugLog debug_log;
 // already refreshes USB liveness identically (DualModeSerialInterface's own
 // per-sub-id liveness check) while also doing real clock-sync work, so it
 // fully subsumed this sub-id's only purpose. Never reassign sub_id 2.
-// BEEBO_RAW_SUB_TIME_SYNC=3 carries a 4-byte little-endian epoch-seconds
-// payload plus an optional trailing 2-byte little-endian ms fraction
+// BEEBO_RAW_SUB_TIME_SYNC=3 carries a fixed 6-byte payload -- a 4-byte
+// little-endian epoch-seconds value plus a 2-byte little-endian ms fraction
 // (unlike BEEBO_RAW_SUB_DBG_ENABLE's single data byte -- see
 // DualModeSerialInterface's per-sub-id payload length); the --debug link
 // sends it periodically to keep the device clock corrected without a full
-// authenticated CMD_SET_DEVICE_TIME session (see Beebo::applyRawTimeSync()'s
+// authenticated CMD_SET_DEVICE_TIME session (see Beebo::applyClockSync()'s
 // forward-only-correction rule, same as CMD_SET_DEVICE_TIME), doubling as
 // this link's own liveness keepalive. The ms fraction matters here more
 // than most callers: this keepalive is the only clock touch a long

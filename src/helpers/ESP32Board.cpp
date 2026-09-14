@@ -4,6 +4,8 @@
 #include "DebugLog.h"
 
 #ifdef BEEBO_RTC_PERSIST
+#include <Preferences.h>
+
 void beebo_persistRTCTimeForReboot(uint32_t ts) {
   Preferences prefs;
   if (prefs.begin("beebo", false)) {
@@ -42,14 +44,16 @@ uint32_t beebo_clockDrift() {
   }
   return curr;
 }
-
-void beebo_logCurrentClockDrift() {
-  beebo_logClockDrift((int32_t)beebo_clockDrift());
-}
-
-void beebo_logClockDrift(int32_t delta) {
-  RLOGH(RLOG_ID_CLOCK_SYNC, delta);
-}
+#else
+// beebo: BEEBO_RTC_PERSIST off -- no NVM to save to/read from, so these
+// fall back to plain no-ops/upstream-equivalent behavior (RTC just
+// free-runs across a power cycle, drift never recorded) instead of
+// requiring every caller to #ifdef around calling them at all.
+void beebo_persistRTCTimeForReboot(uint32_t ts) { }
+void beebo_persistRTCTimeForReboot() { }
+uint32_t beebo_clockDrift(uint32_t offset) { return offset; }
+uint32_t beebo_clockDrift() { return 0; }
+#endif
 
 // beebo: applies the last-known drift offset (see
 // plans/CLOCK_DRIFT_COMPENSATION.md) to whatever getCurrentTime() currently
@@ -66,6 +70,12 @@ void beebo_logClockDrift(int32_t delta) {
 // this boot-time correction at the same precision, instead of a coarse
 // whole-second correction reintroducing up to ~999ms of error right here,
 // undone only once the next connect resyncs it.
+//
+// beebo: declared unconditionally (ESP32Board.h) -- BEEBO_RTC_PERSIST
+// guards NVM read/write only, so with it off this is a plain no-op below
+// (nothing was ever persisted to apply) rather than every caller needing
+// its own #ifdef around calling this at all.
+#ifdef BEEBO_RTC_PERSIST
 void ESP32RTCClock::applyDriftOffset_() {
   Preferences prefs;
   if (prefs.begin("beebo", true)) {
@@ -103,6 +113,8 @@ void ESP32RTCClock::applyDriftOffset_() {
     }
   }
 }
+#else
+void ESP32RTCClock::applyDriftOffset_() { }
 #endif
 
 #if defined(ADMIN_PASSWORD) && !defined(DISABLE_WIFI_OTA)   // Repeater or Room Server only

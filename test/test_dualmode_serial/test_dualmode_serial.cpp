@@ -89,18 +89,19 @@ TEST_F(DualModeSerial, TimeSyncRawFrameCountsAsLivenessButEnableAloneDoesNot) {
   EXPECT_FALSE(iface.isConnected());   // debug-log-enable alone is not liveness
 
   uint8_t time_sync_frame[] = {
-    DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_TIME_SYNC, 0, 0, 0, 0,
+    DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_TIME_SYNC, 0, 0, 0, 0, 0, 0,
   };
   stream.feed(time_sync_frame, sizeof(time_sync_frame));
   poll(type);
   EXPECT_TRUE(iface.isConnected());   // time-sync is the one sub-frame that counts
 }
 
-TEST_F(DualModeSerial, TimeSyncRawFrameCarriesFourByteEpochAndCountsAsLiveness) {
+TEST_F(DualModeSerial, TimeSyncRawFrameCarriesEpochAndMsFracAndCountsAsLiveness) {
   EXPECT_FALSE(iface.isConnected());
 
   uint8_t time_sync_frame[] = {
-    DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_TIME_SYNC, 0x78, 0x56, 0x34, 0x12,
+    DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_TIME_SYNC,
+    0x78, 0x56, 0x34, 0x12, 0xCD, 0xAB,
   };
   RecvFrameType type;
   for (size_t i = 0; i + 1 < sizeof(time_sync_frame); i++) {
@@ -110,13 +111,15 @@ TEST_F(DualModeSerial, TimeSyncRawFrameCarriesFourByteEpochAndCountsAsLiveness) 
   stream.feed(time_sync_frame[sizeof(time_sync_frame) - 1]);
   size_t len = poll(type);
 
-  EXPECT_EQ(5u, len);
+  EXPECT_EQ(7u, len);
   EXPECT_EQ(RecvFrameType::DEBUG, type);
   EXPECT_EQ(BEEBO_RAW_SUB_TIME_SYNC, dest[0]);
   EXPECT_EQ(0x78, dest[1]);
   EXPECT_EQ(0x56, dest[2]);
   EXPECT_EQ(0x34, dest[3]);
   EXPECT_EQ(0x12, dest[4]);
+  EXPECT_EQ(0xCD, dest[5]);
+  EXPECT_EQ(0xAB, dest[6]);
   EXPECT_TRUE(iface.isConnected());   // time-sync also counts as liveness
 }
 
