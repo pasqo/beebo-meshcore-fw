@@ -39,20 +39,29 @@ static uint32_t _atoi(const char* sp) {
   return n;
 }
 
-// beebo: parses "clock"/"clock.epoch"'s optional trailing "<time> <boot>"
-// tokens out of ARGS (whatever follows the command name, e.g. " 1758838287
-// 1", possibly empty) -- OUT_SECS/OUT_BOOT default to 0/0 (today's
-// plain-read behavior) when either token is missing, matching
-// CMD_GET_DEVICE_TIME's own widened-payload defaults (Beebo.cpp).
-static void _parseClockSyncArgs(const char* args, uint32_t& out_secs, uint32_t& out_boot) {
+// beebo: parses "clock"/"clock.epoch"'s optional trailing
+// "<time> <boot> <ms>" tokens out of ARGS (whatever follows the command
+// name, e.g. " 1758838287 1 250", possibly empty) -- OUT_SECS/OUT_BOOT/
+// OUT_MS default to 0/0/0 (today's plain-read behavior) when a token is
+// missing, matching CMD_GET_DEVICE_TIME's own widened-payload defaults
+// (Beebo.cpp). MS (appended after BOOT, not inserted before it, so the
+// existing 2-token "<time> <boot>" form stays valid unchanged) is the
+// sub-second component of TIME from a millisecond-precision sync
+// (plans/MS_PRECISION_CLOCK_ANCHOR.md).
+static void _parseClockSyncArgs(const char* args, uint32_t& out_secs, uint32_t& out_boot, uint32_t& out_ms) {
   out_secs = 0;
   out_boot = 0;
+  out_ms = 0;
   while (*args == ' ') args++;
   if (!*args) return;
   out_secs = _atoi(args);
   while (*args && *args != ' ') args++;
   while (*args == ' ') args++;
-  if (*args) out_boot = _atoi(args);
+  if (!*args) return;
+  out_boot = _atoi(args);
+  while (*args && *args != ' ') args++;
+  while (*args == ' ') args++;
+  if (*args) out_ms = _atoi(args);
 }
 
 static bool isValidName(const char *n) {
@@ -282,8 +291,12 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
         strcpy(reply, "OK - clock already in sync");
       } else {
 #ifdef BEEBO_RTC_PERSIST
+        // beebo: "clock sync" has no ms token (legacy, seconds-only) --
+        // scale to ms so drift_off stays consistently ms-scale
+        // (plans/MS_PRECISION_CLOCK_ANCHOR.md) regardless of which
+        // seconds-only vs. ms-precision caller last wrote it.
         beebo_logClockDrift((int32_t)(curr - sender_timestamp));
-        beebo_clockDrift(curr - sender_timestamp);
+        beebo_clockDrift((curr - sender_timestamp) * 1000);
 #endif
         strcpy(reply, "ERR: clock cannot go backwards");
       }
@@ -295,25 +308,37 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       // beebo: bare epoch seconds, for CLI clients that don't want to parse
       // the "HH:MM - D/M/Y UTC" format of the plain "clock" command below.
       // Widened, backward-compatibly, with optional trailing "<time>
-      // <boot>" tokens -- see CMD_GET_DEVICE_TIME's identical comment
+      // <boot> <ms>" tokens -- see CMD_GET_DEVICE_TIME's identical comment
       // (Beebo.cpp) for the full get+set+optional-reboot semantics this
-      // mirrors. Bare "clock.epoch" (no trailing tokens) is exactly
-      // today's plain read. Reply is always the clock's value *before*
-      // any change, so the caller can compute its own drift locally.
-      uint32_t secs, boot;
-      _parseClockSyncArgs(&command[11], secs, boot);
+      // mirrors, and _parseClockSyncArgs()'s own comment for why MS is
+      // appended after BOOT rather than inserted before it. Bare
+      // "clock.epoch" (no trailing tokens) is exactly today's plain read.
+      // Reply is always the clock's value *before* any change, so the
+      // caller can compute its own drift locally. Drift is stored/logged
+      // in milliseconds (plans/MS_PRECISION_CLOCK_ANCHOR.md); RTCClock
+      // itself is set from SECS only, unaffected by MS.
+      uint32_t secs, boot, ms;
+      _parseClockSyncArgs(&command[11], secs, boot, ms);
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (secs > curr) {
         getRTCClock()->setCurrentTime(secs);
 #ifdef BEEBO_RTC_PERSIST
-        beebo_logClockDrift((int32_t)(curr - secs));
+        // beebo: int64_t, not (curr - secs) * 1000 -- curr - secs
+        // underflows as unsigned here (secs > curr), and *1000 on that
+        // wrapped uint32 overflows before the cast could ever fix it.
+        beebo_logClockDrift((int32_t)((int64_t)curr * 1000 - ((int64_t)secs * 1000 + ms)));
         beebo_persistRTCTimeForReboot(secs);
 #endif
       } else if (secs != 0 && secs < curr) {
 #ifdef BEEBO_RTC_PERSIST
-        beebo_logClockDrift((int32_t)(curr - secs));
-        if (boot) _callbacks->scheduleRebootWithTime(secs, 750);
-        else beebo_clockDrift(curr - secs);
+        int32_t drift_ms = (int32_t)((int64_t)curr * 1000 - ((int64_t)secs * 1000 + ms));
+        beebo_logClockDrift(drift_ms);
+        // beebo: always persist -- the next boot's applyDriftOffset_() is
+        // what actually corrects the clock, whether that boot is this
+        // one arriving organically later or the immediate one BOOT
+        // requests below. See scheduleRebootWithTime()'s own comment.
+        beebo_clockDrift((uint32_t)drift_ms);
+        if (boot) _callbacks->scheduleRebootWithTime();
 #endif
       }
       sprintf(reply, "%lu", (unsigned long)curr);
@@ -321,22 +346,30 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       if (secs == 0) beebo_logCurrentClockDrift();
 #endif
     } else if (memcmp(command, "clock", 5) == 0) {
-      // beebo: same widened optional "<time> <boot>" tokens as
+      // beebo: same widened optional "<time> <boot> <ms>" tokens as
       // "clock.epoch" above -- see its comment for the full semantics.
-      uint32_t secs, boot;
-      _parseClockSyncArgs(&command[5], secs, boot);
+      uint32_t secs, boot, ms;
+      _parseClockSyncArgs(&command[5], secs, boot, ms);
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (secs > curr) {
         getRTCClock()->setCurrentTime(secs);
 #ifdef BEEBO_RTC_PERSIST
-        beebo_logClockDrift((int32_t)(curr - secs));
+        // beebo: int64_t, not (curr - secs) * 1000 -- curr - secs
+        // underflows as unsigned here (secs > curr), and *1000 on that
+        // wrapped uint32 overflows before the cast could ever fix it.
+        beebo_logClockDrift((int32_t)((int64_t)curr * 1000 - ((int64_t)secs * 1000 + ms)));
         beebo_persistRTCTimeForReboot(secs);
 #endif
       } else if (secs != 0 && secs < curr) {
 #ifdef BEEBO_RTC_PERSIST
-        beebo_logClockDrift((int32_t)(curr - secs));
-        if (boot) _callbacks->scheduleRebootWithTime(secs, 750);
-        else beebo_clockDrift(curr - secs);
+        int32_t drift_ms = (int32_t)((int64_t)curr * 1000 - ((int64_t)secs * 1000 + ms));
+        beebo_logClockDrift(drift_ms);
+        // beebo: always persist -- the next boot's applyDriftOffset_() is
+        // what actually corrects the clock, whether that boot is this
+        // one arriving organically later or the immediate one BOOT
+        // requests below. See scheduleRebootWithTime()'s own comment.
+        beebo_clockDrift((uint32_t)drift_ms);
+        if (boot) _callbacks->scheduleRebootWithTime();
 #endif
       }
       DateTime dt = DateTime(curr);
@@ -360,8 +393,10 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
         strcpy(reply, "OK - clock already in sync");
       } else {
 #ifdef BEEBO_RTC_PERSIST
+        // beebo: "time " has no ms token (legacy, seconds-only) -- scale
+        // to ms, see "clock sync"'s identical comment above.
         beebo_logClockDrift((int32_t)(curr - secs));
-        beebo_clockDrift(curr - secs);
+        beebo_clockDrift((curr - secs) * 1000);
 #endif
         strcpy(reply, "(ERR: clock cannot go backwards)");
       }

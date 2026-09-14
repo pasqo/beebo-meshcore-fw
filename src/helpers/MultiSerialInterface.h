@@ -231,6 +231,8 @@ public:
     return _state != SESSION_DISABLED;
   }
 
+  bool isSessionIdle() const { return _state == SESSION_IDLE; }
+
   // Stable RLOG_ID_XPORT_* type of the locked transport, or 0 if idle.
   uint8_t activeTransportType() const { return _active >= 0 ? _transports[_active].type : 0; }
 

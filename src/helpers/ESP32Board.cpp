@@ -19,13 +19,17 @@ void beebo_persistRTCTimeForReboot() {
   beebo_persistRTCTimeForReboot((uint32_t)now);
 }
 
+// beebo: OFFSET is milliseconds (not seconds) as of
+// plans/MS_PRECISION_CLOCK_ANCHOR.md -- see applyDriftOffset_()'s own
+// comment for why the boot-time correction needs that precision to avoid
+// reintroducing the same error a millisecond-precision sync removed.
 uint32_t beebo_clockDrift(uint32_t offset) {
   Preferences prefs;
   if (prefs.begin("beebo", false)) {
     prefs.putUInt("drift_off", offset);
     prefs.end();
   }
-  DLOGH(DLOG_ID_CLOCK_DRIFT_SET, "drift=%u", offset);
+  DLOGH(DLOG_ID_CLOCK_DRIFT_SET, "drift_ms=%u", offset);
   return offset;
 }
 
@@ -54,22 +58,32 @@ void beebo_logClockDrift(int32_t delta) {
 // Protocol/clock investigation) and ESP_RST_POWERON (layered on top of the
 // saved_ts restore). No-op if no offset has been recorded yet, e.g. a fresh
 // device.
+//
+// beebo: drift_off is milliseconds (plans/MS_PRECISION_CLOCK_ANCHOR.md) --
+// applied via settimeofday()'s tv_usec directly (bypassing RTCClock's own
+// seconds-only setCurrentTime()), so a device that accumulated ahead-drift
+// while running with a millisecond-precision anchor comes back up from
+// this boot-time correction at the same precision, instead of a coarse
+// whole-second correction reintroducing up to ~999ms of error right here,
+// undone only once the next connect resyncs it.
 void ESP32RTCClock::applyDriftOffset_() {
   Preferences prefs;
   if (prefs.begin("beebo", true)) {
     bool has_offset = prefs.isKey("drift_off");
-    uint32_t drift_offset = prefs.getUInt("drift_off", 0);
+    uint32_t drift_offset_ms = prefs.getUInt("drift_off", 0);
     prefs.end();
     if (has_offset) {
       time_t device_now_t;
       time(&device_now_t);
+      uint64_t device_now_ms = (uint64_t)device_now_t * 1000;
       uint32_t applied = 0;
-      if (device_now_t > drift_offset) {
+      if (device_now_ms > drift_offset_ms) {
+        uint64_t corrected_ms = device_now_ms - drift_offset_ms;
         struct timeval tv;
-        tv.tv_sec = device_now_t - drift_offset;
-        tv.tv_usec = 0;
+        tv.tv_sec = corrected_ms / 1000;
+        tv.tv_usec = (corrected_ms % 1000) * 1000;
         settimeofday(&tv, NULL);
-        applied = drift_offset;
+        applied = drift_offset_ms;
       }
       // beebo: clear the recorded offset once consumed -- otherwise the same
       // stale drift gets re-applied (and re-subtracted) on every subsequent

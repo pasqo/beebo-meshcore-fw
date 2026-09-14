@@ -18,6 +18,7 @@ DebugLog debug_log;
 // against the exact same storage. See MonRing.h's own comment for the
 // full rationale.
 uint32_t g_time_anchor_epoch_sec = 0;
+uint16_t g_time_anchor_ms_frac = 0;
 uint32_t g_time_anchor_millis = 0;
 
 void DebugLog::logRing(const char* file, int line, uint8_t type, uint8_t severity, int32_t detail,

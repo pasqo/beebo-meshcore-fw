@@ -746,24 +746,58 @@ public:
   void onDefaultRegionChanged(const RegionEntry* r) override { /* beebo: region_map's own default-region flag is persisted by saveRegions() above; no separate live-scoping consumer wired yet, unlike _role_state->prefs.default_scope_key's own periodic-advert path */ }
   void setRxBoostedGain(bool enable) override { radio_driver.setRxBoostedGainMode(enable); }
 #ifdef BEEBO_RTC_PERSIST
-  void scheduleRebootWithTime(uint32_t ts, int delay_millis) override {
-    _clock_reboot_ts = ts;
-    _clock_reboot_time = futureMillis(delay_millis);
-  }
+  // beebo: no timestamp to carry through scheduleReboot() -- the caller
+  // already persisted the drift itself (beebo_clockDrift()) before
+  // requesting this, so the next boot's applyDriftOffset_() corrects the
+  // clock on its own, the same way any other reboot would.
+  void scheduleRebootWithTime() override { scheduleReboot(); }
 #endif
 #endif
 
 private:
+  // beebo: the one common way to request a reboot once the current
+  // session has actually gone away -- no fixed delay: raises
+  // _pending_reboot, and loop() fires the real reboot only once
+  // serial_interface.isSessionIdle() reports the session state machine
+  // has itself transitioned to SESSION_IDLE (see _pending_reboot's own
+  // comment, below), not a guessed millis() window. No timestamp to
+  // carry through: every caller, OTA_END included, syncs the clock (and
+  // therefore persists any ms-precision drift via beebo_clockDrift())
+  // over the normal clock-sync path before requesting a reboot, so the
+  // next boot's applyDriftOffset_() corrects the clock on its own.
+  void scheduleReboot() {
+    _pending_reboot = true;
+  }
+
   // beebo: shared core of every clock-sync surface (CMD_GET_DEVICE_TIME,
   // CMD_SET_DEVICE_TIME, the raw BEEBO_RAW_SUB_TIME_SYNC keepalive, and
   // Beebo::handleCommand()'s own "time " text command) -- SECS == 0 is a
   // pure read (no change, nothing logged). Always returns the clock's
-  // value *before* any change, so a caller can compute its own drift
-  // locally without a second round trip. On an ahead-drift (SECS < prior,
-  // SECS != 0), BOOT schedules an immediate corrective reboot instead of
+  // value *before* any change (RTCClock's own, seconds-only), so a caller
+  // can compute its own drift locally without a second round trip.
+  //
+  // MS (0-999, default 0) is the sub-second component of SECS from a
+  // millisecond-precision sync (plans/MS_PRECISION_CLOCK_ANCHOR.md). The
+  // ahead/behind decision and every drift figure compare precise epoch
+  // milliseconds -- SECS/MS against monring.nowEpochMs() (the time
+  // anchor plus elapsed millis()), not a plain RTCClock read, which only
+  // ever has whole-second resolution and doesn't itself reflect any
+  // ms-precision correction already applied to the anchor. RTCClock
+  // itself is untouched by MS -- when correcting forward it is still set
+  // to SECS directly, exactly as before this parameter existed. On an
+  // ahead-drift, BOOT schedules an immediate corrective reboot instead of
   // just persisting the drift for a future organic reboot to consume.
-  uint32_t applyClockSync(uint32_t secs, bool boot);
-  void applyRawTimeSync(uint32_t secs);
+  //
+  // OUT_DELTA_MS, if non-null, receives the exact signed delta (SECS/MS
+  // target minus the device's precise current time; > 0 = was behind,
+  // < 0 = was ahead, magnitude <= CLOCK_SYNC_WINDOW_MS meaning "within
+  // the dead-band, nothing corrected") this call classified against --
+  // 0 for a pure read (SECS == 0). Lets a caller that needs to report
+  // what actually happened (e.g. a text-CLI reply) use the exact same
+  // value this function's own decision was based on, instead of
+  // re-deriving an approximation of it from SECS/the returned prior time.
+  uint32_t applyClockSync(uint32_t secs, bool boot, uint16_t ms = 0, int32_t *out_delta_ms = nullptr);
+  void applyRawTimeSync(uint32_t secs, uint16_t ms = 0);
 
   // Returns true (once) when CMD_SET_WIFI_CREDS was received; loop()'s own
   // transport-management block (below) uses this as an edge-triggered input
@@ -1724,20 +1758,10 @@ private:
   // instead of leaving ota_partition set -- and therefore skip_radio/
   // ota_priority latched true -- forever with no way back except a reboot.
   uint32_t _ota_last_activity = 0;
-  uint32_t _ota_restart_time = 0;   // millis deadline to reboot after OTA (0 = none)
-  // beebo: host's clock as of OTA_END, carried through to the deferred
-  // restart so it can persist that instead of this device's own (possibly
-  // wrong) current time -- see BEEBO_CMD_REBOOT_WITH_TIME's own comment.
-  // 0 means no timestamp was sent (older CLI), falls back to a plain reboot.
-  uint32_t _ota_restart_ts = 0;
-  // beebo: CMD_GET_DEVICE_TIME's widened boot=true ahead-drift path -- the
-  // client's clock is behind (device measured ahead), and the client asked
-  // for an immediate correction rather than waiting for a future organic
-  // reboot to apply the persisted drift. Deferred the same way OTA's
-  // restart is (_ota_restart_time above), so the reply carrying the prior
-  // time actually reaches the client before the connection drops.
-  uint32_t _clock_reboot_time = 0;   // millis deadline to reboot-with-time (0 = none)
-  uint32_t _clock_reboot_ts = 0;     // epoch to persist/set via rebootWithTime() when it fires
+  // beebo: set by scheduleReboot() (own comment above), consumed by
+  // loop()'s poll once serial_interface.isSessionIdle() reports the
+  // session has actually ended.
+  bool _pending_reboot = false;
   // beebo: the raw BEEBO_RAW_SUB_TIME_SYNC keepalive's applyClockSync() call
   // is held here instead of running immediately whenever MonRing's MLOG
   // backlog replay is still draining (monring.isMlogReplaying()) -- applying
@@ -1749,6 +1773,7 @@ private:
   // Checked once per loop() and applied the instant replay finishes.
   bool _pending_time_sync = false;
   uint32_t _pending_time_sync_secs = 0;
+  uint16_t _pending_time_sync_ms = 0;
   // beebo: (bool)Serial's own last-seen state -- see
   // _checkTransportStateChanges()'s own comment for why the DebugLog
   // reset-on-disconnect is keyed on this real hardware signal instead of

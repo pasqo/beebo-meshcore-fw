@@ -214,13 +214,17 @@ public:
   // sequencing) ever gets a chance to observe the jump; the full restart
   // wipes all of that state regardless. Setting the live clock and NOT
   // rebooting immediately after would not be safe -- don't split these.
-  void rebootWithTime(uint32_t ts) {
+  // beebo: TS_MS (0-999, default 0) is the sub-second component of TS from
+  // a millisecond-precision sync (plans/MS_PRECISION_CLOCK_ANCHOR.md) --
+  // only refines the live-clock correction's tv_usec below; rtc_ts (the
+  // NVS backup) stays seconds-only, unaffected.
+  void rebootWithTime(uint32_t ts, uint16_t ts_ms = 0) {
 #ifdef BEEBO_RTC_PERSIST
     beebo_persistRTCTimeForReboot(ts);
 #endif
     struct timeval tv;
     tv.tv_sec = ts;
-    tv.tv_usec = 0;
+    tv.tv_usec = (long)ts_ms * 1000;
     settimeofday(&tv, NULL);
     esp_restart();
   }

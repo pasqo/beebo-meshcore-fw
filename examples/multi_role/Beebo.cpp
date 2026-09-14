@@ -1836,20 +1836,44 @@ void Beebo::startMonRing() {
 #endif
 }
 
+// beebo: dead-band for applyClockSync()'s ahead/behind decision -- a
+// target within this many ms of the device's own precise current time
+// (either direction) is treated as already in sync, so a host whose RTT-
+// corrected sync is only ever off by some small jitter doesn't churn
+// RTCClock/NVS (or record spurious ahead-drift) on every single connect.
+static constexpr int64_t CLOCK_SYNC_WINDOW_MS = 100;
+
 // beebo: shared core of every clock-sync surface -- see this method's own
-// declaration (Beebo.h) for the full SECS/BOOT/return-value contract.
-uint32_t Beebo::applyClockSync(uint32_t secs, bool boot) {
+// declaration (Beebo.h) for the full SECS/BOOT/MS/return-value contract.
+// The ahead/behind decision and every drift figure compare precise epoch
+// milliseconds throughout -- NEXT_MS (the caller's SECS/MS) against
+// CURR_MS (monring.nowEpochMs(): the time anchor plus elapsed millis(),
+// NOT a plain RTCClock read, which only ever has whole-second resolution
+// and doesn't itself reflect any ms-precision correction already applied
+// to the anchor -- plans/MS_PRECISION_CLOCK_ANCHOR.md). RTCClock itself
+// stays exactly as before: read once as CURR for the return value/log
+// display, and -- when correcting forward -- set to SECS directly
+// (unrounded, same call as before this parameter existed), never to a
+// derived/discretized value.
+uint32_t Beebo::applyClockSync(uint32_t secs, bool boot, uint16_t ms, int32_t *out_delta_ms) {
   uint32_t curr = getRTCClock()->getCurrentTime();
-  if (secs > curr) {
+  if (secs == 0) {
+    if (out_delta_ms) *out_delta_ms = 0;
+    return curr;   // pure read -- no change, nothing logged
+  }
+
+  uint64_t curr_ms = monring.nowEpochMs((uint32_t)millis());
+  uint64_t next_ms = (uint64_t)secs * 1000 + ms;
+  int64_t delta_ms = (int64_t)next_ms - (int64_t)curr_ms;  // > 0 behind, < 0 ahead
+  if (out_delta_ms) *out_delta_ms = (int32_t)delta_ms;
+
+  if (delta_ms > CLOCK_SYNC_WINDOW_MS) {
+    // behind -- forward-correct. RTCClock only ever takes SECS itself
+    // (still seconds-only); the anchor gets the full precise target.
     getRTCClock()->setCurrentTime(secs);
-    // beebo: refresh MonRing's time anchor immediately -- we just set the
-    // RTC to `secs` exactly, ourselves, synchronously, so no edge-polling
-    // is needed here the way captureTimeAnchor() needs it at boot (there's
-    // no ~999ms phase ambiguity when we're the ones who just wrote the
-    // value). See plans/MONITORING_UNIFICATION.md Design #1.
-    monring.setTimeAnchor(secs, (uint32_t)millis());
+    monring.setTimeAnchor(secs, (uint32_t)millis(), ms);
 #ifdef BEEBO_RTC_PERSIST
-    RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)(curr - secs));
+    RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)-delta_ms);
     {
       const uint8_t user[5] = {
         RLOG_CLOCK_SRC_SYNC,
@@ -1861,18 +1885,33 @@ uint32_t Beebo::applyClockSync(uint32_t secs, bool boot) {
 #else
     RLOGH(RLOG_ID_CLOCK_SET, secs);
 #endif
-  } else if (secs != 0 && secs < curr) {
+  } else if (delta_ms >= -CLOCK_SYNC_WINDOW_MS) {
+    // within the dead-band either direction -- already in sync, nothing
+    // to correct.
 #ifdef BEEBO_RTC_PERSIST
-    RLOGH(RLOG_ID_CLOCK_SYNC, curr - secs);
-    if (boot) {
-      // beebo: defer, don't reboot inline -- the caller still has to send
-      // its own reply (the prior time returned here), and a reboot before
-      // that reply flushes would drop it.
-      _clock_reboot_ts = secs;
-      _clock_reboot_time = futureMillis(750);
-    } else {
-      beebo_clockDrift(curr - secs);
-    }
+    // beebo: still visible in the log, even though nothing changed --
+    // every sync surface (not just the raw keepalive, which used to be
+    // the only one echoing this) shows up here now that this is the one
+    // place "no correction needed" is actually decided.
+    RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)beebo_clockDrift());
+#endif
+  } else {
+    // ahead-drift, beyond the dead-band: curr_ms > next_ms.
+    int32_t drift_ms = (int32_t)-delta_ms;
+#ifdef BEEBO_RTC_PERSIST
+    RLOGH(RLOG_ID_CLOCK_SYNC, drift_ms);
+    // beebo: always persist -- the next boot's applyDriftOffset_() is
+    // what actually corrects the clock (via settimeofday(), which unlike
+    // RTCClock::setCurrentTime() isn't forward-only), regardless of
+    // whether that boot is this one organically arriving later or the
+    // immediate one BOOT requests below. No separate timestamp needs to
+    // ride along with the reboot request itself -- drift_off already has
+    // everything applyDriftOffset_() needs, at full ms precision.
+    beebo_clockDrift((uint32_t)drift_ms);
+    // beebo: the caller still has to send its own reply (the prior time
+    // returned here), and a reboot before that reply flushes would drop
+    // it -- scheduleReboot() defers it, same as every other reboot path.
+    if (boot) scheduleReboot();
 #endif
   }
   return curr;
@@ -1882,19 +1921,16 @@ uint32_t Beebo::applyClockSync(uint32_t secs, bool boot) {
 // by the immediate (non-replaying) path and the deferred one queued in
 // _pending_time_sync (see that field's own comment, Beebo.h). Never
 // schedules a reboot (boot=false): this is a background keepalive tick, not
-// an explicit client request.
-void Beebo::applyRawTimeSync(uint32_t secs) {
-  uint32_t prior = applyClockSync(secs, false);
-#ifdef BEEBO_RTC_PERSIST
-  if (secs == prior) {
-    // beebo: a no-op tick (already in sync) still logs the current
-    // persisted drift -- same "visible on every clock-syncing event, not
-    // just an accepted correction" rule CMD_GET_DEVICE_TIME/`clock` already
-    // follows, so this periodic keepalive shows up in the debug log even
-    // when it has nothing to correct.
-    RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)beebo_clockDrift());
-  }
-#endif
+// an explicit client request. Carries ms precision (a pure addition -- an
+// older CLI's 5-byte, ms=0 frame still works) since this keepalive is the
+// only clock touch a long-lived --debug session gets between connects
+// (hourly, debug_link.py's _TIME_SYNC_INTERVAL_S) -- worth the precision
+// even without connect()'s own RTT compensation.
+void Beebo::applyRawTimeSync(uint32_t secs, uint16_t ms) {
+  // beebo: no post-call logic needed here anymore -- applyClockSync()'s
+  // own dead-band branch already logs the currently-persisted drift on
+  // every no-op sync, for every caller, not just this one.
+  applyClockSync(secs, false, ms);
 }
 
 // beebo: applies MonRing's real, boot-known state on top of
@@ -3536,10 +3572,14 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (cmd_frame[0] == CMD_GET_DEVICE_TIME) {
     // beebo: widened, backward-compatibly, with an optional trailing
-    // [time: u32][boot: u8] payload -- an old/third-party client sending
-    // the bare 1-byte opcode (len < 6) gets exactly today's plain read, no
-    // side effects (applyClockSync(0, false) is a pure no-op read). A
-    // beebo client sending the extra bytes gets a combined
+    // [time: u32][boot: u8] payload, itself further widened with an
+    // optional trailing [ms: u16] (plans/MS_PRECISION_CLOCK_ANCHOR.md) --
+    // an old/third-party client sending the bare 1-byte opcode (len < 6)
+    // gets exactly today's plain read, no side effects (applyClockSync(0,
+    // false) is a pure no-op read). len 6-7 is the existing whole-seconds
+    // beebo path; len >= 8 adds ms, refining MonRing's anchor/drift
+    // storage without changing what RTCClock itself is set to. A beebo
+    // client sending the extra bytes gets a combined
     // get+set+optional-reboot in one round trip -- see applyClockSync()'s
     // own comment (Beebo.h) for the full semantics. The reply is always
     // RESP_CODE_CURR_TIME + the clock's value *before* any change,
@@ -3547,11 +3587,15 @@ void Beebo::handleCmdFrame(size_t len) {
     // drift locally without a second round trip.
     uint32_t secs = 0;
     uint8_t boot = 0;
+    uint16_t ms = 0;
     if (len >= 6) {
       memcpy(&secs, &cmd_frame[1], 4);
       boot = cmd_frame[5];
     }
-    uint32_t prior = applyClockSync(secs, boot != 0);
+    if (len >= 8) {
+      memcpy(&ms, &cmd_frame[6], 2);
+    }
+    uint32_t prior = applyClockSync(secs, boot != 0, ms);
     uint8_t reply[5];
     reply[0] = RESP_CODE_CURR_TIME;
     memcpy(&reply[1], &prior, 4);
@@ -5413,12 +5457,13 @@ void Beebo::handleCmdFrame(size_t len) {
         // wire (writeOKFrame only queues it; it's sent when the send queue
         // drains in checkRecvFrame). Rebooting immediately would cut the
         // connection before the CLI sees the response.
-        _ota_restart_time = futureMillis(750);
-        // beebo: optional trailing 4B LE host timestamp (older CLIs send
-        // none, sub_len == 1) -- see loopTransports()'s deferred-restart
-        // block and _ota_restart_ts's own comment.
-        _ota_restart_ts = 0;
-        if (sub_len >= 5) memcpy(&_ota_restart_ts, &sub[1], 4);
+        //
+        // beebo: an older CLI may still send an optional trailing 4B LE
+        // host timestamp here (sub_len >= 5) -- ignored, since the CLI's
+        // normal connect-time clock sync already persisted any ms-precision
+        // drift before OTA_END was ever sent, and scheduleReboot() applies
+        // it on the next boot the same way as every other reboot path.
+        scheduleReboot();
       }
     }
   } else if (sub[0] == BEEBO_CMD_NODE_DISCOVER && sub_len >= 2) {
@@ -5764,9 +5809,12 @@ void Beebo::checkSerialInterface() {
       // dropped write from a genuinely unreachable device instead of
       // guessing a fixed resend delay. Never schedules a reboot (boot=false)
       // -- this is a background keepalive tick, not an explicit client
-      // request.
+      // request. Trailing 2B LE ms fraction is optional (len >= 7) --
+      // an older CLI's 5-byte frame still works, just seconds-only.
       uint32_t secs;
       memcpy(&secs, &cmd_frame[1], 4);
+      uint16_t ms = 0;
+      if (len >= 7) memcpy(&ms, &cmd_frame[5], 2);
       if (monring.isMlogReplaying() || monring.mlogReplayPending()) {
         // beebo: hold it -- see _pending_time_sync's own comment (Beebo.h).
         // mlogReplayPending() also counts: the debug-log-enable frame that
@@ -5775,8 +5823,9 @@ void Beebo::checkSerialInterface() {
         // own loop() tick) when this frame is processed.
         _pending_time_sync = true;
         _pending_time_sync_secs = secs;
+        _pending_time_sync_ms = ms;
       } else {
-        applyRawTimeSync(secs);
+        applyRawTimeSync(secs, ms);
       }
       uint8_t ack[3] = { RESP_CODE_BEEBO, BEEBO_RESP_RAW_ACK, raw_sub };
       usb_interface.writeFrameBestEffort(ack, 3);
@@ -6194,31 +6243,25 @@ void Beebo::loop() {
     ((SimpleMeshTables*)getTables())->checkEchoTimeouts();
   }
 
-  // beebo: go through board.reboot()/rebootWithTime() rather than a bare
-  // esp_restart() so the RTC time gets persisted
-  // (beebo_persistRTCTimeForReboot()) before restart -- otherwise
-  // ESP32RTCClock::begin() falls back to whatever was last saved at an
-  // earlier reboot, which can be stale and make the clock jump backward
-  // after every OTA update. _ota_restart_ts (BEEBO_CMD_OTA_END's optional
-  // trailing host timestamp) takes priority when present -- see its own
-  // comment -- so an OTA update on a device with a wrong live clock
-  // persists the *host's* time instead of re-persisting the device's own.
-  if (_ota_restart_time && millisHasNowPassed(_ota_restart_time)) {
-    if (_ota_restart_ts) board.rebootWithTime(_ota_restart_ts);
-    else board.reboot();
-  }
-
-  // beebo: CMD_GET_DEVICE_TIME's widened boot=true ahead-drift path -- see
-  // _clock_reboot_time's own comment (Beebo.h).
-  if (_clock_reboot_time && millisHasNowPassed(_clock_reboot_time)) {
-    board.rebootWithTime(_clock_reboot_ts);
+  // beebo: go through board.reboot() rather than a bare esp_restart() so
+  // the RTC time gets persisted (beebo_persistRTCTimeForReboot()) before
+  // restart -- otherwise ESP32RTCClock::begin() falls back to whatever
+  // was last saved at an earlier reboot, which can be stale and make the
+  // clock jump backward after every OTA update. Every scheduleReboot()
+  // caller, OTA_END included, syncs the clock over the normal path
+  // first, so the device's own current time is already correct by the
+  // time this runs. Fires once the session state machine itself reports
+  // SESSION_IDLE (scheduleReboot()'s own comment, Beebo.h) -- not a
+  // guessed millis() window.
+  if (_pending_reboot && serial_interface.isSessionIdle()) {
+    board.reboot();
   }
 
   // beebo: apply a raw TIME_SYNC keepalive that arrived mid-replay -- see
   // _pending_time_sync's own comment (Beebo.h).
   if (_pending_time_sync && !monring.isMlogReplaying() && !monring.mlogReplayPending()) {
     _pending_time_sync = false;
-    applyRawTimeSync(_pending_time_sync_secs);
+    applyRawTimeSync(_pending_time_sync_secs, _pending_time_sync_ms);
   }
 
   // beebo: refresh the cached battery reading — the ADC read blocks for
@@ -7323,16 +7366,21 @@ void Beebo::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, c
 
 // beebo: matches CommonCLI.cpp's own _parseClockSyncArgs() exactly -- see
 // its comment for what this parses out of "clock"/"clock.epoch"'s optional
-// trailing "<time> <boot>" tokens.
-static void _parseClockSyncArgs(const char* args, uint32_t& out_secs, uint32_t& out_boot) {
+// trailing "<time> <boot> <ms>" tokens.
+static void _parseClockSyncArgs(const char* args, uint32_t& out_secs, uint32_t& out_boot, uint32_t& out_ms) {
   out_secs = 0;
   out_boot = 0;
+  out_ms = 0;
   while (*args == ' ') args++;
   if (!*args) return;
   out_secs = atol(args);
   while (*args && *args != ' ') args++;
   while (*args == ' ') args++;
-  if (*args) out_boot = atol(args);
+  if (!*args) return;
+  out_boot = atol(args);
+  while (*args && *args != ' ') args++;
+  while (*args == ' ') args++;
+  if (*args) out_ms = atol(args);
 }
 
 // beebo: matches CommonCLI.cpp's own isValidName() exactly, for identical
@@ -7403,19 +7451,19 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     }
   } else if (memcmp(command, "clock.epoch", 11) == 0) {
     // beebo: see CommonCLI.cpp's identical "clock.epoch" comment -- widened
-    // the same way with optional trailing "<time> <boot>" tokens.
-    uint32_t secs, boot;
-    _parseClockSyncArgs(&command[11], secs, boot);
-    uint32_t prior = applyClockSync(secs, boot != 0);
+    // the same way with optional trailing "<time> <boot> <ms>" tokens.
+    uint32_t secs, boot, ms;
+    _parseClockSyncArgs(&command[11], secs, boot, ms);
+    uint32_t prior = applyClockSync(secs, boot != 0, (uint16_t)ms);
     sprintf(reply, "%lu", (unsigned long)prior);
 #ifdef BEEBO_RTC_PERSIST
     if (secs == 0) RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)beebo_clockDrift());
 #endif
   } else if (memcmp(command, "clock", 5) == 0) {
     // beebo: see CommonCLI.cpp's identical "clock" comment.
-    uint32_t secs, boot;
-    _parseClockSyncArgs(&command[5], secs, boot);
-    uint32_t prior = applyClockSync(secs, boot != 0);
+    uint32_t secs, boot, ms;
+    _parseClockSyncArgs(&command[5], secs, boot, ms);
+    uint32_t prior = applyClockSync(secs, boot != 0, (uint16_t)ms);
     DateTime dt = DateTime(prior);
     sprintf(reply, "%02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
 #ifdef BEEBO_RTC_PERSIST
@@ -7424,13 +7472,18 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
   } else if (memcmp(command, "time ", 5) == 0) {
     // beebo: legacy command, wire format untouched -- see applyClockSync()'s
     // own comment for the shared correction/rejection logic this defers to.
+    // Reply text is chosen from OUT_DELTA_MS, the exact value
+    // applyClockSync() itself classified against -- not a re-derived
+    // approximation from SECS/PRIOR, which (with the dead-band) can
+    // disagree with what actually happened right at a boundary.
     uint32_t secs = (uint32_t)atol(&command[5]);
-    uint32_t prior = applyClockSync(secs, false);
-    if (secs > prior) {
+    int32_t delta_ms = 0;
+    applyClockSync(secs, false, 0, &delta_ms);
+    if (delta_ms > CLOCK_SYNC_WINDOW_MS) {
       uint32_t now = getRTCClock()->getCurrentTime();
       DateTime dt = DateTime(now);
       sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
-    } else if (secs == prior) {
+    } else if (delta_ms >= -CLOCK_SYNC_WINDOW_MS) {
       strcpy(reply, "OK - clock already in sync");
     } else {
       strcpy(reply, "(ERR: clock cannot go backwards)");
@@ -7843,10 +7896,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       // just-persisted config change reaching the state machine in the
       // meantime is harmless, since the reboot moments later makes it moot
       // either way.
-      if (want_reboot) {
-        _ota_restart_time = futureMillis(750);
-        _ota_restart_ts = 0;
-      }
+      if (want_reboot) scheduleReboot();
       sprintf(reply, "OK - ble is now %s%s", _role_state->prefs.ble_enabled ? "ON" : "OFF", want_reboot ? " (rebooting)" : "");
     } else if (memcmp(key, "tcp ", 4) == 0) {
       bool on = memcmp(&key[4], "on", 2) == 0;
@@ -7854,10 +7904,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       uint32_t raw = tlvGetTransportConfig(this, this->_board.role);
       if (on) raw |= (uint32_t)0xFF << 8; else raw &= ~((uint32_t)0xFF << 8);
       tlvSetTransportConfig(this, this->_board.role, raw);
-      if (want_reboot) {
-        _ota_restart_time = futureMillis(750);
-        _ota_restart_ts = 0;
-      }
+      if (want_reboot) scheduleReboot();
       sprintf(reply, "OK - tcp is now %s%s", _role_state->prefs.tcp_enabled ? "ON" : "OFF", want_reboot ? " (rebooting)" : "");
     } else if (memcmp(key, "usb ", 4) == 0) {
       // usb has no live add/remove path -- a reboot is always required to
@@ -7870,8 +7917,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       if (on) raw |= (uint32_t)0xFF << 16; else raw &= ~((uint32_t)0xFF << 16);
       tlvSetTransportConfig(this, this->_board.role, raw);
       if (want_reboot) {
-        _ota_restart_time = futureMillis(750);
-        _ota_restart_ts = 0;
+        scheduleReboot();
         sprintf(reply, "OK - usb is now %s (rebooting)", _role_state->prefs.usb_enabled ? "ON" : "OFF");
       } else {
         sprintf(reply, "OK - reboot to apply, usb is now %s", _role_state->prefs.usb_enabled ? "ON" : "OFF");

@@ -697,10 +697,20 @@ static_assert(sizeof(MonRecord)   == 16, "MonRecord must be 16 bytes");
 // captureTimeAnchor() call, or an explicit RTC correction via
 // CMD_SET_DEVICE_TIME) -- never read from a clock directly, so MonRing
 // itself stays fully native-testable with no Arduino/RTC dependency.
+// beebo: ms_frac (0-999) is the sub-second component of epoch_sec, from a
+// millisecond-precision clock sync (plans/MS_PRECISION_CLOCK_ANCHOR.md) --
+// 0 for a plain boot-time capture (RTC itself is seconds-only, see
+// captureTimeAnchor()). Kept as a separate field rather than widening
+// epoch_sec to a 64-bit epoch-ms value, so every existing epoch_sec
+// consumer (SyncRecord.timestamp's bucket math, DLOG/GET_MONRING wire
+// fields) only needs `+ms_frac` folded into its arithmetic, not a type
+// change.
 extern uint32_t g_time_anchor_epoch_sec;
+extern uint16_t g_time_anchor_ms_frac;
 extern uint32_t g_time_anchor_millis;
-inline void setGlobalTimeAnchor(uint32_t epoch_sec, uint32_t millis_ms) {
+inline void setGlobalTimeAnchor(uint32_t epoch_sec, uint16_t ms_frac, uint32_t millis_ms) {
   g_time_anchor_epoch_sec = epoch_sec;
+  g_time_anchor_ms_frac = ms_frac;
   g_time_anchor_millis = millis_ms;
 }
 inline bool globalTimeAnchorValid() { return g_time_anchor_epoch_sec != 0; }
@@ -822,10 +832,10 @@ private:
   // Shared by init()/clear(): latch the epoch/millis anchor + the bucketed
   // base derived from it, and the running radio/env state, then (re)seed
   // the three start-refs from them directly, without consuming a ring slot.
-  void _seed(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms, const RadioRecord &radio, const EnvRecord &env) {
-    setGlobalTimeAnchor(anchor_epoch_sec, anchor_now_ms);
+  void _seed(uint32_t anchor_epoch_sec, uint16_t anchor_ms_frac, uint32_t anchor_now_ms, const RadioRecord &radio, const EnvRecord &env) {
+    setGlobalTimeAnchor(anchor_epoch_sec, anchor_ms_frac, anchor_now_ms);
     uint64_t bucket_ms = (uint64_t)_sync_period * 1000;
-    _base = (uint32_t)(((uint64_t)anchor_epoch_sec * 1000 / bucket_ms) * _sync_period);
+    _base = (uint32_t)((((uint64_t)anchor_epoch_sec * 1000 + anchor_ms_frac) / bucket_ms) * _sync_period);
     _radio = radio; _radio.kind = MON_RADIO; _radio.offset = 0; _radio_valid = true;
     _env   = env;   _env.kind   = MON_ENV;   _env.offset   = 0; _env_valid   = true;
 
@@ -930,13 +940,13 @@ private:
   // value, since that return is deliberately the *offset* (ms since the
   // current minute-bucket base), not an absolute epoch.
   uint32_t _epochSecFromMillis(uint32_t now) const {
-    uint64_t estimated_epoch_ms = (uint64_t)g_time_anchor_epoch_sec * 1000 + (uint64_t)(now - g_time_anchor_millis);
+    uint64_t estimated_epoch_ms = (uint64_t)g_time_anchor_epoch_sec * 1000 + g_time_anchor_ms_frac + (uint64_t)(now - g_time_anchor_millis);
     return (uint32_t)(estimated_epoch_ms / 1000);
   }
 
   uint16_t _ensureSync(uint32_t now) {
     uint64_t bucket_ms = (uint64_t)_sync_period * 1000;
-    uint64_t estimated_epoch_ms = (uint64_t)g_time_anchor_epoch_sec * 1000 + (uint64_t)(now - g_time_anchor_millis);
+    uint64_t estimated_epoch_ms = (uint64_t)g_time_anchor_epoch_sec * 1000 + g_time_anchor_ms_frac + (uint64_t)(now - g_time_anchor_millis);
     uint32_t new_base = (uint32_t)((estimated_epoch_ms / bucket_ms) * _sync_period);
     if (new_base != _base) {
       _base = new_base;
@@ -1058,12 +1068,12 @@ public:
   // setTimeAnchor()'s own comment for why this replaces a plain epoch-only
   // `now`.
   bool init(uint8_t *psram, uint32_t bytes, uint32_t anchor_epoch_sec, uint32_t anchor_now_ms,
-            const RadioRecord &radio, const EnvRecord &env) {
+            const RadioRecord &radio, const EnvRecord &env, uint16_t anchor_ms_frac = 0) {
     if (psram == nullptr || bytes < sizeof(MonRecord)) return false;
     _buf = (MonRecord *)psram;
     _cap = bytes / sizeof(MonRecord);
     _head = _count = _next_seq = 0;
-    _seed(anchor_epoch_sec, anchor_now_ms, radio, env);
+    _seed(anchor_epoch_sec, anchor_ms_frac, anchor_now_ms, radio, env);
     // beebo: explicit, even though this is also the member default --
     // init()'s env/radio snapshots are the boot-time ones (not yet a
     // genuine sample, see _env_ever_sampled's/_radio_ever_sampled's own
@@ -1084,8 +1094,24 @@ public:
   // anchor's absolute accuracy matters (cross-device log comparison) --
   // see the plan's own precision note. The next _ensureSync() call re-buckets
   // `_base` against the new anchor on its own; no forced relatch here.
-  void setTimeAnchor(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms) {
-    setGlobalTimeAnchor(anchor_epoch_sec, anchor_now_ms);
+  void setTimeAnchor(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms, uint16_t anchor_ms_frac = 0) {
+    setGlobalTimeAnchor(anchor_epoch_sec, anchor_ms_frac, anchor_now_ms);
+  }
+
+  // beebo: the device's actual precise "now", in epoch milliseconds -- the
+  // anchor plus elapsed millis() since it was captured (same formula
+  // _ensureSync()/_epochSecFromMillis() use internally), exposed publicly
+  // for callers that need to compare a precise (secs, ms) target against
+  // the device's own precise current instant -- e.g. Beebo::
+  // applyClockSync()'s ahead/behind decision
+  // (plans/MS_PRECISION_CLOCK_ANCHOR.md) -- rather than a plain RTCClock
+  // read, which only ever has whole-second resolution and doesn't itself
+  // reflect any ms-precision correction already applied to the anchor.
+  // NOW_MILLIS is millis() at the call site (unsigned subtraction against
+  // g_time_anchor_millis wraps correctly across a rollover, same
+  // reasoning as _ensureSync()'s own comment).
+  uint64_t nowEpochMs(uint32_t now_millis) const {
+    return (uint64_t)g_time_anchor_epoch_sec * 1000 + g_time_anchor_ms_frac + (uint64_t)(now_millis - g_time_anchor_millis);
   }
 
   bool     allocated() const { return _buf != nullptr; }
@@ -1243,14 +1269,14 @@ public:
   // a valid sync/radio/env reference, and a stale pre-clear config can't be
   // mistaken for "unchanged" by noteRadio()/sampleEnv() and silently skip
   // storing a fresh record after the clear.
-  void clear(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms, const RadioRecord &radio, const EnvRecord &env) {
+  void clear(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms, const RadioRecord &radio, const EnvRecord &env, uint16_t anchor_ms_frac = 0) {
     _head = _count = 0; _next_seq = 0;
     _rx_count = _tx_count = _sync_count = _radio_count = _env_count = _batt_count = _tune_count = _event_count = _setting_count = _command_count = _route_count = _debug_count = _end_time = 0;
     // beebo: _rx_pool_exhausted_count/_rx_parse_error_count are deliberately
     // NOT reset here -- they're lifetime-since-boot counters (see their
     // declaration above), and clearing the ring shouldn't erase evidence that
     // the packet pool was exhausted earlier in this boot.
-    _seed(anchor_epoch_sec, anchor_now_ms, radio, env);
+    _seed(anchor_epoch_sec, anchor_ms_frac, anchor_now_ms, radio, env);
     // beebo: unlike init()'s boot-time seed, clear()'s env/radio snapshots
     // are live reads taken at clear time -- already genuine samples, so
     // emitStartRef(MON_ENV/MON_RADIO, ...) may inject them right away (see

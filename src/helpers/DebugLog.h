@@ -495,20 +495,24 @@ public:
 
 private:
   // beebo: logLink()'s (DLOG's) live DEBUG_LOG frame header --
-  // [anchor_epoch_sec:4][anchor_millis:4][file_len:1][file], 20 bytes fixed
-  // + file_len bytes. anchor_epoch_sec/anchor_millis are the *current*
-  // shared time anchor (MonRing.h's g_time_anchor_epoch_sec/_millis, set by
+  // [anchor_epoch_sec:4][anchor_millis:4][anchor_ms_frac:2][file_len:1][file],
+  // 22 bytes fixed + file_len bytes. anchor_epoch_sec/anchor_millis/
+  // anchor_ms_frac are the *current* shared time anchor (MonRing.h's
+  // g_time_anchor_epoch_sec/_millis/_ms_frac, set by
   // Beebo::startMonRing()/an explicit RTC correction) -- carried on every
   // DLOG frame so a client can resolve `millis` to absolute wall-clock time
   // directly, with no dependency on MonRing's own wire protocol (MLOG)
-  // being enabled at all. 0/0 (both fields) means the anchor isn't known
-  // yet (real epoch is never 0 in practice) -- a client falls back to
-  // boot-relative duration in that case.
+  // being enabled at all. 0/0 (epoch_sec/millis) means the anchor isn't
+  // known yet (real epoch is never 0 in practice) -- a client falls back to
+  // boot-relative duration in that case. anchor_ms_frac is the sub-second
+  // component of anchor_epoch_sec from a millisecond-precision clock sync
+  // (plans/MS_PRECISION_CLOCK_ANCHOR.md); 0 when the anchor is still a
+  // plain seconds-only boot-time/RTC capture.
   static size_t writeHeader(uint8_t* out, size_t cap, size_t avail_after,
                              uint8_t resp_code, uint8_t sub_id, uint16_t id,
                              uint8_t severity, int line, const char* file,
                              uint32_t ms) {
-    if (cap < 20) return 0;
+    if (cap < 22) return 0;
     out[0] = resp_code;
     out[1] = sub_id;
     memcpy(&out[2], &ms, 4);
@@ -518,17 +522,18 @@ private:
     memcpy(&out[9], &line16, 2);
     memcpy(&out[11], &g_time_anchor_epoch_sec, 4);
     memcpy(&out[15], &g_time_anchor_millis, 4);
+    memcpy(&out[19], &g_time_anchor_ms_frac, 2);
 
     const char* base = strrchr(file, '/');
     base = base ? base + 1 : file;
     size_t base_len = strlen(base);
-    size_t room = (cap >= 20 + avail_after) ? cap - 20 - avail_after : 0;
+    size_t room = (cap >= 22 + avail_after) ? cap - 22 - avail_after : 0;
     if (base_len > room) base_len = room;
     if (base_len > 255) base_len = 255;
 
-    out[19] = (uint8_t)base_len;
-    memcpy(&out[20], base, base_len);
-    return 20 + base_len;
+    out[21] = (uint8_t)base_len;
+    memcpy(&out[22], base, base_len);
+    return 22 + base_len;
   }
 
   // beebo: routes one already-serialized frame to whichever target(s)
@@ -607,12 +612,15 @@ extern DebugLog debug_log;
 // per-sub-id liveness check) while also doing real clock-sync work, so it
 // fully subsumed this sub-id's only purpose. Never reassign sub_id 2.
 // BEEBO_RAW_SUB_TIME_SYNC=3 carries a 4-byte little-endian epoch-seconds
-// payload (unlike BEEBO_RAW_SUB_DBG_ENABLE's single data byte -- see
+// payload plus an optional trailing 2-byte little-endian ms fraction
+// (unlike BEEBO_RAW_SUB_DBG_ENABLE's single data byte -- see
 // DualModeSerialInterface's per-sub-id payload length); the --debug link
 // sends it periodically to keep the device clock corrected without a full
-// authenticated CMD_SET_DEVICE_TIME session (see beebo_applyRawTimeSync()'s
+// authenticated CMD_SET_DEVICE_TIME session (see Beebo::applyRawTimeSync()'s
 // forward-only-correction rule, same as CMD_SET_DEVICE_TIME), doubling as
-// this link's own liveness keepalive.
+// this link's own liveness keepalive. The ms fraction matters here more
+// than most callers: this keepalive is the only clock touch a long
+// --debug session gets between connects (hourly).
 #define BEEBO_RAW_SUB_DBG_ENABLE 1
 #define BEEBO_RAW_SUB_TIME_SYNC 3
 
