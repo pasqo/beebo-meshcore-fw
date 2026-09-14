@@ -944,13 +944,19 @@ private:
       r.sync.kind = MON_SYNC;
       r.sync.timestamp = _base;
       r.sync.abi_version = MONRING_ABI_VERSION;
-      // No real SYNC has ever been stored yet, so start_sync is still just
-      // the boot/clear seed — which may predate a clock correction (e.g. the
-      // RTC's hardcoded fallback epoch until real mesh traffic sets it).
-      // This relatch is about to become the oldest resident reference, so
-      // reanchor now rather than waiting for eviction (which may never come
-      // if the ring never wraps).
-      if (_sync_count == 0) start_sync = r.sync;
+      // beebo: do NOT reanchor start_sync here, even the first time a real
+      // SYNC record is ever stored (_sync_count == 0) -- records already
+      // resident in the ring (e.g. RLOG_ID_BOOT_START and friends, logged
+      // at boot well before this first relatch ever fires) are governed by
+      // the ORIGINAL boot/clear seed, not by this new record; clobbering
+      // start_sync here reinterprets their existing offsets against the
+      // wrong epoch the instant this relatch happens (confirmed on real
+      // hardware 2026-09-13: a clock-sync correction forced this relatch
+      // and every earlier backlog record's displayed time collapsed to the
+      // correction's own "now", even though the record's own embedded
+      // detail still showed its true original value). start_sync is only
+      // ever correctly updated by the real eviction path below, when the
+      // ring's actual oldest resident record is the one being replaced.
       _sync_count++;
       _store(r);
     }
@@ -962,7 +968,20 @@ private:
 
   // Raw append of a fully-formed record. Assigns the next seq, wraps the ring.
   uint32_t _store(const MonRecord &rec) {
-    if (_live_sink) _live_sink(rec);
+    // beebo: suppressed while a paced MLOG replay is active or about to
+    // start (_mlog_replay_pending -- DLOG/RLOG's own replay hasn't
+    // finished yet) -- otherwise ANY new record appended mid-replay (not
+    // just a clock-sync's own effect, which Beebo.cpp separately defers
+    // via _pending_time_sync) live-pushes immediately, jumping ahead of
+    // the still-undelivered older backlog mlogReplayStep() hasn't reached
+    // yet. Confirmed on real hardware 2026-09-13: a live XPORT_CHANGE
+    // event (triggered by the very same debug-link connect that started
+    // the replay) printed before the boot backlog it was appended after.
+    // No record is lost by skipping this push -- mlogReplayStep() walks
+    // forward against the live _next_seq each step, so it naturally
+    // reaches and delivers this exact record, in order, once replay
+    // catches up to it.
+    if (_live_sink && !_mlog_replay_active && !_mlog_replay_pending) _live_sink(rec);
     if (_count == _cap) {
       // Full ring: _buf[_head] is the oldest record, about to be overwritten.
       // If it is a reference kind, it is the floor for whatever of its

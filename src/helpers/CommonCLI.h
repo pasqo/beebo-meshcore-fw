@@ -123,6 +123,16 @@ public:
     // no op by default
   };
 
+  // beebo: schedules a deferred board.rebootWithTime(ts) DELAY_MILLIS from
+  // now, for the widened "clock"/"clock.epoch" boot=true ahead-drift path
+  // -- deferred (not called inline) so the text-CLI reply carrying the
+  // prior time still reaches the client before the connection drops. No-op
+  // by default (only Beebo's own implementation, gated BEEBO_RTC_PERSIST,
+  // actually schedules anything).
+  virtual void scheduleRebootWithTime(uint32_t ts, int delay_millis) {
+    // no op by default
+  };
+
 };
 
 class CommonCLI {

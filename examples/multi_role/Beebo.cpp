@@ -1561,7 +1561,44 @@ void Beebo::_checkTransportStateChanges() {
   }
   check(RLOG_ID_XPORT_LINK_BLE_IFACE_CONNECTED,   ble_interface.isConnected());
   check(RLOG_ID_XPORT_LINK_USB_IFACE_ENABLED,     usb_interface.isEnabled());
-  check(RLOG_ID_XPORT_LINK_USB_IFACE_CONNECTED,   usb_interface.isConnected());
+  // beebo: unlike WiFi/BLE's own _IFACE_CONNECTED (a real socket/GATT
+  // peer, unambiguous regardless of session ownership), USB has no
+  // hardware-level notion of "a peer is there" -- the virtual port is
+  // open the instant a cable is plugged in and a driver claims it,
+  // whether or not anything meaningful is on the other end. Neither
+  // usb_interface.isConnected() (a traffic-idle heuristic that a
+  // session-less raw debug link's own TIME_SYNC keepalive feeds into
+  // just by existing) nor (bool)Serial (HWCDC's raw physical-attach
+  // signal, true for a bare `beebo -d` debug link with no app session at
+  // all, and confirmed on real hardware 2026-09-13 to even flicker
+  // 0->1->0->1 within ~150ms of BOOT_COMPLETE purely from USB-Serial-
+  // JTAG's own enumeration, no host action involved) means "a real app
+  // session is here" the way WIFI/BLE_IFACE_CONNECTED do. What actually
+  // matches that semantic is USB currently holding MultiSerialInterface's
+  // session lock -- serial_interface.activeTransportType(), the same
+  // signal RLOG_ID_XPORT_LINK_ACTIVE already reports as a whole.
+  check(RLOG_ID_XPORT_LINK_USB_IFACE_CONNECTED,
+        serial_interface.activeTransportType() == RLOG_ID_XPORT_USB);
+  // beebo: (bool)Serial itself, tracked separately below -- HWCDC's own
+  // real SOF-based physical-attach/detach signal -- for the debug-log
+  // enable-state reset, which must key off a genuine physical disconnect,
+  // not session ownership (a live debug link with no session at all must
+  // still reset debug_log's enable state on a real cable pull).
+  bool usb_serial_present = (bool)Serial;
+  // beebo: DebugLog's raw-USB enable state (_usb_enabled/_usb_mlog_enabled)
+  // has no notion of "session" -- an abrupt physical USB disconnect (killed
+  // client, cable pull) never sends the raw disable byte, so without this
+  // reset the next connect's enable-with-mlog-bit request looks like a
+  // no-op resend of an already-enabled state and skips
+  // MonRing::requestMlogReplay() entirely, leaving every one of that new
+  // client's events permanently unresolved (no anchor ever pushed until
+  // some unrelated future periodic MON_SYNC). Confirmed on real hardware
+  // 2026-09-13.
+  if (_last_usb_serial_present && !usb_serial_present) {
+    debug_log.setUsbEnabled(false);
+    debug_log.setUsbMlogEnabled(false);
+  }
+  _last_usb_serial_present = usb_serial_present;
   check(RLOG_ID_XPORT_LINK_MULTI_ENABLED,         serial_interface.isEnabled());
   check(RLOG_ID_XPORT_LINK_MULTI_CONNECTED,       serial_interface.isConnected());
   // FSM transitions get their own event id pair (RLOG_ID_XLINK_INIT/_CHANGE)
@@ -1693,11 +1730,11 @@ static void captureTimeAnchor(mesh::RTCClock *clock, uint32_t *out_epoch_sec, ui
 // boot debug event from RLOG_ID_BOOT_START onward resolves live through
 // forwardDebugToMonRing() below with no buffering at all -- MonRing's own
 // ring is simply where they land, the same way DLOG/RLOG's ring already
-// does. RLOG_ID_CLOCK_DRIFT_APPLIED is the one exception that can't just
-// resolve live -- ESP32RTCClock::begin() (called from clock_init(), before
-// this function) applies the correction before MonRing's sink even exists,
-// so it can't log it directly there either. Rather than lose it from
-// MON_DEBUG entirely, it stashes the event (ESP32Board.h's
+// does. The boot-time drift correction (RLOG_ID_CLOCK_SYNC) is the one
+// exception that can't just resolve live -- ESP32RTCClock::begin() (called
+// from clock_init(), before this function) applies it before MonRing's
+// sink even exists, so it can't log it directly there either. Rather than
+// lose it from MON_DEBUG entirely, it stashes the event (ESP32Board.h's
 // takePendingDriftLog()) and this function logs it below, once the sink
 // actually exists to receive it.
 //
@@ -1794,10 +1831,68 @@ void Beebo::startMonRing() {
   }
   uint32_t drift_offset;
   if (fallback_clock.takePendingDriftLog(&drift_offset)) {
-    RLOGH(RLOG_ID_CLOCK_DRIFT_APPLIED, (int32_t)drift_offset);
+    RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)drift_offset);
   }
-  if (fallback_clock.takePendingDriftCleared()) {
-    RLOGH(RLOG_ID_CLOCK_DRIFT, 0);
+#endif
+}
+
+// beebo: shared core of every clock-sync surface -- see this method's own
+// declaration (Beebo.h) for the full SECS/BOOT/return-value contract.
+uint32_t Beebo::applyClockSync(uint32_t secs, bool boot) {
+  uint32_t curr = getRTCClock()->getCurrentTime();
+  if (secs > curr) {
+    getRTCClock()->setCurrentTime(secs);
+    // beebo: refresh MonRing's time anchor immediately -- we just set the
+    // RTC to `secs` exactly, ourselves, synchronously, so no edge-polling
+    // is needed here the way captureTimeAnchor() needs it at boot (there's
+    // no ~999ms phase ambiguity when we're the ones who just wrote the
+    // value). See plans/MONITORING_UNIFICATION.md Design #1.
+    monring.setTimeAnchor(secs, (uint32_t)millis());
+#ifdef BEEBO_RTC_PERSIST
+    RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)(curr - secs));
+    {
+      const uint8_t user[5] = {
+        RLOG_CLOCK_SRC_SYNC,
+        (uint8_t)curr, (uint8_t)(curr >> 8), (uint8_t)(curr >> 16), (uint8_t)(curr >> 24),
+      };
+      RLOGH(RLOG_ID_CLOCK_SET, secs, user);
+    }
+    beebo_persistRTCTimeForReboot(secs);
+#else
+    RLOGH(RLOG_ID_CLOCK_SET, secs);
+#endif
+  } else if (secs != 0 && secs < curr) {
+#ifdef BEEBO_RTC_PERSIST
+    RLOGH(RLOG_ID_CLOCK_SYNC, curr - secs);
+    if (boot) {
+      // beebo: defer, don't reboot inline -- the caller still has to send
+      // its own reply (the prior time returned here), and a reboot before
+      // that reply flushes would drop it.
+      _clock_reboot_ts = secs;
+      _clock_reboot_time = futureMillis(750);
+    } else {
+      beebo_clockDrift(curr - secs);
+    }
+#endif
+  }
+  return curr;
+}
+
+// beebo: the raw BEEBO_RAW_SUB_TIME_SYNC keepalive's actual effect -- shared
+// by the immediate (non-replaying) path and the deferred one queued in
+// _pending_time_sync (see that field's own comment, Beebo.h). Never
+// schedules a reboot (boot=false): this is a background keepalive tick, not
+// an explicit client request.
+void Beebo::applyRawTimeSync(uint32_t secs) {
+  uint32_t prior = applyClockSync(secs, false);
+#ifdef BEEBO_RTC_PERSIST
+  if (secs == prior) {
+    // beebo: a no-op tick (already in sync) still logs the current
+    // persisted drift -- same "visible on every clock-syncing event, not
+    // just an accepted correction" rule CMD_GET_DEVICE_TIME/`clock` already
+    // follows, so this periodic keepalive shows up in the debug log even
+    // when it has nothing to correct.
+    RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)beebo_clockDrift());
   }
 #endif
 }
@@ -3440,59 +3535,35 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG); // invalid geo coordinate
     }
   } else if (cmd_frame[0] == CMD_GET_DEVICE_TIME) {
+    // beebo: widened, backward-compatibly, with an optional trailing
+    // [time: u32][boot: u8] payload -- an old/third-party client sending
+    // the bare 1-byte opcode (len < 6) gets exactly today's plain read, no
+    // side effects (applyClockSync(0, false) is a pure no-op read). A
+    // beebo client sending the extra bytes gets a combined
+    // get+set+optional-reboot in one round trip -- see applyClockSync()'s
+    // own comment (Beebo.h) for the full semantics. The reply is always
+    // RESP_CODE_CURR_TIME + the clock's value *before* any change,
+    // unchanged format either way, so the caller can compute its own
+    // drift locally without a second round trip.
+    uint32_t secs = 0;
+    uint8_t boot = 0;
+    if (len >= 6) {
+      memcpy(&secs, &cmd_frame[1], 4);
+      boot = cmd_frame[5];
+    }
+    uint32_t prior = applyClockSync(secs, boot != 0);
     uint8_t reply[5];
     reply[0] = RESP_CODE_CURR_TIME;
-    uint32_t now = getRTCClock()->getCurrentTime();
-    memcpy(&reply[1], &now, 4);
+    memcpy(&reply[1], &prior, 4);
     _serial->writeFrame(reply, 5);
-#ifdef BEEBO_RTC_PERSIST
-    // beebo: `beebo clock` always queries this (connect.py's
-    // _sync_clock_if_drifted reads get_time() to decide whether to sync at
-    // all), so logging the current persisted drift here -- not just on an
-    // actual accepted correction -- is what makes CLOCK_DRIFT visible on
-    // every "clock" call, including a no-op one where the client is
-    // already in tolerance and never even sends CMD_SET_DEVICE_TIME.
-    RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
-#endif
   } else if (cmd_frame[0] == CMD_SET_DEVICE_TIME && len >= 5) {
+    // beebo: legacy opcode, wire format untouched -- see applyClockSync()'s
+    // own comment for the shared correction/rejection logic this defers to.
     uint32_t secs;
     memcpy(&secs, &cmd_frame[1], 4);
-    uint32_t curr = getRTCClock()->getCurrentTime();
-    if (secs > curr) {
-      getRTCClock()->setCurrentTime(secs);
-      // beebo: refresh MonRing's time anchor immediately -- we just set the
-      // RTC to `secs` exactly, ourselves, synchronously, so no edge-polling
-      // is needed here the way captureTimeAnchor() needs it at boot (there's
-      // no ~999ms phase ambiguity when we're the ones who just wrote the
-      // value). See plans/MONITORING_UNIFICATION.md Design #1.
-      monring.setTimeAnchor(secs, (uint32_t)millis());
-#ifdef BEEBO_RTC_PERSIST
-      {
-        const uint8_t clock_src_user[5] = {RLOG_CLOCK_SRC_CMD, 0, 0, 0, 0};
-        RLOGH(RLOG_ID_CLOCK_SET, secs, clock_src_user);
-      }
-#else
-      RLOGH(RLOG_ID_CLOCK_SET, secs);
-#endif
-#ifdef BEEBO_RTC_PERSIST
-      // beebo: keep rtc_ts fresh on every accepted correction, not just an
-      // explicit reboot -- otherwise a genuine cold-boot ESP_RST_POWERON
-      // (see kbase/CLOCK_DRIFT_COMPENSATION.md's "Behavior across reset
-      // kinds") restores whatever the *last* reboot() happened to persist,
-      // which can be arbitrarily stale if the device has been corrected via
-      // ordinary syncs since then without an intervening reboot.
-      beebo_persistRTCTimeForReboot(secs);
-      RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
-#endif
-      writeOKFrame();
-    } else if (secs == curr) {
-      writeOKFrame();
-    } else {
-#ifdef BEEBO_RTC_PERSIST
-      beebo_recordClockDrift(curr - secs);
-#endif
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    }
+    uint32_t prior = applyClockSync(secs, false);
+    if (secs >= prior) writeOKFrame();
+    else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (cmd_frame[0] == CMD_SEND_SELF_ADVERT) {
     // beebo: unlike CMD_EXPORT_CONTACT/etc above, this opcode was never in
     // the repeater-refusal list, so it's reachable while repeater is live
@@ -5521,7 +5592,7 @@ void Beebo::handleCmdFrame(size_t len) {
       // beebo: DLOG has no backlog/replay of its own (live-only, see
       // DebugLog.h's own top comment) -- only MLOG replays its ring's
       // backlog on every disabled -> enabled transition, same as the raw
-      // sub-frame USB path's own BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling
+      // sub-frame USB path's own BEEBO_RAW_SUB_DBG_ENABLE handling
       // below -- see MonRing::requestMlogReplay()'s own comment for why (a
       // fresh `-d`/`-i` session should see recent history, not just events
       // from the moment it happened to attach; a same-connection resend of
@@ -5530,10 +5601,11 @@ void Beebo::handleCmdFrame(size_t len) {
       // rather than a synchronous burst.
       bool enabling = (sub[1] & DEBUG_LOG_ENABLE_BIT_DLOG) != 0;
       bool mlog_enabling = (sub[1] & DEBUG_LOG_ENABLE_BIT_MLOG) != 0;
+      bool no_replay = (sub[1] & DEBUG_LOG_ENABLE_BIT_NO_REPLAY) != 0;
       debug_log.setSessionEnabled(enabling);
       if (mlog_enabling && !debug_log.isMlogEnabled()) {
         debug_log.setSessionMlogEnabled(true);
-        monring.requestMlogReplay();
+        if (!no_replay) monring.requestMlogReplay();
       } else {
         debug_log.setSessionMlogEnabled(mlog_enabling);
       }
@@ -5658,65 +5730,56 @@ void Beebo::checkSerialInterface() {
     // disturbs one. Fire-and-forget by design -- no OK/ERR reply, this sits
     // below the app/session request-reply layer entirely.
     uint8_t raw_sub = cmd_frame[0], raw_data = cmd_frame[1];
-    if (raw_sub == BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) {
+    if (raw_sub == BEEBO_RAW_SUB_DBG_ENABLE) {
       bool enabling = (raw_data & DEBUG_LOG_ENABLE_BIT_DLOG) != 0;
       bool mlog_enabling = (raw_data & DEBUG_LOG_ENABLE_BIT_MLOG) != 0;
+      bool no_replay = (raw_data & DEBUG_LOG_ENABLE_BIT_NO_REPLAY) != 0;
       // beebo: DLOG is live-only (no backlog/replay of its own, see
       // DebugLog.h's own top comment) -- a boot-time event like
       // RLOG_ID_BOOT_START now only reaches a host via MON_DEBUG/MLOG's
       // replay below (MonRing::beginMlogReplay()/mlogReplayStep()), not
       // this bit. MLOG's bit gets that replay treatment, independently,
-      // against MonRing's backlog.
+      // against MonRing's backlog, unless NO_REPLAY suppresses it.
       debug_log.setUsbEnabled(enabling);
       if (mlog_enabling && !debug_log.isMlogEnabled()) {
         debug_log.setUsbMlogEnabled(true);
-        monring.requestMlogReplay();
+        if (!no_replay) monring.requestMlogReplay();
       } else {
         debug_log.setUsbMlogEnabled(mlog_enabling);
       }
+      // beebo: ack every raw sub-frame the instant it's processed -- see
+      // BEEBO_RESP_RAW_ACK's own protocol.yaml desc. Written straight to
+      // usb_interface (bypassing _serial's session arbitration, same as
+      // DebugLog::pushToTargets()'s own _usb->writeFrameBestEffort() calls),
+      // since this sits below the session layer entirely and must reach a
+      // session-less raw client regardless of whether anything holds the
+      // companion session.
+      uint8_t ack[3] = { RESP_CODE_BEEBO, BEEBO_RESP_RAW_ACK, raw_sub };
+      usb_interface.writeFrameBestEffort(ack, 3);
     }
-    // BEEBO_RAW_SUB_KEEPALIVE: no action needed here -- checkRecvFrame()'s
-    // own MODE_RAW_DATA completion already refreshed usb_interface's
-    // _last_byte_at for this sub_id, which is the only thing this one
-    // exists to do (see DebugLog.h's own comment).
     if (raw_sub == BEEBO_RAW_SUB_TIME_SYNC && len >= 5) {
-      // beebo: same forward-only-correction rule as CMD_SET_DEVICE_TIME
-      // (Beebo.cpp's binary handler above) -- fire-and-forget, no OK/ERR
-      // reply, since this sits below the session/request-reply layer
-      // entirely (see this block's own top comment). checkRecvFrame()'s
-      // MODE_RAW_DATA completion already refreshed usb_interface's
-      // _last_byte_at for this sub_id, same as BEEBO_RAW_SUB_KEEPALIVE.
+      // beebo: fire-and-forget from the request/reply layer's own
+      // perspective (no OK/ERR through _serial, see this block's own top
+      // comment) -- but does ack (above pattern) so a client can tell a
+      // dropped write from a genuinely unreachable device instead of
+      // guessing a fixed resend delay. Never schedules a reboot (boot=false)
+      // -- this is a background keepalive tick, not an explicit client
+      // request.
       uint32_t secs;
       memcpy(&secs, &cmd_frame[1], 4);
-      uint32_t curr = getRTCClock()->getCurrentTime();
-      if (secs > curr) {
-        getRTCClock()->setCurrentTime(secs);
-        monring.setTimeAnchor(secs, (uint32_t)millis());
-#ifdef BEEBO_RTC_PERSIST
-        {
-          const uint8_t clock_src_user[5] = {RLOG_CLOCK_SRC_CMD, 0, 0, 0, 0};
-          RLOGH(RLOG_ID_CLOCK_SET, secs, clock_src_user);
-        }
-        beebo_persistRTCTimeForReboot(secs);
-        RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
-#else
-        RLOGH(RLOG_ID_CLOCK_SET, secs);
-#endif
-      } else if (secs < curr) {
-#ifdef BEEBO_RTC_PERSIST
-        beebo_recordClockDrift(curr - secs);
-        RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
-#endif
+      if (monring.isMlogReplaying() || monring.mlogReplayPending()) {
+        // beebo: hold it -- see _pending_time_sync's own comment (Beebo.h).
+        // mlogReplayPending() also counts: the debug-log-enable frame that
+        // arms it is written just before this one, so it's routinely still
+        // pending (not yet promoted to active by the paced-stream chain's
+        // own loop() tick) when this frame is processed.
+        _pending_time_sync = true;
+        _pending_time_sync_secs = secs;
       } else {
-#ifdef BEEBO_RTC_PERSIST
-        // beebo: a no-op tick (already in sync) still logs the current
-        // persisted drift -- same "visible on every clock-syncing event,
-        // not just an accepted correction" rule CMD_GET_DEVICE_TIME/`clock`
-        // already follows, so this periodic keepalive shows up in the
-        // debug log even when it has nothing to correct.
-        RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
-#endif
+        applyRawTimeSync(secs);
       }
+      uint8_t ack[3] = { RESP_CODE_BEEBO, BEEBO_RESP_RAW_ACK, raw_sub };
+      usb_interface.writeFrameBestEffort(ack, 3);
     }
     return;
   }
@@ -6143,6 +6206,19 @@ void Beebo::loop() {
   if (_ota_restart_time && millisHasNowPassed(_ota_restart_time)) {
     if (_ota_restart_ts) board.rebootWithTime(_ota_restart_ts);
     else board.reboot();
+  }
+
+  // beebo: CMD_GET_DEVICE_TIME's widened boot=true ahead-drift path -- see
+  // _clock_reboot_time's own comment (Beebo.h).
+  if (_clock_reboot_time && millisHasNowPassed(_clock_reboot_time)) {
+    board.rebootWithTime(_clock_reboot_ts);
+  }
+
+  // beebo: apply a raw TIME_SYNC keepalive that arrived mid-replay -- see
+  // _pending_time_sync's own comment (Beebo.h).
+  if (_pending_time_sync && !monring.isMlogReplaying() && !monring.mlogReplayPending()) {
+    _pending_time_sync = false;
+    applyRawTimeSync(_pending_time_sync_secs);
   }
 
   // beebo: refresh the cached battery reading — the ADC read blocks for
@@ -7245,6 +7321,20 @@ void Beebo::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, c
  * same incremental way CMD_BEEBO grew, not all at once.
  * ------------------------------------------------------------------------ */
 
+// beebo: matches CommonCLI.cpp's own _parseClockSyncArgs() exactly -- see
+// its comment for what this parses out of "clock"/"clock.epoch"'s optional
+// trailing "<time> <boot>" tokens.
+static void _parseClockSyncArgs(const char* args, uint32_t& out_secs, uint32_t& out_boot) {
+  out_secs = 0;
+  out_boot = 0;
+  while (*args == ' ') args++;
+  if (!*args) return;
+  out_secs = atol(args);
+  while (*args && *args != ' ') args++;
+  while (*args == ' ') args++;
+  if (*args) out_boot = atol(args);
+}
+
 // beebo: matches CommonCLI.cpp's own isValidName() exactly, for identical
 // meshcli-visible validation behaviour on "set name ...".
 static bool isValidName(const char *n) {
@@ -7312,44 +7402,37 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       strcpy(reply, "Error");
     }
   } else if (memcmp(command, "clock.epoch", 11) == 0) {
-    sprintf(reply, "%lu", (unsigned long)getRTCClock()->getCurrentTime());
+    // beebo: see CommonCLI.cpp's identical "clock.epoch" comment -- widened
+    // the same way with optional trailing "<time> <boot>" tokens.
+    uint32_t secs, boot;
+    _parseClockSyncArgs(&command[11], secs, boot);
+    uint32_t prior = applyClockSync(secs, boot != 0);
+    sprintf(reply, "%lu", (unsigned long)prior);
 #ifdef BEEBO_RTC_PERSIST
-    RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+    if (secs == 0) RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)beebo_clockDrift());
 #endif
   } else if (memcmp(command, "clock", 5) == 0) {
-    uint32_t now = getRTCClock()->getCurrentTime();
-    DateTime dt = DateTime(now);
+    // beebo: see CommonCLI.cpp's identical "clock" comment.
+    uint32_t secs, boot;
+    _parseClockSyncArgs(&command[5], secs, boot);
+    uint32_t prior = applyClockSync(secs, boot != 0);
+    DateTime dt = DateTime(prior);
     sprintf(reply, "%02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
 #ifdef BEEBO_RTC_PERSIST
-    RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
+    if (secs == 0) RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)beebo_clockDrift());
 #endif
   } else if (memcmp(command, "time ", 5) == 0) {
+    // beebo: legacy command, wire format untouched -- see applyClockSync()'s
+    // own comment for the shared correction/rejection logic this defers to.
     uint32_t secs = (uint32_t)atol(&command[5]);
-    uint32_t curr = getRTCClock()->getCurrentTime();
-    if (secs > curr) {
-      getRTCClock()->setCurrentTime(secs);
-      // beebo: see the binary CMD_SET_DEVICE_TIME handler's identical comment.
-      monring.setTimeAnchor(secs, (uint32_t)millis());
-#ifdef BEEBO_RTC_PERSIST
-      {
-        const uint8_t clock_src_user[5] = {RLOG_CLOCK_SRC_CMD, 0, 0, 0, 0};
-        RLOGH(RLOG_ID_CLOCK_SET, secs, clock_src_user);
-      }
-      // beebo: see the binary CMD_SET_DEVICE_TIME handler's identical comment.
-      beebo_persistRTCTimeForReboot(secs);
-      RLOGH(RLOG_ID_CLOCK_DRIFT, (int32_t)beebo_currentClockDrift());
-#else
-      RLOGH(RLOG_ID_CLOCK_SET, secs);
-#endif
+    uint32_t prior = applyClockSync(secs, false);
+    if (secs > prior) {
       uint32_t now = getRTCClock()->getCurrentTime();
       DateTime dt = DateTime(now);
       sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
-    } else if (secs == curr) {
+    } else if (secs == prior) {
       strcpy(reply, "OK - clock already in sync");
     } else {
-#ifdef BEEBO_RTC_PERSIST
-      beebo_recordClockDrift(curr - secs);
-#endif
       strcpy(reply, "(ERR: clock cannot go backwards)");
     }
   } else if (memcmp(command, "get ", 4) == 0) {

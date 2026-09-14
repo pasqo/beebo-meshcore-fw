@@ -69,7 +69,7 @@ TEST_F(DualModeSerial, RawControlFrameCompletesAcrossMultipleCalls) {
   RecvFrameType type;
   EXPECT_EQ(0u, poll(type));
 
-  stream.feed(BEEBO_RAW_SUB_DEBUG_LOG_ENABLE);
+  stream.feed(BEEBO_RAW_SUB_DBG_ENABLE);
   EXPECT_EQ(0u, poll(type));   // sub_id alone -- still waiting on data
 
   stream.feed(1);   // data
@@ -77,21 +77,23 @@ TEST_F(DualModeSerial, RawControlFrameCompletesAcrossMultipleCalls) {
 
   EXPECT_EQ(2u, len);
   EXPECT_EQ(RecvFrameType::DEBUG, type);
-  EXPECT_EQ(BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, dest[0]);
+  EXPECT_EQ(BEEBO_RAW_SUB_DBG_ENABLE, dest[0]);
   EXPECT_EQ(1, dest[1]);
 }
 
-TEST_F(DualModeSerial, KeepaliveRawFrameCountsAsLivenessButNothingElseDoes) {
-  uint8_t enable_frame[] = {DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, 1};
+TEST_F(DualModeSerial, TimeSyncRawFrameCountsAsLivenessButEnableAloneDoesNot) {
+  uint8_t enable_frame[] = {DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_DBG_ENABLE, 1};
   stream.feed(enable_frame, sizeof(enable_frame));
   RecvFrameType type;
   poll(type);
   EXPECT_FALSE(iface.isConnected());   // debug-log-enable alone is not liveness
 
-  uint8_t keepalive_frame[] = {DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_KEEPALIVE, 0};
-  stream.feed(keepalive_frame, sizeof(keepalive_frame));
+  uint8_t time_sync_frame[] = {
+    DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_TIME_SYNC, 0, 0, 0, 0,
+  };
+  stream.feed(time_sync_frame, sizeof(time_sync_frame));
   poll(type);
-  EXPECT_TRUE(iface.isConnected());   // keepalive is the one sub-frame that counts
+  EXPECT_TRUE(iface.isConnected());   // time-sync is the one sub-frame that counts
 }
 
 TEST_F(DualModeSerial, TimeSyncRawFrameCarriesFourByteEpochAndCountsAsLiveness) {
@@ -143,7 +145,7 @@ TEST_F(DualModeSerial, BinaryFrameAfterRawFrameInSameBufferIsNotCorrupted) {
   // (state machine invariant), so this drains in two polls, never merging
   // or misrouting bytes between them.
   uint8_t combined[] = {
-    DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_KEEPALIVE, 0,
+    DualModeSerialInterface::RAW_MARKER, BEEBO_RAW_SUB_DBG_ENABLE, 0,
     '<', 1, 0, 0x99,
   };
   stream.feed(combined, sizeof(combined));

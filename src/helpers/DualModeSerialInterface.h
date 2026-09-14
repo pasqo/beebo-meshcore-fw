@@ -57,7 +57,7 @@ class DualModeSerialInterface : public BaseSerialInterface {
   }
   // beebo: separate from _last_byte_at -- a raw control frame's own marker/
   // sub_id bytes deliberately do NOT refresh _last_byte_at/_seen_traffic
-  // (see isConnected()'s own comment: only BEEBO_RAW_SUB_KEEPALIVE, once the
+  // (see isConnected()'s own comment: only BEEBO_RAW_SUB_TIME_SYNC, once the
   // full frame is known, counts as link liveness), but the RESYNC_TIMEOUT_MS
   // self-heal below still needs its own clock so a stray marker with
   // nothing following doesn't park this parser in MODE_RAW_SUB forever --

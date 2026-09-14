@@ -174,15 +174,14 @@ bool DualModeSerialInterface::isConnected() const {
   // transport reads as not connected until then, gated on _seen_traffic
   // alone (_last_byte_at's value is irrelevant while it's false). A byte
   // arriving via the framed/text parser sets _seen_traffic, as does
-  // checkRecvFrame()'s own
-  // MODE_RAW_DATA completion for a BEEBO_RAW_SUB_KEEPALIVE or
+  // checkRecvFrame()'s own MODE_RAW_DATA completion for a
   // BEEBO_RAW_SUB_TIME_SYNC sub-frame (see connect.py's periodic write
   // during an otherwise-idle `beebo -i` session) -- so a genuinely
-  // idle-but-alive app session never trips this
-  // on its own. Every other raw sub-frame (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE,
-  // `beebo dbglog`/`beebo -d`'s standalone enable/resend) deliberately does
-  // NOT set _seen_traffic -- a debug-log-only link is an observer, not an
-  // app session, and must never look connected on its own.
+  // idle-but-alive app session never trips this on its own. Every other raw
+  // sub-frame (e.g. BEEBO_RAW_SUB_DBG_ENABLE, `beebo dbglog`/`beebo -d`'s
+  // standalone enable/resend) deliberately does NOT set _seen_traffic -- a
+  // debug-log-only link is an observer, not an app session, and must never
+  // look connected on its own.
   return _seen_traffic && millis() - _last_byte_at < USB_IDLE_TIMEOUT_MS;
 }
 
@@ -434,7 +433,7 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len, R
     // _seen_traffic gate) EXCEPT the raw control frame's own bytes -- a
     // lone RAW_MARKER, or a byte consumed while already inside one
     // (MODE_RAW_SUB/MODE_RAW_DATA). Those get their own, narrower liveness
-    // rule (MODE_RAW_DATA below: only a completed BEEBO_RAW_SUB_KEEPALIVE
+    // rule (MODE_RAW_DATA below: only a completed BEEBO_RAW_SUB_TIME_SYNC
     // counts). Computed once here, rather than repeated in every other
     // case below, since only this one condition is special.
     bool is_raw_frame_byte = (_state == MODE_IDLE && c == RAW_MARKER) ||
@@ -494,14 +493,13 @@ size_t DualModeSerialInterface::checkRecvFrame(uint8_t dest[], size_t max_len, R
         if (_raw_data_idx < need) break;   // more payload bytes still to come
         uint8_t raw_sub_id = _raw_sub_id;
         _state = MODE_IDLE;
-        // beebo: BEEBO_RAW_SUB_KEEPALIVE and BEEBO_RAW_SUB_TIME_SYNC (a real
-        // app session's own liveness poke, see connect.py's periodic write
-        // during `beebo -i`) count toward isConnected()'s idle timer --
-        // every other sub-frame (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, `beebo
-        // dbglog`/`beebo -d`'s standalone enable/resend) is an observer, not
-        // a session, and must never look like a connected app session on its
-        // own.
-        if (raw_sub_id == BEEBO_RAW_SUB_KEEPALIVE || raw_sub_id == BEEBO_RAW_SUB_TIME_SYNC) {
+        // beebo: BEEBO_RAW_SUB_TIME_SYNC (a real app session's own liveness
+        // poke, see connect.py's periodic write during `beebo -i`) counts
+        // toward isConnected()'s idle timer -- every other sub-frame (e.g.
+        // BEEBO_RAW_SUB_DBG_ENABLE, `beebo dbglog`/`beebo -d`'s standalone
+        // enable/resend) is an observer, not a session, and must never look
+        // like a connected app session on its own.
+        if (raw_sub_id == BEEBO_RAW_SUB_TIME_SYNC) {
           _last_byte_at = now;
           _seen_traffic = true;
         }

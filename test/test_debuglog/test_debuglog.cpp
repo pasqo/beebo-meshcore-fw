@@ -46,7 +46,7 @@ public:
 // beebo: pins down the 2026-09-07 regression -- DebugLog::attach()
 // briefly took only the MultiSerialInterface aggregator as its push
 // target (mid-TCP_DEBUG_STREAM development), so the session-less raw USB
-// debug tap (BEEBO_RAW_SUB_DEBUG_LOG_ENABLE, no MultiSerialInterface
+// debug tap (BEEBO_RAW_SUB_DBG_ENABLE, no MultiSerialInterface
 // session ever locked) silently got nothing whenever no session happened
 // to be locked -- confirmed via `bunch-mc -d -` producing zero output.
 // These three cases are exactly the ones attach()'s own comment commits

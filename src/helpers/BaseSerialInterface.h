@@ -55,7 +55,7 @@
 // byte-range heuristic). BINARY is the default/only kind for every
 // transport except DualModeSerialInterface, which can also deliver TEXT
 // (an unframed text-CLI line) or DEBUG (a session-less raw control
-// sub-frame -- BEEBO_RAW_SUB_DEBUG_LOG_ENABLE/BEEBO_RAW_SUB_KEEPALIVE,
+// sub-frame -- BEEBO_RAW_SUB_DBG_ENABLE/BEEBO_RAW_SUB_TIME_SYNC,
 // DebugLog.h -- carried as a real 2-byte [sub_id][data] payload in dest,
 // not an app command).
 enum class RecvFrameType : uint8_t { BINARY, TEXT, DEBUG };

@@ -745,9 +745,26 @@ public:
   bool saveRegions() override { return region_map.save(_store->getPrimaryFS()); }
   void onDefaultRegionChanged(const RegionEntry* r) override { /* beebo: region_map's own default-region flag is persisted by saveRegions() above; no separate live-scoping consumer wired yet, unlike _role_state->prefs.default_scope_key's own periodic-advert path */ }
   void setRxBoostedGain(bool enable) override { radio_driver.setRxBoostedGainMode(enable); }
+#ifdef BEEBO_RTC_PERSIST
+  void scheduleRebootWithTime(uint32_t ts, int delay_millis) override {
+    _clock_reboot_ts = ts;
+    _clock_reboot_time = futureMillis(delay_millis);
+  }
+#endif
 #endif
 
 private:
+  // beebo: shared core of every clock-sync surface (CMD_GET_DEVICE_TIME,
+  // CMD_SET_DEVICE_TIME, the raw BEEBO_RAW_SUB_TIME_SYNC keepalive, and
+  // Beebo::handleCommand()'s own "time " text command) -- SECS == 0 is a
+  // pure read (no change, nothing logged). Always returns the clock's
+  // value *before* any change, so a caller can compute its own drift
+  // locally without a second round trip. On an ahead-drift (SECS < prior,
+  // SECS != 0), BOOT schedules an immediate corrective reboot instead of
+  // just persisting the drift for a future organic reboot to consume.
+  uint32_t applyClockSync(uint32_t secs, bool boot);
+  void applyRawTimeSync(uint32_t secs);
+
   // Returns true (once) when CMD_SET_WIFI_CREDS was received; loop()'s own
   // transport-management block (below) uses this as an edge-triggered input
   // to driveBtp() -- a creds change can't be inferred from ble_on/tcp_on
@@ -1713,6 +1730,32 @@ private:
   // wrong) current time -- see BEEBO_CMD_REBOOT_WITH_TIME's own comment.
   // 0 means no timestamp was sent (older CLI), falls back to a plain reboot.
   uint32_t _ota_restart_ts = 0;
+  // beebo: CMD_GET_DEVICE_TIME's widened boot=true ahead-drift path -- the
+  // client's clock is behind (device measured ahead), and the client asked
+  // for an immediate correction rather than waiting for a future organic
+  // reboot to apply the persisted drift. Deferred the same way OTA's
+  // restart is (_ota_restart_time above), so the reply carrying the prior
+  // time actually reaches the client before the connection drops.
+  uint32_t _clock_reboot_time = 0;   // millis deadline to reboot-with-time (0 = none)
+  uint32_t _clock_reboot_ts = 0;     // epoch to persist/set via rebootWithTime() when it fires
+  // beebo: the raw BEEBO_RAW_SUB_TIME_SYNC keepalive's applyClockSync() call
+  // is held here instead of running immediately whenever MonRing's MLOG
+  // backlog replay is still draining (monring.isMlogReplaying()) -- applying
+  // it live races the paced (one-record-per-tick) replay walk, so its
+  // resulting CLOCK_SYNC/CLOCK_SET/CLOCK_NVM_PUSH events print ahead of
+  // still-queued older backlog (confirmed on real hardware 2026-09-13: the
+  // debug link's first TIME_SYNC frame, now sent immediately on connect,
+  // landed before the boot-time CLOCK_RTC record had been replayed).
+  // Checked once per loop() and applied the instant replay finishes.
+  bool _pending_time_sync = false;
+  uint32_t _pending_time_sync_secs = 0;
+  // beebo: (bool)Serial's own last-seen state -- see
+  // _checkTransportStateChanges()'s own comment for why the DebugLog
+  // reset-on-disconnect is keyed on this real hardware signal instead of
+  // usb_interface.isConnected()'s traffic-idle heuristic. Starts true --
+  // matches HWCDC's own boot-time state before enumeration finishes, so a
+  // spurious reset can't fire on the very first check.
+  bool _last_usb_serial_present = true;
   // beebo: edge-triggered input to driveBtp() -- see consumeWifiCredsPending()'s
   // own comment above for why this can't be inferred from ble_on/tcp_on
   // level-comparison the way an enable/disable toggle can.

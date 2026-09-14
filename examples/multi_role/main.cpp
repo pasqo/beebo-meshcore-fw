@@ -74,7 +74,7 @@ void setup() {
   // this just lands in transport_log's RAM ring and survives to be
   // replayed once a client actually attaches and enables the debug link
   // (DebugLog::replayRing(), called from checkSerialInterface()'s
-  // BEEBO_RAW_SUB_DEBUG_LOG_ENABLE handling).
+  // BEEBO_RAW_SUB_DBG_ENABLE handling).
   //
   RLOGH(RLOG_ID_BOOT_START, (int32_t)esp_reset_reason());
   // beebo: raising the baud rate alone (115200 -> 921600, matching esptool's

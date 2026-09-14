@@ -206,21 +206,19 @@
 // -- reports the *current* persisted drift_off (0 = none), so a client
 // watching --debug sees this device's drift state on every event that
 // could change or consume it, not just the moment it's first recorded:
-// - beebo_recordClockDrift(): a client's sync attempt was rejected
+// - beebo_clockDrift(offset): a client's sync attempt was rejected
 //   (device measured ahead) -- detail = the newly-recorded offset.
 // - every accepted clock-set call site (CommonCLI.cpp's "clock sync"/
 //   "time ", Beebo.cpp's CMD_SET_DEVICE_TIME/"time ") -- detail = whatever
 //   is currently persisted (normally 0, unless an old offset predates
 //   this correction and hasn't been consumed by a reboot yet).
-// - applyDriftOffset_(): after it clears drift_off post-apply -- detail
-//   is always 0.
-#define RLOG_ID_CLOCK_DRIFT  51
-// beebo: logged from applyDriftOffset_() every time it actually subtracts
-// (i.e. has_offset was true and the device_now_t > drift_offset guard
-// passed) -- detail = the drift_off value it read from NVS and applied,
-// so it can be compared directly against the nearest preceding
-// RLOG_ID_CLOCK_DRIFT's detail across a reset.
-#define RLOG_ID_CLOCK_DRIFT_APPLIED   52
+// - applyDriftOffset_(): once per boot, after it clears drift_off --
+//   detail = the amount it actually subtracted from the live clock (0 if
+//   has_offset was false, or the device_now_t > drift_offset guard didn't
+//   pass). Subsumes what used to be a separate RLOG_ID_CLOCK_DRIFT_APPLIED
+//   event immediately followed by a CLOCK_DRIFT(0) -- one boot-time
+//   correction is one event, not two.
+#define RLOG_ID_CLOCK_SYNC  51
 // beebo: boot-time sub-checkpoints inside Beebo::begin(), between
 // RLOG_ID_BOOT_STORAGE_READY and RLOG_ID_BOOT_TRANSPORTS_READY -- added to
 // break down a 2026-09-09 report of a multi-second gap in that span
@@ -258,11 +256,15 @@
 // epoch in `detail` is what it is, since that alone doesn't distinguish
 // "this is just the live RTC that was never touched" from a genuine NVS
 // restore/correction (the exact confusion a real user hit 2026-09-12
-// watching a plain reflash's CLOCK_SET with no explanation). One of:
+// watching a plain reflash's CLOCK_SET with no explanation). _user[1..4]
+// (little-endian uint32) carries the clock's own value immediately before
+// this correction -- 0 for the boot-time anchor capture (nothing to
+// compare against) -- so a reader can see the delta directly, without
+// cross-referencing the nearest preceding RLOG_ID_CLOCK_SYNC. One of:
 #define RLOG_CLOCK_SRC_RTC      0   // live RTC counter survived the reset untouched (ESP_RST_UNKNOWN/SW, or a plausible-live ESP_RST_POWERON -- see kbase/CLOCK_DRIFT_COMPENSATION.md)
 #define RLOG_CLOCK_SRC_NVM      1   // restored from the persisted rtc_ts (genuine cold-boot ESP_RST_POWERON, RLOG_ID_CLOCK_NVM_PULL logged alongside)
 #define RLOG_CLOCK_SRC_FALLBACK 2   // no rtc_ts ever persisted -- fell back to the fixed placeholder date (RTC_FALLBACK_EPOCH)
-#define RLOG_CLOCK_SRC_CMD      3   // set by an explicit client command (CMD_SET_DEVICE_TIME, "time ", "clock sync")
+#define RLOG_CLOCK_SRC_SYNC      3   // set by an explicit client command (CMD_SET_DEVICE_TIME, "time ", "clock sync")
 
 // beebo: RLOG_ID_BLE_HANDSHAKE sub-ids (detail bits 0-7) -- bits 8-31 are
 // this sub-id's own payload, interpreted per step below. CONNECT has none
@@ -366,7 +368,8 @@
 #define DLOG_ID_ACK_CONNECTIONS_FALLBACK   7   // BeeboCompanion.cpp processAck(): no expected_ack_table[] match, falling through to checkConnectionsAck()
 #define DLOG_ID_ACK_NO_MATCH               8   // BeeboCompanion.cpp processAck(): neither expected_ack_table[] nor checkConnectionsAck() matched
 #define DLOG_ID_BOOT_ROLE_NAME             9   // Beebo.cpp, right after RLOG_ID_BOOT_ROLE_BEGIN_DONE: this board/node's own identity at boot -- board.name (physical board alias, BeeboBoardPrefs.h's board_name), the live role's node.name (NodePrefs.h's node_name), and which role (companion/repeater) actually came up
-// 9-99 reserved for future non-trace DLOGH/M/L call sites.
+#define DLOG_ID_CLOCK_DRIFT_SET            10  // ESP32Board.cpp beebo_clockDrift(offset): a client's sync attempt was rejected (device measured ahead) -- offset persisted to NVS for a future boot's applyDriftOffset_() to consume, not itself a correction (see RLOG_ID_CLOCK_SYNC for the boot-time correction event)
+// 10-99 reserved for future non-trace DLOGH/M/L call sites.
 // beebo: BEEBO_USB_RXTX_TRACE (DualModeSerialInterface.cpp) opt-in trace ids.
 #define DLOG_ID_USB_RX_TRACE               100   // one byte read off the wire, with the parser state it landed in
 #define DLOG_ID_USB_TX_TRACE               101   // one writeFrame() call sending a frame out
@@ -595,28 +598,33 @@ extern DebugLog debug_log;
 #define DLOGL(id, fmt, ...) do {} while (0)
 #endif
 
-// beebo: BEEBO_RAW_SUB_DEBUG_LOG_ENABLE=1 lives here (not generated from
+// beebo: BEEBO_RAW_SUB_DBG_ENABLE=1 lives here (not generated from
 // protocol.yaml, since this raw-marker layer is deliberately distinct from
 // -- and below -- the CMD_BEEBO/sub_id wire format that generator covers).
-// BEEBO_RAW_SUB_KEEPALIVE=2 is a fire-and-forget no-op that lets a client
-// keep an otherwise-idle USB session's liveness timer alive without
-// touching this enable/disable state -- see connect.py's periodic
-// keepalive during `beebo -i`.
+// sub_id 2 (formerly BEEBO_RAW_SUB_KEEPALIVE) retired 2026-09-13 -- never
+// actually sent by the CLI (dead since introduction); BEEBO_RAW_SUB_TIME_SYNC
+// already refreshes USB liveness identically (DualModeSerialInterface's own
+// per-sub-id liveness check) while also doing real clock-sync work, so it
+// fully subsumed this sub-id's only purpose. Never reassign sub_id 2.
 // BEEBO_RAW_SUB_TIME_SYNC=3 carries a 4-byte little-endian epoch-seconds
-// payload (unlike the other two sub-ids' single data byte -- see
-// DualModeSerialInterface's per-sub-id payload length) and doubles as a
-// keepalive: the --debug link sends it periodically instead of
-// BEEBO_RAW_SUB_KEEPALIVE whenever it wants to also keep the device clock
-// corrected without a full authenticated CMD_SET_DEVICE_TIME session
-// (see beebo_applyRawTimeSync()'s forward-only-correction rule, same as
-// CMD_SET_DEVICE_TIME).
-#define BEEBO_RAW_SUB_DEBUG_LOG_ENABLE 1
-#define BEEBO_RAW_SUB_KEEPALIVE 2
+// payload (unlike BEEBO_RAW_SUB_DBG_ENABLE's single data byte -- see
+// DualModeSerialInterface's per-sub-id payload length); the --debug link
+// sends it periodically to keep the device clock corrected without a full
+// authenticated CMD_SET_DEVICE_TIME session (see beebo_applyRawTimeSync()'s
+// forward-only-correction rule, same as CMD_SET_DEVICE_TIME), doubling as
+// this link's own liveness keepalive.
+#define BEEBO_RAW_SUB_DBG_ENABLE 1
 #define BEEBO_RAW_SUB_TIME_SYNC 3
 
-// beebo: DEBUG_LOG_ENABLE/BEEBO_RAW_SUB_DEBUG_LOG_ENABLE's payload byte is a
+// beebo: DEBUG_LOG_ENABLE/BEEBO_RAW_SUB_DBG_ENABLE's payload byte is a
 // bitmask, not a bare bool, as of plans/MLOG_LIVE_STREAM.md -- bit 0 is the
 // original DLOG/RLOG enable (an old client sending bare 0/1 is unaffected),
 // bit 1 is the new MLOG enable.
 #define DEBUG_LOG_ENABLE_BIT_DLOG 0x01
 #define DEBUG_LOG_ENABLE_BIT_MLOG 0x02
+// beebo: suppresses MLOG's replay-on-enable backlog walk (MonRing::
+// requestMlogReplay()) without touching live MLOG delivery -- for a
+// session that only wants to watch from here on, not print the ring's
+// existing history at connect time. Kept in sync by hand with
+// _usb_raw.py's own DEBUG_LOG_ENABLE_BIT_NO_REPLAY.
+#define DEBUG_LOG_ENABLE_BIT_NO_REPLAY 0x04

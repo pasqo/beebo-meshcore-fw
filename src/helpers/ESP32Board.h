@@ -25,7 +25,7 @@
 // beebo: non-static (unlike the rest of this file's small helpers) so
 // ESP32Board.cpp's definition can log RLOG_ID_CLOCK_NVM_PUSH -- this header
 // deliberately stays free of DebugLog.h (compiled for many non-beebo board
-// environments), same reasoning as beebo_currentClockDrift()'s own comment
+// environments), same reasoning as beebo_clockDrift()'s own comment
 // below. Called from reboot()/rebootWithTime() (below) AND from every
 // accepted clock-set call site (CommonCLI.cpp, Beebo.cpp) so rtc_ts stays
 // fresh across an ordinary sync, not just an explicit reboot -- see
@@ -33,23 +33,35 @@
 void beebo_persistRTCTimeForReboot(uint32_t ts);
 void beebo_persistRTCTimeForReboot();
 
-void beebo_recordClockDrift(uint32_t offset);
-
-// beebo: current persisted drift_off, read-only -- 0 if never recorded or
-// already cleared. Used directly by Beebo.cpp (which already includes
-// DebugLog.h/RLOGM) to log RLOG_ID_CLOCK_DRIFT itself; CommonCLI.cpp uses
+// beebo: beebo_clockDrift(offset) persists OFFSET as the new drift_off and
+// returns it; beebo_clockDrift() (no args) reads back whatever's currently
+// persisted, read-only -- 0 if never recorded or already cleared. Same
+// set-vs-read overload split as beebo_persistRTCTimeForReboot() above.
+// Used directly by Beebo.cpp (which already includes DebugLog.h/RLOGM) to
+// log RLOG_ID_CLOCK_SYNC itself; CommonCLI.cpp uses
 // beebo_logCurrentClockDrift() below instead, since it's shared code that
 // doesn't pull in DebugLog.h.
-uint32_t beebo_currentClockDrift();
+uint32_t beebo_clockDrift(uint32_t offset);
+uint32_t beebo_clockDrift();
 
-// beebo: reads the current persisted drift_off and logs RLOG_ID_CLOCK_DRIFT
+// beebo: reads the current persisted drift_off and logs RLOG_ID_CLOCK_SYNC
 // with it -- for callers (CommonCLI.cpp) that can't call RLOGM directly
 // (this is shared code compiled for boards with no DebugLog.h at all).
-// Called at every accepted clock-set call site, not just when a new offset
-// is recorded/cleared, so a client watching --debug sees this device's
-// drift-compensation state on every "clock"/sync, whether or not that
-// particular call changed it.
+// Called on a no-op clock query (nothing was corrected this call), so a
+// client watching --debug sees this device's persisted-drift state on
+// every "clock"/sync, whether or not that particular call changed it. For
+// a call that DID just correct or reject a sync, log the immediate signed
+// delta via beebo_logClockDrift() below instead -- it says what just
+// happened, not what's still pending from a previous rejection.
 void beebo_logCurrentClockDrift();
+
+// beebo: same shared-code reason as beebo_logCurrentClockDrift() above --
+// logs RLOG_ID_CLOCK_SYNC(delta) directly, for a caller that already knows
+// the exact signed delta of what just happened: negative when a sync was
+// just accepted and applied (curr - secs, curr < secs), positive when one
+// was just rejected and persisted for a future boot to apply (curr - secs,
+// curr > secs).
+void beebo_logClockDrift(int32_t delta);
 #endif
 
 class ESP32Board : public mesh::MainBoard {
@@ -284,7 +296,7 @@ public:
       tv.tv_usec = 0;
       settimeofday(&tv, NULL);
 #ifdef BEEBO_RTC_PERSIST
-      // beebo: deferred the same way CLOCK_DRIFT_APPLIED/CLOCK_DRIFT(0) are
+      // beebo: deferred the same way RLOG_ID_CLOCK_SYNC is
       // (see takePendingDriftLog()'s comment) -- this runs before MonRing's
       // sink exists. detail = what was actually applied (tv.tv_sec), so a
       // client can tell a genuine cold boot (this event present, likely
@@ -337,20 +349,16 @@ public:
   // microseconds apart in practice (both run at the very top of setup()),
   // so the deferred RLOGM's own millis()-stamped timestamp is still
   // effectively the real one.
+  // beebo: true once applyDriftOffset_() has run (has_offset was true, i.e.
+  // a drift_off key existed and was cleared) -- out_offset is the amount
+  // actually subtracted from the live clock (0 if the device_now_t >
+  // drift_offset guard didn't pass). One RLOG_ID_CLOCK_SYNC(out_offset)
+  // covers the whole boot-time correction; false (nothing to log) when
+  // applyDriftOffset_() found no drift_off key at all.
   bool takePendingDriftLog(uint32_t *out_offset) {
     if (!_pending_drift_log) return false;
     _pending_drift_log = false;
     *out_offset = _pending_drift_offset;
-    return true;
-  }
-
-  // beebo: same deferred-logging reason as takePendingDriftLog() above --
-  // true once applyDriftOffset_() has cleared the NVS drift_off key,
-  // meaning the caller should log RLOG_ID_CLOCK_DRIFT(0) once MonRing's
-  // sink exists.
-  bool takePendingDriftCleared() {
-    if (!_pending_drift_cleared) return false;
-    _pending_drift_cleared = false;
     return true;
   }
 
@@ -370,7 +378,7 @@ public:
   // RLOG_CLOCK_SRC_RTC/NVM/FALLBACK) -- read, not consumed/cleared, since
   // Beebo::startMonRing() logs it paired with every RLOG_ID_CLOCK_SET it
   // emits, including ones from runtime commands long after boot (which pass
-  // RLOG_CLOCK_SRC_CMD directly instead of calling this).
+  // RLOG_CLOCK_SRC_SYNC directly instead of calling this).
   uint8_t bootClockSource() const { return _pending_clock_src; }
 
   // beebo: deferred the same way takePendingNvmPull() above is -- true
@@ -390,7 +398,6 @@ private:
   void applyDriftOffset_();
   bool _pending_drift_log = false;
   uint32_t _pending_drift_offset = 0;
-  bool _pending_drift_cleared = false;
   uint8_t _pending_clock_src = CLOCK_SRC_RTC;
   bool _pending_nvm_pull_log = false;
   uint32_t _pending_nvm_pull_value = 0;

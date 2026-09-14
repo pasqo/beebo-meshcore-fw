@@ -333,7 +333,7 @@ public:
   // count as a stray app-connect attempt. That DEBUG payload still has to
   // reach the real caller-visible dest/type -- this poll would otherwise
   // read it into `scratch` and discard it, silently losing a raw control
-  // frame (e.g. BEEBO_RAW_SUB_DEBUG_LOG_ENABLE) any time USB isn't this
+  // frame (e.g. BEEBO_RAW_SUB_DBG_ENABLE) any time USB isn't this
   // tick's session owner/winner, which is the common case for a
   // debug-only `beebo -d` link running alongside a real BLE/TCP session.
   // Returns true (and fills dest/type/out_len) exactly when that happened;
