@@ -1689,35 +1689,17 @@ void Beebo::applyRadioPrefs() {
 // build routes WiFi/LWIP through PSRAM). Takes a fraction of free PSRAM, capped,
 // so it never exceeds the ~2 MB total and always leaves the rest free. Still a
 // one-shot setup-time allocation — never freed, never in the loop.
-// beebo: capture a (epoch_sec, millis()) anchor pair for MonRing::init()/
-// clear()/setTimeAnchor() -- see plans/MONITORING_UNIFICATION.md Design #1.
-// A single getCurrentTime() read has up to ~999ms of unknowable phase
-// error (the RTC only reports whole seconds, so a bare read doesn't say
-// how far into that second it actually is) -- harmless for the *relative*
-// ordering MonRing needs internally, but a real *absolute* bias against
-// true wall-clock time once logs from multiple devices are compared. Fixed
-// by briefly polling for the RTC's own second-rollover edge and pairing
-// that exact instant's millis() with the new epoch second, bounding the
-// anchor's error to loop-iteration/poll jitter instead of up to 999ms.
-// Bounded to just over 1 real second so a frozen/never-ticking clock (unit
-// tests, or genuinely broken hardware) can't hang boot -- falls back to a
-// plain unedged read in that case, same accuracy as before this existed.
-static void captureTimeAnchor(mesh::RTCClock *clock, uint32_t *out_epoch_sec, uint32_t *out_millis_ms) {
-  uint32_t start_epoch = clock->getCurrentTime();
-  uint32_t start_millis = millis();
-  while (millis() - start_millis < 1100) {
-    uint32_t epoch = clock->getCurrentTime();
-    if (epoch != start_epoch) {
-      *out_epoch_sec = epoch;
-      *out_millis_ms = millis();
-      return;
-    }
-  }
-  // Edge never observed within the timeout -- fall back to the un-edged
-  // reading rather than hang; anchor is still correct, just with the
-  // ordinary up-to-999ms phase uncertainty.
-  *out_epoch_sec = start_epoch;
-  *out_millis_ms = start_millis;
+// beebo: capture a (epoch_sec, millis(), ms_frac) anchor triple for
+// MonRing::init()/clear()/setTimeAnchor() -- see
+// plans/MONITORING_UNIFICATION.md Design #1. RTCClock::getTime() reads
+// secs+ms atomically in one call, so this is exact -- no polling for the
+// RTC's own second-rollover edge needed (that was only ever a workaround
+// for getCurrentTime()'s whole-seconds-only resolution).
+static void captureTimeAnchor(mesh::RTCClock *clock, uint32_t *out_epoch_sec, uint32_t *out_millis_ms, uint16_t *out_ms_frac) {
+  uint16_t ms;
+  clock->getTime(*out_epoch_sec, ms);
+  *out_millis_ms = millis();
+  *out_ms_frac = ms;
 }
 
 // beebo: claims MonRing's fixed 1MiB PSRAM block AND resolves its real time
@@ -1782,57 +1764,36 @@ void Beebo::startMonRing() {
   uint8_t *ring = (uint8_t *)heap_caps_malloc(MONRING_FIXED_BYTES, MALLOC_CAP_SPIRAM);
   if (ring == NULL) return;   // monring stays unallocated; every append becomes a no-op
   uint32_t anchor_epoch_sec, anchor_millis_ms;
-  captureTimeAnchor(getRTCClock(), &anchor_epoch_sec, &anchor_millis_ms);
+  uint16_t anchor_ms_frac;
+  captureTimeAnchor(getRTCClock(), &anchor_epoch_sec, &anchor_millis_ms, &anchor_ms_frac);
   monring.init(ring, MONRING_FIXED_BYTES, anchor_epoch_sec, anchor_millis_ms,
-               RadioRecord{}, EnvRecord{});
+               RadioRecord{}, EnvRecord{}, anchor_ms_frac);
   // beebo: wire RLOG forwarding as early as MonRing itself exists, so even
   // RLOG_ID_BOOT_START (fired immediately after this call returns, see
   // main.cpp) reaches MON_DEBUG with an already-real timestamp -- purely
   // additive, DebugLog's own live push/ring is unaffected either way.
   debug_log.setDebugSink(&Beebo::forwardDebugToMonRing);
-  // beebo: also tell the plain DLOG/RLOG live stream the real epoch is now
-  // known, the same way an explicit CMD_SET_DEVICE_TIME/"time" correction
-  // does (RLOG_ID_CLOCK_SET's own doc comment) -- otherwise a host watching
-  // --debug has no absolute time at all until some later explicit
-  // correction happens to arrive, even though the persisted+drift-corrected
-  // RTC (ESP32RTCClock::begin(), via clock_init() in main.cpp) already gave
-  // us a real epoch this early.
+
+  // beebo: ESP32RTCClock::begin() (clock_init(), main.cpp) already read/set
+  // the RTC before this function ran, but MonRing/DebugLog's sink didn't
+  // exist yet, so it couldn't log anything -- it stashed what happened in
+  // a few pending flags instead. This is the first point a log record can
+  // go anywhere, so drain those flags into real events here.
 #ifdef BEEBO_RTC_PERSIST
-  // beebo: logged first, before CLOCK_SET/CLOCK_SRC -- direct evidence of
-  // what time() held before begin() touched it at all, so a client isn't
-  // stuck inferring it from CLOCK_SET's post-correction value (see
-  // RLOG_ID_CLOCK_RTC's own DebugLog.h comment).
   uint32_t clock_rtc_value;
   if (fallback_clock.takePendingClockRtc(&clock_rtc_value)) {
     RLOGH(RLOG_ID_CLOCK_RTC, (int32_t)clock_rtc_value);
   }
-  // beebo: states *why* the epoch below is what it is -- see
-  // kbase/CLOCK_DRIFT_COMPENSATION.md's "Behavior across reset kinds" and
-  // RLOG_CLOCK_SRC_*'s own DebugLog.h comment. bootClockSource() reflects
-  // exactly one of the three branches ESP32RTCClock::begin() took, set
-  // unconditionally every boot (not a one-shot "pending" flag like the
-  // other takePending*() calls below). Packed into this CLOCK_SET's own
-  // DebugRecord._user[0] rather than a separate event -- see logRing()'s
-  // `user` parameter.
-  const uint8_t clock_src_user[5] = {fallback_clock.bootClockSource(), 0, 0, 0, 0};
+  const uint8_t clock_src_user[5] = {
+    fallback_clock.bootClockSource(), (uint8_t)anchor_ms_frac, (uint8_t)(anchor_ms_frac >> 8), 0, 0,
+  };
   RLOGH(RLOG_ID_CLOCK_SET, anchor_epoch_sec, clock_src_user);
-#else
-  RLOGH(RLOG_ID_CLOCK_SET, anchor_epoch_sec);
-#endif
-#ifdef BEEBO_RTC_PERSIST
-  // beebo: clock_init() (main.cpp, called just before this function) may
-  // have applied a drift correction via ESP32RTCClock::begin() -- that ran
-  // before the sink above existed, so it stashed the event instead of
-  // logging it directly (see takePendingDriftLog()'s own comment). Log it
-  // now that MON_DEBUG can actually receive it.
   uint32_t nvm_pull_value;
   if (fallback_clock.takePendingNvmPull(&nvm_pull_value)) {
     RLOGH(RLOG_ID_CLOCK_NVM_PULL, (int32_t)nvm_pull_value);
   }
-  uint32_t drift_offset;
-  if (fallback_clock.takePendingDriftLog(&drift_offset)) {
-    RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)-drift_offset);
-  }
+#else
+  RLOGH(RLOG_ID_CLOCK_SET, anchor_epoch_sec);
 #endif
 }
 
@@ -1861,7 +1822,8 @@ uint32_t Beebo::applyClockSync(
   bool boot,
   uint16_t ms,
   int32_t *out_delta_ms,
-  uint16_t *out_prior_ms
+  uint16_t *out_prior_ms,
+  uint8_t src
 ) {
   uint32_t curr_secs;
   uint16_t curr_ms16;
@@ -1877,7 +1839,8 @@ uint32_t Beebo::applyClockSync(
   int64_t delta_ms = (int64_t)next_ms - (int64_t)curr_ms;  // > 0 behind, < 0 ahead
   if (out_delta_ms) *out_delta_ms = (int32_t)delta_ms;
 
-  RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)delta_ms);
+  const uint8_t sync_src_user[5] = {src, 0, 0, 0, 0};
+  RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)delta_ms, sync_src_user);
 
   if (delta_ms > CLOCK_SYNC_WINDOW_MS) {
     // behind -- forward-correct, atomically, at full precision.
@@ -1909,12 +1872,15 @@ uint32_t Beebo::applyClockSync(
     // within the dead-band either direction -- already in sync, nothing
     // to correct.
   } else {
-    // ahead-drift, beyond the dead-band: curr_ms > next_ms. beebo_clockDrift()
-    // is a plain no-op read-back when BEEBO_RTC_PERSIST is off (see its own
-    // comment, ESP32Board.h) -- BEEBO_RTC_PERSIST guards NVM read/write only,
-    // nothing else, so scheduleReboot() itself is unconditional here too.
-    beebo_clockDrift((uint32_t)-delta_ms);
-    if (boot) scheduleReboot();
+    // ahead-drift, beyond the dead-band: curr_ms > next_ms. SECS/MS is
+    // already the caller's real, correct time -- no need to persist it as
+    // an offset for some future boot to subtract from whatever the RTC
+    // has drifted to by then (that window can itself accumulate
+    // oscillator error). BOOT reboots immediately with this exact known-
+    // correct time; without BOOT, nothing is corrected here -- there's no
+    // silent future-organic-reboot fixup anymore, the caller must ask
+    // again with BOOT (or `beebo reboot`) to apply it.
+    if (boot) scheduleRebootAt(secs, ms);
   }
   return curr_secs;
 }
@@ -5341,15 +5307,10 @@ void Beebo::handleCmdFrame(size_t len) {
         break;
       case 2: {
         // beebo: not radioIsIdle()-verified -- see initMonRing()'s comment.
-        // Deliberately a plain unedged read, not captureTimeAnchor()'s
-        // second-rollover poll -- this runs synchronously inside a command
-        // handler responding to a connected client, unlike the boot-time
-        // anchor where an up-to-1.1s blocking wait has no such observer.
-        // Up to ~999ms of absolute-time phase error on a mid-session clear
-        // is an acceptable trade for not stalling a live command response.
         resetBattTrendRef(_batt_state, _cached_batt_mv, _board.batt_present);
-        uint32_t now_epoch = (uint32_t)getRTCClock()->getCurrentTime();
-        monring.clear(now_epoch, (uint32_t)millis(), buildRadioRecord(), buildEnvRecord());
+        uint32_t now_epoch; uint16_t now_ms;
+        getRTCClock()->getTime(now_epoch, now_ms);
+        monring.clear(now_epoch, (uint32_t)millis(), buildRadioRecord(), buildEnvRecord(), now_ms);
         break;
       }
       default: writeErrFrame(ERR_CODE_ILLEGAL_ARG); return;
@@ -5826,8 +5787,9 @@ void Beebo::checkSerialInterface() {
         _pending_time_sync = true;
         _pending_time_sync_secs = secs;
         _pending_time_sync_ms = ms;
+        _pending_time_sync_anchor_ms = millis();
       } else {
-        applyClockSync(secs, false, ms);
+        applyClockSync(secs, false, ms, nullptr, nullptr, RLOG_CLOCK_SRC_KEEPALIVE);
       }
       uint8_t ack[3] = { RESP_CODE_BEEBO, BEEBO_RESP_RAW_ACK, raw_sub };
       usb_interface.writeFrameBestEffort(ack, 3);
@@ -6252,18 +6214,39 @@ void Beebo::loop() {
   // clock jump backward after every OTA update. Every scheduleReboot()
   // caller, OTA_END included, syncs the clock over the normal path
   // first, so the device's own current time is already correct by the
-  // time this runs. Fires once the session state machine itself reports
-  // SESSION_IDLE (scheduleReboot()'s own comment, Beebo.h) -- not a
-  // guessed millis() window.
+  // time this runs. scheduleRebootAt() (an ahead-drift correction) goes
+  // through rebootWithTime() instead -- the live clock is still ahead
+  // right up to this point, so board.reboot() would just re-persist
+  // that wrong value; rebootWithTime() sets the known-correct time and
+  // restarts atomically. Fires once the session state machine itself
+  // reports SESSION_IDLE (scheduleReboot()'s own comment, Beebo.h) -- not
+  // a guessed millis() window.
   if (_pending_reboot && serial_interface.isSessionIdle()) {
-    board.reboot();
+    if (_pending_reboot_with_time) {
+      // beebo: scheduleRebootAt()'s SECS/MS was captured when the ahead-
+      // drift was detected, not now -- add back the elapsed time since
+      // then (the session-idle wait) so the time actually applied is
+      // still correct at the moment it's applied, not stale by however
+      // long that wait took.
+      uint32_t elapsed_ms = (uint32_t)millis() - _pending_reboot_anchor_ms;
+      uint64_t total_ms = (uint64_t)_pending_reboot_ts * 1000 + _pending_reboot_ts_ms + elapsed_ms;
+      board.rebootWithTime((uint32_t)(total_ms / 1000), (uint16_t)(total_ms % 1000));
+    } else {
+      board.reboot();
+    }
   }
 
   // beebo: apply a raw TIME_SYNC keepalive that arrived mid-replay -- see
-  // _pending_time_sync's own comment (Beebo.h).
+  // _pending_time_sync's own comment (Beebo.h). SECS/MS was captured when
+  // the frame arrived, not now -- add back the elapsed replay-drain time
+  // so the applied value isn't stale by however long that wait was (same
+  // reasoning as scheduleRebootAt()'s own anchor, above).
   if (_pending_time_sync && !monring.isMlogReplaying() && !monring.mlogReplayPending()) {
     _pending_time_sync = false;
-    applyClockSync(_pending_time_sync_secs, false, _pending_time_sync_ms);
+    uint32_t elapsed_ms = (uint32_t)millis() - _pending_time_sync_anchor_ms;
+    uint64_t total_ms = (uint64_t)_pending_time_sync_secs * 1000 + _pending_time_sync_ms + elapsed_ms;
+    applyClockSync((uint32_t)(total_ms / 1000), false, (uint16_t)(total_ms % 1000),
+                   nullptr, nullptr, RLOG_CLOCK_SRC_KEEPALIVE);
   }
 
   // beebo: refresh the cached battery reading — the ADC read blocks for
@@ -7458,7 +7441,6 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     _parseClockSyncArgs(&command[11], secs, boot, ms);
     uint32_t prior = applyClockSync(secs, boot != 0, (uint16_t)ms);
     sprintf(reply, "%lu", (unsigned long)prior);
-    if (secs == 0) RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)-beebo_clockDrift());
   } else if (memcmp(command, "clock", 5) == 0) {
     // beebo: see CommonCLI.cpp's identical "clock" comment.
     uint32_t secs, boot, ms;
@@ -7466,7 +7448,6 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     uint32_t prior = applyClockSync(secs, boot != 0, (uint16_t)ms);
     DateTime dt = DateTime(prior);
     sprintf(reply, "%02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
-    if (secs == 0) RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)-beebo_clockDrift());
   } else if (memcmp(command, "time ", 5) == 0) {
     // beebo: legacy command, wire format untouched -- see applyClockSync()'s
     // own comment for the shared correction/rejection logic this defers to.

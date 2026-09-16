@@ -745,11 +745,12 @@ public:
   bool saveRegions() override { return region_map.save(_store->getPrimaryFS()); }
   void onDefaultRegionChanged(const RegionEntry* r) override { /* beebo: region_map's own default-region flag is persisted by saveRegions() above; no separate live-scoping consumer wired yet, unlike _role_state->prefs.default_scope_key's own periodic-advert path */ }
   void setRxBoostedGain(bool enable) override { radio_driver.setRxBoostedGainMode(enable); }
-  // beebo: no timestamp to carry through scheduleReboot() -- the caller
-  // already persisted the drift itself (beebo_clockDrift()) before
-  // requesting this, so the next boot's applyDriftOffset_() corrects the
-  // clock on its own, the same way any other reboot would. Unconditional --
-  // BEEBO_RTC_PERSIST guards NVM read/write only, not this.
+  // beebo: satisfies CommonCLI's callback interface, but unreachable in
+  // practice -- Beebo::handleCommand() intercepts "clock.epoch"/"clock"/
+  // "time " itself (below) before CommonCLI::handleCommand() ever runs,
+  // so CommonCLI.cpp's own ahead-drift path that calls this never fires
+  // for multi_role. Beebo's own ahead-drift correction goes through
+  // applyClockSync() -> scheduleRebootAt() instead (own comment below).
   void scheduleRebootWithTime() override { scheduleReboot(); }
 #endif
 
@@ -759,12 +760,35 @@ private:
   // _pending_reboot, and loop() fires the real reboot only once
   // serial_interface.isSessionIdle() reports the session state machine
   // has itself transitioned to SESSION_IDLE (see _pending_reboot's own
-  // comment, below), not a guessed millis() window. No timestamp to
-  // carry through: every caller, OTA_END included, syncs the clock (and
-  // therefore persists any ms-precision drift via beebo_clockDrift())
-  // over the normal clock-sync path before requesting a reboot, so the
-  // next boot's applyDriftOffset_() corrects the clock on its own.
+  // comment, below), not a guessed millis() window. Reboots with
+  // whatever time is already live (already correct -- every caller,
+  // OTA_END included, syncs the clock over the normal path first).
   void scheduleReboot() {
+    _pending_reboot = true;
+    _pending_reboot_with_time = false;
+  }
+
+  // beebo: for an ahead-drift correction specifically -- the caller
+  // (applyClockSync()) already has the real, correct time (SECS/MS, the
+  // connected client's own clock) right at the moment it detects the
+  // device is ahead, so there's no need to persist it as an offset for
+  // some future boot to subtract from whatever the RTC has drifted to
+  // by then (which itself accumulates oscillator error over that
+  // window). Just carry the known-correct time straight through to
+  // rebootWithTime() -- but the actual reboot only fires later, once
+  // the session goes idle (loop()'s poll), so SECS/MS alone would go
+  // stale by however long that wait is. Anchor it against millis() here
+  // and let the fire site (Beebo.cpp) add back the elapsed time -- same
+  // pattern as MonRing's own epoch-plus-millis()-offset anchoring. Once
+  // rebootWithTime() itself runs (settimeofday() then esp_restart()),
+  // the RTC/timer hardware keeps ticking straight through the soft
+  // reset, so no further compensation is needed for the reboot/boot
+  // process itself.
+  void scheduleRebootAt(uint32_t secs, uint16_t ms) {
+    _pending_reboot_ts = secs;
+    _pending_reboot_ts_ms = ms;
+    _pending_reboot_anchor_ms = millis();
+    _pending_reboot_with_time = true;
     _pending_reboot = true;
   }
 
@@ -801,9 +825,14 @@ private:
   // RTCClock::getTime() -- lets a widened reply (CMD_GET_DEVICE_TIME) carry
   // real device ms precision instead of the caller reconstructing an
   // RTT-estimated approximation of it.
+  //
+  // SRC tags RLOG_ID_CLOCK_SYNC's own _user[0] (RLOG_CLOCK_SRC_SYNC by
+  // default) -- pass RLOG_CLOCK_SRC_KEEPALIVE from the raw
+  // BEEBO_RAW_SUB_TIME_SYNC path so its (much less precise) delta isn't
+  // confused with an explicit client request's in the log.
   uint32_t applyClockSync(
     uint32_t secs, bool boot, uint16_t ms = 0, int32_t *out_delta_ms = nullptr,
-    uint16_t *out_prior_ms = nullptr
+    uint16_t *out_prior_ms = nullptr, uint8_t src = RLOG_CLOCK_SRC_SYNC
   );
 
   // Returns true (once) when CMD_SET_WIFI_CREDS was received; loop()'s own
@@ -1769,6 +1798,15 @@ private:
   // loop()'s poll once serial_interface.isSessionIdle() reports the
   // session has actually ended.
   bool _pending_reboot = false;
+  // beebo: set by scheduleRebootAt() -- when true, loop()'s pending-reboot
+  // poll fires board.rebootWithTime(_pending_reboot_ts, _pending_reboot_ts_ms)
+  // instead of board.reboot(), so an ahead-drift correction reboots with
+  // the known-correct time rather than re-persisting whatever the (still
+  // ahead) live clock currently reads.
+  bool _pending_reboot_with_time = false;
+  uint32_t _pending_reboot_ts = 0;
+  uint16_t _pending_reboot_ts_ms = 0;
+  uint32_t _pending_reboot_anchor_ms = 0;
   // beebo: the raw BEEBO_RAW_SUB_TIME_SYNC keepalive's applyClockSync() call
   // is held here instead of running immediately whenever MonRing's MLOG
   // backlog replay is still draining (monring.isMlogReplaying()) -- applying
@@ -1781,6 +1819,7 @@ private:
   bool _pending_time_sync = false;
   uint32_t _pending_time_sync_secs = 0;
   uint16_t _pending_time_sync_ms = 0;
+  uint32_t _pending_time_sync_anchor_ms = 0;
   // beebo: (bool)Serial's own last-seen state -- see
   // _checkTransportStateChanges()'s own comment for why the DebugLog
   // reset-on-disconnect is keyed on this real hardware signal instead of

@@ -202,22 +202,15 @@
 // bits, LO carries the last 4 bytes (bda[2..5]) packed MSB-first.
 #define RLOG_ID_BLE_LOCAL_ADDR_HI     49
 #define RLOG_ID_BLE_LOCAL_ADDR_LO     50
-// beebo: clock-drift compensation tracing (see kbase/CLOCK_DRIFT_COMPENSATION.md)
-// -- reports the *current* persisted drift_off (0 = none), so a client
-// watching --debug sees this device's drift state on every event that
-// could change or consume it, not just the moment it's first recorded:
-// - beebo_clockDrift(offset): a client's sync attempt was rejected
-//   (device measured ahead) -- detail = the newly-recorded offset.
-// - every accepted clock-set call site (CommonCLI.cpp's "clock sync"/
-//   "time ", Beebo.cpp's CMD_SET_DEVICE_TIME/"time ") -- detail = whatever
-//   is currently persisted (normally 0, unless an old offset predates
-//   this correction and hasn't been consumed by a reboot yet).
-// - applyDriftOffset_(): once per boot, after it clears drift_off --
-//   detail = the amount it actually subtracted from the live clock (0 if
-//   has_offset was false, or the device_now_t > drift_offset guard didn't
-//   pass). Subsumes what used to be a separate RLOG_ID_CLOCK_DRIFT_APPLIED
-//   event immediately followed by a CLOCK_DRIFT(0) -- one boot-time
-//   correction is one event, not two.
+// beebo: fired once per Beebo::applyClockSync() call with a nonzero SECS
+// (a pure read logs nothing) -- detail = the exact signed ms delta this
+// call classified against (> 0 = was behind, < 0 = was ahead, magnitude
+// <= CLOCK_SYNC_WINDOW_MS = already in sync, nothing corrected). _user[0]
+// is one of RLOG_CLOCK_SRC_SYNC (an explicit client request -- session-
+// based, RTT-compensated) or RLOG_CLOCK_SRC_KEEPALIVE (BEEBO_RAW_SUB_TIME_SYNC's
+// session-less background keepalive, debug_link.py) -- the two have very
+// different accuracy, so don't compare their deltas as if they were the
+// same measurement.
 #define RLOG_ID_CLOCK_SYNC  51
 // beebo: boot-time sub-checkpoints inside Beebo::begin(), between
 // RLOG_ID_BOOT_STORAGE_READY and RLOG_ID_BOOT_TRANSPORTS_READY -- added to
@@ -272,6 +265,7 @@
 #define RLOG_CLOCK_SRC_NVM      1   // restored from the persisted rtc_ts (genuine cold-boot ESP_RST_POWERON, RLOG_ID_CLOCK_NVM_PULL logged alongside)
 #define RLOG_CLOCK_SRC_FALLBACK 2   // no rtc_ts ever persisted -- fell back to the fixed placeholder date (RTC_FALLBACK_EPOCH)
 #define RLOG_CLOCK_SRC_SYNC      3   // set by an explicit client command (CMD_SET_DEVICE_TIME, "time ", "clock sync")
+#define RLOG_CLOCK_SRC_KEEPALIVE 4   // BEEBO_RAW_SUB_TIME_SYNC's session-less background keepalive (debug_link.py), not an explicit client request -- see RLOG_ID_CLOCK_SYNC's own comment
 
 // beebo: RLOG_ID_BLE_HANDSHAKE sub-ids (detail bits 0-7) -- bits 8-31 are
 // this sub-id's own payload, interpreted per step below. CONNECT has none
