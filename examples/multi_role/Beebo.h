@@ -795,7 +795,16 @@ private:
   // what actually happened (e.g. a text-CLI reply) use the exact same
   // value this function's own decision was based on, instead of
   // re-deriving an approximation of it from SECS/the returned prior time.
-  uint32_t applyClockSync(uint32_t secs, bool boot, uint16_t ms = 0, int32_t *out_delta_ms = nullptr);
+  //
+  // OUT_PRIOR_MS, if non-null, receives the sub-second component (0-999)
+  // of the returned prior time, read atomically alongside it via
+  // RTCClock::getTime() -- lets a widened reply (CMD_GET_DEVICE_TIME) carry
+  // real device ms precision instead of the caller reconstructing an
+  // RTT-estimated approximation of it.
+  uint32_t applyClockSync(
+    uint32_t secs, bool boot, uint16_t ms = 0, int32_t *out_delta_ms = nullptr,
+    uint16_t *out_prior_ms = nullptr
+  );
 
   // Returns true (once) when CMD_SET_WIFI_CREDS was received; loop()'s own
   // transport-management block (below) uses this as an edge-triggered input

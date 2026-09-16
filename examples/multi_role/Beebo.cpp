@@ -1847,24 +1847,32 @@ static constexpr int64_t CLOCK_SYNC_WINDOW_MS = 100;
 // declaration (Beebo.h) for the full SECS/BOOT/MS/return-value contract.
 // The ahead/behind decision and every drift figure compare precise epoch
 // milliseconds throughout -- NEXT_MS (the caller's SECS/MS) against
-// CURR_MS (monring.nowEpochMs(): the time anchor plus elapsed millis(),
-// NOT a plain RTCClock read, which only ever has whole-second resolution
-// and doesn't itself reflect any ms-precision correction already applied
-// to the anchor -- plans/MS_PRECISION_CLOCK_ANCHOR.md). RTCClock itself
-// stays exactly as before: read once as CURR for the return value/log
-// display, and -- when correcting forward -- set to SECS directly
-// (unrounded, same call as before this parameter existed), never to a
-// derived/discretized value.
+// CURR_MS, read directly and atomically from RTCClock::getTime() (backed
+// by gettimeofday() on ESP32Board -- see its own comment). This replaced
+// MonRing's separate time-anchor-plus-elapsed-millis() reconstruction
+// (plans/MS_PRECISION_CLOCK_ANCHOR.md): that anchor could silently drift
+// away from RTCClock's own value once established (nothing ever compared
+// the two directly), since a correction only fired when the *anchor*
+// judged itself out of the dead-band, not when RTCClock itself was.
+// Reading RTCClock directly makes that drift structurally impossible --
+// decision and reported value now always come from the same single read.
 uint32_t Beebo::applyClockSync(
-  uint32_t secs, bool boot, uint16_t ms, int32_t *out_delta_ms
+  uint32_t secs,
+  bool boot,
+  uint16_t ms,
+  int32_t *out_delta_ms,
+  uint16_t *out_prior_ms
 ) {
-  uint32_t curr = getRTCClock()->getCurrentTime();
+  uint32_t curr_secs;
+  uint16_t curr_ms16;
+  getRTCClock()->getTime(curr_secs, curr_ms16);
+  if (out_prior_ms) *out_prior_ms = curr_ms16;
   if (secs == 0) {
     if (out_delta_ms) *out_delta_ms = 0;
-    return curr;   // pure read -- no change, nothing logged
+    return curr_secs;   // pure read -- no change, nothing logged
   }
 
-  uint64_t curr_ms = monring.nowEpochMs((uint32_t)millis());
+  uint64_t curr_ms = (uint64_t)curr_secs * 1000 + curr_ms16;
   uint64_t next_ms = (uint64_t)secs * 1000 + ms;
   int64_t delta_ms = (int64_t)next_ms - (int64_t)curr_ms;  // > 0 behind, < 0 ahead
   if (out_delta_ms) *out_delta_ms = (int32_t)delta_ms;
@@ -1872,9 +1880,13 @@ uint32_t Beebo::applyClockSync(
   RLOGH(RLOG_ID_CLOCK_SYNC, (int32_t)delta_ms);
 
   if (delta_ms > CLOCK_SYNC_WINDOW_MS) {
-    // behind -- forward-correct. RTCClock only ever takes SECS itself
-    // (still seconds-only); the anchor gets the full precise target.
-    getRTCClock()->setCurrentTime(secs);
+    // behind -- forward-correct, atomically, at full precision.
+    getRTCClock()->setTime(secs, ms);
+    // beebo: MonRing's own anchor is a separate, storage-compaction concern
+    // (ring records keep a compact millis()-offset rather than a full
+    // timestamp each) -- reseed it here so it stays consistent with the
+    // clock we just set, but nothing above depends on it for the sync
+    // decision above anymore.
     monring.setTimeAnchor(secs, (uint32_t)millis(), ms);
     // beebo: no prior-value byte needed anymore -- the RLOG_ID_CLOCK_SYNC
     // just above already carries the exact ms-precision delta this
@@ -1904,7 +1916,7 @@ uint32_t Beebo::applyClockSync(
     beebo_clockDrift((uint32_t)-delta_ms);
     if (boot) scheduleReboot();
   }
-  return curr;
+  return curr_secs;
 }
 
 
@@ -3552,14 +3564,20 @@ void Beebo::handleCmdFrame(size_t len) {
     // an old/third-party client sending the bare 1-byte opcode (len < 6)
     // gets exactly today's plain read, no side effects (applyClockSync(0,
     // false) is a pure no-op read). len 6-7 is the existing whole-seconds
-    // beebo path; len >= 8 adds ms, refining MonRing's anchor/drift
-    // storage without changing what RTCClock itself is set to. A beebo
-    // client sending the extra bytes gets a combined
-    // get+set+optional-reboot in one round trip -- see applyClockSync()'s
-    // own comment (Beebo.h) for the full semantics. The reply is always
-    // RESP_CODE_CURR_TIME + the clock's value *before* any change,
-    // unchanged format either way, so the caller can compute its own
-    // drift locally without a second round trip.
+    // beebo path; len >= 8 adds ms, refining the sync decision without
+    // changing what RTCClock itself is set to. A beebo client sending the
+    // extra bytes gets a combined get+set+optional-reboot in one round
+    // trip -- see applyClockSync()'s own comment (Beebo.h) for the full
+    // semantics. The reply is always RESP_CODE_CURR_TIME + the clock's
+    // value *before* any change, so the caller can compute its own drift
+    // locally without a second round trip -- widened the same way as the
+    // request: len < 8 (a client that hasn't opted into ms-precision
+    // requests) gets exactly the original 5-byte [opcode][secs] reply;
+    // len >= 8 (a client that already sends ms) gets 2 extra trailing
+    // [ms: u16] bytes carrying the device's own real sub-second reading,
+    // atomically sampled alongside secs (RTCClock::getTime()) rather than
+    // an RTT-estimated approximation the caller would otherwise have to
+    // reconstruct.
     uint32_t secs = 0;
     uint8_t boot = 0;
     uint16_t ms = 0;
@@ -3567,14 +3585,19 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&secs, &cmd_frame[1], 4);
       boot = cmd_frame[5];
     }
-    if (len >= 8) {
+    bool ms_capable = len >= 8;
+    if (ms_capable) {
       memcpy(&ms, &cmd_frame[6], 2);
     }
-    uint32_t prior = applyClockSync(secs, boot != 0, ms);
-    uint8_t reply[5];
+    uint16_t prior_ms = 0;
+    uint32_t prior = applyClockSync(secs, boot != 0, ms, nullptr, &prior_ms);
+    uint8_t reply[7];
     reply[0] = RESP_CODE_CURR_TIME;
     memcpy(&reply[1], &prior, 4);
-    _serial->writeFrame(reply, 5);
+    if (ms_capable) {
+      memcpy(&reply[5], &prior_ms, 2);
+    }
+    _serial->writeFrame(reply, ms_capable ? 7 : 5);
   } else if (cmd_frame[0] == CMD_SET_DEVICE_TIME && len >= 5) {
     // beebo: legacy opcode, wire format untouched -- see applyClockSync()'s
     // own comment for the shared correction/rejection logic this defers to.

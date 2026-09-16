@@ -102,6 +102,26 @@ public:
   virtual void setCurrentTime(uint32_t time) = 0;
 
   /**
+   * \param secs  current time in UNIX epoch seconds (out param).
+   * \param ms    sub-second component of secs, 0-999 (out param).
+   * Default implementation has no sub-second source of its own -- just
+   * defers to getCurrentTime() with ms=0. Override in a subclass whose
+   * underlying clock actually has sub-second precision available (e.g.
+   * one already backed by gettimeofday()) so callers can get both atomically
+   * in one call instead of two separately-timed ones.
+  */
+  virtual void getTime(uint32_t &secs, uint16_t &ms) { secs = getCurrentTime(); ms = 0; }
+
+  /**
+   * \param secs  current time in UNIX epoch seconds.
+   * \param ms    sub-second component of secs, 0-999.
+   * Default implementation has nowhere to put sub-second precision -- just
+   * defers to setCurrentTime(secs), discarding ms. Override alongside
+   * getTime() in a subclass that can actually set it atomically.
+  */
+  virtual void setTime(uint32_t secs, uint16_t ms) { setCurrentTime(secs); }
+
+  /**
    * override in classes that need to periodically update internal state
    */
   virtual void tick() { /* no op */}

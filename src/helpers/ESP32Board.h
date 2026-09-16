@@ -207,6 +207,12 @@ public:
   // NVS backup) stays seconds-only, unaffected.
   void rebootWithTime(uint32_t ts, uint16_t ts_ms = 0) {
     beebo_persistRTCTimeForReboot(ts);
+    // beebo: clear any stale recorded drift -- TS is already the correct,
+    // authoritative time, so the next boot's applyDriftOffset_() must not
+    // also subtract a leftover offset from some earlier, unrelated
+    // ahead-detection on top of it (that double-correction turns a device
+    // stuck ahead into one stuck behind by the same amount).
+    beebo_clockDrift(0);
     struct timeval tv;
     tv.tv_sec = ts;
     tv.tv_usec = (long)ts_ms * 1000;
@@ -322,6 +328,23 @@ public:
     struct timeval tv;
     tv.tv_sec = time;
     tv.tv_usec = 0;
+    settimeofday(&tv, NULL);
+  }
+
+  // beebo: one atomic gettimeofday()/settimeofday() call each, straight to
+  // the same underlying clock getCurrentTime()/setCurrentTime() use -- no
+  // separate anchor/millis() bookkeeping to keep in sync with this. See
+  // plans/MS_PRECISION_CLOCK_ANCHOR.md's retirement in favor of this pair.
+  void getTime(uint32_t &secs, uint16_t &ms) override {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    secs = tv.tv_sec;
+    ms = tv.tv_usec / 1000;
+  }
+  void setTime(uint32_t secs, uint16_t ms) override {
+    struct timeval tv;
+    tv.tv_sec = secs;
+    tv.tv_usec = (long)ms * 1000;
     settimeofday(&tv, NULL);
   }
 

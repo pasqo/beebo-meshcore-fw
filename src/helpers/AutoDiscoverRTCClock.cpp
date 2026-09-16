@@ -97,3 +97,20 @@ void AutoDiscoverRTCClock::setCurrentTime(uint32_t time) {
     _fallback->setCurrentTime(time);
   }
 }
+
+void AutoDiscoverRTCClock::getTime(uint32_t &secs, uint16_t &ms) {
+  if (ds3231_success || rv3028_success || rtc_8563_success || rtc_8130_success) {
+    secs = getCurrentTime();  // none of these chips expose sub-second precision
+    ms = 0;
+  } else {
+    _fallback->getTime(secs, ms);
+  }
+}
+
+void AutoDiscoverRTCClock::setTime(uint32_t secs, uint16_t ms) {
+  if (ds3231_success || rv3028_success || rtc_8563_success || rtc_8130_success) {
+    setCurrentTime(secs);  // none of these chips can be set with sub-second precision
+  } else {
+    _fallback->setTime(secs, ms);
+  }
+}
