@@ -1487,7 +1487,7 @@ void Beebo::begin() {
   // usb off buys nothing power-wise once both radios are off, so use it as
   // the fallback instead of forcing a radio back on -- an explicit "set usb
   // off" later is still honoured, this only fires here at load.
-  if (!_role_state->prefs.ble_enabled && !(_role_state->prefs.tcp_enabled && _role_state->prefs.wifi_ssid[0] != '\0')) {
+  if (!_role_state->prefs.ble_enabled && !(_role_state->prefs.tcp_enabled && _role_state->prefs.wifi_ssid[0] != '\0' && _role_state->prefs.wifi_pwd[0] != '\0')) {
     _role_state->prefs.usb_enabled = 1;
   }
 
@@ -1634,7 +1634,8 @@ void Beebo::_checkTransportStateChanges() {
 
 void Beebo::beginTransports() {
   bool ble_on = _role_state->prefs.ble_enabled != 0;
-  bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0';
+  bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0'
+      && _role_state->prefs.wifi_pwd[0] != '\0';
   bool usb_on = _role_state->prefs.usb_enabled != 0;
 
   // beebo: boot bring-up reuses the exact same convergence logic as every
@@ -2657,7 +2658,7 @@ bool Beebo::tlvSetTransportConfig(Beebo* self, uint8_t role, uint32_t raw) {
   slot.prefs.ble_enabled = new_ble ? 1 : 0;
   slot.prefs.tcp_enabled = new_tcp ? 1 : 0;
   bool remote_off = !slot.prefs.ble_enabled
-      && !(slot.prefs.tcp_enabled && slot.prefs.wifi_ssid[0] != '\0');
+      && !(slot.prefs.tcp_enabled && slot.prefs.wifi_ssid[0] != '\0' && slot.prefs.wifi_pwd[0] != '\0');
   if (remote_off) slot.prefs.usb_enabled = 1;
   persistRoleSlot(self, role, slot);
   // beebo: no separate "apply live" signal needed -- driveBtp()/driveUsb()
@@ -6687,7 +6688,8 @@ void Beebo::loopTransports() {
   }
 
   bool ble_on = _role_state->prefs.ble_enabled != 0;
-  bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0';
+  bool tcp_on = _role_state->prefs.tcp_enabled != 0 && _role_state->prefs.wifi_ssid[0] != '\0'
+      && _role_state->prefs.wifi_pwd[0] != '\0';
   bool usb_on = _role_state->prefs.usb_enabled != 0;
   bool creds_changed = consumeWifiCredsPending();
   bool ble_connected = ble_interface.isConnected();
