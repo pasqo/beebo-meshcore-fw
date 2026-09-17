@@ -124,6 +124,14 @@
 // so both Beebo.cpp (shared dispatch/plumbing) and BeeboCompanion.cpp (the
 // BaseChatMesh-contract overrides) can see them -- each .cpp is its own
 // translation unit, so a #define local to one is invisible to the other.
+// GEN_CMD_NAMES_START -- tools/gen_debug_names.py scrapes this block into
+// the host's CMD_NAMES (beebo/src/beebo/_debug_names_gen.py, merged with
+// CMD_BEEBO/RESP_CODE_BEEBO in monitor.py), so a DLOG_ID_CMD_RECV/CMD_DONE
+// line's "cmd=0x%04x" outer byte can be decoded to a real name in --debug
+// output without firmware storing any string table itself -- see that
+// event's own comment (Beebo.cpp). Replaces monitor.py's old hand-
+// maintained copy of this same table, which could silently drift from
+// this file.
 #define CMD_APP_START                 1
 #define CMD_SEND_TXT_MSG              2
 #define CMD_SEND_CHANNEL_TXT_MSG      3
@@ -182,6 +190,7 @@
 #define CMD_SET_DEFAULT_FLOOD_SCOPE   63
 #define CMD_GET_DEFAULT_FLOOD_SCOPE   64
 #define CMD_SEND_RAW_PACKET           65
+// GEN_CMD_NAMES_END
 
 // Stats sub-types for CMD_GET_STATS
 #define STATS_TYPE_CORE               0
