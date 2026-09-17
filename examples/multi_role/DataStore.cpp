@@ -393,16 +393,96 @@ void DataStore::saveBeeboBoardPrefs(const BeeboBoardPrefs& _prefs) {
 // file.available(), not plain existence, or the com_prefs blob silently
 // never gets populated from the file (com_prefs keeps whatever the
 // ctor/previous-boot RAM state was).
-bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _board, void* com_prefs, size_t com_prefs_len) {
+// beebo: ComPrefs (CommonCLI.h's upstream NodePrefs) stopped being a plain
+// POD struct as of companion-v1.17.1's ConfigSerializer refactor -- it now
+// carries a vtable and several ConfigSerializer-derived sub-object members
+// (radio/bridge/gps/power/repeat/room), each with its own vtable and a
+// pointer back to the parent object. A raw sizeof(ComPrefs) byte blob (the
+// pre-1.17.1 approach this used to use) blits that live, pointer-laden
+// object's memory straight from/to disk -- corrupting the vtable and every
+// field at the first mismatch between on-disk and in-memory layout. Fields
+// below are read/written individually instead, in ComPrefs's own declared
+// order, skipping its ConfigSerializer sub-objects entirely (they're
+// text-CLI serialization glue, not backing data -- see CommonCLI.h).
+static size_t comPrefsFieldsLen(const ComPrefs& c) {
+  return sizeof(c.airtime_factor) + sizeof(c.node_name) + sizeof(c.node_lat) + sizeof(c.node_lon)
+    + sizeof(c.password) + sizeof(c.freq) + sizeof(c.tx_power_dbm) + sizeof(c.disable_fwd)
+    + sizeof(c.advert_interval) + sizeof(c.flood_advert_interval) + sizeof(c.rx_delay_base)
+    + sizeof(c.tx_delay_factor) + sizeof(c.guest_password) + sizeof(c.direct_tx_delay_factor)
+    + sizeof(c.guard) + sizeof(c.sf) + sizeof(c.cr) + sizeof(c.allow_read_only) + sizeof(c.multi_acks)
+    + sizeof(c.bw) + sizeof(c.flood_max) + sizeof(c.flood_max_unscoped) + sizeof(c.flood_max_advert)
+    + sizeof(c.interference_threshold) + sizeof(c.agc_reset_interval) + sizeof(c.bridge_enabled)
+    + sizeof(c.bridge_delay) + sizeof(c.bridge_pkt_src) + sizeof(c.bridge_baud) + sizeof(c.bridge_channel)
+    + sizeof(c.bridge_secret) + sizeof(c.powersaving_enabled) + sizeof(c.gps_enabled) + sizeof(c.gps_interval)
+    + sizeof(c.advert_loc_policy) + sizeof(c.discovery_mod_timestamp) + sizeof(c.adc_multiplier)
+    + sizeof(c.owner_info) + sizeof(c.rx_boosted_gain) + sizeof(c.radio_fem_rxgain) + sizeof(c.radio_fem_txgain)
+    + sizeof(c.path_hash_mode) + sizeof(c.loop_detect) + sizeof(c.cad_enabled) + sizeof(c.extra_sf);
+}
+
+bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _board) {
   bool has_com_prefs = false;
+  ComPrefs& c = _prefs;  // BeeboRepeaterPrefs's ComPrefs base -- see BeeboRepeaterPrefs.h
   File file = openRead(_fs, "/beebo_repeater");
   if (file) {
     file.read((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));   // 0
-    // next: 4 -- ComPrefs blob folded in from here. Only present in a
-    // post-fold-in file -- an old-format /beebo_repeater ends right here.
-    has_com_prefs = (size_t)file.available() >= com_prefs_len;
+    // next: 4 -- ComPrefs fields folded in from here, one at a time (see
+    // comment above). Only present in a post-fold-in file -- an
+    // old-format /beebo_repeater ends right here.
+    // beebo: also require repeater_prefs_version >= 3 -- a device that
+    // last saved under the broken raw-blob build (BeeboAbi.h) has a file
+    // whose ComPrefs region is a different, larger byte count, which would
+    // otherwise still satisfy the available() check below and get
+    // misread against the new field boundaries. Treated as "no com_prefs
+    // yet" instead, so Beebo::loadRoleState() falls through to a clean
+    // reseed from /com_prefs or /prefs.json.
+    has_com_prefs = _abi.repeater_prefs_version >= REPEATER_PREFS_VERSION
+      && (size_t)file.available() >= comPrefsFieldsLen(c);
     if (has_com_prefs) {
-      file.read((uint8_t *)com_prefs, com_prefs_len);                                // 4, raw ComPrefs blob
+      file.read((uint8_t *)&c.airtime_factor, sizeof(c.airtime_factor));             // 4, ComPrefs fields
+      file.read((uint8_t *)c.node_name, sizeof(c.node_name));
+      file.read((uint8_t *)&c.node_lat, sizeof(c.node_lat));
+      file.read((uint8_t *)&c.node_lon, sizeof(c.node_lon));
+      file.read((uint8_t *)c.password, sizeof(c.password));
+      file.read((uint8_t *)&c.freq, sizeof(c.freq));
+      file.read((uint8_t *)&c.tx_power_dbm, sizeof(c.tx_power_dbm));
+      file.read((uint8_t *)&c.disable_fwd, sizeof(c.disable_fwd));
+      file.read((uint8_t *)&c.advert_interval, sizeof(c.advert_interval));
+      file.read((uint8_t *)&c.flood_advert_interval, sizeof(c.flood_advert_interval));
+      file.read((uint8_t *)&c.rx_delay_base, sizeof(c.rx_delay_base));
+      file.read((uint8_t *)&c.tx_delay_factor, sizeof(c.tx_delay_factor));
+      file.read((uint8_t *)c.guest_password, sizeof(c.guest_password));
+      file.read((uint8_t *)&c.direct_tx_delay_factor, sizeof(c.direct_tx_delay_factor));
+      file.read((uint8_t *)&c.guard, sizeof(c.guard));
+      file.read((uint8_t *)&c.sf, sizeof(c.sf));
+      file.read((uint8_t *)&c.cr, sizeof(c.cr));
+      file.read((uint8_t *)&c.allow_read_only, sizeof(c.allow_read_only));
+      file.read((uint8_t *)&c.multi_acks, sizeof(c.multi_acks));
+      file.read((uint8_t *)&c.bw, sizeof(c.bw));
+      file.read((uint8_t *)&c.flood_max, sizeof(c.flood_max));
+      file.read((uint8_t *)&c.flood_max_unscoped, sizeof(c.flood_max_unscoped));
+      file.read((uint8_t *)&c.flood_max_advert, sizeof(c.flood_max_advert));
+      file.read((uint8_t *)&c.interference_threshold, sizeof(c.interference_threshold));
+      file.read((uint8_t *)&c.agc_reset_interval, sizeof(c.agc_reset_interval));
+      file.read((uint8_t *)&c.bridge_enabled, sizeof(c.bridge_enabled));
+      file.read((uint8_t *)&c.bridge_delay, sizeof(c.bridge_delay));
+      file.read((uint8_t *)&c.bridge_pkt_src, sizeof(c.bridge_pkt_src));
+      file.read((uint8_t *)&c.bridge_baud, sizeof(c.bridge_baud));
+      file.read((uint8_t *)&c.bridge_channel, sizeof(c.bridge_channel));
+      file.read((uint8_t *)c.bridge_secret, sizeof(c.bridge_secret));
+      file.read((uint8_t *)&c.powersaving_enabled, sizeof(c.powersaving_enabled));
+      file.read((uint8_t *)&c.gps_enabled, sizeof(c.gps_enabled));
+      file.read((uint8_t *)&c.gps_interval, sizeof(c.gps_interval));
+      file.read((uint8_t *)&c.advert_loc_policy, sizeof(c.advert_loc_policy));
+      file.read((uint8_t *)&c.discovery_mod_timestamp, sizeof(c.discovery_mod_timestamp));
+      file.read((uint8_t *)&c.adc_multiplier, sizeof(c.adc_multiplier));
+      file.read((uint8_t *)c.owner_info, sizeof(c.owner_info));
+      file.read((uint8_t *)&c.rx_boosted_gain, sizeof(c.rx_boosted_gain));
+      file.read((uint8_t *)&c.radio_fem_rxgain, sizeof(c.radio_fem_rxgain));
+      file.read((uint8_t *)&c.radio_fem_txgain, sizeof(c.radio_fem_txgain));
+      file.read((uint8_t *)&c.path_hash_mode, sizeof(c.path_hash_mode));
+      file.read((uint8_t *)&c.loop_detect, sizeof(c.loop_detect));
+      file.read((uint8_t *)&c.cad_enabled, sizeof(c.cad_enabled));
+      file.read((uint8_t *)c.extra_sf, sizeof(c.extra_sf));
       // next: BeeboBasePrefs's remaining fields folded in from here --
       // repeater's own independent copy of every BeeboBasePrefs field.
       // Tail-guarded, same has_com_prefs-style hazard as above: a file
@@ -470,11 +550,58 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
   return has_com_prefs;
 }
 
-void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoardPrefs& _board, const void* com_prefs, size_t com_prefs_len) {
+void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoardPrefs& _board) {
+  const ComPrefs& c = _prefs;  // BeeboRepeaterPrefs's ComPrefs base -- see BeeboRepeaterPrefs.h
   File file = openWrite(_fs, "/beebo_repeater");
   if (file) {
     file.write((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));   // 0
-    file.write((const uint8_t *)com_prefs, com_prefs_len);                            // 4, raw ComPrefs blob
+    // ComPrefs fields, one at a time -- see loadBeeboRepeaterPrefs()'s
+    // comment on why this can no longer be a raw struct blob.
+    file.write((uint8_t *)&c.airtime_factor, sizeof(c.airtime_factor));               // 4, ComPrefs fields
+    file.write((uint8_t *)c.node_name, sizeof(c.node_name));
+    file.write((uint8_t *)&c.node_lat, sizeof(c.node_lat));
+    file.write((uint8_t *)&c.node_lon, sizeof(c.node_lon));
+    file.write((uint8_t *)c.password, sizeof(c.password));
+    file.write((uint8_t *)&c.freq, sizeof(c.freq));
+    file.write((uint8_t *)&c.tx_power_dbm, sizeof(c.tx_power_dbm));
+    file.write((uint8_t *)&c.disable_fwd, sizeof(c.disable_fwd));
+    file.write((uint8_t *)&c.advert_interval, sizeof(c.advert_interval));
+    file.write((uint8_t *)&c.flood_advert_interval, sizeof(c.flood_advert_interval));
+    file.write((uint8_t *)&c.rx_delay_base, sizeof(c.rx_delay_base));
+    file.write((uint8_t *)&c.tx_delay_factor, sizeof(c.tx_delay_factor));
+    file.write((uint8_t *)c.guest_password, sizeof(c.guest_password));
+    file.write((uint8_t *)&c.direct_tx_delay_factor, sizeof(c.direct_tx_delay_factor));
+    file.write((uint8_t *)&c.guard, sizeof(c.guard));
+    file.write((uint8_t *)&c.sf, sizeof(c.sf));
+    file.write((uint8_t *)&c.cr, sizeof(c.cr));
+    file.write((uint8_t *)&c.allow_read_only, sizeof(c.allow_read_only));
+    file.write((uint8_t *)&c.multi_acks, sizeof(c.multi_acks));
+    file.write((uint8_t *)&c.bw, sizeof(c.bw));
+    file.write((uint8_t *)&c.flood_max, sizeof(c.flood_max));
+    file.write((uint8_t *)&c.flood_max_unscoped, sizeof(c.flood_max_unscoped));
+    file.write((uint8_t *)&c.flood_max_advert, sizeof(c.flood_max_advert));
+    file.write((uint8_t *)&c.interference_threshold, sizeof(c.interference_threshold));
+    file.write((uint8_t *)&c.agc_reset_interval, sizeof(c.agc_reset_interval));
+    file.write((uint8_t *)&c.bridge_enabled, sizeof(c.bridge_enabled));
+    file.write((uint8_t *)&c.bridge_delay, sizeof(c.bridge_delay));
+    file.write((uint8_t *)&c.bridge_pkt_src, sizeof(c.bridge_pkt_src));
+    file.write((uint8_t *)&c.bridge_baud, sizeof(c.bridge_baud));
+    file.write((uint8_t *)&c.bridge_channel, sizeof(c.bridge_channel));
+    file.write((uint8_t *)c.bridge_secret, sizeof(c.bridge_secret));
+    file.write((uint8_t *)&c.powersaving_enabled, sizeof(c.powersaving_enabled));
+    file.write((uint8_t *)&c.gps_enabled, sizeof(c.gps_enabled));
+    file.write((uint8_t *)&c.gps_interval, sizeof(c.gps_interval));
+    file.write((uint8_t *)&c.advert_loc_policy, sizeof(c.advert_loc_policy));
+    file.write((uint8_t *)&c.discovery_mod_timestamp, sizeof(c.discovery_mod_timestamp));
+    file.write((uint8_t *)&c.adc_multiplier, sizeof(c.adc_multiplier));
+    file.write((uint8_t *)c.owner_info, sizeof(c.owner_info));
+    file.write((uint8_t *)&c.rx_boosted_gain, sizeof(c.rx_boosted_gain));
+    file.write((uint8_t *)&c.radio_fem_rxgain, sizeof(c.radio_fem_rxgain));
+    file.write((uint8_t *)&c.radio_fem_txgain, sizeof(c.radio_fem_txgain));
+    file.write((uint8_t *)&c.path_hash_mode, sizeof(c.path_hash_mode));
+    file.write((uint8_t *)&c.loop_detect, sizeof(c.loop_detect));
+    file.write((uint8_t *)&c.cad_enabled, sizeof(c.cad_enabled));
+    file.write((uint8_t *)c.extra_sf, sizeof(c.extra_sf));
     // next: BeeboBasePrefs's remaining fields, see loadBeeboRepeaterPrefs()
     // Explicitly BeeboBasePrefs's own field -- see loadBeeboRepeaterPrefs()'s
     // matching comment on why this must be qualified.

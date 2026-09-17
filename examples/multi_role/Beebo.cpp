@@ -1292,8 +1292,11 @@ void Beebo::loadRoleState(uint8_t role) {
       }
 #endif
     }
-    // beebo: SETTINGS_ISOLATION -- ComPrefs now folds into /beebo_repeater
-    // (raw blob). Only a true first boot (no /beebo_repeater yet) reads
+    // beebo: SETTINGS_ISOLATION -- ComPrefs now folds into /beebo_repeater,
+    // field-by-field (see DataStore.cpp's loadBeeboRepeaterPrefs() -- a raw
+    // struct blob stopped being safe once upstream's companion-v1.17.1
+    // ConfigSerializer refactor made ComPrefs polymorphic). Only a true
+    // first boot (no /beebo_repeater yet) reads
     // /com_prefs or /prefs.json at all, via CommonCLI's own (untouched)
     // loadPrefs() -- read-only, neither source file is ever written back
     // to. Check both: a device whose only prior firmware is upstream
@@ -1305,7 +1308,7 @@ void Beebo::loadRoleState(uint8_t role) {
     // that call to land correctly (it may not be the live role yet),
     // restored to the live role's slot afterward by begin()'s own repoint
     // once every role has loaded.
-    bool beebo_repeater_existed = _store->loadBeeboRepeaterPrefs(slot.prefs, _board, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
+    bool beebo_repeater_existed = _store->loadBeeboRepeaterPrefs(slot.prefs, _board);
     if (!beebo_repeater_existed) {
       FILESYSTEM* fs = _store->getPrimaryFS();
       if (fs->exists("/com_prefs") || fs->exists("/prefs.json")) {
@@ -1317,7 +1320,7 @@ void Beebo::loadRoleState(uint8_t role) {
       // in this role's own prefs, seeded by loadBeeboRepeaterPrefs()/
       // loadBeeboCompanionPrefs() from whichever role loaded first if this
       // is genuinely the second role ever activated on this device.
-      _store->saveBeeboRepeaterPrefs(slot.prefs, _board, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
+      _store->saveBeeboRepeaterPrefs(slot.prefs, _board);
     }
     // beebo: 0 is a real, literal "disabled" value, not "unset" -- this
     // clamp only catches genuinely out-of-range data (an older beebo build's
@@ -2303,7 +2306,7 @@ void Beebo::writeDirtyPrefs() {
   if (_role_state->prefs.dirty) {
 #if BEEBO_ENABLE_REPEATER_ROLE
     if (_board.role == NODE_ROLE_REPEATER) {
-      _store->saveBeeboRepeaterPrefs(_role_state->prefs, _board, static_cast<ComPrefs*>(&_role_state->prefs), sizeof(ComPrefs));
+      _store->saveBeeboRepeaterPrefs(_role_state->prefs, _board);
     } else
 #endif
     {
@@ -2335,7 +2338,7 @@ void Beebo::reloadPrefs() {
   _role_state->prefs.dirty = _board_dirty = false;
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (isRepeater()) {
-    _store->loadBeeboRepeaterPrefs(_role_state->prefs, _board, static_cast<ComPrefs*>(&_role_state->prefs), sizeof(ComPrefs));
+    _store->loadBeeboRepeaterPrefs(_role_state->prefs, _board);
   } else
 #endif
   {
@@ -2882,7 +2885,7 @@ void Beebo::persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot) {
   }
 #if BEEBO_ENABLE_REPEATER_ROLE
   else if (role == NODE_ROLE_REPEATER) {
-    self->_store->saveBeeboRepeaterPrefs(slot.prefs, self->_board, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
+    self->_store->saveBeeboRepeaterPrefs(slot.prefs, self->_board);
   }
 #endif
 }

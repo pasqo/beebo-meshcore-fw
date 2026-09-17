@@ -126,8 +126,8 @@ public:
   // `board` param -- /beebo_board is the sole authoritative store for the
   // battery/ADC fields once repeater_prefs_version reaches
   // REPEATER_PREFS_VERSION.
-  bool loadBeeboRepeaterPrefs(BeeboPrefs& prefs, BeeboBoardPrefs& board, void* com_prefs, size_t com_prefs_len);
-  void saveBeeboRepeaterPrefs(const BeeboPrefs& prefs, const BeeboBoardPrefs& board, const void* com_prefs, size_t com_prefs_len);
+  bool loadBeeboRepeaterPrefs(BeeboPrefs& prefs, BeeboBoardPrefs& board);
+  void saveBeeboRepeaterPrefs(const BeeboPrefs& prefs, const BeeboBoardPrefs& board);
 #if BEEBO_ENABLE_COMPANION_ROLE
   void loadContacts(DataStoreHost* host);
   void saveContacts(DataStoreHost* host, bool (*filter)(const ContactInfo& c) = NULL);
