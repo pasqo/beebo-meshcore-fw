@@ -4837,6 +4837,12 @@ void Beebo::handleCmdFrame(size_t len) {
     // instead, same pre-reboot housekeeping as CMD_REBOOT otherwise.
     uint32_t secs;
     memcpy(&secs, &sub[1], 4);
+    // beebo: same length-gated widening as CMD_GET_DEVICE_TIME (see
+    // MS_PRECISION_CLOCK_ANCHOR.md) -- sub_len >= 7 appends a trailing
+    // [ms:u16] after the existing 4-byte secs; sub_len == 5 or 6 stays
+    // exactly today's whole-seconds behavior.
+    uint16_t ms = 0;
+    if (sub_len >= 7) memcpy(&ms, &sub[5], 2);
     if (dirty_contacts_expiry) {
 #if BEEBO_ENABLE_REPEATER_ROLE
       if (isRepeater()) acl.save(_store->getPrimaryFS());
@@ -4845,7 +4851,7 @@ void Beebo::handleCmdFrame(size_t len) {
       saveContacts();
 #endif
     }
-    board.rebootWithTime(secs);
+    board.rebootWithTime(secs, ms);
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: the whole GET/SET_REGION_* cluster below talks to region_map
   // directly (a RegionMap member that only exists in this build config --

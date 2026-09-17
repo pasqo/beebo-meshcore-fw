@@ -645,6 +645,41 @@ TEST(MonRing, SetTimeAnchorDoesNotTouchRingContents) {
   EXPECT_EQ(4980u, out[1].sync.timestamp);  // new anchor's epoch (5000) bucketed down to the minute
 }
 
+// beebo: MS_PRECISION_CLOCK_ANCHOR.md -- g_time_anchor_ms_frac (0-999)
+// folds a sub-second component into the anchor. nowEpochMs() is the
+// direct, ms-precision read of "device's real now" -- these tests pin
+// down its arithmetic against init()'s/setTimeAnchor()'s ms_frac param,
+// separately from _ensureSync()'s coarser (whole-second-bucketed)
+// SyncRecord.timestamp, which these don't touch.
+TEST(MonRingTimeAnchorMsFrac, NowEpochMsIncludesFracAtSameInstantAsAnchor) {
+  RingFixture<8> f;
+  f.ring.setTimeAnchor(1000, 1000, /*anchor_ms_frac=*/500);
+  // Same millis() instant as the anchor -- elapsed 0, so nowEpochMs() is
+  // exactly the anchor's own (secs, ms_frac).
+  EXPECT_EQ(1000500ull, f.ring.nowEpochMs(1000));
+}
+
+TEST(MonRingTimeAnchorMsFrac, NowEpochMsAdvancesByElapsedMillisPastFrac) {
+  RingFixture<8> f;
+  f.ring.setTimeAnchor(1000, 1000, /*anchor_ms_frac=*/700);
+  // +350ms elapsed since the anchor: 700+350 crosses the next whole second.
+  EXPECT_EQ(1001050ull, f.ring.nowEpochMs(1350));
+}
+
+TEST(MonRingTimeAnchorMsFrac, InitMsFracDefaultsToZero) {
+  // Every pre-existing init() call site (no trailing arg) must keep
+  // behaving exactly as before ms_frac was added.
+  RingFixture<8> f(1000, 60);
+  EXPECT_EQ(1000000ull, f.ring.nowEpochMs(1000));
+}
+
+TEST(MonRingTimeAnchorMsFrac, InitSeedsMsFracThroughToNowEpochMs) {
+  MonRing ring;
+  uint8_t buf[1024];
+  ring.init(buf, sizeof(buf), 2000, 3000, RadioRecord{}, EnvRecord{}, /*anchor_ms_frac=*/250);
+  EXPECT_EQ(2000250ull, ring.nowEpochMs(3000));
+}
+
 TEST(MonRing, NoteRadioAndSampleEnvAreNoOpsWhenUnchanged) {
   RingFixture<8> f;
   f.ring.noteRadio(makeRadio(), 1000);
