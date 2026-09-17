@@ -125,10 +125,10 @@ void SerialBLEInterface::initRadio() {
   // Every official ESP-IDF BLE security example sets both explicitly to
   // the same mask; iOS's SMP implementation is known to be stricter than
   // Android's about the bonding key set actually offered, and confirmed on
-  // real hardware (2026-09-09) to cost several seconds of silent stall
+  // real hardware to cost several seconds of silent stall
   // during the key-exchange step on a *fresh* pair (never on a reconnect,
   // which skips key distribution and reuses the existing LTK) -- see
-  // BUGS.md and RLOG_ID_BLE_HANDSHAKE's own comment in DebugLog.h.
+  // RLOG_ID_BLE_HANDSHAKE's own comment in DebugLog.h.
   sec.setRespEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
   sec.setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
 
@@ -325,8 +325,8 @@ void SerialBLEInterface::enable() {
   // already false by then too (disable() runs before deinitRadio() in
   // applyTransportConfig()), so the guard above doesn't catch this case --
   // pService->start() below would crash (LoadProhibited) on the null pointer.
-  // Reproduced on real hardware as a repeatable BLE<->TCP switch reboot
-  // (BUGS.md 2026-09-02), the mirror-image case of disable()'s own guard.
+  // Reproduced on real hardware as a repeatable BLE<->TCP switch reboot,
+  // the mirror-image case of disable()'s own guard.
   if (pServer == NULL) return;
 
   _isEnabled = true;
@@ -353,7 +353,7 @@ void SerialBLEInterface::disable() {
   // ->stop() then fails (esp_ble_gap_stop_advertising: rc=259) and
   // pServer->disconnect(last_conn_id) crashes inside esp_ble_gatts_close()
   // (LoadProhibited) -- reproduced on real hardware as a BLE->TCP switch
-  // reboot (BUGS.md 2026-09-02). enable() already guards the same way
+  // reboot. enable() already guards the same way
   // (see its own `if (_isEnabled) return;` above); disable() needs the
   // identical guard.
   if (!_isEnabled) return;
@@ -368,9 +368,8 @@ void SerialBLEInterface::disable() {
   adv_restart_time = 0;
 }
 
-// beebo: forcibly evict a central that connected while this transport isn't
-// the session owner (MultiSerialInterface's non-owner-eviction pass, see
-// plans/TRANSPORT_STATE_MACHINE.md's "Session arbitration state machine").
+// Forcibly evict a central that connected while this transport isn't
+// the session owner (MultiSerialInterface's non-owner-eviction pass).
 // Unlike disable(), this leaves advertising/the GATT service running --
 // this transport keeps listening for the *next* legitimate session, only
 // the stray peer that shouldn't have been allowed to attach is dropped.
@@ -552,7 +551,7 @@ bool SerialBLEInterface::isConnected() const {
 // (loopTransports() calls requestHealthSample(), then can call
 // ble_interface.disable()+deinitRadio() later in the very same tick on a
 // live BLE->TCP switch) and reproduced on real hardware as a hang +
-// watchdog reboot (BUGS.md). This does NOT fix that race -- it's not
+// watchdog reboot. This does NOT fix that race -- it's not
 // gated any differently, still fires the read whenever connected -- it
 // only adds the bookkeeping (_rssi_read_inflight) needed to observe, via
 // the ring, how often a teardown actually lands mid-read in practice,

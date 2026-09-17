@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-// beebo: BeeboPrefs unification (SETTINGS_REFACTOR.md Part 1) -- currently
+// Currently
 // empty of its own beebo-only fields (dedup_window_ms moved to
 // BeeboBasePrefs, see that file). Kept as a distinct type anyway:
 // DataStore's saveBeeboRepeaterPrefs/loadBeeboRepeaterPrefs signatures

@@ -26,7 +26,7 @@ void Beebo::beginCompanion() {
 void Beebo::loopCompanion(bool skip_radio) {
   if (!skip_radio) {
     BaseChatMesh::loop();
-    checkAckTableTimeouts();  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9
+    checkAckTableTimeouts();
   }
 #ifdef BEEBO_CPU_ACCOUNTING
   uint32_t link_start_us = micros();
@@ -160,7 +160,7 @@ ContactInfo*  Beebo::processAck(const uint8_t *data) {
   return result;
 }
 
-// beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- walks every in-flight slot, not
+// Walks every in-flight slot, not
 // just the one BaseChatMesh's own txt_send_timeout scalar happens to be
 // tracking (see BaseChatMesh.h's noteAckTimeout() comment for why that
 // undercounts). A slot past its own timeout_ms with no ACK yet is a
@@ -504,8 +504,8 @@ bool Beebo::onContactPathRecv(ContactInfo& contact, uint8_t* in_path, uint8_t in
 uint32_t Beebo::calcFloodTimeoutMillisFor(uint32_t pkt_airtime_millis) const {
   return SEND_TIMEOUT_BASE_MILLIS + (FLOOD_SEND_TIMEOUT_FACTOR * pkt_airtime_millis);
 }
-// beebo: calcDirectTimeoutMillisFor moved to Beebo.cpp (unconditional) --
-// see its own comment in Beebo.h, BASECHATMESH_ROLE_SPLIT.md Phase 2.
+// calcDirectTimeoutMillisFor moved to Beebo.cpp (unconditional) --
+// see its own comment in Beebo.h.
 
 void Beebo::onSendTimeout() {}
 #endif // BEEBO_ENABLE_COMPANION_ROLE

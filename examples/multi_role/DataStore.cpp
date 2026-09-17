@@ -406,8 +406,8 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
         if (_abi.repeater_prefs_version < REPEATER_PREFS_VERSION) {
           // Legacy layout only -- adc_multiplier/adc_resolution_bits/
           // batt_present/batt_sample_period_secs/batt_sample_window_secs
-          // used to be echoed here from `_board`, purely as a one-time
-          // migration seed for a pre-/beebo_board device. /beebo_board is
+          // are read here as a one-time migration seed for a
+          // pre-/beebo_board device. /beebo_board is
           // the sole authoritative store for these once
           // repeater_prefs_version reaches REPEATER_PREFS_VERSION.
           file.read((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));
@@ -432,12 +432,11 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
         // right after monring_config, with no mask present.
         if (file.available() >= (int)sizeof(_prefs.monring_event_mask)) {
           file.read((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
-          // beebo: ble_pin -- unlike companion's own NodePrefs fold-in
-          // (loadBeeboCompanionPrefs()), this was never wired into
-          // /beebo_repeater's own field list at all, so repeater.node.ble.pin
-          // wrote fine to RAM/flushed via the dirty-bit path but silently
-          // reverted to 0 ("unset") on every reboot (BUGS.md 2026-08-24).
-          // Appended here rather than inserted alongside companion's
+          // ble_pin -- unlike companion's own NodePrefs fold-in
+          // (loadBeeboCompanionPrefs()), without this field
+          // repeater.node.ble.pin writes fine to RAM/flushes via the
+          // dirty-bit path but silently reverts to 0 ("unset") on every
+          // reboot. Appended here rather than inserted alongside companion's
           // matching field so an existing file saved before this fix isn't
           // misread -- tail-guarded the same way monring_event_mask above
           // is, defaulting to 0 (unset) rather than misreading a foreign

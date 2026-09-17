@@ -657,11 +657,9 @@ bool Beebo::applyPrefsTlvTriplet(uint8_t role, const uint8_t* in, size_t len, si
 // multi_role's own role-aware alternative, picked by
 // Beebo::createSelfAdvertPacket()'s role dispatch (Beebo.cpp).
 #if BEEBO_ENABLE_REPEATER_ROLE
-// beebo: CommonCLICallbacks implementation -- see Beebo.h's inline overrides
+// CommonCLICallbacks implementation -- see Beebo.h's inline overrides
 // for the ones simple enough to be one-liners; the rest (needing more than a
-// single existing accessor/setter) live here. See
-// beebo/plans/COMMONCLI_TEXT_DISPATCH.md's "CommonCLICallbacks implementation
-// surface" table for what each maps onto.
+// single existing accessor/setter) live here.
 
 // beebo: PER_ROLE_IDENTITY -- this callback is only ever reached via
 // CommonCLI's "prv.key" text command, which itself is only reachable while

@@ -17,8 +17,7 @@ class MeshTables {
 public:
   virtual bool hasSeen(const Packet* packet) = 0;
   virtual void clear(const Packet* packet) = 0;   // remove this packet hash from table
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- "TX reception confirmation".
-  // Optional hook, called at every point this node transmits (self-
+  // TX reception confirmation hook: called at every point this node transmits (self-
   // originated or forwarded -- see Mesh::sendFlood/sendDirect/sendZeroHop's
   // own "packet as already sent" call sites, right alongside hasSeen()) so
   // an implementation that wants to correlate a later duplicate/RX with a

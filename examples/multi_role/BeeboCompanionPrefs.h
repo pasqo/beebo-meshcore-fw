@@ -3,7 +3,7 @@
 #include "NodePrefs.h"
 #include "BeeboBoardPrefs.h"
 
-// beebo: BeeboPrefs unification (SETTINGS_REFACTOR.md Part 1) -- currently
+// Currently
 // empty of its own beebo-only fields (all moved to BeeboBasePrefs, see that
 // file). Kept as a distinct type anyway: DataStore's
 // saveBeeboCompanionPrefs/loadBeeboCompanionPrefs signatures reference it,

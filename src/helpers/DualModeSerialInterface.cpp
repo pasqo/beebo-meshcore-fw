@@ -252,9 +252,9 @@ bool DualModeSerialInterface::feedTextByte(int c, uint8_t dest[], size_t max_len
 //    the same as partial ones, up to ZERO_WRITE_GIVEUP_MS of continuous
 //    zero-returns before finally giving up (a bound still needed for an
 //    actually-lost connection, e.g. USB physically unplugged mid-transfer).
-// beebo: 200ms was found insufficient by live repro -- a real wire capture
-// caught a frame stopping dead at 104 of a declared 168 bytes, with the
-// remaining bytes never arriving, well past that window. No caller of
+// 200ms is not long enough: a frame can stop dead at 104 of a declared
+// 168 bytes, with the remaining bytes never arriving, well past that
+// window. No caller of
 // writeFrame() can recover from a short write once the length header is
 // already on the wire (that header commits to a length before this
 // function even starts on the body -- see writeFrame() below), and every

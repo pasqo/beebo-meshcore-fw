@@ -15,7 +15,7 @@
 // definition.
 struct BeeboPrefs;
 
-// beebo: BASECHATMESH_ROLE_SPLIT.md Phase 1 -- contact/channel storage is
+// Contact/channel storage is
 // companion-only (upstream simple_repeater never has a contacts table,
 // it uses ClientACL instead), so this whole contract only needs to exist
 // for a build that compiles BaseChatMesh in.
@@ -73,11 +73,11 @@ public:
   // called once, at the true first boot before /beebo_companion exists;
   // see Beebo::begin().
   void loadLegacyNodePrefs(BeeboPrefs& prefs, double& node_lat, double& node_lon);
-  // beebo: NodePrefs (companion's radio/node settings, now folded into
+  // NodePrefs (companion's radio/node settings, now folded into
   // BeeboPrefs -- see BeeboPrefs.h) is persisted folded into
   // /beebo_companion alongside the rest of BeeboPrefs's companion-relevant
   // bases, instead of its own /new_prefs file shared with stock
-  // companion_radio -- see beebo/plans/SETTINGS_ISOLATION.md.
+  // companion_radio.
   // loadBeeboCompanionPrefs() returns true if /beebo_companion already
   // held a fully migrated NodePrefs copy -- NOT simply whether the file
   // existed, since /beebo_companion predates this fold-in and a real

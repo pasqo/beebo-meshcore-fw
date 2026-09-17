@@ -30,8 +30,7 @@ void halt() {
 // --dbglog's raw-text decode regardless (kbase/DEBUGGING.md). Lets a
 // crash/watchdog/panic reset be told apart from a real power cycle from
 // the very next boot's own trace, without needing a live JTAG session
-// attached at the moment it happens (see BUGS.md's 2026-08-31 TCP
-// reachability entry, where this gap first mattered).
+// attached at the moment it happens.
 static const char* reset_reason_str(esp_reset_reason_t r) {
   switch (r) {
     case ESP_RST_POWERON:   return "POWERON";
@@ -58,9 +57,9 @@ void setup() {
   // placeholder -- no boot event needs buffering as a result.
   clock_init();
 
-  // beebo: claim MonRing's fixed 1MiB PSRAM block before anything else,
+  // Claim MonRing's fixed 1MiB PSRAM block before anything else,
   // even the boot marker right below -- see Beebo::startMonRing()'s own
-  // comment (plans/MONITORING_UNIFICATION.md Design #2). PSRAM is already
+  // comment. PSRAM is already
   // configured by the bootloader at this point, no other setup() work
   // needed first.
   beebo.startMonRing();

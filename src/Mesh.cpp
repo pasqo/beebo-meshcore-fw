@@ -118,12 +118,10 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
 
         uint32_t d = getDirectRetransmitDelay(pkt);
         logRxDisposition(pkt, RX_DISP_FORWARDED);
-        // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- the direct-route
-        // analog of routeRecvPacket()'s flood-forward fix: pkt itself IS
-        // genuinely retransmitted here (unlike the ACK-forward branches
-        // above, which build fresh reply packets via routeDirectRecvAcks()
-        // instead -- fixed separately, at that function's own sendPacket()
-        // calls). markSelfTx() only affects self_tx_direct_count
+        // pkt itself is genuinely retransmitted here (unlike the ACK-forward
+        // branches above, which build fresh reply packets via
+        // routeDirectRecvAcks() instead, each with their own sendPacket()
+        // call). markSelfTx() only affects self_tx_direct_count
         // (visibility) for direct route, not ECHO tracking.
         _tables->markSelfTx(pkt, _radio->getEstAirtimeFor(pkt->getRawLength()));
         return ACTION_RETRANSMIT_DELAYED(0, d);  // Routed traffic is HIGHEST priority
@@ -415,15 +413,11 @@ DispatcherAction Mesh::routeRecvPacket(Packet* packet) {
       uint32_t d = getRetransmitDelay(packet);
       // as this propagates outwards, give it lower and lower priority
       logRxDisposition(packet, RX_DISP_FORWARDED);
-      // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- this IS a self-transmission
-      // (a repeater forward), the single call site covering every flood-forward
-      // payload type (ACK/PATH/REQ/RESPONSE/TXT_MSG/ANON_REQ/GRP_DATA/GRP_TXT/
-      // ADVERT all funnel through here). Found missing after gatto's real
-      // status packets showed heavy flood TX with zero RPT activity -- every
-      // repeater forward was invisible to the echo ring, only self-
-      // originated sends (Mesh.cpp's other 5 markSelfTx() sites) were ever
-      // tracked. hasSeen() was already called by the caller before this
-      // function runs, so only markSelfTx() is needed here, not both.
+      // This is a self-transmission (a repeater forward): the single call
+      // site covering every flood-forward payload type (ACK/PATH/REQ/
+      // RESPONSE/TXT_MSG/ANON_REQ/GRP_DATA/GRP_TXT/ADVERT all funnel
+      // through here). hasSeen() was already called by the caller before
+      // this function runs, so only markSelfTx() is needed here, not both.
       _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
       return ACTION_RETRANSMIT_DELAYED(packet->getPathHashCount(), d);   // give priority to closer sources, than ones further away
     }
@@ -472,14 +466,12 @@ void Mesh::routeDirectRecvAcks(Packet* packet, uint32_t delay_millis) {
         a1->path_len = Packet::copyPath(a1->path, packet->path, packet->path_len);
         a1->header &= ~PH_ROUTE_MASK;
         a1->header |= ROUTE_TYPE_DIRECT;
-        // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- a genuine new
-        // self-transmission (a fresh ack reply built on behalf of routing),
-        // sent via the low-level sendPacket() directly rather than through
-        // any of the 5 wrapper functions that already pair hasSeen()/
-        // markSelfTx() -- found missing during the same audit that found
-        // routeRecvPacket()'s flood-forward gap. Direct route, so
-        // markSelfTx() only affects self_tx_direct_count (visibility), not
-        // ECHO tracking.
+        // A genuine new self-transmission (a fresh ack reply built on
+        // behalf of routing), sent via the low-level sendPacket() directly
+        // rather than through any of the wrapper functions that already
+        // pair hasSeen()/markSelfTx(), so both calls are needed explicitly
+        // here. Direct route, so markSelfTx() only affects
+        // self_tx_direct_count (visibility), not ECHO tracking.
         _tables->hasSeen(a1);
         _tables->markSelfTx(a1, _radio->getEstAirtimeFor(a1->getRawLength()));
         sendPacket(a1, 0, delay_millis);
@@ -817,7 +809,7 @@ void Mesh::sendFlood(Packet* packet, uint32_t delay_millis, uint8_t path_hash_si
   packet->setPathHashSizeAndCount(path_hash_size, 0);
 
   _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
-  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength())); // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- record for TX-echo confirmation
+  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
 
   uint8_t pri;
   if (packet->getPayloadType() == PAYLOAD_TYPE_PATH) {
@@ -847,7 +839,7 @@ void Mesh::sendFlood(Packet* packet, uint16_t* transport_codes, uint32_t delay_m
   packet->setPathHashSizeAndCount(path_hash_size, 0);
 
   _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
-  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength())); // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- record for TX-echo confirmation
+  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
 
   uint8_t pri;
   if (packet->getPayloadType() == PAYLOAD_TYPE_PATH) {
@@ -881,7 +873,7 @@ void Mesh::sendDirect(Packet* packet, const uint8_t* path, uint8_t path_len, uin
     }
   }
   _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
-  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength())); // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- record for TX-echo confirmation
+  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
   sendPacket(packet, pri, delay_millis);
 }
 
@@ -892,7 +884,7 @@ void Mesh::sendZeroHop(Packet* packet, uint32_t delay_millis) {
   packet->path_len = 0;  // path_len of zero means Zero Hop
 
   _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
-  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength())); // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- record for TX-echo confirmation
+  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
 
   sendPacket(packet, 0, delay_millis);
 }
@@ -906,7 +898,7 @@ void Mesh::sendZeroHop(Packet* packet, uint16_t* transport_codes, uint32_t delay
   packet->path_len = 0;  // path_len of zero means Zero Hop
 
   _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
-  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength())); // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- record for TX-echo confirmation
+  _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
 
   sendPacket(packet, 0, delay_millis);
 }

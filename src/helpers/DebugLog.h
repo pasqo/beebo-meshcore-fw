@@ -71,10 +71,8 @@
 #define RLOG_ID_WIFI_STA_DISCONNECTED 14   // detail = disconnect reason code
 #define RLOG_ID_WIFI_STA_GOT_IP       15   // station (re)associated and got an IP; detail = the IPv4 address, packed MSB-first (octet1<<24 | octet2<<16 | octet3<<8 | octet4)
 // beebo: BLE session-FSM bring-up sequence, one grouped id instead of a
-// separate top-level RLOG_ID per step (added 2026-09-09 diagnosing a
-// "Failed to fetch device info" timeout that only reproduced on the first
-// connection after a fresh pair -- see BUGS.md and checkRecvFrame()'s
-// notify_ready gate) -- detail bits 0-7 = sub-id (RLOG_ID_BLE_HANDSHAKE_*
+// separate top-level RLOG_ID per step -- see checkRecvFrame()'s
+// notify_ready gate -- detail bits 0-7 = sub-id (RLOG_ID_BLE_HANDSHAKE_*
 // below), bits 8-31 = sub-id-specific payload, same shape as
 // RLOG_ID_XPORT_INIT/_CHANGE's var-id packing further below. Teardown
 // (RLOG_ID_BLE_DISCONNECT) stays its own top-level id -- this group is
@@ -87,7 +85,7 @@
 // after a BLE teardown) -- wrong framing: that API arbitrates airtime
 // between two *simultaneously* active radios, which BLE/TCP's enforced
 // mutual exclusion here guarantees never happens, and it didn't fix the
-// bug it was aimed at anyway (BUGS.md 2026-08-31). The real fix was
+// bug it was aimed at anyway. The real fix was
 // reordering applyTransportConfig() to a teardown-pass-then-bring-up-pass
 // shape; see that function's own comment.
 #define RLOG_ID_WIFI_CLIENT_REJECTED  20   // a second peer's TCP connect was accepted at the OS level (WiFiServer's backlog) while a live session was already locked in -- rejected instead of preempting it; detail = the rejected client's remote port
@@ -115,10 +113,9 @@
 #define RLOG_ID_BLE_CLIENT_ADDR_LO    28
 // 29 (RLOG_ID_BLE_HEALTH) retired 2026-09-11 -- converted to
 // DLOG_ID_BLE_HEALTH (RLOGL/DEBUG_TLOG retired).
-// beebo: MultiSerialInterface's session FSM forcibly dropped a non-owner
+// MultiSerialInterface's session FSM forcibly dropped a non-owner
 // link that reported itself connected while another transport already held
-// the session lock (see plans/TRANSPORT_STATE_MACHINE.md's "Session
-// arbitration state machine") -- a stray TCP client accepted by WiFi, a
+// the session lock -- a stray TCP client accepted by WiFi, a
 // stray BLE central completing a GATT connect, or a genuine framed/text app
 // command arriving on non-owner USB. detail = RLOG_ID_XPORT_* of the evicted
 // transport.
@@ -253,7 +250,7 @@
 // (little-endian uint16) is the new epoch's own ms fraction (0-999) --
 // `detail` (SECS) alone is only whole-second precision, same as RTCClock
 // itself, so this is what lets a reader recover the full ms-precision
-// timestamp actually anchored (plans/MS_PRECISION_CLOCK_ANCHOR.md); 0 for
+// timestamp actually anchored; 0 for
 // a plain seconds-only correction. _user[3..4] is unused/reserved -- an
 // earlier design carried the clock's own pre-correction value there so a
 // reader could see the delta without cross-referencing the nearest
@@ -275,9 +272,8 @@
 // packs bit8=success, bits16-23=fail_reason (HCI code) if failed;
 // CCCD_WRITE packs bit8=notifications now enabled -- the client's TX-
 // characteristic "enable notifications" descriptor write, the step whose
-// timing (or absence, right after a fresh pair) was the actual root cause
-// behind the "Failed to fetch device info" investigation this group was
-// added for; see checkRecvFrame()'s notify_ready gate and BUGS.md.
+// timing (or absence, right after a fresh pair) is what this group
+// exists to trace; see checkRecvFrame()'s notify_ready gate.
 #define RLOG_ID_BLE_HANDSHAKE_CONNECT           0   // onConnect() -- GATT link up
 #define RLOG_ID_BLE_HANDSHAKE_SECURITY_REQUEST  1   // onSecurityRequest() -- central asked to elevate/pair
 #define RLOG_ID_BLE_HANDSHAKE_PASSKEY_REQUEST   2   // onPassKeyRequest()
@@ -409,7 +405,7 @@ class DebugLog {
   bool _usb_enabled = false;
   bool _session_enabled = false;
 
-  // beebo: MLOG (live MonRing relay, plans/MLOG_LIVE_STREAM.md) is enabled
+  // MLOG (live MonRing relay) is enabled
   // independently of DLOG above -- same per-path (raw USB tap vs.
   // session) split, same reasoning (a raw USB tap must never also land on
   // an unrelated BLE/WiFi companion session, see attach()'s own comment).
@@ -417,8 +413,8 @@ class DebugLog {
   bool _session_mlog_enabled = false;
   uint8_t _mlog_sub_id = 0;
 
-  // beebo: forward of every H/M-severity RLOG event to MonRing's MON_DEBUG
-  // kind (plans/MONITORING_UNIFICATION.md Design #3/#6) -- a plain function
+  // Forward of every H/M-severity RLOG event to MonRing's MON_DEBUG
+  // kind -- a plain function
   // pointer, not a hardcoded MonRing/Beebo reference, so this
   // shared-location file (fw/src/helpers/) stays decoupled from
   // multi_role's own Beebo::monring (private, and not every board target
@@ -448,9 +444,9 @@ public:
   // checkSerialInterface()) -- see pushToTargets() for the routing. Each
   // path pushes only to the target that actually asked for it, so a raw USB
   // tap's stream never also gets mirrored onto an unrelated live BLE/WiFi
-  // companion session (found 2026-09-09 doing exactly that, competing with
+  // companion session, which would otherwise compete with
   // that session's own command-reply traffic for the same shallow
-  // send_queue and dropping real app frames -- see BUGS.md).
+  // send_queue and drop real app frames.
   void attach(BaseSerialInterface* serial, BaseSerialInterface* usb, uint8_t resp_code,
               uint8_t log_sub_id, uint8_t mlog_sub_id = 0) {
     _usb = usb;
@@ -465,7 +461,7 @@ public:
   bool isSessionEnabled() const { return _session_enabled; }
   bool isEnabled() const { return _usb_enabled || _session_enabled; }
 
-  // beebo: MLOG (plans/MLOG_LIVE_STREAM.md) -- independent DLOG/RLOG vs
+  // MLOG -- independent DLOG/RLOG vs
   // MLOG enable state per path, same reasoning as _usb_enabled/
   // _session_enabled above.
   void setUsbMlogEnabled(bool enabled) { _usb_mlog_enabled = enabled; }
@@ -506,8 +502,8 @@ private:
   // being enabled at all. 0/0 (epoch_sec/millis) means the anchor isn't
   // known yet (real epoch is never 0 in practice) -- a client falls back to
   // boot-relative duration in that case. anchor_ms_frac is the sub-second
-  // component of anchor_epoch_sec from a millisecond-precision clock sync
-  // (plans/MS_PRECISION_CLOCK_ANCHOR.md); 0 when the anchor is still a
+  // component of anchor_epoch_sec from a millisecond-precision clock
+  // sync; 0 when the anchor is still a
   // plain seconds-only boot-time/RTC capture.
   static size_t writeHeader(uint8_t* out, size_t cap, size_t avail_after,
                              uint8_t resp_code, uint8_t sub_id, uint16_t id,
@@ -550,7 +546,7 @@ private:
   // why that slot matters); the raw USB tap has no such shared traffic to
   // protect, so it always pushes when armed. Takes explicit usb_enabled/
   // session_enabled flags rather than reading _usb_enabled/_session_enabled
-  // directly -- DLOG/RLOG and MLOG (plans/MLOG_LIVE_STREAM.md) are enabled
+  // directly -- DLOG/RLOG and MLOG are enabled
   // independently, each with their own pair of flags, but route through
   // this same targeting logic.
   void pushToTargets(const uint8_t* out, size_t pos, bool usb_enabled, bool session_enabled) const {
@@ -568,7 +564,7 @@ private:
   }
 
 public:
-  // beebo: MLOG live push (plans/MLOG_LIVE_STREAM.md) -- wired as
+  // MLOG live push -- wired as
   // MonRing's LiveSink, so it fires from MonRing::_store() for every record
   // actually appended (and, during a disabled->enabled replay, once per
   // record already resident in the ring). Wire frame: [resp_code:1]
@@ -625,8 +621,8 @@ extern DebugLog debug_log;
 #define BEEBO_RAW_SUB_DBG_ENABLE 1
 #define BEEBO_RAW_SUB_TIME_SYNC 3
 
-// beebo: DEBUG_LOG_ENABLE/BEEBO_RAW_SUB_DBG_ENABLE's payload byte is a
-// bitmask, not a bare bool, as of plans/MLOG_LIVE_STREAM.md -- bit 0 is the
+// DEBUG_LOG_ENABLE/BEEBO_RAW_SUB_DBG_ENABLE's payload byte is a
+// bitmask, not a bare bool -- bit 0 is the
 // original DLOG/RLOG enable (an old client sending bare 0/1 is unaffected),
 // bit 1 is the new MLOG enable.
 #define DEBUG_LOG_ENABLE_BIT_DLOG 0x01

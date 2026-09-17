@@ -108,7 +108,7 @@
 // comparison and stays CHARGED regardless of dir). A confirmed-elsewhere
 // case: a node observed stuck reporting CHARGED for 22+ hours while idle
 // voltage fell ~150mV past charged_mv, sampled correctly and continuously
-// throughout (see BUGS.md 2026-08-23).
+// throughout.
 //
 // batt_present (NodePrefs.batt_present, see BATT_PRESENT_* above) is an
 // explicit persisted setting the operator sets once per board, not a fixed

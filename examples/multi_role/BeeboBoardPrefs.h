@@ -21,7 +21,7 @@
   #define NODE_ROLE_DEFAULT NODE_ROLE_REPEATER
 #endif
 
-// beebo: SETTINGS_REFACTOR.md Part 3 -- role_state_store[] (Beebo.h) is
+// role_state_store[] (Beebo.h) is
 // always sized NODE_ROLE_COUNT (2), regardless of which role(s) a
 // given build compiles in, and is always indexed directly by the real
 // NODE_ROLE_COMPANION/NODE_ROLE_REPEATER value -- no remapping macro. A
@@ -29,7 +29,7 @@
 // isNodeRoleBuiltIn() gates any access to the uncompiled role) rather than
 // aliasing it onto the live role's slot.
 
-// beebo: BeeboPrefs unification (SETTINGS_REFACTOR.md Part 1). Genuinely
+// Genuinely
 // single-valued, role-independent identity fields -- persisted to their
 // own /beebo_board file, untouched by the role-switch park/load handoff
 // entirely (unlike everything in BeeboBasePrefs, which is structurally

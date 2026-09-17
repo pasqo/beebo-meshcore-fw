@@ -19,7 +19,7 @@
 
 // beebo: monitor ring sizing. This board has only ~2 MB PSRAM total (NOT the
 // 16 MB flash). Fixed 1MiB claimed as early as possible in setup() (see
-// startMonRing() below, plans/MONITORING_UNIFICATION.md Design #2) --
+// startMonRing() below) --
 // PSRAM is already available before setup() runs (configured by the ESP-IDF/
 // Arduino bootloader, not gated on anything setup() itself does), and the
 // total budget comfortably covers this fixed reservation alongside WiFi/BLE/
@@ -30,13 +30,13 @@
 // this plan section's own Progress note -- needs a real device to confirm).
 #define MONRING_FIXED_BYTES   (1024u * 1024)  // fixed size (~64k records at 16 bytes each)
 #define SLOWSTAT_REFRESH_MS   60000u          // beebo: cadence to refresh cached FS usage + MCU temp
-#define ENV_SAMPLE_MS         300000u         // beebo: EnvRecord (noise_floor/temp_c) fixed sampling cadence (5 min, plans/CPU_UTILIZATION.md)
+#define ENV_SAMPLE_MS         300000u         // beebo: EnvRecord (noise_floor/temp_c) fixed sampling cadence (5 min)
 #define ENV_RETRY_MS          1000u           // beebo: retry cadence while waiting for noise_floor calibration to complete post-boot
-#define CPU_WINDOW_MS         1000u           // beebo: CPU accounting live-window compute cadence (plans/CPU_UTILIZATION.md)
+#define CPU_WINDOW_MS         1000u           // beebo: CPU accounting live-window compute cadence
 #define CPU_REPORT_MS         10000u          // beebo: CPU accounting reported-snapshot cadence (MonRing/STATS_TYPE_SYSTEM)
-#define ROUTE_WINDOW_MS       60000u          // beebo: RouteRecord (MON_ROUTE) report window, 1 minute (plans/CPU_UTILIZATION.md)
-// beebo: general loop-latency stall watchdog threshold (EVENT_MAX_LOOP_LATENCY,
-// plans/CPU_UTILIZATION.md's "New goals" #2) -- a first-pick constant, no
+#define ROUTE_WINDOW_MS       60000u          // beebo: RouteRecord (MON_ROUTE) report window, 1 minute
+// beebo: general loop-latency stall watchdog threshold (EVENT_MAX_LOOP_LATENCY)
+// -- a first-pick constant, no
 // real-traffic trigger data yet (same caveat as ROLLBACK_THRESHOLD/
 // computeSoh()'s fault weights). Picked with comfortable margin above every
 // known periodic housekeeping call inside loop() (temperatureRead() ~76ms
@@ -47,7 +47,7 @@
 #define MAX_LOOP_LATENCY_THRESHOLD_MS  500u
 #define TUNE_TICK_INTERVAL_MS 300000u         // beebo: dynamic-tuning optimizer re-tune cadence (5 min)
 
-// beebo: MonRing's LiveSink hook target (plans/MLOG_LIVE_STREAM.md) -- a
+// beebo: MonRing's LiveSink hook target -- a
 // plain free function (MonRing.h stays Arduino-free, so it can't call
 // debug_log, which is Arduino-dependent, directly). Wired via
 // monring.setLiveSink() once monring.init() succeeds.
@@ -365,8 +365,7 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
       if (!parsed) rec.disp |= RXREC_DISTILL;
       // beebo: close out any stale radio epoch before this capture --
       // env sampling moved off this RX-opportunistic trigger onto its own
-      // fixed cadence in loop() (ENV_SAMPLE_MS), see
-      // plans/CPU_UTILIZATION.md's "Fixed-cadence sampling" section --
+      // fixed cadence in loop() (ENV_SAMPLE_MS) --
       // except for the one-time catch-up in ensureFirstEnvSample() (see
       // its own comment), so this first RX/TX always has a governing env
       // record ahead of it even if loop() hasn't sampled one yet.
@@ -414,7 +413,7 @@ void Beebo::onPacketCaptured(mesh::Packet* pkt) {
   pkt->_rx_logged = _rx_staged;
   if (_rx_staged) {
     pkt->_rx_hash = _rx_stage.pkt_hash;
-    pkt->_rx_time = (uint32_t)millis();  // beebo: MonRing's `now` means millis(), not epoch seconds -- see plans/MONITORING_UNIFICATION.md Design #1
+    pkt->_rx_time = (uint32_t)millis();  // beebo: MonRing's `now` means millis(), not epoch seconds
     pkt->_rx_rssi = _rx_stage.rssi;
     pkt->_rx_flags = _rx_stage.flags;
     memcpy(pkt->_rx_nbr, _rx_stage.nbr, sizeof(pkt->_rx_nbr));
@@ -1112,8 +1111,7 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   // predates this field (DataStore.cpp's own tail-hazard-gated read for it)
   // boots with a live mask of 0, silently dropping every MON_EVENT record
   // forever despite the live lifetime counters (ack_success_count etc.)
-  // still incrementing normally -- confirmed live on `bunch` 2026-08-15,
-  // tracked in BUGS.md.
+  // still incrementing normally.
   _role_state->prefs.monring_event_mask = 0xFFFFFFFFu;
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: repeater-role _role_state->prefs (CommonCLI's real
@@ -1514,8 +1512,7 @@ void Beebo::begin() {
 // main loop() task. Must NEVER write _btp_state (or call anything that
 // touches wifi_interface/ble_interface) directly: driveBtp() is the single
 // place that computes and applies every _btp_state transition, once per
-// tick, on the main task -- see its own comment and
-// plans/TRANSPORT_STATE_MACHINE.md. These volatile flags are drained as
+// tick, on the main task -- see its own comment. These volatile flags are drained as
 // driveBtp()'s got_ip/disc_reason inputs (and logged to the ring) from
 // loopTransports(), the only context that's safe to do either from.
 void Beebo::_onWifiStaEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
@@ -1616,8 +1613,7 @@ void Beebo::beginTransports() {
   bool usb_on = _role_state->prefs.usb_enabled != 0;
 
   // beebo: boot bring-up reuses the exact same convergence logic as every
-  // later live toggle -- see driveBtp()/driveUsb()'s own comments and
-  // plans/TRANSPORT_STATE_MACHINE.md for the full design. No events/creds
+  // later live toggle -- see driveBtp()/driveUsb()'s own comments. No events/creds
   // change/live BLE central are possible yet at this point in begin().
   driveBtp(ble_on, tcp_on, false, false, -1, false);
   driveUsb(usb_on);
@@ -1690,8 +1686,7 @@ void Beebo::applyRadioPrefs() {
 // so it never exceeds the ~2 MB total and always leaves the rest free. Still a
 // one-shot setup-time allocation — never freed, never in the loop.
 // beebo: capture a (epoch_sec, millis(), ms_frac) anchor triple for
-// MonRing::init()/clear()/setTimeAnchor() -- see
-// plans/MONITORING_UNIFICATION.md Design #1. RTCClock::getTime() reads
+// MonRing::init()/clear()/setTimeAnchor(). RTCClock::getTime() reads
 // secs+ms atomically in one call, so this is exact -- no polling for the
 // RTC's own second-rollover edge needed (that was only ever a workaround
 // for getCurrentTime()'s whole-seconds-only resolution).
@@ -1707,8 +1702,7 @@ static void captureTimeAnchor(mesh::RTCClock *clock, uint32_t *out_epoch_sec, ui
 // setup() (main.cpp), right after clock_init() (which calls
 // ESP32RTCClock::begin() -- the earliest point a real epoch exists, no
 // board/hardware pin dependency, so it costs nothing to run it first) and
-// before even RLOGH(RLOG_ID_BOOT_START, ...) (plans/MONITORING_UNIFICATION.md
-// Design #2). Because the anchor is already real by construction here, every
+// before even RLOGH(RLOG_ID_BOOT_START, ...). Because the anchor is already real by construction here, every
 // boot debug event from RLOG_ID_BOOT_START onward resolves live through
 // forwardDebugToMonRing() below with no buffering at all -- MonRing's own
 // ring is simply where they land, the same way DLOG/RLOG's ring already
@@ -1811,7 +1805,7 @@ static constexpr int64_t CLOCK_SYNC_WINDOW_MS = 100;
 // CURR_MS, read directly and atomically from RTCClock::getTime() (backed
 // by gettimeofday() on ESP32Board -- see its own comment). This replaced
 // MonRing's separate time-anchor-plus-elapsed-millis() reconstruction
-// (plans/MS_PRECISION_CLOCK_ANCHOR.md): that anchor could silently drift
+// -- that anchor could silently drift
 // away from RTCClock's own value once established (nothing ever compared
 // the two directly), since a correction only fired when the *anchor*
 // judged itself out of the dead-band, not when RTCClock itself was.
@@ -1913,7 +1907,7 @@ void Beebo::initMonRing() {
   if (monring.allocated()) {
     monring.setConfig(_role_state->prefs.monring_config);  // apply persisted enable + per-kind capture mask
     monring.setEventTypeMask(_role_state->prefs.monring_event_mask);  // apply persisted per-event-type capture mask
-    monring.setLiveSink(&pushMlogFrame);  // MLOG live relay, see plans/MLOG_LIVE_STREAM.md
+    monring.setLiveSink(&pushMlogFrame);  // MLOG live relay
     profile_log.setEnabled(_role_state->prefs.profile_enabled);  // apply persisted ProfileLog enable gate
     // beebo: supersede startMonRing()'s placeholder radio/env with the
     // real, now-known snapshot -- diff-on-change stores a real record since
@@ -2008,8 +2002,7 @@ EnvRecord Beebo::buildEnvRecord() {
 }
 
 // beebo: env sampling normally lives entirely on its own fixed cadence in
-// loop() (ENV_SAMPLE_MS, plans/CPU_UTILIZATION.md's "Fixed-cadence
-// sampling"), not opportunistically on RX/TX -- but that leaves a real gap
+// loop() (ENV_SAMPLE_MS), not opportunistically on RX/TX -- but that leaves a real gap
 // right after boot: if the first RX/TX happens before loop()'s own
 // getNoiseFloor()!=0 retry has landed a valid sample (initMonRing() itself
 // now skips storing one at all if it's not yet valid -- see its own
@@ -2190,7 +2183,7 @@ void Beebo::logRxQueueFull() {
 // LINK_TX/LINK_RX sum BLE + WiFi (only one is ever the locked session at a
 // time -- see MultiSerialInterface).
 void Beebo::appendLinkQueueDropEvents() {
-  uint32_t now = (uint32_t)millis();  // beebo: MonRing's `now` means millis(), not epoch seconds -- see plans/MONITORING_UNIFICATION.md Design #1
+  uint32_t now = (uint32_t)millis();  // beebo: MonRing's `now` means millis(), not epoch seconds
   uint32_t link_tx = ble_interface.getSendQueueFullCount() + wifi_interface.getSendQueueFullCount();
   uint32_t link_rx = ble_interface.getRecvQueueFullCount();
 
@@ -2382,8 +2375,8 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   uint32_t tune_count = monring.tuneCount(), event_count = monring.eventCount();
   uint32_t setting_count = monring.settingCount(), command_count = monring.commandCount();
   // beebo: route_count was never wired into this header (a real gap, not
-  // intentional -- see plans/MONITORING_UNIFICATION.md Design #8); fixed
-  // here alongside adding debug_count for the new MON_DEBUG kind.
+  // intentional); fixed here alongside adding debug_count for the new
+  // MON_DEBUG kind.
   uint32_t route_count = monring.routeCount(), debug_count = monring.debugCount();
   memcpy(&out[i], &start, 4); i += 4;
   memcpy(&out[i], &end, 4); i += 4;
@@ -2811,8 +2804,7 @@ bool Beebo::tlvSetMonringEventMask(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-// beebo: ProfileLog's persisted enable gate (plans/MONITORING_UNIFICATION.md
-// Design #7) -- same per-role-persisted, live-vs-parked-slot side-effect
+// beebo: ProfileLog's persisted enable gate -- same per-role-persisted, live-vs-parked-slot side-effect
 // rule as tlvSetMonringConfig above.
 uint32_t Beebo::tlvGetProfileEnabled(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.profile_enabled;
@@ -3109,8 +3101,8 @@ bool Beebo::tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw) {
 
 // beebo: companion's own write-side counterparts to the role-generic
 // accessors above / BEEBO_CMD_GET_COMPANION_* above -- fixes the mirror-image write gap
-// documented in BUGS.md ('companion.* writes issued while repeater is the
-// live role corrupt repeater's own slot'). CMD_SET_OTHER_PARAMS/
+// where a companion.* write issued while repeater is the
+// live role corrupted repeater's own slot. CMD_SET_OTHER_PARAMS/
 // CMD_SET_PATH_HASH_MODE/CMD_SET_ADVERT_LATLON/CMD_SET_DEVICE_NAME keep
 // their existing always-live-role-targeting semantics (real legacy-app
 // compatibility requirement -- see CLAUDE.md's Backward compatibility
@@ -3157,7 +3149,7 @@ bool Beebo::tlvSetCompanionRepeat(Beebo* self, uint8_t role, uint32_t raw) {
 }
 
 // beebo: runs an admin command locally against this device's own live role (the 'self'
-// sentinel -- see matchAdminSelfCommand() and plans/ADMIN_SELF_COMMAND.md), and delivers
+// sentinel -- see matchAdminSelfCommand()), and delivers
 // the reply back to the app through the same queued-message path a real remote admin
 // reply from `target` would take (Beebo::onCommandDataRecv() -> queueMessage()), so the
 // app's UI sees an ordinary admin-command response with no special casing needed there.
@@ -3331,7 +3323,7 @@ void Beebo::handleCmdFrame(size_t len) {
 
       char *self_rest = (txt_type == TXT_TYPE_CLI_DATA) ? matchAdminSelfCommand(text) : NULL;
       if (self_rest) {
-        // beebo: 'self' sentinel (plans/ADMIN_SELF_COMMAND.md) -- run the admin command
+        // beebo: 'self' sentinel -- run the admin command
         // locally against this device's own live role instead of relaying it to
         // <recipient>. No extra ACL check -- reaching this point already requires an
         // authenticated companion session (BLE/TCP/USB), the same protection level
@@ -3526,7 +3518,7 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_GET_DEVICE_TIME) {
     // beebo: widened, backward-compatibly, with an optional trailing
     // [time: u32][boot: u8] payload, itself further widened with an
-    // optional trailing [ms: u16] (plans/MS_PRECISION_CLOCK_ANCHOR.md) --
+    // optional trailing [ms: u16] --
     // an old/third-party client sending the bare 1-byte opcode (len < 6)
     // gets exactly today's plain read, no side effects (applyClockSync(0,
     // false) is a pure no-op read). len 6-7 is the existing whole-seconds
@@ -4434,7 +4426,7 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&out_frame[i], &_tx_wait_airtime_reported, 2); i += 2;
       memcpy(&out_frame[i], &_tx_wait_cad_reported, 2); i += 2;
       memcpy(&out_frame[i], &_rx_wait_relay_reported, 2); i += 2;
-      // beebo: Phase 4 live packets/minute, same reported (10s) tier (see
+      // beebo: live packets/minute, same reported (10s) tier (see
       // Beebo::_rx_per_min_reported/_tx_per_min_reported). Append-only.
       memcpy(&out_frame[i], &_rx_per_min_reported, 2); i += 2;
       memcpy(&out_frame[i], &_tx_per_min_reported, 2); i += 2;
@@ -4442,7 +4434,7 @@ void Beebo::handleCmdFrame(size_t len) {
       // rx/tx/lx (see Beebo::_sys_busy_us's comment), same reported (10s)
       // tier as busy above. Genuinely append-only.
       memcpy(&out_frame[i], &_sys_busy_reported, 2); i += 2;
-      // beebo: Phase 2 base/work split of busy -- disabled, see Beebo.h's
+      // beebo: base/work split of busy -- disabled, see Beebo.h's
       // field comment. Not sent; CLI decode is length-gated so older/
       // this build's frames both decode fine without these 6 fields.
       // memcpy(&out_frame[i], &_rx_base_reported, 2); i += 2;
@@ -6034,8 +6026,8 @@ void Beebo::checkSerialInterface() {
     // has anything else to wait for -- starts as soon as it's requested.
     monring.beginMlogReplay();
   } else if (monring.isMlogReplaying() && !_serial->isWriteBusy()) {
-    // beebo: MLOG's own replay-on-enable backlog (plans/MLOG_LIVE_STREAM.md
-    // decision 3), same one-record-per-loop pacing as debug_log's replay
+    // beebo: MLOG's own replay-on-enable backlog, same one-record-per-loop
+    // pacing as debug_log's replay
     // above, walking MonRing's own ring instead.
     monring.mlogReplayStep();
   //} else if (!_serial->isWriteBusy()) {
@@ -6105,8 +6097,8 @@ uint16_t Beebo::updateBattTrend(bool force_read) {
 
 void Beebo::loop() {
 #ifdef BEEBO_CPU_ACCOUNTING
-  // beebo: headroom metrics (plans/CPU_UTILIZATION.md's "New goals" #1/#2)
-  // -- cause-agnostic, unlike the RX/TX/CLI/IDLE % breakdown: a lower
+  // beebo: headroom metrics -- cause-agnostic, unlike the RX/TX/CLI/IDLE
+  // % breakdown: a lower
   // loops/sec or a high single-iteration stall means less capacity for
   // anything else that also runs once per loop(), regardless of whether
   // the time went to computing or blocking on a peripheral. Runs first,
@@ -6274,8 +6266,7 @@ void Beebo::loop() {
   }
 
   // beebo: EnvRecord's own fixed-cadence sample -- noise_floor/temp_c are
-  // both slowly-drifting ambient quantities (see plans/CPU_UTILIZATION.md's
-  // "Fixed-cadence sampling" section), so this is on its own ENV_SAMPLE_MS
+  // both slowly-drifting ambient quantities, so this is on its own ENV_SAMPLE_MS
   // timer rather than tied to any RX/TX event; sampleEnv()'s own change-
   // detection still dedups an unchanged reading into no new record.
   if (monring.enabled() && monring.allocated() &&
@@ -6352,8 +6343,7 @@ void Beebo::loop() {
       uint32_t busy_sum = (uint32_t)_rx_busy_reported + _tx_busy_reported + _lx_busy_reported + _sys_busy_reported;
       _lp_idle_reported = (uint16_t)(busy_sum >= 10000 ? 0 : 10000 - busy_sum);
 
-      // beebo: base/work split of busy (Phase 2, kbase/CPU_UTILIZATION.md)
-      // -- disabled, doubtful diagnostic value for the added complexity/
+      // beebo: base/work split of busy -- disabled, doubtful diagnostic value for the added complexity/
       // fragility. Kept (commented) rather than removed in case this is
       // revisited.
       // {
@@ -6643,8 +6633,7 @@ void Beebo::loopTransports() {
 // beebo: reason codes esp_wifi reports for the AP rejecting/expiring our
 // auth, association, or key exchange, as opposed to a plain loss of
 // signal/beacon or an administrative/environmental disassociation -- see
-// BUGS.md's WiFi Protocol and Auth entry and its cited esp-idf/
-// arduino-esp32 issues, and esp-idf's esp_wifi_types_generic.h for each
+// esp-idf's esp_wifi_types_generic.h for each
 // reason's canonical one-line meaning:
 //   AUTH_EXPIRE(2)/AUTH_FAIL(202)   -- prior auth no longer valid / rejected
 //   MIC_FAILURE(14)                -- key MIC check failed
@@ -6694,8 +6683,7 @@ bool Beebo::isAuthClassDiscReason_(int reason) {
 // compute the single next _btp_state from (current state, those inputs),
 // then apply exactly the one resulting side effect -- never the other way
 // around, and never split across another function or callback (see
-// _onWifiStaEvent()'s own comment). See plans/TRANSPORT_STATE_MACHINE.md
-// for the full state/event/transition table.
+// _onWifiStaEvent()'s own comment).
 //
 // BLE and TCP share one physical 2.4GHz radio and are mutually exclusive by
 // hardware/coexistence constraint, so _btp_state is ONE variable with no
@@ -6709,7 +6697,7 @@ bool Beebo::isAuthClassDiscReason_(int reason) {
 // function (via bringUpBle_()/bringUpTcp_() below), on entry to a
 // *_STARTING state -- never re-issued while already STARTING or UP, which
 // is what eliminates the self-inflicted-de-auth bug this whole design exists
-// to fix (BUGS.md 2026-09-02): re-issuing esp_wifi_connect() while a
+// to fix: re-issuing esp_wifi_connect() while a
 // connection attempt is already in flight is a documented
 // ESP-IDF/Arduino-core anti-pattern that forces an implicit
 // disconnect+re-associate.
@@ -6807,8 +6795,7 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
           // leaving the retry to reassociate on top of whatever PMK/
           // association context the failed handshake left behind. Per
           // Espressif's Wi-Fi Driver guide, the disconnect reason is what's
-          // supposed to decide this, not a reason-blind retry (BUGS.md's
-          // WiFi Protocol and Auth entry).
+          // supposed to decide this, not a reason-blind retry.
           WiFi.disconnect(true);
         }
         _tcp_backoff_started_ms = millis();
@@ -6835,8 +6822,7 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
       } else if (backoff_elapsed) {
         // beebo: only place a lost TCP connection is ever retried. Gated
         // on elapsed time, not on WiFi.status() (ambiguous between
-        // "genuinely idle" and "actively negotiating" -- see
-        // plans/TRANSPORT_STATE_MACHINE.md).
+        // "genuinely idle" and "actively negotiating").
         WIFI_DEBUG_PRINTLN("Attempting WiFi reconnect...");
         WiFi.begin(_role_state->prefs.wifi_ssid, _role_state->prefs.wifi_pwd);
         next = BTP_TCP_UP_WAIT;
@@ -6895,8 +6881,8 @@ Beebo::BtpState Beebo::teardownTcpThen_(bool ble_on, bool tcp_on) {
   // path too (see bringUpTcp_()) -- ESP-IDF's own built-in auto-reconnect
   // calls esp_wifi_disconnect() before esp_wifi_connect() on every
   // re-connectable disconnect reason, exactly the same self-inflicted-de-auth
-  // anti-pattern this whole design exists to eliminate (BUGS.md 2026-09-02)
-  // -- so it must never be armed at all, not just turned off again here.
+  // anti-pattern this whole design exists to eliminate -- so it must never
+  // be armed at all, not just turned off again here.
   WiFi.setAutoReconnect(false);
   board.setInhibitSleep(false);
   if (ble_on) {
@@ -6918,9 +6904,7 @@ void Beebo::bringUpBle_(bool after_wifi_teardown) {
     // beebo: NOT esp_coex_preference_set() -- BLE and TCP are strictly,
     // always mutually exclusive here, so there is never a moment where
     // both radios are actually active and something needs arbitrating
-    // airtime between them. Confirmed via hardware repro (2026-09-01,
-    // chasing the same BUGS.md 2026-08-31 bug the teardown-then-bring-up
-    // ordering was written for): bringing BLE up right after
+    // airtime between them. Confirmed via hardware repro: bringing BLE up right after
     // WiFi.mode(WIFI_OFF) can fail with "BLE_INIT: Malloc failed" /
     // BT_HCI status=0x7 (memory capacity exceeded) despite
     // ESP.getFreeHeap() reporting 60+KB free -- ESP.getFreeHeap() sums
@@ -6997,7 +6981,7 @@ void Beebo::bringUpTcp_(bool after_ble_teardown) {
 // independently of _btp_state. Still needs its own PENDING deferral like
 // BLE/TCP: a live app session can be on USB itself when usb_on flips off,
 // and disable() would drop its in-flight reply/traffic -- see the
-// XPORT_OFF_WAIT comment in Beebo.h and plans/TRANSPORT_STATE_MACHINE.md.
+// XPORT_OFF_WAIT comment in Beebo.h.
 void Beebo::driveUsb(bool usb_on) {
   // beebo: _serial is null until startInterface() runs (beginTransports()'s
   // first driveUsb() call happens before that) -- no app session is

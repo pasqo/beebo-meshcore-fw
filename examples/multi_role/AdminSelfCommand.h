@@ -1,9 +1,9 @@
 #pragma once
 
-// beebo: 'self' sentinel (plans/ADMIN_SELF_COMMAND.md) -- pulled out of Beebo.cpp into its
-// own Arduino-free header so matchAdminSelfCommand() is unit-testable from fw/test/ (native
-// platform, no Arduino/ESP32 dependency), alongside where handleAdminSelfCommand() (Beebo.cpp,
-// Arduino-dependent) uses it.
+// The 'self' sentinel match lives in its own Arduino-free header so
+// matchAdminSelfCommand() is unit-testable from fw/test/ (native
+// platform, no Arduino/ESP32 dependency), alongside where
+// handleAdminSelfCommand() (Beebo.cpp, Arduino-dependent) uses it.
 
 #include <cstring>
 

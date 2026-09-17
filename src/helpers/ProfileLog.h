@@ -32,8 +32,7 @@ class ProfileLog {
   ProfileEvent _buf[PROFILE_MAX_EVENTS];
   uint16_t _head = 0;
   uint16_t _count = 0;
-  // beebo: persisted enable gate (plans/MONITORING_UNIFICATION.md Design
-  // #7) -- default DISABLED, unlike MonRing's own MON_CAP_ENABLED default.
+  // Persisted enable gate -- default DISABLED, unlike MonRing's own MON_CAP_ENABLED default.
   // Before this, PROFILE_SCOPE's call sites fired unconditionally with no
   // way to turn profiling off; gating here (the sink) rather than at each
   // call site mirrors MonRing::appendXxx()'s own enabled() check.

@@ -21,8 +21,7 @@ void beebo_persistRTCTimeForReboot() {
   beebo_persistRTCTimeForReboot((uint32_t)now);
 }
 
-// beebo: OFFSET is milliseconds (not seconds) as of
-// plans/MS_PRECISION_CLOCK_ANCHOR.md -- see applyDriftOffset_()'s own
+// OFFSET is milliseconds (not seconds) -- see applyDriftOffset_()'s own
 // comment for why the boot-time correction needs that precision to avoid
 // reintroducing the same error a millisecond-precision sync removed.
 uint32_t beebo_clockDrift(uint32_t offset) {
@@ -55,16 +54,14 @@ uint32_t beebo_clockDrift(uint32_t offset) { return offset; }
 uint32_t beebo_clockDrift() { return 0; }
 #endif
 
-// beebo: applies the last-known drift offset (see
-// plans/CLOCK_DRIFT_COMPENSATION.md) to whatever getCurrentTime() currently
+// Applies the last-known drift offset to whatever getCurrentTime() currently
 // reads. Called from both ESP_RST_UNKNOWN (where that reading is the RTC
-// counter's own still-ticking, just-uncorrected value -- see BUGS.md's WiFi
-// Protocol/clock investigation) and ESP_RST_POWERON (layered on top of the
-// saved_ts restore). No-op if no offset has been recorded yet, e.g. a fresh
-// device.
+// counter's own still-ticking, just-uncorrected value) and ESP_RST_POWERON
+// (layered on top of the saved_ts restore). No-op if no offset has been
+// recorded yet, e.g. a fresh device.
 //
-// beebo: drift_off is milliseconds (plans/MS_PRECISION_CLOCK_ANCHOR.md) --
-// applied via settimeofday()'s tv_usec directly (bypassing RTCClock's own
+// drift_off is milliseconds, applied via settimeofday()'s tv_usec directly
+// (bypassing RTCClock's own
 // seconds-only setCurrentTime()), so a device that accumulated ahead-drift
 // while running with a millisecond-precision anchor comes back up from
 // this boot-time correction at the same precision, instead of a coarse

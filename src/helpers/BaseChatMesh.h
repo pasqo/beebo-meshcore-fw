@@ -65,7 +65,6 @@ class BaseChatMesh : public mesh::Mesh {
   int sort_array[MAX_CONTACTS+MAX_ANON_CONTACTS];
   int matching_peer_indexes[MAX_SEARCH_RESULTS];
   unsigned long txt_send_timeout;
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- "TX reception confirmation".
   // onAckRecv()/onContactPathRecv()'s piggybacked-ACK branch already detect
   // unambiguous DM send success (an ACK received what we were waiting for) --
   // "also count it" at the exact points that already correctly detect it, no
@@ -135,8 +134,8 @@ protected:
   virtual void onContactResponse(const ContactInfo& contact, const uint8_t* data, uint8_t len) = 0;
   virtual void handleReturnPathRetry(const ContactInfo& contact, const uint8_t* path, uint8_t path_len);
 
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- lets a subclass with its own
-  // per-message expected-ack table (e.g. Beebo's expected_ack_table) report
+  // Lets a subclass with its own per-message expected-ack table
+  // (e.g. Beebo's expected_ack_table) report
   // a timeout for a specific table slot it detects has expired, instead of
   // relying on this class's own single-in-flight txt_send_timeout.
   void noteAckTimeout() { _ack_timeout_count++; }
@@ -171,7 +170,7 @@ protected:
 public:
   mesh::Packet* createSelfAdvert(const char* name);
   mesh::Packet* createSelfAdvert(const char* name, double lat, double lon);
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- tx_pkt_hash (Packet::
+  // tx_pkt_hash (Packet::
   // calculateMonRingHash(), computed right after composeMsgPacket() builds
   // the final wire packet) is the correlation key a subclass needs to log
   // this send's eventual EVENT_ACK_SUCCESS/EVENT_ACK_TIMEOUT against the right MON_TX record.
@@ -205,8 +204,7 @@ public:
   bool setChannel(int idx, const ChannelDetails& src);
   int findChannelIdx(const mesh::GroupChannel& ch);
 
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- see _ack_success_count's
-  // own comment above for what these count and why.
+  // See _ack_success_count's own comment above for what these count and why.
   uint32_t getAckSuccessCount() const { return _ack_success_count; }
   uint32_t getAckTimeoutCount() const { return _ack_timeout_count; }
 

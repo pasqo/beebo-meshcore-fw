@@ -200,7 +200,7 @@
 // 4 (STATS_TYPE_TRANSPORT) retired 2026-09-11 -- was DebugLog's own H/M
 // event ring, fully redundant with MonRing's MON_DEBUG kind/GET_MONRING
 // (file:line, live+downloadable) once that existed; removing the duplicate
-// backlog-replay path also fixed a real duplicate-event bug (BUGS.md).
+// backlog-replay path also fixed a real duplicate-event bug.
 #define STATS_TYPE_PROFILE            5   // beebo: command-latency profiling ring buffer
 
 #define RESP_CODE_OK                  0
@@ -391,7 +391,7 @@ struct RepeaterStats {
   uint32_t n_recv_errors;
 };
 
-// beebo: BASECHATMESH_ROLE_SPLIT.md Phase 2 -- Beebo is one concrete
+// Beebo is one concrete
 // object regardless of build variant, so its base class has to be picked
 // at compile time: BaseChatMesh (contacts/channels/messaging) only when
 // companion is compiled in, otherwise plain mesh::Mesh, matching what
@@ -468,11 +468,11 @@ public:
   // them (admin-only by design).
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply);
 
-  // beebo: 'self' sentinel (plans/ADMIN_SELF_COMMAND.md) -- runs command locally via
+  // The 'self' sentinel runs the command locally via
   // handleCommand() and queues the reply as if it came from target, instead of relaying
   // it over the mesh. Caller (handleCmdFrame's CMD_SEND_TXT_MSG branch) has already
   // verified hasConnectionTo(target) before calling this. Companion-only (queueMessage()
-  // is the companion reply path) -- see BASECHATMESH_ROLE_SPLIT.md Phase 2.
+  // is the companion reply path).
 #if BEEBO_ENABLE_COMPANION_ROLE
   void handleAdminSelfCommand(const ContactInfo& target, char* command);
 #endif
@@ -615,7 +615,7 @@ protected:
   // touches ContactInfo/contacts, it's a pure timeout calculation, so it
   // stays declared/defined unconditionally rather than following
   // calcFloodTimeoutMillisFor (which has no such outside caller) into the
-  // companion-only guard above. See BASECHATMESH_ROLE_SPLIT.md Phase 2.
+  // companion-only guard above.
 #if BEEBO_ENABLE_COMPANION_ROLE
   uint32_t calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t path_len) const override;
 #else
@@ -623,7 +623,7 @@ protected:
 #endif
 
   // DataStoreHost methods (contact/channel storage is companion-only --
-  // see DataStore.h's own BASECHATMESH_ROLE_SPLIT.md Phase 1 comment)
+  // see DataStore.h's own comment)
 #if BEEBO_ENABLE_COMPANION_ROLE
   bool onContactLoaded(const ContactInfo& contact) override { return addContact(contact); }
   bool getContactForSave(uint32_t idx, ContactInfo& contact) override { return getContactByIdx(idx, contact); }
@@ -727,9 +727,7 @@ public:
   bool isOTAPriority() const { return ota_priority; }
 
 #if BEEBO_ENABLE_REPEATER_ROLE
-  // beebo: CommonCLICallbacks implementation -- see
-  // beebo/plans/COMMONCLI_TEXT_DISPATCH.md's "CommonCLICallbacks
-  // implementation surface" table for what each maps onto and why. `cli`
+  // CommonCLICallbacks implementation. `cli`
   // (the real CommonCLI instance) only ever serves repeater role, so this
   // whole block is repeater-only, same as `cli`/`_role_state->prefs` themselves.
   const char* getFirmwareVer() override { return FIRMWARE_VERSION; }
@@ -809,7 +807,7 @@ private:
   // can compute its own drift locally without a second round trip.
   //
   // MS (0-999, default 0) is the sub-second component of SECS from a
-  // millisecond-precision sync (plans/MS_PRECISION_CLOCK_ANCHOR.md). The
+  // millisecond-precision sync. The
   // ahead/behind decision and every drift figure compare precise epoch
   // milliseconds -- SECS/MS against monring.nowEpochMs() (the time
   // anchor plus elapsed millis()), not a plain RTCClock read, which only
@@ -869,7 +867,7 @@ private:
   // beebo: BLE and TCP share one physical 2.4GHz radio and are mutually
   // exclusive by hardware/coexistence constraint (a same-tick "BLE on, TCP
   // off" switch that let BLE start before WiFi teardown finished reliably
-  // aborted inside ESP-IDF's coexistence layer, BUGS.md 2026-08-31) -- so
+  // aborted inside ESP-IDF's coexistence layer) -- so
   // they are ONE state variable, not two kept in sync by caller-ordering
   // convention. There is no enum value meaning "BLE and TCP both up"; it is
   // not representable, not merely avoided.
@@ -889,7 +887,7 @@ private:
   // whatever this state machine did in the meantime moot.
   //
   // driveBtp() is the ONLY place that reads/writes this field -- see its
-  // own comment and plans/TRANSPORT_STATE_MACHINE.md for the full
+  // own comment for the full
   // gather-inputs / compute-next-state / apply-outputs design (a Mealy
   // machine: one computation per tick, no state mutation from callbacks or
   // any other function).
@@ -955,7 +953,7 @@ private:
 
   // beebo: DLOG_ID_WIFI_HEALTH sample cadence -- see that event's own comment
   // in DebugLog.h for why it exists (nothing else logged catches the
-  // TCP-reachability-degrades-after-a-live-switch bug, BUGS.md 2026-08-31).
+  // TCP-reachability-degrades-after-a-live-switch bug).
   unsigned long _last_wifi_health_sample_ms = 0;
   static const uint32_t WIFI_HEALTH_SAMPLE_MS = 60000;
 
@@ -963,8 +961,7 @@ private:
   void loopTransports();        // called from loop(): STA-event drain, driveBtp()/driveUsb() tick
 
   // The single functions that own every BLE/TCP and USB transition,
-  // respectively -- see plans/TRANSPORT_STATE_MACHINE.md for the full
-  // state/event/transition tables. Called from loopTransports() every tick
+  // respectively. Called from loopTransports() every tick
   // with ble_on/tcp_on/usb_on read live from persisted prefs. Each is a
   // proper Mealy machine step -- gather this tick's inputs first, compute
   // the single next state from (current state, inputs), then apply exactly
@@ -983,7 +980,7 @@ private:
   // timeouts) -- see driveBtp()'s BTP_TCP_UP_WAIT/BTP_TCP_UP disconnect
   // handling. Per Espressif's own Wi-Fi Driver guide, the application is
   // responsible for reacting to the reason code, not retrying identically
-  // regardless of cause (BUGS.md's WiFi Protocol and Auth entry).
+  // regardless of cause.
   static bool isAuthClassDiscReason_(int reason);
 
   // beebo: shared BLE/TCP teardown+immediate-rebringup and plain bring-up
@@ -1135,7 +1132,7 @@ private:
   // has its own legacy-tail read of _board.role (a migration-seed path,
   // see that function's own comment) that can silently overwrite
   // _board.role from begin()'s loadRoleState() call without a matching
-  // cache re-sync (see BUGS.md's 2026-08-13 entry). A single byte compare
+  // cache re-sync. A single byte compare
   // is cheap enough that there's no performance case for caching it, and
   // reading _board.role directly means there's no second copy left to
   // drift -- mutually exclusive by construction (node_role is a strict
@@ -1485,8 +1482,7 @@ private:
     // (127) means no central is connected, or a read hasn't completed
     // yet.
     PREFS_TLV_BLE_RSSI = 54,            // u32 (sign-extended int8), read-only
-    // beebo: ProfileLog::setEnabled() gate (plans/MONITORING_UNIFICATION.md
-    // Design #7) -- same per-role-persisted, live-vs-parked-slot pattern as
+    // ProfileLog::setEnabled() gate -- same per-role-persisted, live-vs-parked-slot pattern as
     // PREFS_TLV_MONRING_CONFIG above. Default disabled, unlike monring_config's
     // on-by-default kinds.
     PREFS_TLV_PROFILE_ENABLED = 55,     // u32 (bool 0/1)
@@ -1855,9 +1851,8 @@ private:
   void computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
                              uint16_t &tx_wait_airtime, uint16_t &tx_wait_cad,
                              uint16_t &rx_wait_relay);
-  // beebo: Phase 2 base/work split disabled -- doubtful diagnostic value
-  // for the added complexity/fragility (see kbase/CPU_UTILIZATION.md's
-  // "Base/work calibration" section). calibrateBaseCosts() body is
+  // Base/work split of busy disabled -- doubtful diagnostic value
+  // for the added complexity/fragility. calibrateBaseCosts() body is
   // commented out in Beebo.cpp; not called from begin() anymore.
   // void calibrateBaseCosts();
 #endif
@@ -1993,7 +1988,6 @@ private:
   unsigned long _next_slowstat_refresh = 0;
 
   // beebo: EnvRecord's own fixed-cadence sampling timer (see
-  // plans/CPU_UTILIZATION.md's "Fixed-cadence sampling" section) --
   // separate from _next_slowstat_refresh above, since noise_floor/temp_c
   // is a MonRing-logged trend (ENV_SAMPLE_MS, minutes-scale) while that
   // one is just a hot-path-avoidance cache refresh (SLOWSTAT_REFRESH_MS,
@@ -2008,7 +2002,6 @@ private:
   // SPI, USB/BLE transfer) -- not actual CPU cycles the way an OS "CPU
   // time" figure would be, and not yet split into base (fixed per-
   // iteration poll cost) vs. work (traffic-proportional) -- that split is
-  // kbase/CPU_UTILIZATION.md's Phase 2, not implemented here. The
   // "live" set is a fast (~1s) window, always the freshest value, read
   // directly by any in-RAM consumer (TuneController) -- it can be skewed
   // by whatever happened in that specific second (e.g. a `beebo status`
@@ -2040,8 +2033,7 @@ private:
   uint16_t _rx_busy_reported = 0, _tx_busy_reported = 0, _lx_busy_reported = 0, _sys_busy_reported = 0;  // reported (10s average), 0-10000
   uint16_t _lp_idle_reported = 0;  // system-wide: 10000 - (rx+tx+lx+sys)_busy_reported, computed at report time, 0-10000
 
-  // beebo: base/work split of busy (kbase/CPU_UTILIZATION.md's Phase 2)
-  // -- disabled, doubtful diagnostic value for the added complexity/
+  // Base/work split of busy -- disabled, doubtful diagnostic value for the added complexity/
   // fragility. Fields kept (commented) rather than removed in case this
   // is revisited.
   // uint32_t rx_base_us_per_call = 0, tx_base_us_per_call = 0, lx_base_us_per_call = 0;  // fixed for the life of this boot
@@ -2062,8 +2054,7 @@ private:
   uint32_t _tx_wait_airtime_ms_at_report = 0, _tx_wait_cad_ms_at_report = 0, _rx_wait_relay_ms_at_report = 0;
   uint16_t _tx_wait_airtime_reported = 0, _tx_wait_cad_reported = 0, _rx_wait_relay_reported = 0;  // 0-10000
 
-  // beebo: RouteRecord's own 1-minute report period (plans/CPU_UTILIZATION.md's
-  // "Routing-latency" section) -- a third, coarser cadence than the busy
+  // RouteRecord's own 1-minute report period -- a third, coarser cadence than the busy
   // pct pair above. rx/tx exec accumulate off the same 1s live-window
   // ticks as the busy report tier (same rx_us/tx_us source, just a
   // longer-running total); tx/rx wait accumulate directly and
@@ -2075,8 +2066,7 @@ private:
   unsigned long _next_route_ms = 0;
   uint32_t _rx_route_us = 0, _tx_route_us = 0;  // accumulated across the current 1-minute route window
 
-  // beebo: headroom metrics (plans/CPU_UTILIZATION.md's "New goals" #1/#2)
-  // -- cause-agnostic, unlike the RX/TX/CLI/IDLE % breakdown above: a
+  // Headroom metrics -- cause-agnostic, unlike the RX/TX/CLI/IDLE % breakdown above: a
   // lower loops/sec or a high single-iteration stall means less capacity
   // for anything else that also runs once per loop(), regardless of
   // whether the time went to computing or blocking on a peripheral. Same
@@ -2098,7 +2088,7 @@ private:
   // BEEBO_CPU_ACCOUNTING window/report timers this lives alongside.
   uint32_t _max_loop_latency_event_count = 0;
 
-  // beebo: live packets/minute (Phase 4, plans/CPU_UTILIZATION.md) -- same
+  // Live packets/minute -- same
   // reported (10s) tier as loops_per_sec above, riding the same
   // _next_cpu_report_ms cadence. Derived from Dispatcher's own existing
   // lifetime totals (getNumRecvFlood()+getNumRecvDirect() /
@@ -2139,8 +2129,7 @@ private:
   // beebo: DM send-confirmation tracking is companion-only (BaseChatMesh's
   // own sendMessage()/onAckRecv() are still always available when
   // companion is compiled in, but this per-message table and the
-  // events/counters built on it are Beebo's own addition on top -- see
-  // BASECHATMESH_ROLE_SPLIT.md Phase 2).
+  // events/counters built on it are Beebo's own addition on top.
 #if BEEBO_ENABLE_COMPANION_ROLE
   struct AckTableEntry {
     unsigned long msg_sent;
@@ -2194,8 +2183,7 @@ public:
   // feed, and BEEBO_CMD_GET_ACK_STATS) regardless of role. 0 when
   // companion is compiled out, since none of ack_overflow_count/
   // BaseChatMesh's own _ack_success_count/_ack_timeout_count/
-  // num_contacts exist in that build -- see BASECHATMESH_ROLE_SPLIT.md
-  // Phase 2.
+  // num_contacts exist in that build.
 #if BEEBO_ENABLE_COMPANION_ROLE
   uint32_t getAckOverflowCount() const { return ack_overflow_count; }
   uint32_t getAckSuccessCount() const { return BaseChatMesh::getAckSuccessCount(); }

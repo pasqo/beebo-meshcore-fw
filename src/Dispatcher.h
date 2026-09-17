@@ -168,8 +168,7 @@ class Dispatcher {
 #ifdef BEEBO_CPU_ACCOUNTING
   uint32_t rx_busy_us;  // beebo: micros() accumulated in loop()'s housekeeping + checkRecv() since last resetCpuAccounting()
   uint32_t tx_busy_us;  // beebo: micros() accumulated in checkSend() since last resetCpuAccounting()
-  // beebo: routing-latency wait accumulators (plans/CPU_UTILIZATION.md's
-  // "Routing-latency" section) -- wall-clock millis() a queued outbound
+  // beebo: routing-latency wait accumulators -- wall-clock millis() a queued outbound
   // packet spent blocked by each cause, since last resetRouteAccounting().
   // Orthogonal to tx_busy_us above: checkSend() returns near-instantly
   // while throttled/CAD-busy, so these accumulate time tx_busy_us does not.

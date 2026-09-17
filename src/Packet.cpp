@@ -52,7 +52,7 @@ void Packet::calculatePacketHash(uint8_t* hash) const {
   sha.finalize(hash, MAX_HASH_SIZE);
 }
 
-// beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- SHA256(payload)[0:4] LE, payload
+// SHA256(payload)[0:4] LE, payload
 // only (no type-byte prefix, unlike calculatePacketHash() above). This is a
 // DIFFERENT hash space, deliberately: it matches the convention MonRing's own
 // TxRecord/RxRecord.pkt_hash already use (Beebo::fillTxRecordCommon/logRxRaw,

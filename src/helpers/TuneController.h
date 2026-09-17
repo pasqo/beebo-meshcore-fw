@@ -3,8 +3,7 @@
 #include <math.h>
 #include "MonRing.h"
 
-// beebo: on-device, observe-only dynamic-tuning controller (Phase A of
-// beebo/plans/DYNAMIC_OPTIMIZER_PLAN.md).
+// On-device, observe-only dynamic-tuning controller.
 //
 // Runs one small multi-armed bandit (UCB1) per tunable repeater parameter,
 // over a fixed 3-arm neighbourhood {-step, 0 (stay), +step} around whatever
@@ -19,8 +18,7 @@
 // to nearly every one of these parameters: no_forward is an admin policy
 // choice, path_full is a topology/hop-count ceiling, and "forwarded" itself
 // only means a retransmission was *scheduled*, not that it was received by
-// anyone. See beebo/plans/DYNAMIC_OPTIMIZER_PLAN.md item 9 for the full
-// derivation. txConfirmReward() instead measures whether this node's own
+// anyone. txConfirmReward() instead measures whether this node's own
 // transmissions (self-originated or forwarded) actually got a confirmed
 // response from the mesh -- a flood echo (SimpleMeshTables::getEchoSuccessCount())
 // or a DM ACK (BaseChatMesh::getAckSuccessCount()/getAckTimeoutCount()) --
@@ -29,9 +27,8 @@
 //   reward = (ack_success + rpt) /
 //            (ack_success + ack_timeout + echo_flood)
 //
-// This is a pure link-confirmation-quality RATIO ("confirm ratio" --
-// DYNAMIC_OPTIMIZER_PLAN.md's "goodput" reward redesign, 2026-08-24), no
-// longer widened by rx_drop (pool-exhausted/parse-error/queue-full) the way
+// This is a pure link-confirmation-quality RATIO ("confirm ratio"), not
+// widened by rx_drop (pool-exhausted/parse-error/queue-full) the way
 // an earlier revision did -- that capacity signal is SoH's job (see
 // MonRing::SohStats), and folding it into this ratio's denominator hid the
 // effect of any parameter (radio txpower, RX/FEM gain) whose main effect is
@@ -165,8 +162,7 @@ public:
   // reward. echo_attempt_count deliberately excludes direct-routed self-tx
   // (see SimpleMeshTables::markSelfTx()) -- those are fully covered by
   // ack_success_count/ack_timeout_count instead.
-  // No rx_drop_count field here anymore (removed in the goodput reward
-  // redesign, DYNAMIC_OPTIMIZER_PLAN.md, 2026-08-24) -- capacity drops
+  // No rx_drop_count field here -- capacity drops
   // (pool-exhausted/parse-error/queue-full) are SoH's job, not this ratio's;
   // folding them in here also hid the effect of volume-sensitive parameters
   // (radio txpower, RX/FEM gain) this ratio can't see regardless. Same
@@ -290,8 +286,8 @@ private:
 
   // TX reception confirmation reward, scaled to the TuneRecord.reward_before
   // wire range (0-10000 = 0-100%) -- see the class-level comment above for
-  // the derivation and known limitations. This IS the QoS objective function
-  // (DYNAMIC_OPTIMIZER_PLAN.md item 10) -- delegates to MonRing::computeQos()
+  // the derivation and known limitations. This IS the QoS objective
+  // function -- it delegates to MonRing::computeQos()
   // so there is exactly one implementation of this formula, not two that
   // could silently drift apart (TxConfirmStats/MonRing::QosStats are the
   // same shape by construction).

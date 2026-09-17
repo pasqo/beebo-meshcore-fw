@@ -20,14 +20,13 @@ struct RegionEntry {
   bool isWildcard() const { return id == 0; }
 };
 
-// beebo: putRegion() can fail for two unrelated reasons -- an illegal
+// putRegion() can fail for two unrelated reasons -- an illegal
 // name character, or a genuinely full table -- and callers need to tell
 // them apart to report the right error code instead of a misleading
-// ERR_CODE_TABLE_FULL for what's actually a bad name (see BUGS.md's
-// region-table entry for the real-world cost of not distinguishing
-// these: a client-side display-placeholder string fed back as a "region
-// name" got rejected for illegal characters, but the resulting
-// ERR_CODE_TABLE_FULL sent debugging down a completely wrong path
+// ERR_CODE_TABLE_FULL for what's actually a bad name: a client-side
+// display-placeholder string fed back as a "region name" got rejected
+// for illegal characters, but the resulting ERR_CODE_TABLE_FULL sent
+// debugging down a completely wrong path
 // chasing a table leak that never existed).
 enum PutRegionError { PUT_REGION_OK = 0, PUT_REGION_ILLEGAL_NAME, PUT_REGION_TABLE_FULL };
 

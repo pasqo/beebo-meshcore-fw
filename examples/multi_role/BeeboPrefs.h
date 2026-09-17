@@ -4,7 +4,7 @@
 #include "BeeboRepeaterPrefs.h"
 #include "BeeboBasePrefs.h"
 
-// beebo: BeeboPrefs unification (SETTINGS_REFACTOR.md Part 1). Must be
+// BeeboPrefs unification. Must be
 // included from Beebo.h only, after the ComPrefs alias trick (#define
 // NodePrefs ComPrefs / #include <helpers/CommonCLI.h> / #undef NodePrefs)
 // -- BeeboRepeaterPrefs.h's `ComPrefs` base only resolves in that context.
@@ -23,14 +23,14 @@ struct BeeboPrefs : public BeeboCompanionPrefs,
 #endif
                      public BeeboBasePrefs
 {
-  // beebo: SETTINGS_REFACTOR.md Part 3 -- role/board identity
+  // Role/board identity
   // (board_password/board_name) moved OUT of BeeboPrefs entirely, into
   // their own single BeeboBoardPrefs object (Beebo.h's `_board`) --
   // board-level state, one value for the whole device, not per-role data,
   // so it doesn't belong on the struct that becomes one array slot per
   // role (BeeboRoleState.h). See BeeboBoardPrefs.h.
 
-  // beebo: SETTINGS_REFACTOR.md root-cause fix -- self-contained dirty
+  // Self-contained dirty
   // tracking for exactly what this struct now owns (BeeboCompanionPrefs/
   // BeeboRepeaterPrefs/BeeboBasePrefs), so a single generic save routes
   // correctly per role-state slot instead of every call site needing to

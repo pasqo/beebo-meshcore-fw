@@ -40,11 +40,11 @@ class MultiSerialInterface : public BaseSerialInterface {
   SubTransport _transports[MULTI_TRANSPORT_MAX];
   int _count = 0;
 
-  // beebo: which single transport, if any, owns the app-level command/
+  // Which single transport, if any, owns the app-level command/
   // response conversation right now, and whether the arbitration engine is
   // running at all. Distinct from link state (BtpState/TransportState,
   // Beebo.h): the session lock must never gate a link, only decide whose
-  // frames get dispatched. See plans/TRANSPORT_STATE_MACHINE.md.
+  // frames get dispatched.
   //
   // SESSION_DISABLED is a real state here, not a separate _enabled bool --
   // it changes checkRecvFrame()'s own dispatch (nothing polled while
@@ -297,14 +297,13 @@ public:
     return _active >= 0 ? _transports[_active].iface->getMaxSendFrameSize() : MAX_FRAME_SIZE;
   }
 
-  // beebo: link state (is a transport's radio/interface powered/listening,
+  // Link state (is a transport's radio/interface powered/listening,
   // BtpState/TransportState in Beebo.h) and session state (SessionState,
   // above -- which single transport owns the app-level command/response
   // conversation) are two distinct state machines: the session lock must
   // never gate a link. Every enabled transport, owner or not, gets its own
   // checkRecvFrame() called every tick; a non-owner's poll result is only
-  // ever allowed to trigger eviction, never dispatch or lock in. See
-  // plans/TRANSPORT_STATE_MACHINE.md's "Session arbitration state machine".
+  // ever allowed to trigger eviction, never dispatch or lock in.
   //
   // A non-owner link that reports itself connected is forcibly evicted --
   // it cannot be trusted to reject itself: none of the three transports
@@ -320,12 +319,10 @@ public:
   // USB is the one exception to "evict on isConnected()": DualModeSerialInterface::
   // isConnected() is a 30s idle-liveness inference (USB_IDLE_TIMEOUT_MS), not
   // "a real peer is here" -- true for the whole window after enable()/any byte,
-  // including its own boot. Evicting on that reset USB's own parser every tick
-  // for 30s straight while it was legitimately trying to become the winner
-  // (hardware-verified 2026-09-03, bunch-mc: a storm of eviction events racing
-  // its own first connect). USB is only evicted if it actually delivers a real
-  // command frame while non-owner -- see plans/TRANSPORT_STATE_MACHINE.md's
-  // "Non-owner eviction, per transport".
+  // including its own boot. Evicting on that would reset USB's own parser
+  // every tick for 30s straight while it is legitimately trying to become
+  // the winner. USB is only evicted if it actually delivers a real
+  // command frame while non-owner.
   //
   // Call only from checkRecvFrame()'s switch. Runs only against a
   // non-owner index, evicting whichever sub-transport it's given -- unless
@@ -482,11 +479,9 @@ public:
         // checkRecvFrame() then parses fresh bytes into a blank parser
         // state; if that returns a real frame, USB's own eviction rule
         // (pollAndEvictIfConnected(), n > 0) would reset it again --
-        // splitting a legitimate frame mid-stream. Hardware-verified
-        // 2026-09-03 (bunch-mc): binary bytes misread as text, "ERR:
-        // unknown command", garbage -- the same FrameParser desync class
-        // documented in kbase/CLI_INTERACTIVE_SESSION.md, reintroduced by
-        // this stale-index bug.
+        // splitting a legitimate frame mid-stream: binary bytes misread as
+        // text, "ERR: unknown command", garbage -- the same FrameParser
+        // desync class this stale-index bug would otherwise reintroduce.
         int owner = _active;
 
         if (_pending_request == REQ_DISABLE) {
@@ -597,10 +592,9 @@ private:
   // round-trips, not one. Without this, connectedPastGrace() below would
   // treat "brand new, hasn't spoken yet" the same as "stray peer that's
   // been silently connected for a while," and evict a legitimate reconnect
-  // before it ever gets to send its first frame. Root-caused via hardware
-  // repro 2026-09-05: a TCP reconnect immediately after a clean disconnect
-  // intermittently got APP_SESSION_EVICTED with no APP_START in between
-  // (see BUGS.md).
+  // before it ever gets to send its first frame -- a TCP reconnect
+  // immediately after a clean disconnect can otherwise get
+  // APP_SESSION_EVICTED with no APP_START in between.
   uint32_t _connected_since_ms[MULTI_TRANSPORT_MAX] = {0};
   static const uint32_t CONNECT_GRACE_MS = 300;
 

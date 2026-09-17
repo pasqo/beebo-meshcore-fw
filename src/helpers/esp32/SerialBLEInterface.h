@@ -78,10 +78,8 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   // beebo: recv_queue is pushed to from onWrite() (BT host task) and popped
   // from checkRecvFrame() (main loop task) -- a plain array + int length
   // shared across two FreeRTOS tasks with no lock is a real race (torn
-  // writes/lost increments on concurrent push+pop). Backported from
-  // upstream's post-v1.16.0 fix (3885c67c "fix: synchronize BLE receive
-  // queue", 4d4d7c37 "refactor: use FreeRTOS BLE receive queue") -- our
-  // fork's base predates both. xQueueCreateStatic avoids heap allocation
+  // writes/lost increments on concurrent push+pop), fixed with a proper
+  // FreeRTOS queue instead of the raw array. xQueueCreateStatic avoids heap allocation
   // (storage is a plain member array). send_queue stays a plain array:
   // upstream never made it thread-safe either -- only checkRecvFrame()
   // (main loop task) ever touches it, no concurrent-task access exists.

@@ -44,8 +44,7 @@ static uint32_t _atoi(const char* sp) {
 // missing, matching CMD_GET_DEVICE_TIME's own widened-payload defaults
 // (Beebo.cpp). MS (appended after BOOT, not inserted before it, so the
 // existing 2-token "<time> <boot>" form stays valid unchanged) is the
-// sub-second component of TIME from a millisecond-precision sync
-// (plans/MS_PRECISION_CLOCK_ANCHOR.md).
+// sub-second component of TIME from a millisecond-precision sync.
 static void _parseClockSyncArgs(const char* args, uint32_t& out_secs, uint32_t& out_boot, uint32_t& out_ms) {
   out_secs = 0;
   out_boot = 0;
@@ -288,10 +287,10 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
         strcpy(reply, "OK - clock already in sync");
       } else {
 #ifdef BEEBO_RTC_PERSIST
-        // beebo: "clock sync" has no ms token (legacy, seconds-only) --
+        // "clock sync" has no ms token (legacy, seconds-only) --
         // scale to ms so drift_off stays consistently ms-scale
-        // (plans/MS_PRECISION_CLOCK_ANCHOR.md) regardless of which
-        // seconds-only vs. ms-precision caller last wrote it.
+        // regardless of which seconds-only vs. ms-precision caller last
+        // wrote it.
         beebo_clockDrift((curr - sender_timestamp) * 1000);
 #endif
         strcpy(reply, "ERR: clock cannot go backwards");
@@ -311,8 +310,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       // "clock.epoch" (no trailing tokens) is exactly today's plain read.
       // Reply is always the clock's value *before* any change, so the
       // caller can compute its own drift locally. Drift is stored/logged
-      // in milliseconds (plans/MS_PRECISION_CLOCK_ANCHOR.md); RTCClock
-      // itself is set from SECS only, unaffected by MS.
+      // in milliseconds; RTCClock itself is set from SECS only,
+      // unaffected by MS.
       uint32_t secs, boot, ms;
       _parseClockSyncArgs(&command[11], secs, boot, ms);
       uint32_t curr = getRTCClock()->getCurrentTime();

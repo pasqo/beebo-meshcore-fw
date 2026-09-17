@@ -63,13 +63,12 @@ enum : uint8_t {
   // MON_CAP_* bits remain -- see that enum below -- and these are still
   // conceptually part of "admin/event activity capture" for that purpose).
   MON_COMMAND = 8, MON_SETTING = 9,
-  // beebo: periodic routing-latency snapshot (exec/wait breakdown for
-  // QoS/tuning, see plans/CPU_UTILIZATION.md's "Routing-latency" section)
-  // -- shares MON_CAP_EVENT, same reasoning as MON_COMMAND/MON_SETTING
+  // Periodic routing-latency snapshot (exec/wait breakdown for
+  // QoS/tuning) -- shares MON_CAP_EVENT, same reasoning as MON_COMMAND/MON_SETTING
   // above (no free MON_CAP_* bits remain).
   MON_ROUTE = 10,
-  // beebo: folded-in RLOG structured (type, detail) transport/session/boot
-  // trace (see plans/MONITORING_UNIFICATION.md) -- shares MON_CAP_EVENT,
+  // Folded-in RLOG structured (type, detail) transport/session/boot
+  // trace -- shares MON_CAP_EVENT,
   // same reasoning as MON_COMMAND/MON_SETTING/MON_ROUTE above (no free
   // MON_CAP_* bits remain).
   MON_DEBUG = 11,
@@ -82,7 +81,7 @@ enum : uint8_t {
 // slot of a multi-record event (and on every ordinary single-record event,
 // as today). Every kind in use today is well under 128, so an old decoder
 // reading `.kind` as a plain byte still gets the exact right value with no
-// reinterpretation -- see plans/MONITORING_UNIFICATION.md Design #4/#5.
+// reinterpretation.
 #define RLOG_KIND_MASK  0x7F
 #define RLOG_CONT_BIT   0x80
 
@@ -105,7 +104,7 @@ enum {
 // reused, so a downloaded trace spanning the rename never misinterprets an
 // old record.
 enum : uint8_t {
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- "TX reception confirmation".
+  // TX reception confirmation.
   // 3, 4 retired (were EVENT_ACK_RESULT/EVENT_ECHO_RESULT, a shared type
   // per side with a TXCONFIRM_* verdict byte in data[0] for SUCCESS vs.
   // TIMEOUT) -- not reused. Split into their own dedicated success/timeout
@@ -252,7 +251,7 @@ enum : uint8_t {
   EVENT_MAX_HOP_NO_FWD = 17,  // getPathHashCount() past _fwd_flood_max/_fwd_flood_max_unscoped/_fwd_flood_max_advert -- too many hops already
   EVENT_REGION_NO_FWD = 18,     // recv_pkt_region == NULL -- transport code matched no flood-allowed region this repeater has defined, or an unscoped packet hit a flood-denied wildcard
   EVENT_LOOP_NO_FWD = 19,       // isLooped() -- this node already appears in the packet's path too many times (repeater.forward.loop_detect)
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 follow-up -- the retired
+  // The retired
   // EVENT_ACK_RESULT/EVENT_ECHO_RESULT (ids 3/4 above) split into their own
   // success/timeout event types per side. One record per verdict reached on
   // a specific outgoing transmission this node made -- ring/table OVERFLOW
@@ -282,8 +281,7 @@ enum : uint8_t {
   EVENT_ACK_TIMEOUT = 21,   // DM/ACK side, no ACK within deadline (checkAckTableTimeouts())
   EVENT_ECHO_SUCCESS = 22,  // flood-echo side, rebroadcast heard (SimpleMeshTables::hasSeen())
   EVENT_ECHO_TIMEOUT = 23,  // flood-echo side, echo window elapsed (checkEchoTimeouts())
-  // beebo: general loop-latency stall watchdog (plans/CPU_UTILIZATION.md's
-  // "New goals" #2) -- fires every time the micros() delta between two
+  // General loop-latency stall watchdog -- fires every time the micros() delta between two
   // consecutive Beebo::loop() calls exceeds MAX_LOOP_LATENCY_THRESHOLD_MS
   // (Beebo.cpp), same "own EVENT_* type, fires every occurrence" pattern
   // as EVENT_TX_POOL_FULL/EVENT_TX_CAD_TIMEOUT/EVENT_RX_START_TIMEOUT
@@ -447,8 +445,7 @@ enum { TXR_OK = 0, TXR_TIMEOUT = 1 };
 // `hops` for any record governed by a SYNC stamped < 2, rather than
 // silently misreporting every pre-bump rx record as zero-hop.
 // 3: `offset`'s meaning changes ring-wide from seconds-since-base to
-// milliseconds-since-minute-boundary-base (plans/MONITORING_UNIFICATION.md
-// Design #1) -- the byte layout is unchanged (still uint16_t), but a
+// milliseconds-since-minute-boundary-base -- the byte layout is unchanged (still uint16_t), but a
 // decoder reading an old capture's `offset` as milliseconds would compute
 // a wildly wrong (and much smaller) elapsed time. `base + offset` must be
 // gated on this version: `abi_version < 3` means `base + offset` (seconds
@@ -505,8 +502,7 @@ struct __attribute__((packed)) RadioRecord {
 // discrete MON_EVENT record elsewhere -- or, for free_heap, close to
 // constant in practice (no dynamic allocation outside setup()/begin() per
 // this repo's coding convention, so it rarely if ever actually changes
-// post-boot) (see git history / plans/CPU_UTILIZATION.md for the
-// 2026-09-07 removal). If any of those need a logged history again, they
+// post-boot). If any of those need a logged history again, they
 // belong on their own record kind alongside MON_EVENT, not folded back
 // in here.
 struct __attribute__((packed)) EnvRecord {
@@ -595,9 +591,8 @@ struct __attribute__((packed)) CommandRecord {
   //   12 bytes).
   uint8_t  command[12];
 };
-// beebo: periodic (1-minute) routing-latency snapshot for QoS/tuning --
-// see kbase/CPU_UTILIZATION.md for the full busy/idle/wait framing
-// this follows. busy = CPU time actually spent running checkRecv()/
+// Periodic (1-minute) routing-latency snapshot for QoS/tuning.
+// busy = CPU time actually spent running checkRecv()/
 // checkSend() (rx_busy/tx_busy -- the same signal as STATS_TYPE_SYSTEM's
 // live rx_busy/tx_busy, higher precision here); wait = elapsed wall-clock
 // time a packet is blocked before busy happens, orthogonal to busy (e.g.
@@ -623,8 +618,7 @@ struct __attribute__((packed)) RouteRecord {
   uint8_t  _rsvd[3];
 };
 
-// beebo: RLOG's own (type, detail) event folded into MonRing (see
-// plans/MONITORING_UNIFICATION.md Design #3) -- reuses MonRing's SYNC/
+// RLOG's own (type, detail) event folded into MonRing -- reuses MonRing's SYNC/
 // offset time base and MLOG live-relay wire format instead of DebugLog's
 // own millis()-based push/ring. Severity packed into `type`'s own MSB
 // (only H/M ever reach MonRing -- L never persists, same rule RLOG
@@ -697,9 +691,8 @@ static_assert(sizeof(MonRecord)   == 16, "MonRecord must be 16 bytes");
 // captureTimeAnchor() call, or an explicit RTC correction via
 // CMD_SET_DEVICE_TIME) -- never read from a clock directly, so MonRing
 // itself stays fully native-testable with no Arduino/RTC dependency.
-// beebo: ms_frac (0-999) is the sub-second component of epoch_sec, from a
-// millisecond-precision clock sync (plans/MS_PRECISION_CLOCK_ANCHOR.md) --
-// 0 for a plain boot-time capture (RTC itself is seconds-only, see
+// ms_frac (0-999) is the sub-second component of epoch_sec, from a
+// millisecond-precision clock sync -- 0 for a plain boot-time capture (RTC itself is seconds-only, see
 // captureTimeAnchor()). Kept as a separate field rather than widening
 // epoch_sec to a 64-bit epoch-ms value, so every existing epoch_sec
 // consumer (SyncRecord.timestamp's bucket math, DLOG/GET_MONRING wire
@@ -720,8 +713,7 @@ public:
   // beebo: fired from _store() for every record actually appended (after
   // the per-kind MON_CAP_* capture gate every appendXxx() already applies --
   // a record that wouldn't be captured into the ring never reaches _store()
-  // and so is never live-relayed either, see plans/MLOG_LIVE_STREAM.md
-  // design decision 4). Plain function pointer, not std::function, matching
+  // and so is never live-relayed either. Plain function pointer, not std::function, matching
   // this codebase's no-dynamic-allocation convention. nullptr by default, so
   // the native test suite (which never calls setLiveSink()) is unaffected.
   using LiveSink = void (*)(const MonRecord &rec);
@@ -771,8 +763,7 @@ private:
   uint32_t  _base = 0;            // running absolute base (epoch seconds), always a whole _sync_period bucket
   uint32_t  _sync_period = 60;    // re-latch bucket width (seconds); variable
 
-  // beebo: the epoch/millis anchor (plans/MONITORING_UNIFICATION.md Design
-  // #1) is g_time_anchor_epoch_sec/g_time_anchor_millis now -- a shared,
+  // The epoch/millis anchor is g_time_anchor_epoch_sec/g_time_anchor_millis -- a shared,
   // ring-agnostic global (declared above), not private MonRing state, so
   // DebugLog's own DLOG live push can read the exact same anchor directly
   // instead of needing MonRing's wire protocol involved at all (see
@@ -796,9 +787,8 @@ private:
   EnvRecord _env;
   bool      _env_valid = false;
 
-  // beebo: true only once sampleEnv() has been called for real (a genuine
-  // fixed-cadence reading, plans/CPU_UTILIZATION.md's "Fixed-cadence
-  // sampling" section) -- distinct from _env_valid above, which _seed()
+  // True only once sampleEnv() has been called for real (a genuine
+  // fixed-cadence reading) -- distinct from _env_valid above, which _seed()
   // sets unconditionally at init()/clear() time from whatever transient
   // value buildEnvRecord() returned right after boot (radio noise-floor
   // calibration and the MCU temp sensor are both not yet settled that
@@ -1007,7 +997,7 @@ private:
       // beebo: mask off the continuation bit (RLOG_CONT_BIT) before dispatch
       // -- a continuation slot's raw kind byte is always >= 128 and would
       // otherwise fall through to `default: break`, leaking its per-kind
-      // resident counter (see plans/MONITORING_UNIFICATION.md Design #5).
+      // resident counter.
       switch (_buf[_head].kind & RLOG_KIND_MASK) {
         case MON_SYNC:
           start_sync = _buf[_head].sync;
@@ -1104,7 +1094,7 @@ public:
   // for callers that need to compare a precise (secs, ms) target against
   // the device's own precise current instant -- e.g. Beebo::
   // applyClockSync()'s ahead/behind decision
-  // (plans/MS_PRECISION_CLOCK_ANCHOR.md) -- rather than a plain RTCClock
+  // -- rather than a plain RTCClock
   // read, which only ever has whole-second resolution and doesn't itself
   // reflect any ms-precision correction already applied to the anchor.
   // NOW_MILLIS is millis() at the call site (unsigned subtraction against
@@ -1142,8 +1132,7 @@ public:
   void requestMlogReplay() { _mlog_replay_pending = true; }
   bool mlogReplayPending() const { return _mlog_replay_pending; }
 
-  // beebo: MLOG replay-on-enable (plans/MLOG_LIVE_STREAM.md decision 3) --
-  // mirrors DebugLog::beginReplay()/replayStep()'s own paced-not-a-burst
+  // MLOG replay-on-enable mirrors DebugLog::beginReplay()/replayStep()'s own paced-not-a-burst
   // shape, but walks this ring's own seq space instead of DebugLog's
   // logical index, since the two rings have unrelated record shapes/sizes.
   // Lives here rather than on DebugLog since only MonRing can iterate its
@@ -1164,7 +1153,7 @@ public:
     // during which every live line's abs_time is unresolved. Pushed
     // unconditionally, even when the ring itself is empty (start_sync is
     // always populated from init()/clear() onward, per emitStartRef()'s
-    // own comment) -- see plans/MLOG_LIVE_STREAM.md.
+    // own comment).
     //
     // beebo: MON_SYNC is always injected below regardless of whether the
     // ring's real oldest record already "covers" that slot -- unlike
@@ -1586,9 +1575,8 @@ public:
   }
 
   // ---- Live objective functions: QoS (what the tuning optimizer maximizes)
-  // and SoH (is the node's own infrastructure intact) -- DYNAMIC_OPTIMIZER_
-  // PLAN.md item 10, reward redesigned per the same plan's "goodput" section
-  // (2026-08-24): QoS alone (a confirmed/attempted RATIO) is structurally
+  // and SoH (is the node's own infrastructure intact). QoS alone
+  // (a confirmed/attempted RATIO) is structurally
   // blind to routing VOLUME, and specifically blind to any parameter (radio
   // txpower, FEM LNA, RX boosted gain) whose main effect is on how many
   // packets are receivable/forwardable at all rather than the ratio's
@@ -1649,7 +1637,7 @@ public:
   // as the CPU doing nothing, when loop() never actually sleeps/yields.
   // Pulled out as a static helper (same shape as computeQos/computeSoh
   // above) purely so this arithmetic is natively testable -- the caller
-  // (Beebo::loop(), see kbase/CPU_UTILIZATION.md) is Arduino-only and
+  // (Beebo::loop()) is Arduino-only and
   // can't run under the native GoogleTest env itself. window_us == 0
   // (shouldn't happen in practice -- loop() only calls this once the
   // window's actual elapsed time is known -- but guards div-by-zero)
@@ -1710,7 +1698,7 @@ public:
   // alone can't distinguish a node routing 1 packet/hour at 100% from one
   // routing 1000/hour at 100%; this is the number that can. Not yet
   // normalized against a rolling baseline (that needs the decision-window
-  // gate's per-window deltas -- see DYNAMIC_OPTIMIZER_PLAN.md) or combined
+  // gate's per-window deltas) or combined
   // with QoS into a single scalar -- exported alongside it for now so
   // `beebo check`/`beebo monitor` can show both while that design lands.
   static uint32_t computeRos(const QosStats &s) {

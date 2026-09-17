@@ -9,7 +9,7 @@
 
 #define MAX_PACKET_HASHES  (128+32)
 
-// beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- "TX reception confirmation".
+// "TX reception confirmation".
 // A small ring of (hash, millis-timestamp) pairs for packets THIS node has
 // itself transmitted (self-originated or forwarded -- see markSelfTx(),
 // called at the same 5 "packet as already sent" sites in Mesh.cpp that
@@ -89,14 +89,14 @@ class SimpleMeshTables : public mesh::MeshTables {
   // a short packet doesn't wait as long as a long one, and vice versa.
   uint32_t _echo_timeout[MAX_ECHO_HASHES];
   bool _echo_confirmed[MAX_ECHO_HASHES];  // already counted toward echo_success_count this generation?
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- true once this generation has
+  // true once this generation has
   // reached a final verdict, confirmed (_echo_confirmed) or timed out
   // unconfirmed (checkEchoTimeouts()). Mirrors the ack-table fix: a slot
   // that's still pending (neither) when the ring wraps back to reuse it is a
   // real starvation event (_echo_overflow_count), not a silent no-op.
   bool _echo_resolved[MAX_ECHO_HASHES];
   bool _echo_active[MAX_ECHO_HASHES];  // has this slot ever been assigned? (vs. pristine boot state)
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- Packet::calculateMonRingHash()
+  // Packet::calculateMonRingHash()
   // per slot (SHA256(payload)[0:4], NOT the calculatePacketHash() this ring
   // matches dups against) -- the correlation key EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT needs
   // to reference the origin MON_TX record (and, for a confirmed echo, the
@@ -140,7 +140,7 @@ class SimpleMeshTables : public mesh::MeshTables {
     return -1;
   }
 
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- see MonRing.h's
+  // see MonRing.h's
   // EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT comment for the data[] layout.
   // SUCCESS/TIMEOUT only -- OVERFLOW goes through _emitEchoOverflowEvent()
   // instead (see MonRing.h's EVENT_ECHO_OVERFLOW comment for why it's a
@@ -171,7 +171,7 @@ class SimpleMeshTables : public mesh::MeshTables {
   }
 
 public:
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- wires this table to the
+  // wires this table to the
   // monitoring ring so hasSeen()/checkEchoTimeouts()/markSelfTx() can log
   // EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT records. Called once from Beebo::begin() after
   // monring is allocated; the two-argument form (vs. constructor injection)
@@ -217,7 +217,7 @@ public:
       return;
     }
     int idx = _echo_next_idx;
-    // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- if the slot we're about to
+    // if the slot we're about to
     // reuse was assigned but never reached a verdict (not confirmed heard,
     // not yet timed out by checkEchoTimeouts()), the ring wrapped faster
     // than that generation's own echo window -- a real starvation event,
@@ -247,7 +247,7 @@ public:
     _echo_attempt_count++;
   }
 
-  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- sweeps every ring slot for a
+  // sweeps every ring slot for a
   // generation that's aged past its own per-packet echo timeout
   // (_echo_timeout[i], set in markSelfTx()) with no echo ever confirmed.
   // Mirrors Beebo::checkAckTableTimeouts() for the ack table: without this,
@@ -307,7 +307,7 @@ public:
         } else {
           _flood_dups++;
         }
-        // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9 -- this dup's hash also
+        // this dup's hash also
         // matches one of OUR OWN recent transmissions -> a neighbor
         // rebroadcasting it is confirmation that specific TX was heard, not
         // just an anonymous duplicate. Counted at most once per self-tx

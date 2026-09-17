@@ -325,10 +325,9 @@ void Dispatcher::checkSend() {
   if (_mgr->getOutboundCount(_ms->getMillis()) == 0) return;
 
 #ifdef BEEBO_CPU_ACCOUNTING
-  // beebo: routing-latency wait accounting -- dt since the last tick where
+  // Routing-latency wait accounting: dt since the last tick where
   // something was actually outbound-queued, attributed to whichever cause
-  // this tick's early-return (if any) is blocked on. See
-  // plans/CPU_UTILIZATION.md's "Routing-latency" section.
+  // this tick's early-return (if any) is blocked on.
   unsigned long now_ms = _ms->getMillis();
   unsigned long dt_ms = now_ms - last_checksend_ms;
   last_checksend_ms = now_ms;

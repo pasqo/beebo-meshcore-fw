@@ -201,9 +201,9 @@ public:
   // sequencing) ever gets a chance to observe the jump; the full restart
   // wipes all of that state regardless. Setting the live clock and NOT
   // rebooting immediately after would not be safe -- don't split these.
-  // beebo: TS_MS (0-999, default 0) is the sub-second component of TS from
-  // a millisecond-precision sync (plans/MS_PRECISION_CLOCK_ANCHOR.md) --
-  // only refines the live-clock correction's tv_usec below; rtc_ts (the
+  // TS_MS (0-999, default 0) is the sub-second component of TS from
+  // a millisecond-precision sync -- only refines the live-clock
+  // correction's tv_usec below; rtc_ts (the
   // NVS backup) stays seconds-only, unaffected.
   void rebootWithTime(uint32_t ts, uint16_t ts_ms = 0) {
     beebo_persistRTCTimeForReboot(ts);
@@ -331,10 +331,9 @@ public:
     settimeofday(&tv, NULL);
   }
 
-  // beebo: one atomic gettimeofday()/settimeofday() call each, straight to
+  // One atomic gettimeofday()/settimeofday() call each, straight to
   // the same underlying clock getCurrentTime()/setCurrentTime() use -- no
-  // separate anchor/millis() bookkeeping to keep in sync with this. See
-  // plans/MS_PRECISION_CLOCK_ANCHOR.md's retirement in favor of this pair.
+  // separate anchor/millis() bookkeeping to keep in sync with this.
   void getTime(uint32_t &secs, uint16_t &ms) override {
     struct timeval tv;
     gettimeofday(&tv, NULL);

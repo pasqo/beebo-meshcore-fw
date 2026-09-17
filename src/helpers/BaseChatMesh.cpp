@@ -325,7 +325,7 @@ bool BaseChatMesh::onContactPathRecv(ContactInfo& from, uint8_t* in_path, uint8_
     // also got an encoded ACK!
     if (processAck(extra) != NULL) {
       txt_send_timeout = 0;   // matched one we're waiting for, cancel timeout timer
-      _ack_success_count++;   // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9
+      _ack_success_count++;
     }
   } else if (extra_type == PAYLOAD_TYPE_RESPONSE && extra_len > 0) {
     onContactResponse(from, extra, extra_len);
@@ -337,7 +337,7 @@ void BaseChatMesh::onAckRecv(mesh::Packet* packet, uint32_t ack_crc) {
   ContactInfo* from;
   if ((from = processAck((uint8_t *)&ack_crc)) != NULL) {
     txt_send_timeout = 0;   // matched one we're waiting for, cancel timeout timer
-    _ack_success_count++;   // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9
+    _ack_success_count++;
     packet->markDoNotRetransmit();   // ACK was for this node, so don't retransmit
 
     if (packet->isRouteFlood() && from->out_path_len != OUT_PATH_UNKNOWN) {
@@ -432,7 +432,7 @@ mesh::Packet* BaseChatMesh::composeMsgPacket(const ContactInfo& recipient, uint3
 int  BaseChatMesh::sendMessage(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, const char* text, uint32_t& expected_ack, uint32_t& est_timeout, uint32_t* tx_pkt_hash) {
   mesh::Packet* pkt = composeMsgPacket(recipient, timestamp, attempt, text, expected_ack);
   if (pkt == NULL) return MSG_SEND_FAILED;
-  if (tx_pkt_hash) *tx_pkt_hash = pkt->calculateMonRingHash();  // beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9
+  if (tx_pkt_hash) *tx_pkt_hash = pkt->calculateMonRingHash();
 
   uint32_t t = _radio->getEstAirtimeFor(pkt->getRawLength());
 
@@ -947,8 +947,7 @@ void BaseChatMesh::loop() {
   Mesh::loop();
 
   if (txt_send_timeout && millisHasNowPassed(txt_send_timeout)) {
-    // failed to get an ACK -- beebo: DYNAMIC_OPTIMIZER_PLAN.md item 9's
-    // ack_timeout_count is now counted per-slot by a subclass with a real
+    // failed to get an ACK -- ack_timeout_count is now counted per-slot by a subclass with a real
     // expected-ack table (see noteAckTimeout()), not here: this scalar only
     // ever tracks the single most-recently-sent message, so counting here
     // too would double-count that one and still miss every earlier
