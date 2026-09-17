@@ -42,4 +42,6 @@ struct BeeboBasePrefs {
   uint8_t profile_enabled = 0;   // ProfileLog::setEnabled() gate -- default DISABLED,
                                  // unlike monring_config's on-by-default kinds. Same
                                  // per-role-differs rationale as monring_config above.
+  uint8_t radio_fem_txgain = 0;  // external LoRa FEM TX gain (PA), same per-role-differs
+                                 // rationale as radio_fem_rxgain above.
 };

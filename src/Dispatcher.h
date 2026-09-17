@@ -65,6 +65,8 @@ public:
 
   virtual void triggerNoiseFloorCalibrate(int threshold) { }
 
+  virtual void setCADEnabled(bool enable) { }
+
   virtual void resetAGC() { }
 
   virtual bool isInRecvMode() const = 0;
@@ -130,7 +132,7 @@ enum RxDisposition : uint8_t {
   RX_DISP_NONE         = 0,   // captured only, not yet resolved
   RX_DISP_ACCEPTED     = 1,   // decrypted / delivered to this node
   RX_DISP_FORWARDED    = 2,   // retransmit scheduled (repeater role)
-  RX_DISP_DUP          = 3,   // already seen (hasSeen)
+  RX_DISP_DUP          = 3,   // already seen (wasSeen)
   RX_DISP_NOT_FOR_US   = 4,   // dest-hash mismatch, or decrypt/MAC failed
   RX_DISP_WRONG_HOP    = 5,   // direct route, this node is not the next hop
   RX_DISP_NO_FORWARD   = 6,   // forwarding disabled (client_repeat off)
@@ -264,6 +266,7 @@ protected:
   virtual uint32_t getCADFailRetryDelay() const;
   virtual uint32_t getCADFailMaxDuration() const;
   virtual int getInterferenceThreshold() const { return 0; }    // disabled by default
+  virtual bool getCADEnabled() const { return false; }    // hardware CAD disabled by default
   virtual int getAGCResetInterval() const { return 0; }    // disabled by default
   virtual unsigned long getDutyCycleWindowMs() const { return 3600000; }
 

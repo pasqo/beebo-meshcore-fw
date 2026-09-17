@@ -384,7 +384,7 @@ bool Beebo::tlvSetAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw) {
 
 // beebo: repeater's own independent dedup live-eviction window, ms, own
 // file (see BeeboRepeaterPrefs.h). 0 is a real, literal value -- disables
-// live-eviction counting entirely (SimpleMeshTables::hasSeen()) -- not a
+// live-eviction counting entirely (SimpleMeshTables::wasSeen()/markSeen()) -- not a
 // "reset to default" sentinel; valid range is [0, DEDUP_WINDOW_MAX_MS],
 // rejected (false, caller writes ERR) outside that. Targets the given
 // role's own slot explicitly (see persistRoleSlot()'s comment, Beebo.cpp),
@@ -553,6 +553,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_BLE_PIN,                 TLV_U32,    tlvGetBlePin,        tlvSetBlePin,        nullptr, nullptr },
   { PREFS_TLV_WIFI_PWD,                TLV_STRING, nullptr, nullptr, tlvGetWifiPwdSetStr, tlvSetWifiPwd },
   { PREFS_TLV_RADIO_FEM_RXGAIN, TLV_U32,   tlvGetRadioFemRxgain, tlvSetRadioFemRxgain, nullptr, nullptr },
+  { PREFS_TLV_RADIO_FEM_TXGAIN, TLV_U32,   tlvGetRadioFemTxgain, tlvSetRadioFemTxgain, nullptr, nullptr },
   { PREFS_TLV_RADIO_RXGAIN,     TLV_U32,   tlvGetRadioRxgain,    tlvSetRadioRxgain,    nullptr, nullptr },
   { PREFS_TLV_ADC_MULTIPLIER,   TLV_FLOAT, tlvGetAdcMultiplier,  tlvSetAdcMultiplier,  nullptr, nullptr },
   { PREFS_TLV_ADC_RESOLUTION,   TLV_U32,   tlvGetAdcResolution,  tlvSetAdcResolution,  nullptr, nullptr },
@@ -791,7 +792,7 @@ void Beebo::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const me
     data[len] = 0;  // ensure null terminator
     uint8_t reply_len;
 
-    reply_path_len = -1;
+    reply_path_len = 0xFF;   // sentinel: isValidPathLen() rejects this (hash_size==4, reserved)
     if (data[4] == 0 || data[4] >= ' ') {   // is password, ie. a login request
       reply_len = handleLoginReq(sender, secret, timestamp, &data[4], packet->isRouteFlood());
     } else if (data[4] == ANON_REQ_TYPE_REGIONS && packet->isRouteDirect()) {
@@ -806,18 +807,33 @@ void Beebo::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const me
 
     if (reply_len == 0) return;   // invalid request
 
-    if (packet->isRouteFlood()) {
+    // beebo: a DIRECT login can reply via the stored out_path, as
+    // onPeerDataRecv() does for REQ -- matches upstream's own
+    // chooseReplyRoute() enhancement (companion-v1.17.1), letting a
+    // repeated DIRECT login avoid an unnecessary flood-reply once this
+    // repeater already has a working return path for the client.
+    ClientInfo* client = acl.getClient(sender.pub_key, PUB_KEY_SIZE);
+    bool have_out_path = client != NULL && client->out_path_len != OUT_PATH_UNKNOWN;
+
+    auto route = mesh::chooseReplyRoute(packet->isRouteFlood(), reply_path_len != 0xFF, have_out_path);
+
+    if (route == mesh::REPLY_ROUTE_PATH_RETURN) {
       // let this sender know path TO here, so they can use sendDirect(), and ALSO encode the response
       mesh::Packet* path = createPathReturn(sender, secret, packet->path, packet->path_len,
                                             PAYLOAD_TYPE_RESPONSE, reply_data, reply_len);
       if (path) sendFloodReply(path, ADMIN_REQ_SERVER_RESPONSE_DELAY, packet->getPathHashSize());
-    } else if (reply_path_len < 0) {
-      mesh::Packet* reply = createDatagram(PAYLOAD_TYPE_RESPONSE, sender, secret, reply_data, reply_len);
-      if (reply) sendFloodReply(reply, ADMIN_REQ_SERVER_RESPONSE_DELAY, packet->getPathHashSize());
+      return;
+    }
+
+    mesh::Packet* reply = createDatagram(PAYLOAD_TYPE_RESPONSE, sender, secret, reply_data, reply_len);
+    if (reply == NULL) return;
+
+    if (route == mesh::REPLY_ROUTE_DIRECT_SUPPLIED) {
+      sendDirect(reply, reply_path, reply_path_len, ADMIN_REQ_SERVER_RESPONSE_DELAY);
+    } else if (route == mesh::REPLY_ROUTE_DIRECT_OUT_PATH) {
+      sendDirect(reply, client->out_path, client->out_path_len, ADMIN_REQ_SERVER_RESPONSE_DELAY);
     } else {
-      mesh::Packet* reply = createDatagram(PAYLOAD_TYPE_RESPONSE, sender, secret, reply_data, reply_len);
-      uint8_t path_len = ((reply_path_hash_size - 1) << 6) | (reply_path_len & 63);
-      if (reply) sendDirect(reply, reply_path, path_len, ADMIN_REQ_SERVER_RESPONSE_DELAY);
+      sendFloodReply(reply, ADMIN_REQ_SERVER_RESPONSE_DELAY, packet->getPathHashSize());
     }
   }
 }
@@ -875,11 +891,10 @@ uint8_t Beebo::handleLoginReq(const mesh::Identity& sender, const uint8_t* secre
 uint8_t Beebo::handleAnonRegionsReq(const mesh::Identity& sender, uint32_t sender_timestamp, const uint8_t* data) {
   if (anon_limiter.allow(getRTCClock()->getCurrentTime())) {
     // request data has: {reply-path-len}{reply-path}
-    reply_path_len = *data & 63;
-    reply_path_hash_size = (*data >> 6) + 1;
-    data++;
+    reply_path_len = *data++;
+    if (!mesh::Packet::isValidPathLen(reply_path_len)) return 0;  // reject - bad encoding
 
-    memcpy(reply_path, data, ((uint8_t)reply_path_len) * reply_path_hash_size);
+    mesh::Packet::writePath(reply_path, data, reply_path_len);
 
     memcpy(reply_data, &sender_timestamp, 4);   // prefix with sender_timestamp, like a tag
     uint32_t now = getRTCClock()->getCurrentTime();
@@ -893,11 +908,10 @@ uint8_t Beebo::handleAnonRegionsReq(const mesh::Identity& sender, uint32_t sende
 uint8_t Beebo::handleAnonOwnerReq(const mesh::Identity& sender, uint32_t sender_timestamp, const uint8_t* data) {
   if (anon_limiter.allow(getRTCClock()->getCurrentTime())) {
     // request data has: {reply-path-len}{reply-path}
-    reply_path_len = *data & 63;
-    reply_path_hash_size = (*data >> 6) + 1;
-    data++;
+    reply_path_len = *data++;
+    if (!mesh::Packet::isValidPathLen(reply_path_len)) return 0;  // reject - bad encoding
 
-    memcpy(reply_path, data, ((uint8_t)reply_path_len) * reply_path_hash_size);
+    mesh::Packet::writePath(reply_path, data, reply_path_len);
 
     memcpy(reply_data, &sender_timestamp, 4);
     uint32_t now = getRTCClock()->getCurrentTime();
@@ -912,11 +926,10 @@ uint8_t Beebo::handleAnonOwnerReq(const mesh::Identity& sender, uint32_t sender_
 uint8_t Beebo::handleAnonClockReq(const mesh::Identity& sender, uint32_t sender_timestamp, const uint8_t* data) {
   if (anon_limiter.allow(getRTCClock()->getCurrentTime())) {
     // request data has: {reply-path-len}{reply-path}
-    reply_path_len = *data & 63;
-    reply_path_hash_size = (*data >> 6) + 1;
-    data++;
+    reply_path_len = *data++;
+    if (!mesh::Packet::isValidPathLen(reply_path_len)) return 0;  // reject - bad encoding
 
-    memcpy(reply_path, data, ((uint8_t)reply_path_len) * reply_path_hash_size);
+    mesh::Packet::writePath(reply_path, data, reply_path_len);
 
     memcpy(reply_data, &sender_timestamp, 4);
     uint32_t now = getRTCClock()->getCurrentTime();

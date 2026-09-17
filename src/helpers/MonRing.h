@@ -195,7 +195,7 @@ enum : uint8_t {
   // SimpleMeshTables::_hashes (the main dedup table, MAX_PACKET_HASHES=160)
   // had no free slot for a new hash and overwrote one that still held a real,
   // previously-inserted hash (not an empty/never-used slot) -- see
-  // SimpleMeshTables::hasSeen(). Unlike the ring/table overflow events above,
+  // SimpleMeshTables::wasSeen()/markSeen(). Unlike the ring/table overflow events above,
   // this table has no notion of a slot being "resolved" first -- it's a
   // cyclic table by design, so there is no way to insert without evicting
   // whatever the next slot currently holds once the table has filled once.
@@ -279,7 +279,7 @@ enum : uint8_t {
   //   data[9:12] = reserved
   EVENT_ACK_SUCCESS = 20,   // DM/ACK side, ACK received (Beebo::processAck())
   EVENT_ACK_TIMEOUT = 21,   // DM/ACK side, no ACK within deadline (checkAckTableTimeouts())
-  EVENT_ECHO_SUCCESS = 22,  // flood-echo side, rebroadcast heard (SimpleMeshTables::hasSeen())
+  EVENT_ECHO_SUCCESS = 22,  // flood-echo side, rebroadcast heard (SimpleMeshTables::wasSeen()/markSeen())
   EVENT_ECHO_TIMEOUT = 23,  // flood-echo side, echo window elapsed (checkEchoTimeouts())
   // General loop-latency stall watchdog -- fires every time the micros() delta between two
   // consecutive Beebo::loop() calls exceeds MAX_LOOP_LATENCY_THRESHOLD_MS
@@ -412,6 +412,7 @@ enum { TXR_OK = 0, TXR_TIMEOUT = 1 };
 // ---- RADIO flags byte ------------------------------------------------------
 #define RADIO_FLAG_RXBOOST    0x01
 #define RADIO_FLAG_FEMRXGAIN  0x02
+#define RADIO_FLAG_FEMTXGAIN  0x04
 
 // ---- BATT flags byte: idle bit + BattTrend.h's BATT_STATE_* -----------------
 #define BATTREC_FLAG_IDLE   0x01  // 1 = idle-gated (soft window), 0 = forced/deadline

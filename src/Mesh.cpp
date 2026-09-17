@@ -60,9 +60,10 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
         logRxDisposition(pkt, RX_DISP_WRONG_HOP);  // not the next hop for this trace
       } else if (!allowPacketForward(pkt)) {
         logRxDisposition(pkt, RX_DISP_NO_FORWARD); // next hop, but forwarding disabled
-      } else if (_tables->hasSeen(pkt)) {
+      } else if (_tables->wasSeen(pkt)) {
         logRxDisposition(pkt, RX_DISP_DUP);        // next hop, but already forwarded
       } else {
+        _tables->markSeen(pkt);
         // append SNR (Not hash!)
         pkt->path[pkt->path_len++] = (int8_t) (pkt->getSNR()*4);
 
@@ -103,7 +104,8 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
       if (pkt->getPayloadType() == PAYLOAD_TYPE_MULTIPART) {
         return forwardMultipartDirect(pkt);
       } else if (pkt->getPayloadType() == PAYLOAD_TYPE_ACK) {
-        if (!_tables->hasSeen(pkt)) {  // don't retransmit!
+        if (!_tables->wasSeen(pkt)) {  // don't retransmit!
+          _tables->markSeen(pkt);
           removeSelfFromPath(pkt);
           routeDirectRecvAcks(pkt, 0);
           logRxDisposition(pkt, RX_DISP_FORWARDED);
@@ -113,7 +115,8 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
         return ACTION_RELEASE;
       }
 
-      if (!_tables->hasSeen(pkt)) {
+      if (!_tables->wasSeen(pkt)) {
+        _tables->markSeen(pkt);
         removeSelfFromPath(pkt);
 
         uint32_t d = getDirectRetransmitDelay(pkt);
@@ -148,7 +151,8 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
       if (i > pkt->payload_len) {
         MESH_DEBUG_PRINTLN("%s Mesh::onRecvPacket(): incomplete ACK packet", getLogDateTime());
         logRxDisposition(pkt, RX_DISP_INCOMPLETE);
-      } else if (!_tables->hasSeen(pkt)) {
+      } else if (!_tables->wasSeen(pkt)) {
+        _tables->markSeen(pkt);
         onAckRecv(pkt, ack_crc);
         action = routeRecvPacket(pkt);   // logs FORWARDED / NO_FORWARD
       } else {
@@ -168,7 +172,8 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
       if (i + CIPHER_MAC_SIZE >= pkt->payload_len) {
         MESH_DEBUG_PRINTLN("%s Mesh::onRecvPacket(): incomplete data packet", getLogDateTime());
         logRxDisposition(pkt, RX_DISP_INCOMPLETE);
-      } else if (!_tables->hasSeen(pkt)) {
+      } else if (!_tables->wasSeen(pkt)) {
+        _tables->markSeen(pkt);
         // NOTE: this is a 'first packet wins' impl. When receiving from multiple paths, the first to arrive wins.
         //       For flood mode, the path may not be the 'best' in terms of hops.
         // FUTURE: could send back multiple paths, using createPathReturn(), and let sender choose which to use(?)
@@ -189,6 +194,10 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
               if (pkt->getPayloadType() == PAYLOAD_TYPE_PATH) {
                 int k = 0;
                 uint8_t path_len = data[k++];
+                if (!Packet::isValidPathLen(path_len)) {
+                  MESH_DEBUG_PRINTLN("%s PAYLOAD_TYPE_PATH, bad path_len: %u", getLogDateTime(), (uint32_t)path_len);
+                  break;   // reject bad encoding
+                }
                 uint8_t hash_size = (path_len >> 6) + 1;
                 uint8_t hash_count = path_len & 63;
                 uint8_t* path = &data[k]; k += hash_size*hash_count;
@@ -232,7 +241,8 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
       if (i + 2 >= pkt->payload_len) {
         MESH_DEBUG_PRINTLN("%s Mesh::onRecvPacket(): incomplete data packet", getLogDateTime());
         logRxDisposition(pkt, RX_DISP_INCOMPLETE);
-      } else if (!_tables->hasSeen(pkt)) {
+      } else if (!_tables->wasSeen(pkt)) {
+        _tables->markSeen(pkt);
         if (self_id.isHashMatch(&dest_hash)) {
           Identity sender(sender_pub_key);
 
@@ -265,7 +275,8 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
       if (i + 2 >= pkt->payload_len) {
         MESH_DEBUG_PRINTLN("%s Mesh::onRecvPacket(): incomplete data packet", getLogDateTime());
         logRxDisposition(pkt, RX_DISP_INCOMPLETE);
-      } else if (!_tables->hasSeen(pkt)) {
+      } else if (!_tables->wasSeen(pkt)) {
+        _tables->markSeen(pkt);
         // scan channels DB, for all matching hashes of 'channel_hash' (max 4 matches supported ATM)
         GroupChannel channels[4];
         int num = searchChannelsByHash(&channel_hash, channels, 4);
@@ -301,7 +312,8 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
       } else if (self_id.matches(id.pub_key)) {
         MESH_DEBUG_PRINTLN("%s Mesh::onRecvPacket(): receiving SELF advert packet", getLogDateTime());
         logRxDisposition(pkt, RX_DISP_SELF);
-      } else if (!_tables->hasSeen(pkt)) {
+      } else if (!_tables->wasSeen(pkt)) {
+        _tables->markSeen(pkt);
         uint8_t* app_data = &pkt->payload[i];
         int app_data_len = pkt->payload_len - i;
         if (app_data_len > MAX_ADVERT_DATA_SIZE) { app_data_len = MAX_ADVERT_DATA_SIZE; }
@@ -334,7 +346,8 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
     case PAYLOAD_TYPE_RAW_CUSTOM: {
       if (!pkt->isRouteDirect()) {
         logRxDisposition(pkt, RX_DISP_MISC_DROP);  // flood raw-custom, not routed (yet)
-      } else if (!_tables->hasSeen(pkt)) {
+      } else if (!_tables->wasSeen(pkt)) {
+        _tables->markSeen(pkt);
         uint8_t subtype = pkt->payload_len > 0 ? pkt->payload[0] : 0;
         if (subtype == POKE_SUBTYPE_REQUEST || subtype == POKE_SUBTYPE_REPLY) {
           handlePoke(pkt, subtype);   // handled entirely here, never falls through to onRawDataRecv()
@@ -360,7 +373,8 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
           tmp.payload_len = pkt->payload_len - 1;
           memcpy(tmp.payload, &pkt->payload[1], tmp.payload_len);
 
-          if (!_tables->hasSeen(&tmp)) {
+          if (!_tables->wasSeen(&tmp)) {
+            _tables->markSeen(&tmp);
             uint32_t ack_crc;
             memcpy(&ack_crc, tmp.payload, 4);
 
@@ -416,7 +430,7 @@ DispatcherAction Mesh::routeRecvPacket(Packet* packet) {
       // This is a self-transmission (a repeater forward): the single call
       // site covering every flood-forward payload type (ACK/PATH/REQ/
       // RESPONSE/TXT_MSG/ANON_REQ/GRP_DATA/GRP_TXT/ADVERT all funnel
-      // through here). hasSeen() was already called by the caller before
+      // through here). wasSeen() was already checked by the caller before
       // this function runs, so only markSelfTx() is needed here, not both.
       _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
       return ACTION_RETRANSMIT_DELAYED(packet->getPathHashCount(), d);   // give priority to closer sources, than ones further away
@@ -443,7 +457,8 @@ DispatcherAction Mesh::forwardMultipartDirect(Packet* pkt) {
     tmp.payload_len = pkt->payload_len - 1;
     memcpy(tmp.payload, &pkt->payload[1], tmp.payload_len);
 
-    if (!_tables->hasSeen(&tmp)) {   // don't retransmit!
+    if (!_tables->wasSeen(&tmp)) {   // don't retransmit!
+      _tables->markSeen(&tmp);
       removeSelfFromPath(&tmp);
       routeDirectRecvAcks(&tmp, ((uint32_t)remaining + 1) * 300);  // expect multipart ACKs 300ms apart (x2)
       logRxDisposition(pkt, RX_DISP_FORWARDED);
@@ -469,10 +484,10 @@ void Mesh::routeDirectRecvAcks(Packet* packet, uint32_t delay_millis) {
         // A genuine new self-transmission (a fresh ack reply built on
         // behalf of routing), sent via the low-level sendPacket() directly
         // rather than through any of the wrapper functions that already
-        // pair hasSeen()/markSelfTx(), so both calls are needed explicitly
+        // pair markSeen()/markSelfTx(), so both calls are needed explicitly
         // here. Direct route, so markSelfTx() only affects
         // self_tx_direct_count (visibility), not ECHO tracking.
-        _tables->hasSeen(a1);
+        _tables->markSeen(a1);
         _tables->markSelfTx(a1, _radio->getEstAirtimeFor(a1->getRawLength()));
         sendPacket(a1, 0, delay_millis);
       }
@@ -484,7 +499,7 @@ void Mesh::routeDirectRecvAcks(Packet* packet, uint32_t delay_millis) {
       a2->path_len = Packet::copyPath(a2->path, packet->path, packet->path_len);
       a2->header &= ~PH_ROUTE_MASK;
       a2->header |= ROUTE_TYPE_DIRECT;
-      _tables->hasSeen(a2);
+      _tables->markSeen(a2);
       _tables->markSelfTx(a2, _radio->getEstAirtimeFor(a2->getRawLength()));
       sendPacket(a2, 0, delay_millis);
     }
@@ -808,7 +823,7 @@ void Mesh::sendFlood(Packet* packet, uint32_t delay_millis, uint8_t path_hash_si
   packet->header |= ROUTE_TYPE_FLOOD;
   packet->setPathHashSizeAndCount(path_hash_size, 0);
 
-  _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
+  _tables->markSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
   _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
 
   uint8_t pri;
@@ -838,7 +853,7 @@ void Mesh::sendFlood(Packet* packet, uint16_t* transport_codes, uint32_t delay_m
   packet->transport_codes[1] = transport_codes[1];
   packet->setPathHashSizeAndCount(path_hash_size, 0);
 
-  _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
+  _tables->markSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
   _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
 
   uint8_t pri;
@@ -872,7 +887,7 @@ void Mesh::sendDirect(Packet* packet, const uint8_t* path, uint8_t path_len, uin
       pri = 0;
     }
   }
-  _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
+  _tables->markSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
   _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
   sendPacket(packet, pri, delay_millis);
 }
@@ -883,7 +898,7 @@ void Mesh::sendZeroHop(Packet* packet, uint32_t delay_millis) {
 
   packet->path_len = 0;  // path_len of zero means Zero Hop
 
-  _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
+  _tables->markSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
   _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
 
   sendPacket(packet, 0, delay_millis);
@@ -897,7 +912,7 @@ void Mesh::sendZeroHop(Packet* packet, uint16_t* transport_codes, uint32_t delay
 
   packet->path_len = 0;  // path_len of zero means Zero Hop
 
-  _tables->hasSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
+  _tables->markSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
   _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
 
   sendPacket(packet, 0, delay_millis);

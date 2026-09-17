@@ -2,6 +2,7 @@
 #include <Arduino.h>   // millis(), used by logRing()/logLink()
 #endif
 #include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 #include "DebugLog.h"
 

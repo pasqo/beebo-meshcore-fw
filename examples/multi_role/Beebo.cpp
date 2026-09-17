@@ -195,6 +195,15 @@ int Beebo::getInterferenceThreshold() const {
   return 0; // disabled for now, until currentRSSI() problem is resolved
 }
 
+// beebo: cad_enabled is a ComPrefs field (repeater-only) -- companion has no
+// hardware-CAD concept, keeps Dispatcher's own default (false).
+bool Beebo::getCADEnabled() const {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  if (isRepeater()) return _role_state->prefs.cad_enabled;
+#endif
+  return false;
+}
+
 // beebo: Dispatcher's default
 // (0, disabled) was never overridden here at all. Repeater role uses the
 // RAM-cached _role_state->prefs.agc_reset_interval (see loadRepeaterFwdPrefs()); companion
@@ -808,14 +817,12 @@ bool Beebo::allowPacketForward(const mesh::Packet* packet) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (isRepeater()) {
     if (_role_state->prefs.disable_fwd) return false;
-    if (packet->isRouteFlood()) {
-      if (packet->getPathHashCount() >= _role_state->prefs.flood_max
-          || (packet->getRouteType() == ROUTE_TYPE_FLOOD && packet->getPathHashCount() >= _role_state->prefs.flood_max_unscoped)
-          || (packet->getPayloadType() == PAYLOAD_TYPE_ADVERT && packet->getPathHashCount() >= _role_state->prefs.flood_max_advert)) {
-        ++_max_hop_no_fwd_count;
-        logForwardDenyEvent(EVENT_MAX_HOP_NO_FWD, packet);
-        return false;
-      }
+    if (packet->isRouteFlood()
+        && mesh::isFloodHopLimitExceeded(packet, _role_state->prefs.flood_max,
+                                          _role_state->prefs.flood_max_unscoped, _role_state->prefs.flood_max_advert)) {
+      ++_max_hop_no_fwd_count;
+      logForwardDenyEvent(EVENT_MAX_HOP_NO_FWD, packet);
+      return false;
     }
     if (packet->isRouteFlood() && recv_pkt_region == NULL) {
       MESH_DEBUG_PRINTLN("allowPacketForward: unknown transport code, or wildcard not allowed for FLOOD packet");
@@ -1048,7 +1055,7 @@ void Beebo::onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code, 
 
 Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store)
     : BEEBO_MESH_BASE(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
-      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store) {
+      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _iter(0) {
   _iter_started = false;
   _pending_disconnect = false;
   offline_queue_len = 0;
@@ -1093,7 +1100,8 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   _role_state->prefs.rx_boosted_gain = 1; // enabled by default
 #endif
 #endif
-  _role_state->prefs.radio_fem_rxgain = 0; // LNA disabled by default
+  _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain = 0; // LNA disabled by default
+  _role_state->prefs.BeeboBasePrefs::radio_fem_txgain = 0; // PA gain disabled by default
   _role_state->prefs.ble_enabled = 1;      // BLE transport on by default
   _role_state->prefs.tcp_enabled = 0;      // WiFi/TCP transport off by default (no creds initially)
   _role_state->prefs.usb_enabled = 1;      // USB companion transport on by default (lets a fresh node be configured over USB before BLE/WiFi are set up)
@@ -1278,15 +1286,21 @@ void Beebo::loadRoleState(uint8_t role) {
     }
     // beebo: SETTINGS_ISOLATION -- ComPrefs now folds into /beebo_repeater
     // (raw blob). Only a true first boot (no /beebo_repeater yet) reads
-    // /com_prefs at all, via CommonCLI's own (untouched) loadPrefs() --
-    // read-only, /com_prefs is never written back to. cli's own prefs
-    // pointer must target this slot for that call to land correctly (it
-    // may not be the live role yet), restored to the live role's slot
-    // afterward by begin()'s own repoint once every role has loaded.
+    // /com_prefs or /prefs.json at all, via CommonCLI's own (untouched)
+    // loadPrefs() -- read-only, neither source file is ever written back
+    // to. Check both: a device whose only prior firmware is upstream
+    // companion-v1.17.1+ stock never creates /com_prefs at all (it saves
+    // straight to /prefs.json, see CommonCLI::loadPrefs()'s own internal
+    // dispatch) -- guarding on /com_prefs alone would silently skip
+    // seeding from that device's real settings and fall through to
+    // defaults instead. cli's own prefs pointer must target this slot for
+    // that call to land correctly (it may not be the live role yet),
+    // restored to the live role's slot afterward by begin()'s own repoint
+    // once every role has loaded.
     bool beebo_repeater_existed = _store->loadBeeboRepeaterPrefs(slot.prefs, _board, static_cast<ComPrefs*>(&slot.prefs), sizeof(ComPrefs));
     if (!beebo_repeater_existed) {
       FILESYSTEM* fs = _store->getPrimaryFS();
-      if (fs->exists("/com_prefs")) {
+      if (fs->exists("/com_prefs") || fs->exists("/prefs.json")) {
         cli.setPrefs(&slot.prefs);
         cli.loadPrefs(fs);
       }
@@ -1636,7 +1650,8 @@ void Beebo::clampRadioPrefs() {
   _role_state->prefs.sf = constrain(_role_state->prefs.sf, 5, 12);
   _role_state->prefs.cr = constrain(_role_state->prefs.cr, 5, 8);
   _role_state->prefs.tx_power_dbm = constrain(_role_state->prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
-  _role_state->prefs.radio_fem_rxgain = constrain(_role_state->prefs.radio_fem_rxgain, 0, 1);
+  _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain = constrain(_role_state->prefs.BeeboBasePrefs::radio_fem_rxgain, 0, 1);
+  _role_state->prefs.BeeboBasePrefs::radio_fem_txgain = constrain(_role_state->prefs.BeeboBasePrefs::radio_fem_txgain, 0, 1);
   _board.adc_multiplier = constrain(_board.adc_multiplier, 0.0f, 10.0f);
   if (_board.batt_sample_period_secs == 0) {
     _board.batt_sample_period_secs = BATT_SAMPLE_PERIOD_DEFAULT_SECS;  // beebo: default period
@@ -1675,7 +1690,8 @@ void Beebo::applyRadioPrefs() {
   radio_driver.setParams(_role_state->prefs.freq, _role_state->prefs.bw, _role_state->prefs.sf, _role_state->prefs.cr);
   radio_driver.setTxPower(_role_state->prefs.tx_power_dbm);
   radio_driver.setRxBoostedGainMode(_role_state->prefs.rx_boosted_gain);
-  board.setLoRaFemLnaEnabled(_role_state->prefs.radio_fem_rxgain);
+  board.setLoRaFemLnaEnabled(_role_state->prefs.BeeboBasePrefs::radio_fem_rxgain);
+  board.setLoRaFemPaGainEnabled(_role_state->prefs.BeeboBasePrefs::radio_fem_txgain);
   board.setAdcMultiplier(_board.adc_multiplier);
   board.setAdcResolution(_board.adc_resolution_bits);
 }
@@ -1983,7 +1999,8 @@ RadioRecord Beebo::buildRadioRecord() {
   radio.cr = _role_state->prefs.cr;
   radio.tx_power = (int8_t)_role_state->prefs.tx_power_dbm;
   if (_role_state->prefs.rx_boosted_gain)  radio.flags |= RADIO_FLAG_RXBOOST;
-  if (_role_state->prefs.radio_fem_rxgain) radio.flags |= RADIO_FLAG_FEMRXGAIN;
+  if (_role_state->prefs.BeeboBasePrefs::radio_fem_rxgain) radio.flags |= RADIO_FLAG_FEMRXGAIN;
+  if (_role_state->prefs.BeeboBasePrefs::radio_fem_txgain) radio.flags |= RADIO_FLAG_FEMTXGAIN;
   return radio;
 }
 
@@ -2448,7 +2465,7 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   // rx_dedup_table_full_count (excluded from SoH itself, but still a salient
   // diagnostic counter -- see MonRing.h's EVENT_RX_DEDUP_TABLE_FULL comment;
   // gated to only count evictions still within the live window, see
-  // SimpleMeshTables::hasSeen()) -- sent so `beebo check` can show them
+  // SimpleMeshTables::wasSeen()/markSeen()) -- sent so `beebo check` can show them
   // without a full ring download.
   uint32_t rx_dedup_table_full = ((SimpleMeshTables*)getTables())->getDedupEvictedCount();
   memcpy(&out[i], &_tx_pool_full_count, 4); i += 4;
@@ -2920,15 +2937,29 @@ bool Beebo::tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw) {
 // is the currently-live one, matching what the (now-retired) individual
 // opcodes did.
 uint32_t Beebo::tlvGetRadioFemRxgain(Beebo* self, uint8_t role) {
-  return self->role_state_store[role].prefs.radio_fem_rxgain;
+  return self->role_state_store[role].prefs.BeeboBasePrefs::radio_fem_rxgain;
 }
 bool Beebo::tlvSetRadioFemRxgain(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > 1) return false;
   BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.radio_fem_rxgain = (uint8_t)raw;
+  slot.prefs.BeeboBasePrefs::radio_fem_rxgain = (uint8_t)raw;
   persistRoleSlot(self, role, slot);
   if (role == self->_board.role && board.canControlLoRaFemLna()) {
     if (board.setLoRaFemLnaEnabled(raw != 0)) radio_driver.resetAGC();
+  }
+  return true;
+}
+
+uint32_t Beebo::tlvGetRadioFemTxgain(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.BeeboBasePrefs::radio_fem_txgain;
+}
+bool Beebo::tlvSetRadioFemTxgain(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw > 1) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.BeeboBasePrefs::radio_fem_txgain = (uint8_t)raw;
+  persistRoleSlot(self, role, slot);
+  if (role == self->_board.role && board.canControlLoRaFemPaGain()) {
+    board.setLoRaFemPaGainEnabled(raw != 0);
   }
   return true;
 }
@@ -3960,6 +3991,7 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(anon.id.pub_key, pub_key, PUB_KEY_SIZE);
       anon.out_path_len = 0;   // default to zero-hop direct
       anon.type = ADV_TYPE_NONE;  // unknown
+      anon.lastmod = getRTCClock()->getCurrentTime();
 
       if (addContact(anon)) recipient = &anon;
     }
@@ -4061,6 +4093,10 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_SEND_TELEMETRY_REQ && len == 4) {  // 'self' telemetry request
     telemetry.reset();
     telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
+    float temperature = board.getMCUTemperature();
+    if (!isnan(temperature)) { // Supported boards with built-in temperature sensor. ESP32-C3 may return NAN
+      telemetry.addTemperature(TELEM_CHANNEL_SELF, temperature); // Built-in MCU Temperature
+    }
     // query other sensors -- target specific
     sensors.querySensors(0xFF, telemetry);
 
@@ -4573,6 +4609,7 @@ void Beebo::handleCmdFrame(size_t len) {
         sendPacket(pkt, priority, 0);
         writeOKFrame();
       } else {
+        releasePacket(pkt);
         writeErrFrame(ERR_CODE_ILLEGAL_ARG);
       }
     } else {
@@ -7137,20 +7174,35 @@ bool Beebo::hasPendingWork() const {
 void Beebo::sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, uint8_t path_hash_size) {
   // beebo: only ever called from repeater-role admin-request/ACL code
   // (BeeboRepeater.cpp, Beebo.cpp's onPeerDataRecv() inside its
-  // `if (isRepeater())` block) -- restored to repeater's own RegionMap
-  // default region (getDefaultScope(NODE_ROLE_REPEATER, ...)), matching
-  // stock simple_repeater's own default_scope more closely than the
-  // earlier borrow-companion's-field stand-in did. Unlike stock's
-  // sendFloodReply, still doesn't preserve the *request* packet's
-  // incoming RF-region scope via recv_pkt_region -- a tracking mechanism
-  // this port doesn't add. path_hash_size is unused here: the
-  // TransportKey overload of sendFloodScoped always sizes hashes from the
-  // live role's own path_hash_mode (_role_state->prefs's for repeater,
-  // _role_state->prefs's for companion -- see its own definition).
+  // `if (isRepeater())` block). Mirrors upstream's own chooseReplyScope()
+  // logic (companion-v1.17.1): prefer the scope the *request* packet
+  // actually arrived on (recv_pkt_region, tracked in
+  // filterRecvFloodPacket()) over the repeater's own default region, so a
+  // scoped request gets a scoped reply even when a different default
+  // region is configured. An unscoped request (wildcard recv_pkt_region)
+  // gets an unscoped reply, matching the requester's own choice, before
+  // falling back to the default region for a request whose scope
+  // couldn't be resolved at all.
+  TransportKey req_scope;
+  bool is_wildcard = recv_pkt_region != NULL && recv_pkt_region->isWildcard();
+  bool req_scope_known = recv_pkt_region != NULL && !is_wildcard
+                      && region_map.getTransportKeysFor(*recv_pkt_region, &req_scope, 1) > 0;
+
   TransportKey default_scope;
   getDefaultScope(NODE_ROLE_REPEATER, default_scope);
-  auto scope = send_scope.isNull() ? &default_scope : &send_scope;
-  sendFloodScoped(*scope, packet, delay_millis);
+
+  switch (mesh::chooseReplyScope(req_scope_known, is_wildcard, !default_scope.isNull())) {
+    case mesh::REPLY_SCOPE_REQUEST:
+      sendFloodScoped(req_scope, packet, delay_millis);
+      break;
+    case mesh::REPLY_SCOPE_DEFAULT:
+      sendFloodScoped(default_scope, packet, delay_millis);
+      break;
+    case mesh::REPLY_SCOPE_NONE:
+    default:
+      sendFlood(packet, delay_millis, path_hash_size);
+      break;
+  }
 }
 
 int Beebo::searchPeersByHash(const uint8_t *hash) {
@@ -7502,7 +7554,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       strcpy(reply, "> ");
       mesh::Utils::toHex(&reply[2], self_id.pub_key, PUB_KEY_SIZE);
     } else if (memcmp(key, "radio.fem.rxgain", 16) == 0) {
-      sprintf(reply, "> %s", _role_state->prefs.radio_fem_rxgain ? "on" : "off");
+      sprintf(reply, "> %s", _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain ? "on" : "off");
+    } else if (memcmp(key, "radio.fem.txgain", 16) == 0) {
+      sprintf(reply, "> %s", _role_state->prefs.BeeboBasePrefs::radio_fem_txgain ? "on" : "off");
     } else if (memcmp(key, "radio", 5) == 0) {
       char freq[16], bw[16];
       strcpy(freq, StrHelper::ftoa(_role_state->prefs.freq));
@@ -7775,7 +7829,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         strcpy(reply, "Error: unsupported");
       } else if (memcmp(&key[17], "on", 2) == 0) {
         if (board.setLoRaFemLnaEnabled(true)) {
-          _role_state->prefs.radio_fem_rxgain = 1;
+          _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain = 1;
           savePrefs();
           strcpy(reply, "OK - LoRa FEM RX gain on");
         } else {
@@ -7783,11 +7837,35 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         }
       } else if (memcmp(&key[17], "off", 3) == 0) {
         if (board.setLoRaFemLnaEnabled(false)) {
-          _role_state->prefs.radio_fem_rxgain = 0;
+          _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain = 0;
           savePrefs();
           strcpy(reply, "OK - LoRa FEM RX gain off");
         } else {
           strcpy(reply, "Error: failed to apply LoRa FEM RX gain");
+        }
+      } else {
+        strcpy(reply, "Error: state must be on or off");
+      }
+    } else if (memcmp(key, "radio.fem.txgain ", 17) == 0) {
+      // beebo: mirrors "radio.fem.rxgain "'s own comment/pattern above --
+      // radio_fem_txgain is a per-role BeeboBasePrefs field too.
+      if (!board.canControlLoRaFemPaGain()) {
+        strcpy(reply, "Error: unsupported");
+      } else if (memcmp(&key[17], "on", 2) == 0) {
+        if (board.setLoRaFemPaGainEnabled(true)) {
+          _role_state->prefs.BeeboBasePrefs::radio_fem_txgain = 1;
+          savePrefs();
+          strcpy(reply, "OK - LoRa FEM TX gain on");
+        } else {
+          strcpy(reply, "Error: failed to apply LoRa FEM TX gain");
+        }
+      } else if (memcmp(&key[17], "off", 3) == 0) {
+        if (board.setLoRaFemPaGainEnabled(false)) {
+          _role_state->prefs.BeeboBasePrefs::radio_fem_txgain = 0;
+          savePrefs();
+          strcpy(reply, "OK - LoRa FEM TX gain off");
+        } else {
+          strcpy(reply, "Error: failed to apply LoRa FEM TX gain");
         }
       } else {
         strcpy(reply, "Error: state must be on or off");

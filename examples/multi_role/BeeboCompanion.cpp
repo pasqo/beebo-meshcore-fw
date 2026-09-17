@@ -385,6 +385,10 @@ uint8_t Beebo::onContactRequest(const ContactInfo &contact, uint32_t sender_time
     if (permissions & TELEM_PERM_BASE) { // only respond if base permission bit is set
       telemetry.reset();
       telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
+      float temperature = board.getMCUTemperature();
+      if (!isnan(temperature)) { // Supported boards with built-in temperature sensor. ESP32-C3 may return NAN
+        telemetry.addTemperature(TELEM_CHANNEL_SELF, temperature); // Built-in MCU Temperature
+      }
       // query other sensors -- target specific
       sensors.querySensors(permissions, telemetry);
 

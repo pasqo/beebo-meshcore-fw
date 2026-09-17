@@ -303,7 +303,7 @@ void SerialBLEInterface::onWrite(BLECharacteristic* pCharacteristic, esp_ble_gat
   if (len > MAX_FRAME_SIZE) {
     BLE_DEBUG_PRINTLN("ERROR: onWrite(), frame too big, len=%d", len);
   } else {
-    Frame frame;
+    Frame frame = {};
     frame.len = len;
     memcpy(frame.buf, rxValue, len);
 

@@ -178,7 +178,7 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
   bool has_node_prefs = false;
   File file = openRead(_fs, "/beebo_companion");
   if (file) {
-    file.read((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));               // 0
+    file.read((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_rxgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_rxgain));               // 0
     file.read((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));                              // 1
     file.read((uint8_t *)_prefs.wifi_pwd, sizeof(_prefs.wifi_pwd));                                // 65
     file.read((uint8_t *)&_prefs.ble_enabled, sizeof(_prefs.ble_enabled));                         // 129
@@ -261,6 +261,12 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
         file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
         if (file.available() >= (int)sizeof(_prefs.monring_event_mask)) {
           file.read((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
+          // radio_fem_txgain -- tail-guarded the same way monring_event_mask
+          // above is, defaulting to 0 (off) for a file saved before this
+          // field existed.
+          if (file.available() >= (int)sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain)) {
+            file.read((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
+          }
         }
       }
     }
@@ -273,7 +279,7 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
 void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoardPrefs& _board, double node_lat, double node_lon) {
   File file = openWrite(_fs, "/beebo_companion");
   if (file) {
-    file.write((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));               // 0
+    file.write((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_rxgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_rxgain));               // 0
     file.write((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));                              // 1
     file.write((uint8_t *)_prefs.wifi_pwd, sizeof(_prefs.wifi_pwd));                                // 65
     file.write((uint8_t *)&_prefs.ble_enabled, sizeof(_prefs.ble_enabled));                         // 129
@@ -315,6 +321,7 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
     file.write((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
     file.write((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
+    file.write((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
 
     file.close();
   }
@@ -402,7 +409,11 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
       // saved before this fold-in ends right after the ComPrefs blob,
       // with none of these fields present.
       if (file.available() > 0) {
-        file.read((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));
+        // Explicitly BeeboBasePrefs's own field, not ComPrefs's identically-
+        // named one (upstream's own legacy-migration-only field, needed
+        // there for loadPrefsInt()'s byte-offset compat) -- BeeboPrefs
+        // multiply-inherits both, so an unqualified access is ambiguous.
+        file.read((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_rxgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_rxgain));
         if (_abi.repeater_prefs_version < REPEATER_PREFS_VERSION) {
           // Legacy layout only -- adc_multiplier/adc_resolution_bits/
           // batt_present/batt_sample_period_secs/batt_sample_window_secs
@@ -443,6 +454,12 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
           // byte range past a shorter old-format file's actual end.
           if (file.available() >= (int)sizeof(_prefs.ble_pin)) {
             file.read((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));
+            // radio_fem_txgain -- tail-guarded the same way ble_pin above
+            // is, defaulting to 0 (off) for a file saved before this field
+            // existed.
+            if (file.available() >= (int)sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain)) {
+              file.read((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
+            }
           }
         }
       }
@@ -459,7 +476,9 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((uint8_t *)&_prefs.dedup_window_ms, sizeof(_prefs.dedup_window_ms));   // 0
     file.write((const uint8_t *)com_prefs, com_prefs_len);                            // 4, raw ComPrefs blob
     // next: BeeboBasePrefs's remaining fields, see loadBeeboRepeaterPrefs()
-    file.write((uint8_t *)&_prefs.radio_fem_rxgain, sizeof(_prefs.radio_fem_rxgain));
+    // Explicitly BeeboBasePrefs's own field -- see loadBeeboRepeaterPrefs()'s
+    // matching comment on why this must be qualified.
+    file.write((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_rxgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_rxgain));
     // battery-ADC fields are no longer echoed here -- /beebo_board is
     // their sole store as of REPEATER_PREFS_VERSION (BeeboAbi.h).
     file.write((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
@@ -473,6 +492,7 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
     // beebo: ble_pin -- see loadBeeboRepeaterPrefs()'s matching comment.
     file.write((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));
+    file.write((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
 
     file.close();
   }

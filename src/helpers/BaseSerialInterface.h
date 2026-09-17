@@ -91,6 +91,7 @@ public:
   virtual void resetParserState() { }
 
   virtual bool isConnected() const = 0;
+  virtual void loop() {};
 
   // beebo: RLOG_ID_XPORT_* id of whichever sub-transport currently holds the
   // session, or 0 if none/not applicable. Only MultiSerialInterface tracks

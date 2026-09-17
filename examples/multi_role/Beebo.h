@@ -48,6 +48,7 @@
 #include <helpers/ClientACL.h> // beebo: repeater-role admin login table
 #include <helpers/IdentityStore.h>
 #include <helpers/RegionMap.h> // beebo: repeater-role named-region registry, queried by handleAnonRegionsReq
+#include <helpers/RoutingPolicy.h> // flood-hop-limit/reply-route/reply-scope helpers, shared with upstream
 #include "RateLimiter.h" // beebo: repeater-role anon-request rate limiting (copy of examples/simple_repeater's, not shared infra elsewhere)
 #include <helpers/SimpleMeshTables.h>
 #include <helpers/StaticPoolPacketManager.h>
@@ -512,6 +513,7 @@ public:
 protected:
   float getAirtimeBudgetFactor() const override;
   int getInterferenceThreshold() const override;
+  bool getCADEnabled() const override;
   // beebo: repeater role must return the RAM-cached
   // _role_state->prefs.agc_reset_interval, or Dispatcher's default (0,
   // disabled) leaves repeater.agc.reset.interval stored/read-back correctly
@@ -751,7 +753,7 @@ public:
   void startRegionsLoad() override { /* beebo: placeholder -- the stateful multi-line 'region load' session isn't wired into handleCommand() here; 'region def'/'region put' cover one-shot bulk definition instead */ }
   bool saveRegions() override { return region_map.save(_store->getPrimaryFS()); }
   void onDefaultRegionChanged(const RegionEntry* r) override { /* beebo: region_map's own default-region flag is persisted by saveRegions() above; no separate live-scoping consumer wired yet, unlike _role_state->prefs.default_scope_key's own periodic-advert path */ }
-  void setRxBoostedGain(bool enable) override { radio_driver.setRxBoostedGainMode(enable); }
+  bool setRxBoostedGain(bool enable) override { return radio_driver.setRxBoostedGainMode(enable); }
   // beebo: satisfies CommonCLI's callback interface, but unreachable in
   // practice -- Beebo::handleCommand() intercepts "clock.epoch"/"clock"/
   // "time " itself (below) before CommonCLI::handleCommand() ever runs,
@@ -1486,6 +1488,8 @@ private:
     // PREFS_TLV_MONRING_CONFIG above. Default disabled, unlike monring_config's
     // on-by-default kinds.
     PREFS_TLV_PROFILE_ENABLED = 55,     // u32 (bool 0/1)
+    PREFS_TLV_RADIO_FEM_TXGAIN = 56,    // board LoRa FEM PA gain, bool -- same role-generic,
+                                        // BeeboBasePrefs-backed shape as PREFS_TLV_RADIO_FEM_RXGAIN.
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1593,6 +1597,8 @@ private:
   static bool tlvSetAdvLocPolicy(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRadioFemRxgain(Beebo* self, uint8_t role);
   static bool tlvSetRadioFemRxgain(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRadioFemTxgain(Beebo* self, uint8_t role);
+  static bool tlvSetRadioFemTxgain(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRadioRxgain(Beebo* self, uint8_t role);
   static bool tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAdcMultiplier(Beebo* self, uint8_t role);
@@ -1765,8 +1771,7 @@ private:
 
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   uint8_t reply_path[MAX_PATH_SIZE];
-  int8_t  reply_path_len;
-  uint8_t reply_path_hash_size;
+  uint8_t reply_path_len;   // packed hash-count/hash-size byte, see Packet::isValidPathLen()/writePath()
   uint32_t pending_login;
   uint32_t pending_status;
   uint32_t pending_telemetry, pending_discovery;   // pending _TELEMETRY_REQ

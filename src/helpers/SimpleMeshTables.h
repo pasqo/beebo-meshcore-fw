@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Arduino.h>   // millis(), used directly throughout this file
 #include <Mesh.h>
 #include <helpers/MonRing.h>
 
@@ -18,7 +19,7 @@
 // from _hashes -- that table has no timestamp or provenance (was it a real
 // RX, or our own earlier TX?), which is exactly the gap that made a
 // duplicate detection unable to confirm "this echoes a specific TX of
-// ours" instead of just "we've seen this hash before" (see hasSeen()).
+// ours" instead of just "we've seen this hash before" (see wasSeen()).
 // Sizing (ring depth) is a first pick, not yet empirically tuned against
 // real flood-convergence timescales -- an open question flagged in the plan
 // doc. The echo window itself is NOT a flat constant (a 60s, then 5s guess
@@ -46,7 +47,7 @@
 // plausibly arrive" apart from "evicted a hash so old any real duplicate
 // would have shown up long ago" -- the two are opposite in what they mean
 // for QoS, so an unconditional counter says nothing useful. _dedup_evicted_
-// count below only counts (and only logs, see hasSeen()) the former: gated
+// count below only counts (and only logs, see markSeen()) the former: gated
 // by how old the evicted slot's own entry was (millis(), like
 // _echo_time above -- RTC-second resolution was tried first and found
 // far too coarse for real duplicate-detection timescales), against a
@@ -67,11 +68,11 @@
 class SimpleMeshTables : public mesh::MeshTables {
   uint8_t _hashes[MAX_PACKET_HASHES*MAX_HASH_SIZE];
   // beebo: millis() at each _hashes slot's own insertion (index-aligned
-  // with _hashes/_next_idx) -- lets hasSeen() tell a live eviction apart
+  // with _hashes/_next_idx) -- lets wasSeen() tell a live eviction apart
   // from a stale one, at millisecond resolution (RTC-second resolution was
   // tried first and found far too coarse for real duplicate-detection
   // timescales, which are sub-second). A slot only ever counts as "occupied"
-  // once its actual hash bytes are non-zero (see hasSeen()'s slot_occupied
+  // once its actual hash bytes are non-zero (see markSeen()'s slot_occupied
   // check), so a never-written slot's default-zero timestamp is never read
   // as an eviction age -- no explicit persistence needed for this array,
   // same as _hashes itself isn't across a plain reboot (only saveTo()'s
@@ -115,7 +116,7 @@ class SimpleMeshTables : public mesh::MeshTables {
   // kept for visibility only, not part of TuneController::txConfirmReward().
   uint32_t _echo_attempt_count;
   uint32_t _self_tx_direct_count;
-  // beebo: DoS/QoS audit follow-up -- lifetime count of hasSeen() evicting a
+  // beebo: DoS/QoS audit follow-up -- lifetime count of markSeen() evicting a
   // slot whose hash was still within _dedup_window_ms of its own insertion
   // (see comment above DEDUP_LIVE_WINDOW_MS_DEFAULT) -- a genuine risk a
   // still-plausible duplicate goes undetected. Deliberately NOT counting
@@ -172,7 +173,7 @@ class SimpleMeshTables : public mesh::MeshTables {
 
 public:
   // wires this table to the
-  // monitoring ring so hasSeen()/checkEchoTimeouts()/markSelfTx() can log
+  // monitoring ring so wasSeen()/checkEchoTimeouts()/markSelfTx() can log
   // EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT records. Called once from Beebo::begin() after
   // monring is allocated; the two-argument form (vs. constructor injection)
   // is needed because this table is a global static constructed in main.cpp
@@ -202,10 +203,10 @@ public:
     _self_tx_direct_count = 0;
   }
 
-  // beebo: called alongside hasSeen() at Mesh.cpp's own 5 "packet as
+  // beebo: called alongside wasSeen()/markSeen() at Mesh.cpp's own 5 "packet as
   // already sent" call sites -- records that WE just transmitted this
   // hash (self-originated or forwarded), so a later matching RX (already
-  // detected as a dup by hasSeen() below) can be recognized as an echo
+  // detected as a dup by wasSeen() below) can be recognized as an echo
   // confirming this specific TX succeeded. Direct/addressed packets are
   // counted (getSelfTxDirectCount()) but not ring-tracked: they can't come
   // back to us as a flood echo, so there's nothing for echo_success_count to
@@ -275,7 +276,7 @@ public:
   uint32_t getDedupEvictedCount() const { return _dedup_evicted_count; }
   uint32_t getDedupWindowMs() const { return _dedup_window_ms; }
   // beebo: 0 is a real, literal value here -- it disables live-eviction
-  // counting entirely (hasSeen() below only counts/logs when the window is
+  // counting entirely (markSeen() below only counts/logs when the window is
   // nonzero), not a "reset to default" sentinel. Range validation
   // ([0, DEDUP_WINDOW_MAX_MS]) is the caller's job (Beebo.cpp's
   // SET_DEDUP_WINDOW/tlvSetRepeaterDedupWindow); this just stores whatever
@@ -295,7 +296,7 @@ public:
   }
 #endif
 
-  bool hasSeen(const mesh::Packet* packet) override {
+  bool wasSeen(const mesh::Packet* packet) override {
     uint8_t hash[MAX_HASH_SIZE];
     packet->calculatePacketHash(hash);
 
@@ -303,7 +304,7 @@ public:
     for (int i = 0; i < MAX_PACKET_HASHES; i++, sp += MAX_HASH_SIZE) {
       if (memcmp(hash, sp, MAX_HASH_SIZE) == 0) {
         if (packet->isRouteDirect()) {
-          _direct_dups++;   // keep some stats
+          _direct_dups++;
         } else {
           _flood_dups++;
         }
@@ -327,6 +328,12 @@ public:
         return true;
       }
     }
+    return false;
+  }
+
+  void markSeen(const mesh::Packet* packet) override {
+    uint8_t hash[MAX_HASH_SIZE];
+    packet->calculatePacketHash(hash);
 
     // beebo: DoS/QoS audit -- check BEFORE overwriting whether the slot
     // we're about to reuse still holds a real hash (non-zero; empty/never-
@@ -364,7 +371,6 @@ public:
     memcpy(dest, hash, MAX_HASH_SIZE);
     _hash_insert_time[_next_idx] = now_ms;
     _next_idx = (_next_idx + 1) % MAX_PACKET_HASHES;  // cyclic table
-    return false;
   }
 
   void clear(const mesh::Packet* packet) override {
