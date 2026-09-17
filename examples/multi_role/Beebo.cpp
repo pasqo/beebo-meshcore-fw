@@ -1055,7 +1055,15 @@ void Beebo::onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code, 
 
 Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store)
     : BEEBO_MESH_BASE(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
-      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _iter(0) {
+      _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store)
+#if BEEBO_ENABLE_COMPANION_ROLE
+      // beebo: _iter has no in-class default member initializer (see
+      // Beebo.h) -- a repeater-only static build compiles this member out
+      // entirely (BEEBO_ENABLE_COMPANION_ROLE=0), so the init must be
+      // gated the same way.
+      , _iter(0)
+#endif
+      {
   _iter_started = false;
   _pending_disconnect = false;
   offline_queue_len = 0;
@@ -1921,7 +1929,16 @@ void Beebo::initMonRing() {
   _mcu_temp_scaled = (int16_t)(board.getMCUTemperature() * 10);
   _next_slowstat_refresh = futureMillis(SLOWSTAT_REFRESH_MS);
   if (monring.allocated()) {
-    monring.setConfig(_role_state->prefs.monring_config);  // apply persisted enable + per-kind capture mask
+    // beebo: force event capture ON through the rest of boot, regardless of
+    // the persisted preference -- every RLOGH/RLOGM boot marker (through
+    // RLOG_ID_BOOT_COMPLETE, main.cpp) must always be captured for
+    // post-mortem/--debug replay, since a boot that never gets far enough
+    // to apply a stored "off" preference is exactly the case this
+    // visibility matters most for. The real persisted config (which may
+    // have event capture off) is applied afterward by
+    // applyMonRingCaptureConfig(), called last in setup() once every boot
+    // marker has already landed in the ring.
+    monring.setConfig(_role_state->prefs.monring_config | MON_CAP_EVENT);
     monring.setEventTypeMask(_role_state->prefs.monring_event_mask);  // apply persisted per-event-type capture mask
     monring.setLiveSink(&pushMlogFrame);  // MLOG live relay
     profile_log.setEnabled(_role_state->prefs.profile_enabled);  // apply persisted ProfileLog enable gate
@@ -1972,6 +1989,16 @@ void Beebo::initMonRing() {
 
   tune_controller.begin();
   _next_tune_tick = futureMillis(TUNE_TICK_INTERVAL_MS);
+}
+
+// beebo: applies the real persisted event-capture preference, correcting
+// initMonRing()'s temporary force-on -- call LAST in setup(), right after
+// RLOG_ID_BOOT_COMPLETE fires, once every boot marker has already landed in
+// the ring. From this point on, monring's event capture matches whatever
+// the user actually configured (which may be off).
+void Beebo::applyMonRingCaptureConfig() {
+  if (!monring.allocated()) return;
+  monring.setConfig(_role_state->prefs.monring_config);
 }
 
 // beebo: snapshot the current radio config into a RadioRecord. Shared by the
@@ -7174,15 +7201,20 @@ bool Beebo::hasPendingWork() const {
 void Beebo::sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, uint8_t path_hash_size) {
   // beebo: only ever called from repeater-role admin-request/ACL code
   // (BeeboRepeater.cpp, Beebo.cpp's onPeerDataRecv() inside its
-  // `if (isRepeater())` block). Mirrors upstream's own chooseReplyScope()
-  // logic (companion-v1.17.1): prefer the scope the *request* packet
-  // actually arrived on (recv_pkt_region, tracked in
-  // filterRecvFloodPacket()) over the repeater's own default region, so a
-  // scoped request gets a scoped reply even when a different default
-  // region is configured. An unscoped request (wildcard recv_pkt_region)
-  // gets an unscoped reply, matching the requester's own choice, before
-  // falling back to the default region for a request whose scope
-  // couldn't be resolved at all.
+  // `if (isRepeater())` block) -- region_map/getDefaultScope(NODE_ROLE_
+  // REPEATER, ...) below don't exist in a companion-only static build
+  // (BEEBO_ENABLE_REPEATER_ROLE=0, see Beebo.h's own region_map
+  // declaration), so the scope-resolution logic is gated out there too,
+  // matching searchPeersByHash()'s own pattern right above.
+#if BEEBO_ENABLE_REPEATER_ROLE
+  // Mirrors upstream's own chooseReplyScope() logic (companion-v1.17.1):
+  // prefer the scope the *request* packet actually arrived on
+  // (recv_pkt_region, tracked in filterRecvFloodPacket()) over the
+  // repeater's own default region, so a scoped request gets a scoped
+  // reply even when a different default region is configured. An
+  // unscoped request (wildcard recv_pkt_region) gets an unscoped reply,
+  // matching the requester's own choice, before falling back to the
+  // default region for a request whose scope couldn't be resolved at all.
   TransportKey req_scope;
   bool is_wildcard = recv_pkt_region != NULL && recv_pkt_region->isWildcard();
   bool req_scope_known = recv_pkt_region != NULL && !is_wildcard
@@ -7203,6 +7235,9 @@ void Beebo::sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, uin
       sendFlood(packet, delay_millis, path_hash_size);
       break;
   }
+#else
+  sendFlood(packet, delay_millis, path_hash_size);
+#endif
 }
 
 int Beebo::searchPeersByHash(const uint8_t *hash) {

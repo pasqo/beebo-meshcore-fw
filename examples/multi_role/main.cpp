@@ -151,6 +151,12 @@ void setup() {
   esp_ota_mark_app_valid_cancel_rollback();
 
   RLOGH(RLOG_ID_BOOT_COMPLETE, (int32_t)millis());
+
+  // beebo: correct MonRing's event-capture config to the real persisted
+  // preference now that every boot marker (through the line above) is
+  // already in the ring -- see Beebo::initMonRing()'s own comment for why
+  // it's forced on until this point.
+  beebo.applyMonRingCaptureConfig();
 }
 
 void loop() {
