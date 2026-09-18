@@ -423,6 +423,7 @@ void Beebo::onPacketCaptured(mesh::Packet* pkt) {
   if (_rx_staged) {
     pkt->_rx_hash = _rx_stage.pkt_hash;
     pkt->_rx_time = getRTCClock()->nowMillis();  // epoch-ms, for MonRing::appendRx()
+    pkt->_rx_header = _rx_stage.header;
     pkt->_rx_rssi = _rx_stage.rssi;
     pkt->_rx_flags = _rx_stage.flags;
     memcpy(pkt->_rx_nbr, _rx_stage.nbr, sizeof(pkt->_rx_nbr));
@@ -463,7 +464,7 @@ void Beebo::onPacketDisposed(mesh::Packet* pkt) {
     rec.pkt_hash = pkt->_rx_hash;
     rec.snr = pkt->_snr;
     rec.rssi = pkt->_rx_rssi;
-    rec.header = pkt->header;
+    rec.header = pkt->_rx_header;  // NOT pkt->header -- see Packet.h's _rx_header comment
     rec.flags = pkt->_rx_flags;
     rec.disp = pkt->_rx_disp;
     memcpy(rec.nbr, pkt->_rx_nbr, sizeof(rec.nbr));

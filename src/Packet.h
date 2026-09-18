@@ -67,6 +67,7 @@ public:
   // captured onto the ring in the meantime.
   uint32_t _rx_hash;    // SHA256(payload)[0:4] LE, distilled at capture
   uint64_t _rx_time;    // capture-time epoch-ms clock reading (RTCClock::nowMillis()), for the committed record's offset -- captured at RX, appendRx() may run meaningfully later (queued flood delay)
+  uint8_t  _rx_header;  // raw[0] at capture -- NOT live `header`, which markDoNotRetransmit() (0xFF sentinel) overwrites in place for any accepted, non-retransmitted packet before onPacketDisposed() runs
   int8_t   _rx_rssi;    // dBm at capture, for the ring record (independent of MSG_INCLUDE_RSSI)
   uint8_t  _rx_flags;   // nbr_len bits (see MonRing.h RXREC_FLAG_*)
   uint8_t  _rx_nbr[3];  // last-hop neighbour hash
