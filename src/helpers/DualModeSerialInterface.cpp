@@ -186,7 +186,23 @@ bool DualModeSerialInterface::isConnected() const {
 }
 
 bool DualModeSerialInterface::isWriteBusy() const {
-  return false;
+  // beebo: was a hardcoded `return false;` stub -- unlike SerialBLEInterface/
+  // SerialWifiInterface, which check their own explicit software send_queue
+  // depth, this class has no queue of its own; it writes straight into the
+  // Stream API, so the only real backpressure signal available is the
+  // hardware USB-CDC TX ring's free space. Deliberately checked against 0,
+  // not some worst-case frame size (e.g. MAX_SEND_FRAME_SIZE, up to 2048 for
+  // BULK_XFER) -- the ring is only CONFIG_TINYUSB_CDC_TX_BUFSIZE=64 bytes on
+  // this core (no Arduino-level API to raise it, see writeFrameBestEffort()'s
+  // own comment), so comparing against a large frame size would read "busy"
+  // almost permanently and stall every caller gated on this (Beebo.cpp's
+  // checkSerialInterface() pacing chain: contacts/neighbors/advert-path/
+  // stats/monring streaming, MLOG replay, pending-disconnect). Every one of
+  // those calls still goes through writeFrame()'s own internal short-write
+  // retry loop once entered, so this is purely a same-tick skip-and-retry-
+  // next-tick optimization, not a correctness dependency -- "any room at
+  // all" is enough to let that retry loop make progress.
+  return _serial->availableForWrite() <= 0;
 }
 
 bool DualModeSerialInterface::feedTextByte(int c, uint8_t dest[], size_t max_len, size_t& outLen) {

@@ -1126,36 +1126,38 @@ public:
   // own buffer; the caller (Beebo.cpp's paced-stream chain) drives one
   // mlogReplayStep() per tick, same cadence as DebugLog's own replayStep(),
   // once requestMlogReplay()'s own deferred-start condition is met.
-  void beginMlogReplay() {
-    _mlog_replay_pending = false;
-    // beebo: mirror BEEBO_CMD_GET_MONRING's own first-page start-ref splice
-    // (Beebo.cpp's GET_MONRING handler, `kSlotKind[3] = {MON_SYNC,
-    // MON_RADIO, MON_ENV}`) -- inject whichever of those isn't already the
-    // ring's own oldest resident record for that slot, pushed synchronously
-    // (unlike the real per-record walk below: at most 3 small records, not
-    // a burst-pacing concern the way the ring's full backlog is). Without
-    // this, a freshly-enabled MLOG stream has no time base at all until the
-    // next periodic real MON_SYNC record happens to be appended or
-    // replayed -- which can be minutes away (MonRing's own sync period),
-    // during which every live line's abs_time is unresolved. Pushed
-    // unconditionally, even when the ring itself is empty (start_sync is
-    // always populated from init()/clear() onward, per emitStartRef()'s
-    // own comment).
-    //
-    // beebo: MON_SYNC is always injected below regardless of whether the
-    // ring's real oldest record already "covers" that slot -- unlike
-    // RADIO/ENV, skipping it left every live line's abs_time unresolved
-    // (rendered as dashes) whenever a brand-new live noteRadio()/
-    // sampleEnv() append raced ahead of the real SYNC record still queued
-    // in mlogReplayStep()'s paced (one-per-tick) backlog walk below
-    // (confirmed on real hardware, 2026-09-11: `radio`/`env` rendered with
-    // dashes, followed ~29s later by the real `sync` once the paced walk
-    // finally reached it). When that slot IS covered, the real record is
-    // identical to the synthetic ref just pushed (same governing sync), so
-    // _mlog_replay_seq below is advanced past it -- otherwise the paced walk
-    // would deliver that exact same record again a moment later (confirmed
-    // on real hardware, 2026-09-11: a duplicate `sync` line back-to-back
-    // with the synthetic one).
+  // beebo: mirror BEEBO_CMD_GET_MONRING's own first-page start-ref splice
+  // (Beebo.cpp's GET_MONRING handler, `kSlotKind[3] = {MON_SYNC,
+  // MON_RADIO, MON_ENV}`) -- inject whichever of those isn't already the
+  // ring's own oldest resident record for that slot, pushed synchronously
+  // (at most 3 small records, not a burst-pacing concern the way the
+  // ring's full backlog is). Without this, a freshly-enabled MLOG stream
+  // has no time base at all until the next periodic real MON_SYNC record
+  // happens to be appended or replayed -- which can be minutes away
+  // (MonRing's own sync period), during which every live line's abs_time
+  // is unresolved. Pushed unconditionally, even when the ring itself is
+  // empty (start_sync is always populated from init()/clear() onward, per
+  // emitStartRef()'s own comment).
+  //
+  // beebo: MON_SYNC is always injected below regardless of whether the
+  // ring's real oldest record already "covers" that slot -- unlike
+  // RADIO/ENV, skipping it left every live line's abs_time unresolved
+  // (rendered as dashes) whenever a brand-new live noteRadio()/
+  // sampleEnv() append raced ahead of the real SYNC record still queued
+  // in mlogReplayStep()'s paced (one-per-tick) backlog walk (confirmed on
+  // real hardware, 2026-09-11: `radio`/`env` rendered with dashes,
+  // followed ~29s later by the real `sync` once the paced walk finally
+  // reached it).
+  //
+  // beebo: split out of beginMlogReplay() so a DEBUG_LOG_ENABLE_BIT_NO_REPLAY
+  // client (which skips the backlog walk below entirely, never arming
+  // beginMlogReplay()) still gets this one-time anchor seed -- otherwise
+  // every live line dashes out for the rest of the session, since the next
+  // periodic real MON_SYNC can be minutes away (confirmed on real hardware,
+  // 2026-09-18: `--debug-no-replay` left every abs_time unresolved for the
+  // whole session). Callable standalone (Beebo.cpp's no-replay enable path)
+  // or as beginMlogReplay()'s first step.
+  void seedMlogStartRefs() {
     uint32_t peek_pos = oldestSeq();
     if (_live_sink) {
       static const uint8_t kSlotKind[3] = { MON_SYNC, MON_RADIO, MON_ENV };
@@ -1169,6 +1171,17 @@ public:
         }
       }
     }
+  }
+
+  void beginMlogReplay() {
+    _mlog_replay_pending = false;
+    seedMlogStartRefs();
+    // beebo: when that slot IS covered by the ring's real oldest record,
+    // the real record is identical to the synthetic ref just pushed (same
+    // governing sync), so _mlog_replay_seq below is advanced past it --
+    // otherwise the paced walk would deliver that exact same record again
+    // a moment later (confirmed on real hardware, 2026-09-11: a duplicate
+    // `sync` line back-to-back with the synthetic one).
     _mlog_replay_active = (_count > 0);
     _mlog_replay_seq = oldestSeq();
     {

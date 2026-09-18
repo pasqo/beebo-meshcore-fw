@@ -388,6 +388,54 @@
 #endif
 
 class DebugLog {
+  // beebo: bounded best-effort retry queue for pushToTargets()'s _usb
+  // target -- writeFrameBestEffort()'s own availableForWrite() gate
+  // (DualModeSerialInterface.cpp) can refuse a write outright when the
+  // USB CDC TX ring (CONFIG_TINYUSB_CDC_TX_BUFSIZE=64 bytes on this core,
+  // no Arduino-level API to raise it -- see that file's own comment) is
+  // momentarily full under back-to-back live pushes, e.g. an rx MLOG
+  // record immediately followed by the tx MLOG record it triggered.
+  // Confirmed on real hardware 2026-09-18: the second push silently
+  // vanished with no retry and no fault record, while unrelated tx
+  // pushes elsewhere in the same session transmitted fine -- pure
+  // buffer-timing, not a logic drop. This queue holds what didn't fit
+  // the first time and retries it, one attempt per loop() tick
+  // (retryUsbQueue(), driven from Beebo.cpp's checkSerialInterface()),
+  // instead of losing it outright. Deliberately scoped to the _usb
+  // target only -- the _serial (companion-session) target already skips
+  // its write under isWriteBusy() (pushToTargets(), above) rather than
+  // attempting and losing it, so it doesn't share this failure mode.
+  //
+  // Bounded on both axes: at most QUEUE_CAP frames pending (oldest-first
+  // FIFO; once full, a new push is dropped rather than evicting the
+  // oldest, so what's already queued keeps its place), and each frame
+  // gets at most MAX_RETRY_TICKS attempts before being dropped. The
+  // ceiling matters because writeFrameBestEffort() also refuses (returns
+  // 0) whenever the link's `_lastWasText` is true -- a policy refusal
+  // (don't inject binary framing after a legacy text-mode client just
+  // spoke on the same physical link), not a transient one -- which this
+  // queue can't distinguish from "buffer full" via the return value
+  // alone, so it must never retry indefinitely.
+  static const uint8_t USB_QUEUE_CAP = 4;
+  static const uint16_t USB_QUEUE_MAX_RETRY_TICKS = 50;
+  struct QueuedUsbFrame {
+    uint8_t data[200];   // matches logLink()'s own out[200] cap -- the largest frame this class ever pushes
+    uint8_t len = 0;
+    uint16_t attempts = 0;
+  };
+  QueuedUsbFrame _usb_queue[USB_QUEUE_CAP];
+  uint8_t _usb_queue_head = 0;
+  uint8_t _usb_queue_count = 0;
+
+  void enqueueUsb(const uint8_t* out, size_t pos) {
+    if (_usb_queue_count >= USB_QUEUE_CAP || pos > sizeof(QueuedUsbFrame::data)) return;
+    uint8_t tail = (uint8_t)((_usb_queue_head + _usb_queue_count) % USB_QUEUE_CAP);
+    memcpy(_usb_queue[tail].data, out, pos);
+    _usb_queue[tail].len = (uint8_t)pos;
+    _usb_queue[tail].attempts = 0;
+    _usb_queue_count++;
+  }
+
   BaseSerialInterface* _serial = nullptr;
   BaseSerialInterface* _usb = nullptr;
   uint8_t _resp_code = 0;
@@ -550,7 +598,11 @@ private:
   // this same targeting logic.
   void pushToTargets(const uint8_t* out, size_t pos, bool usb_enabled, bool session_enabled) const {
     if (usb_enabled && _usb) {
-      const_cast<DebugLog*>(this)->_usb->writeFrameBestEffort(out, pos);
+      // beebo: queue for retry (see this class's own top-of-file comment
+      // on _usb_queue) whenever the write didn't fully land, rather than
+      // treating a short/zero writeFrameBestEffort() result as final.
+      size_t sent = const_cast<DebugLog*>(this)->_usb->writeFrameBestEffort(out, pos);
+      if (sent < pos) const_cast<DebugLog*>(this)->enqueueUsb(out, pos);
     }
     if (session_enabled && _serial) {
       BaseSerialInterface* serial = const_cast<DebugLog*>(this)->_serial;
@@ -577,6 +629,22 @@ public:
     out[1] = _mlog_sub_id;
     memcpy(&out[2], &rec, sizeof(MonRecord));
     pushToTargets(out, sizeof(out), _usb_mlog_enabled, _session_mlog_enabled);
+  }
+
+  // beebo: drains at most one queued _usb retry frame per call, oldest
+  // first -- call once per loop() tick (Beebo.cpp's checkSerialInterface(),
+  // unconditionally, since this is independent of that function's own
+  // companion-session pacing). See _usb_queue's own comment for why this
+  // exists and why it's bounded. No-op when the queue is empty or no USB
+  // target is attached.
+  void retryUsbQueue() {
+    if (_usb_queue_count == 0 || !_usb) return;
+    QueuedUsbFrame& f = _usb_queue[_usb_queue_head];
+    size_t sent = _usb->writeFrameBestEffort(f.data, f.len);
+    if (sent >= f.len || ++f.attempts >= USB_QUEUE_MAX_RETRY_TICKS) {
+      _usb_queue_head = (uint8_t)((_usb_queue_head + 1) % USB_QUEUE_CAP);
+      _usb_queue_count--;
+    }
   }
 };
 

@@ -5789,6 +5789,10 @@ void Beebo::saveContacts() {
 }
 
 void Beebo::checkSerialInterface() {
+  // beebo: drain one queued best-effort DLOG/MLOG USB retry frame per
+  // tick, independent of the companion-session pacing below (see
+  // DebugLog's own _usb_queue comment) -- a no-op when nothing is queued.
+  debug_log.retryUsbQueue();
   RecvFrameType frame_type = RecvFrameType::BINARY;
   size_t len = _serial->checkRecvFrame(cmd_frame, _serial->getMaxRecvFrameSize(), &frame_type);
   // beebo: while a monring stream is active (capture paused for it), a
@@ -5819,6 +5823,7 @@ void Beebo::checkSerialInterface() {
       if (mlog_enabling && !debug_log.isMlogEnabled()) {
         debug_log.setUsbMlogEnabled(true);
         if (!no_replay) monring.requestMlogReplay();
+        else monring.seedMlogStartRefs();   // beebo: no backlog walk, but still seed the time anchor
       } else {
         debug_log.setUsbMlogEnabled(mlog_enabling);
       }
