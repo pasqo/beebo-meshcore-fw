@@ -8,9 +8,19 @@ template <uint32_t N>
 struct RingFixture {
   MonRecord buf[N];
   MonRing ring;
-  RingFixture(uint32_t now = 1000) {
+  uint32_t seed;
+  RingFixture(uint32_t now = 1000) : seed(now) {
     ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), now, now, RadioRecord{}, EnvRecord{});
     ring.setConfig(MON_CAP_ALL | MON_CAP_ENABLED);
+  }
+
+  // beebo: TuneController::tick()'s `now` (like every MonRing append*())
+  // takes an already-resolved epoch-ms instant directly now, not a raw
+  // millis() reading -- see test_monring.cpp's own RingFixture::ms() for
+  // the full rationale; identical helper, duplicated here since this
+  // suite has its own small fixture rather than sharing one.
+  uint64_t ms(uint32_t millis_like) const {
+    return (uint64_t)seed * 1000 + (uint64_t)(millis_like - seed);
   }
 };
 
@@ -44,7 +54,7 @@ TEST(TuneController, TicksThroughAllParamsRoundRobinOneTuneRecordEach) {
 
   for (int i = 0; i < TuneController::NUM_PARAMS; i++) {
     int16_t current[TuneController::NUM_PARAMS] = {0, 0, 0, 0, 0, 0};
-    tc.tick(f.ring, 1000 + i, current, kNoExposure);
+    tc.tick(f.ring, f.ms(1000 + i), current, kNoExposure);
   }
 
   EXPECT_EQ((uint32_t)TuneController::NUM_PARAMS, f.ring.tuneCount());
@@ -70,7 +80,7 @@ TEST(TuneController, ProposedValueStaysWithinSpecRangeAtLowerBound) {
   // must clamp to [0, 2000], never go negative.
   int16_t current[TuneController::NUM_PARAMS] = {0, 0, 0, 0, 0, 0};
   for (int i = 0; i < 3; i++) {   // enough ticks to visit param 0 at least once per arm across restarts
-    tc.tick(f.ring, 1000 + i, current, kNoExposure);
+    tc.tick(f.ring, f.ms(1000 + i), current, kNoExposure);
   }
 
   MonRecord out[64];
@@ -93,7 +103,7 @@ TEST(TuneController, NeverSetsAppliedRegardlessOfRewardHistory) {
                                                  /*echo_attempt=*/0, /*echo_success=*/0);
   int16_t current[TuneController::NUM_PARAMS] = {500, 50, 50, 10, 20, 200};
   for (int i = 0; i < 30; i++) {
-    tc.tick(f.ring, 2000 + i, current, healthy);
+    tc.tick(f.ring, f.ms(2000 + i), current, healthy);
   }
 
   MonRecord out[64];
@@ -114,7 +124,7 @@ TEST(TuneController, RewardBeforeReflectsTxConfirmRate) {
   // 3 ack successes, 1 ack timeout, no flood exposure => reward = 3/4 = 7500
   // (of 10000).
   int16_t current[TuneController::NUM_PARAMS] = {0, 0, 0, 0, 0, 0};
-  TuneController::Decision d = tc.tick(f.ring, 1010, current, stats(3, 1, 0, 0));
+  TuneController::Decision d = tc.tick(f.ring, f.ms(1010), current, stats(3, 1, 0, 0));
   (void)d;
 
   MonRecord out[64];
@@ -133,7 +143,7 @@ TEST(TuneController, RewardBlendsFloodEchoAndAckIntoOneWeightedRate) {
   // 2 ack successes + 3 rpt = 5 confirmed; denominator = ack_success(2)
   // + ack_timeout(1) + echo_attempt(7) = 10 -> reward = 5000.
   int16_t current[TuneController::NUM_PARAMS] = {0, 0, 0, 0, 0, 0};
-  tc.tick(f.ring, 1000, current, stats(/*ack_success=*/2, /*ack_timeout=*/1,
+  tc.tick(f.ring, f.ms(1000), current, stats(/*ack_success=*/2, /*ack_timeout=*/1,
                                        /*echo_attempt=*/7, /*echo_success=*/3));
 
   MonRecord out[64];
@@ -149,7 +159,7 @@ TEST(TuneController, RewardIsZeroWithNoExposureYet) {
   tc.begin();
 
   int16_t current[TuneController::NUM_PARAMS] = {0, 0, 0, 0, 0, 0};
-  tc.tick(f.ring, 1000, current, kNoExposure);
+  tc.tick(f.ring, f.ms(1000), current, kNoExposure);
 
   MonRecord out[64];
   uint32_t returned = 0;
@@ -168,7 +178,7 @@ TEST(TuneController, AppliedMaskBitEnablesLiveActuationDecision) {
 
   // First-ever visit to param 0: chooseArm() picks the first never-pulled
   // arm (index 0 = -step), so the proposal is deterministic.
-  TuneController::Decision d = tc.tick(f.ring, 1000, current, kNoExposure, mask);
+  TuneController::Decision d = tc.tick(f.ring, f.ms(1000), current, kNoExposure, mask);
   EXPECT_EQ(TUNE_RX_DELAY_BASE, d.param_id);
   EXPECT_EQ(900, d.value);          // 1000 - step(100)
   EXPECT_TRUE(d.should_apply);
@@ -187,7 +197,7 @@ TEST(TuneController, AppliedMaskBitClearLeavesDecisionObserveOnly) {
 
   int16_t current[TuneController::NUM_PARAMS] = {1000, 50, 50, 10, 5, 200};
   // mask = 0 (default): identical proposal, but never applied.
-  TuneController::Decision d = tc.tick(f.ring, 1000, current, kNoExposure);
+  TuneController::Decision d = tc.tick(f.ring, f.ms(1000), current, kNoExposure);
   EXPECT_EQ(900, d.value);
   EXPECT_FALSE(d.should_apply);
 }
@@ -202,7 +212,7 @@ TEST(TuneController, InterferenceThresholdNeverAppliesEvenWhenMasked) {
 
   TuneController::Decision d;
   for (int i = 0; i < 5; i++) {   // params 0..4 visited in order; index 4 = interference_threshold
-    d = tc.tick(f.ring, 1000 + i, current, kNoExposure, mask);
+    d = tc.tick(f.ring, f.ms(1000 + i), current, kNoExposure, mask);
   }
   EXPECT_EQ(TUNE_INTERFERENCE_THRESHOLD, d.param_id);
   EXPECT_FALSE(d.should_apply);  // isApplicable() excludes it regardless of the mask
@@ -221,11 +231,11 @@ TEST(TuneController, RegressionAfterLiveChangeTriggersRollbackToLastGood) {
   TuneController::TxConfirmStats healthy = stats(10, 0, 0, 0);
 
   // Call 1: visits param 0 (not masked) -- establishes no relevant state.
-  tc.tick(f.ring, 1010, current, healthy, mask);
+  tc.tick(f.ring, f.ms(1010), current, healthy, mask);
   // Call 2: first visit to param 1 (masked) -- reward is still 10000 here.
   // First-ever visit picks arm 0 (-step), proposing 50-20=30 != 50, so this
   // live-applies and records last_good_value=50, reward_at_last_change=10000.
-  TuneController::Decision d1 = tc.tick(f.ring, 1011, current, healthy, mask);
+  TuneController::Decision d1 = tc.tick(f.ring, f.ms(1011), current, healthy, mask);
   EXPECT_EQ(TUNE_TX_DELAY_FACTOR, d1.param_id);
   EXPECT_EQ(30, d1.value);
   EXPECT_TRUE(d1.should_apply);
@@ -237,11 +247,11 @@ TEST(TuneController, RegressionAfterLiveChangeTriggersRollbackToLastGood) {
   // Calls 3-7: visit params 2, 3, 4, 5, 0 (not masked) to complete the
   // round-robin back around to param 1.
   for (int i = 0; i < 5; i++) {
-    tc.tick(f.ring, 1050 + i, current, degraded, mask);
+    tc.tick(f.ring, f.ms(1050 + i), current, degraded, mask);
   }
   // Call 8: second visit to param 1 -- must roll back instead of trying the
   // bandit's next arm.
-  TuneController::Decision d2 = tc.tick(f.ring, 1060, current, degraded, mask);
+  TuneController::Decision d2 = tc.tick(f.ring, f.ms(1060), current, degraded, mask);
   EXPECT_EQ(TUNE_TX_DELAY_FACTOR, d2.param_id);
   EXPECT_EQ(50, d2.value);   // reverted to the pre-change value
   EXPECT_TRUE(d2.should_apply);
@@ -268,27 +278,27 @@ TEST(TuneController, RollbackRevertsToMostRecentGoodValueNotTheOriginal) {
   // current[0] to 900 afterward -- the real firmware re-reads the actual
   // (now-changed) prefs value on every subsequent tick, so the test must
   // mirror that instead of feeding tick() a stale snapshot.
-  TuneController::Decision d1 = tc.tick(f.ring, 2000, current, healthy, mask);
+  TuneController::Decision d1 = tc.tick(f.ring, f.ms(2000), current, healthy, mask);
   ASSERT_EQ(900, d1.value);
   ASSERT_TRUE(d1.should_apply);
   current[0] = d1.value;
 
   // 5 calls for params 1-5, back around to param 0.
-  for (int i = 0; i < 5; i++) tc.tick(f.ring, 2010 + i, current, healthy, mask);
+  for (int i = 0; i < 5; i++) tc.tick(f.ring, f.ms(2010 + i), current, healthy, mask);
 
   // Visit 2 (call 7): arm 1 (stay) -> 900+0=900, no change (should_apply
   // false) -- doesn't touch last_good_value.
-  TuneController::Decision d2 = tc.tick(f.ring, 2020, current, healthy, mask);
+  TuneController::Decision d2 = tc.tick(f.ring, f.ms(2020), current, healthy, mask);
   ASSERT_EQ(900, d2.value);
   ASSERT_FALSE(d2.should_apply);
   current[0] = d2.value;
 
-  for (int i = 0; i < 5; i++) tc.tick(f.ring, 2030 + i, current, healthy, mask);
+  for (int i = 0; i < 5; i++) tc.tick(f.ring, f.ms(2030 + i), current, healthy, mask);
 
   // Visit 3 (call 13): arm 2 (+step) -> 900+100=1000, a second real change.
   // last_good_value must now become 900 (the just-confirmed-stable value),
   // not stay at the original 1000.
-  TuneController::Decision d3 = tc.tick(f.ring, 2040, current, healthy, mask);
+  TuneController::Decision d3 = tc.tick(f.ring, f.ms(2040), current, healthy, mask);
   ASSERT_EQ(1000, d3.value);
   ASSERT_TRUE(d3.should_apply);
   current[0] = d3.value;
@@ -296,11 +306,11 @@ TEST(TuneController, RollbackRevertsToMostRecentGoodValueNotTheOriginal) {
   // Now push the TX-confirmation rate down hard, well past ROLLBACK_THRESHOLD.
   TuneController::TxConfirmStats degraded = stats(10, 60, 0, 0);
 
-  for (int i = 0; i < 5; i++) tc.tick(f.ring, 2200 + i, current, degraded, mask);
+  for (int i = 0; i < 5; i++) tc.tick(f.ring, f.ms(2200 + i), current, degraded, mask);
 
   // Visit 4 (call 19): must roll back to 900 (the second change's baseline),
   // not 1000 (the very first-ever value) -- that's the fix under test.
-  TuneController::Decision d4 = tc.tick(f.ring, 2210, current, degraded, mask);
+  TuneController::Decision d4 = tc.tick(f.ring, f.ms(2210), current, degraded, mask);
   EXPECT_EQ(TUNE_RX_DELAY_BASE, d4.param_id);
   EXPECT_EQ(900, d4.value);
   EXPECT_TRUE(d4.should_apply);

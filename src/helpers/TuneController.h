@@ -192,7 +192,7 @@ public:
   // observe-only behaviour exactly. Returns the decision so the caller can
   // perform the actual write when should_apply is true -- this class never
   // does so itself.
-  Decision tick(MonRing &ring, uint32_t now, const int16_t current_values[NUM_PARAMS],
+  Decision tick(MonRing &ring, uint64_t now, const int16_t current_values[NUM_PARAMS],
                 const TxConfirmStats &stats, uint8_t applied_mask = 0) {
     int p = _next_param;
     ParamSpec spec = specFor(p);

@@ -218,14 +218,14 @@
 #define RLOG_ID_BOOT_ROLE_STATE_LOADED 53   // both loadRoleState() calls done
 #define RLOG_ID_BOOT_ROLE_BEGIN_DONE   54   // beginCompanion()/beginRepeater() done
 // beebo: NVS rtc_ts read/write tracing (see
-// kbase/CLOCK_DRIFT_COMPENSATION.md) -- added to make the "Behavior across
+// kbase/RTC_RESET_RECOVERY.md) -- added to make the "Behavior across
 // reset kinds" cases directly observable instead of inferred from CLOCK_SET
 // alone: a stale post-reset clock is either a genuinely lost RTC (no PULL
 // logged at all this boot -- see ESP32RTCClock::begin()'s live-clock
 // plausibility check) or a PULL that restored an old PUSH because nothing
 // refreshed rtc_ts in between. detail = the epoch seconds value in both
 // cases.
-#define RLOG_ID_CLOCK_NVM_PUSH  55   // beebo_persistRTCTimeForReboot() wrote rtc_ts
+#define RLOG_ID_CLOCK_NVM_PUSH  55   // setRebootRTCTime() wrote rtc_ts
 #define RLOG_ID_CLOCK_NVM_PULL  56   // ESP32RTCClock::begin() restored rtc_ts on ESP_RST_POWERON
 // beebo: unconditionally logs exactly what time() returned at the very top
 // of ESP32RTCClock::begin(), before any correction/restore touches it --
@@ -365,7 +365,6 @@
 #define DLOG_ID_ACK_CONNECTIONS_FALLBACK   7   // BeeboCompanion.cpp processAck(): no expected_ack_table[] match, falling through to checkConnectionsAck()
 #define DLOG_ID_ACK_NO_MATCH               8   // BeeboCompanion.cpp processAck(): neither expected_ack_table[] nor checkConnectionsAck() matched
 #define DLOG_ID_BOOT_ROLE_NAME             9   // Beebo.cpp, right after RLOG_ID_BOOT_ROLE_BEGIN_DONE: this board/node's own identity at boot -- board.name (physical board alias, BeeboBoardPrefs.h's board_name), the live role's node.name (NodePrefs.h's node_name), and which role (companion/repeater) actually came up
-#define DLOG_ID_CLOCK_DRIFT_SET            10  // ESP32Board.cpp beebo_clockDrift(offset): a client's sync attempt was rejected (device measured ahead) -- offset persisted to NVS for a future boot's applyDriftOffset_() to consume, not itself a correction (see RLOG_ID_CLOCK_SYNC for the boot-time correction event)
 // 10-99 reserved for future non-trace DLOGH/M/L call sites.
 // beebo: BEEBO_USB_RXTX_TRACE (DualModeSerialInterface.cpp) opt-in trace ids.
 #define DLOG_ID_USB_RX_TRACE               100   // one byte read off the wire, with the parser state it landed in

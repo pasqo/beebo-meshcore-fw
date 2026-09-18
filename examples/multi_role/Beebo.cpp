@@ -378,7 +378,7 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
       // except for the one-time catch-up in ensureFirstEnvSample() (see
       // its own comment), so this first RX/TX always has a governing env
       // record ahead of it even if loop() hasn't sampled one yet.
-      monring.noteRadio(buildRadioRecord(), (uint32_t)millis());
+      monring.noteRadio(buildRadioRecord(), getRTCClock()->nowMillis());
       ensureFirstEnvSample();
     }
   }
@@ -422,7 +422,7 @@ void Beebo::onPacketCaptured(mesh::Packet* pkt) {
   pkt->_rx_logged = _rx_staged;
   if (_rx_staged) {
     pkt->_rx_hash = _rx_stage.pkt_hash;
-    pkt->_rx_time = (uint32_t)millis();  // beebo: MonRing's `now` means millis(), not epoch seconds
+    pkt->_rx_time = getRTCClock()->nowMillis();  // epoch-ms, for MonRing::appendRx()
     pkt->_rx_rssi = _rx_stage.rssi;
     pkt->_rx_flags = _rx_stage.flags;
     memcpy(pkt->_rx_nbr, _rx_stage.nbr, sizeof(pkt->_rx_nbr));
@@ -446,7 +446,7 @@ void Beebo::logRxDisposition(const mesh::Packet* pkt, uint8_t reason) {
     EventRecord rec{};
     rec.event_type = (reason == mesh::RX_DISP_PARSE_ERR) ? EVENT_RX_PARSE_ERROR : EVENT_RX_POOL_FULL;
     memcpy(&rec.data[0], &cum, 4);
-    monring.appendEvent(rec, (uint32_t)millis());
+    monring.appendEvent(rec, getRTCClock()->nowMillis());
   } else {
     MonRing::applyDisposition(const_cast<mesh::Packet*>(pkt)->_rx_disp, reason);
   }
@@ -506,9 +506,9 @@ void Beebo::logTx(mesh::Packet* pkt, int len) {
     // sampling is on its own fixed cadence in loop(), not this trigger,
     // except for ensureFirstEnvSample()'s own one-time catch-up (see its
     // comment) so this first TX always has a governing env record ahead of it.
-    monring.noteRadio(buildRadioRecord(), (uint32_t)millis());
+    monring.noteRadio(buildRadioRecord(), getRTCClock()->nowMillis());
     ensureFirstEnvSample();
-    monring.appendTx(rec, (uint32_t)millis());
+    monring.appendTx(rec, getRTCClock()->nowMillis());
   }
 }
 
@@ -522,9 +522,9 @@ void Beebo::logTxFail(mesh::Packet* pkt, int len) {
     // sampling is on its own fixed cadence in loop(), not this trigger,
     // except for ensureFirstEnvSample()'s own one-time catch-up (see its
     // comment) so this first TX always has a governing env record ahead of it.
-    monring.noteRadio(buildRadioRecord(), (uint32_t)millis());
+    monring.noteRadio(buildRadioRecord(), getRTCClock()->nowMillis());
     ensureFirstEnvSample();
-    monring.appendTx(rec, (uint32_t)millis());
+    monring.appendTx(rec, getRTCClock()->nowMillis());
   }
 }
 
@@ -540,7 +540,7 @@ void Beebo::emitAckResultEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_
   rec.event_type = (verdict == TXCONFIRM_SUCCESS) ? EVENT_ACK_SUCCESS : EVENT_ACK_TIMEOUT;
   memcpy(&rec.data[1], &pkt_hash, 4);
   memcpy(&rec.data[5], &age_ms, 4);
-  monring.appendEvent(rec, (uint32_t)millis());
+  monring.appendEvent(rec, getRTCClock()->nowMillis());
 }
 
 // beebo: DoS/QoS audit -- resource-exhaustion fault, see MonRing.h's
@@ -553,7 +553,7 @@ void Beebo::emitAckOverflowEvent(uint32_t pkt_hash, uint32_t age_ms) {
   rec.event_type = EVENT_ACK_OVERFLOW;
   memcpy(&rec.data[1], &pkt_hash, 4);
   memcpy(&rec.data[5], &age_ms, 4);
-  monring.appendEvent(rec, (uint32_t)millis());
+  monring.appendEvent(rec, getRTCClock()->nowMillis());
 }
 #endif // BEEBO_ENABLE_COMPANION_ROLE
 
@@ -865,7 +865,7 @@ void Beebo::logForwardDenyEvent(uint8_t event_type, const mesh::Packet* packet) 
   rec.event_type = event_type;
   uint32_t pkt_hash = packet->calculateMonRingHash();
   memcpy(&rec.data[1], &pkt_hash, 4);
-  monring.appendEvent(rec, (uint32_t)millis());
+  monring.appendEvent(rec, getRTCClock()->nowMillis());
 }
 
 void Beebo::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis) {
@@ -1734,13 +1734,14 @@ static void captureTimeAnchor(mesh::RTCClock *clock, uint32_t *out_epoch_sec, ui
 // boot debug event from RLOG_ID_BOOT_START onward resolves live through
 // forwardDebugToMonRing() below with no buffering at all -- MonRing's own
 // ring is simply where they land, the same way DLOG/RLOG's ring already
-// does. The boot-time drift correction (RLOG_ID_CLOCK_SYNC) is the one
+// does. The boot-time clock source/NVM-restore events are the one
 // exception that can't just resolve live -- ESP32RTCClock::begin() (called
-// from clock_init(), before this function) applies it before MonRing's
-// sink even exists, so it can't log it directly there either. Rather than
-// lose it from MON_DEBUG entirely, it stashes the event (ESP32Board.h's
-// takePendingDriftLog()) and this function logs it below, once the sink
-// actually exists to receive it.
+// from clock_init(), before this function) decides them before MonRing's
+// sink even exists, so it can't log them directly there either. Rather
+// than lose them from MON_DEBUG entirely, it stashes the events
+// (ESP32Board.h's takePendingClockRtc()/takePendingNvmPull()/
+// bootClockSource()) and this function logs them below, once the sink
+// actually exists to receive them.
 //
 // Seeds with a PLACEHOLDER radio/env (all-zero RadioRecord{}/EnvRecord{}) --
 // unlike the anchor, these genuinely aren't known yet (_role_state->prefs/
@@ -1779,7 +1780,11 @@ void Beebo::forwardDebugToMonRing(uint8_t type, uint8_t severity, int32_t detail
   d.file_id = debugFileId(file);
   d.line = (uint16_t)line;
   memcpy(d._user, user, sizeof(d._user));
-  beebo.monring.appendDebug(d, ms);
+  // beebo: `ms` is DLOG's own raw ::millis() reading, taken at the log call
+  // site (DebugLog::logRing() -- no RTCClock reference available there) --
+  // translate it into the absolute epoch-ms instant appendDebug() needs.
+  // See epochMsFromMillis()'s own comment (MonRing.h).
+  beebo.monring.appendDebug(d, epochMsFromMillis(ms));
 }
 
 void Beebo::startMonRing() {
@@ -1888,7 +1893,7 @@ uint32_t Beebo::applyClockSync(
       RLOGH(RLOG_ID_CLOCK_SET, secs, user);
     }
 #ifdef BEEBO_RTC_PERSIST
-    beebo_persistRTCTimeForReboot(secs);
+    setRebootRTCTime(secs);
 #endif
   } else if (delta_ms >= -CLOCK_SYNC_WINDOW_MS) {
     // within the dead-band either direction -- already in sync, nothing
@@ -1962,8 +1967,8 @@ void Beebo::initMonRing() {
     // the other noteRadio() call sites (role switch, config apply) will
     // store the real first record whenever it actually becomes known.
     RadioRecord radio = buildRadioRecord();
-    if (radio.freq != 0) monring.noteRadio(radio, (uint32_t)millis());
-    if (_radio->getNoiseFloor() != 0) monring.sampleEnv(buildEnvRecord(), (uint32_t)millis());
+    if (radio.freq != 0) monring.noteRadio(radio, getRTCClock()->nowMillis());
+    if (_radio->getNoiseFloor() != 0) monring.sampleEnv(buildEnvRecord(), getRTCClock()->nowMillis());
     MESH_DEBUG_PRINTLN("MonRing: %u records (%u KB PSRAM), %u KB PSRAM free after",
                        monring.capacity(), (unsigned)(MONRING_FIXED_BYTES / 1024),
                        (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
@@ -2063,7 +2068,7 @@ EnvRecord Beebo::buildEnvRecord() {
 void Beebo::ensureFirstEnvSample() {
   if (monring.envCount() != 0) return;
   if (_radio->getNoiseFloor() == 0) return;
-  monring.sampleEnv(buildEnvRecord(), (uint32_t)millis());
+  monring.sampleEnv(buildEnvRecord(), getRTCClock()->nowMillis());
 }
 
 #ifdef BEEBO_CPU_ACCOUNTING
@@ -2189,7 +2194,7 @@ void Beebo::logFaultEvent(uint16_t bit) {
   EventRecord rec{};
   rec.event_type = event_type;
   memcpy(&rec.data[0], cumulative, 4);
-  monring.appendEvent(rec, (uint32_t)millis());
+  monring.appendEvent(rec, getRTCClock()->nowMillis());
 #endif
 }
 
@@ -2207,7 +2212,7 @@ void Beebo::logTxQueueFull(bool is_relay) {
   EventRecord rec{};
   rec.event_type = EVENT_TX_QUEUE_FULL;
   memcpy(&rec.data[0], &cum, 4);
-  monring.appendEvent(rec, (uint32_t)millis());
+  monring.appendEvent(rec, getRTCClock()->nowMillis());
 #endif
 }
 
@@ -2220,7 +2225,7 @@ void Beebo::logRxQueueFull() {
   EventRecord rec{};
   rec.event_type = EVENT_RX_QUEUE_FULL;
   memcpy(&rec.data[0], &cum, 4);
-  monring.appendEvent(rec, (uint32_t)millis());
+  monring.appendEvent(rec, getRTCClock()->nowMillis());
 #endif
 }
 
@@ -2231,7 +2236,7 @@ void Beebo::logRxQueueFull() {
 // LINK_TX/LINK_RX sum BLE + WiFi (only one is ever the locked session at a
 // time -- see MultiSerialInterface).
 void Beebo::appendLinkQueueDropEvents() {
-  uint32_t now = (uint32_t)millis();  // beebo: MonRing's `now` means millis(), not epoch seconds
+  uint64_t now = getRTCClock()->nowMillis();
   uint32_t link_tx = ble_interface.getSendQueueFullCount() + wifi_interface.getSendQueueFullCount();
   uint32_t link_rx = ble_interface.getRecvQueueFullCount();
 
@@ -2262,7 +2267,7 @@ void Beebo::appendSettingChangedEvent(uint8_t setting_key, uint32_t old_raw, uin
   rec.source = source;
   rec.old_value = old_raw;
   rec.new_value = new_raw;
-  monring.appendSetting(rec, (uint32_t)millis());
+  monring.appendSetting(rec, getRTCClock()->nowMillis());
 }
 
 // beebo: log one MON_COMMAND record for a binary-protocol command -- see
@@ -2272,7 +2277,7 @@ void Beebo::appendCommandRunEvent(uint16_t command_id) {
   CommandRecord rec{};
   rec.source = EVENT_SOURCE_BINARY;
   memcpy(&rec.command[0], &command_id, 2);
-  monring.appendCommand(rec, (uint32_t)millis());
+  monring.appendCommand(rec, getRTCClock()->nowMillis());
 }
 
 // beebo: log one MON_COMMAND record for a text-CLI command -- see
@@ -2286,7 +2291,7 @@ void Beebo::appendTextCommandRunEvent(const char* label) {
   size_t n = strlen(label);
   if (n > 12) n = 12;
   memcpy(&rec.command[0], label, n);
-  monring.appendCommand(rec, (uint32_t)millis());
+  monring.appendCommand(rec, getRTCClock()->nowMillis());
 }
 
 // beebo: the single point where either pref store actually reaches flash --
@@ -6164,7 +6169,7 @@ uint16_t Beebo::updateBattTrend(bool force_read) {
   br.flags |= (_batt_state << BATTREC_STATE_SHIFT) & BATTREC_STATE_MASK;
   if (_serial->is24GUp()) br.flags |= BATTREC_FLAG_XPORT_24G;
   if (_serial->isUsbUp()) br.flags |= BATTREC_FLAG_XPORT_USB;
-  monring.appendBatt(br, (uint32_t)millis());
+  monring.appendBatt(br, getRTCClock()->nowMillis());
 
   return new_batt_mv;
 }
@@ -6195,7 +6200,7 @@ void Beebo::loop() {
       rec.event_type = EVENT_MAX_LOOP_LATENCY;
       memcpy(&rec.data[0], &latency_ms, 2);
       memcpy(&rec.data[2], &_max_loop_latency_event_count, 4);
-      monring.appendEvent(rec, (uint32_t)millis());
+      monring.appendEvent(rec, getRTCClock()->nowMillis());
     }
   }
   _last_loop_us = now_us;
@@ -6274,7 +6279,7 @@ void Beebo::loop() {
   }
 
   // beebo: go through board.reboot() rather than a bare esp_restart() so
-  // the RTC time gets persisted (beebo_persistRTCTimeForReboot()) before
+  // the RTC time gets persisted (setRebootRTCTime()) before
   // restart -- otherwise ESP32RTCClock::begin() falls back to whatever
   // was last saved at an earlier reboot, which can be stale and make the
   // clock jump backward after every OTA update. Every scheduleReboot()
@@ -6347,7 +6352,7 @@ void Beebo::loop() {
       millisHasNowPassed(_next_env_sample_ms)) {
     if (_radio->getNoiseFloor() != 0) {
       _next_env_sample_ms = futureMillis(ENV_SAMPLE_MS);
-      monring.sampleEnv(buildEnvRecord(), (uint32_t)millis());
+      monring.sampleEnv(buildEnvRecord(), getRTCClock()->nowMillis());
     } else {
       // beebo: noise_floor is still RadioLibWrapper::begin()/resetAGC()'s
       // reset value of 0 -- genuinely uncalibrated (never a real reading;
@@ -6490,7 +6495,7 @@ void Beebo::loop() {
     route.tx_wait_airtime = tx_wait_airtime;
     route.tx_wait_cad = tx_wait_cad;
     route.rx_wait_relay = rx_wait_relay;
-    monring.appendRoute(route, (uint32_t)millis());
+    monring.appendRoute(route, getRTCClock()->nowMillis());
     _rx_route_us = _tx_route_us = 0;
     resetRouteAccounting();
     _route_start_us = micros();
@@ -6544,7 +6549,7 @@ void Beebo::loop() {
     tx_stats.echo_attempt_count = ((SimpleMeshTables*)getTables())->getEchoAttemptCount();
     tx_stats.echo_success_count = ((SimpleMeshTables*)getTables())->getEchoSuccessCount();
     TuneController::Decision decision = tune_controller.tick(
-      monring, (uint32_t)millis(), current_values, tx_stats, _tune_applied_mask);
+      monring, getRTCClock()->nowMillis(), current_values, tx_stats, _tune_applied_mask);
     if (decision.should_apply) {
       applyTuneDecision(decision.param_id, decision.value);
     }
@@ -7515,6 +7520,25 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       strcpy(reply, "OK - Advert sent");
     } else {
       strcpy(reply, "Error");
+    }
+  } else if (memcmp(command, "clock sync", 10) == 0) {
+    // beebo: unlike "clock.epoch"/"clock"/"time " below, this one used to
+    // have no branch here at all and fell through to CommonCLI.cpp's own
+    // (seconds-only, no ahead-drift-reboot, no rtc_ts refresh) version --
+    // routed through applyClockSync() now for the same ms-precision/
+    // ahead-drift handling every other clock-set surface already gets.
+    // No ms token in this legacy wire format, so MS is always 0 and BOOT
+    // is always false (a forward correction only, same as before).
+    int32_t delta_ms = 0;
+    applyClockSync(sender_timestamp, false, 0, &delta_ms);
+    if (delta_ms > CLOCK_SYNC_WINDOW_MS) {
+      uint32_t now = getRTCClock()->getCurrentTime();
+      DateTime dt = DateTime(now);
+      sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+    } else if (delta_ms >= -CLOCK_SYNC_WINDOW_MS) {
+      strcpy(reply, "OK - clock already in sync");
+    } else {
+      strcpy(reply, "ERR: clock cannot go backwards");
     }
   } else if (memcmp(command, "clock.epoch", 11) == 0) {
     // beebo: see CommonCLI.cpp's identical "clock.epoch" comment -- widened

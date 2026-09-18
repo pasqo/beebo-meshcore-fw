@@ -130,6 +130,22 @@ public:
    */
   virtual void tick() { /* no op */}
 
+  /**
+   * \returns  the current time, in epoch MILLISECONDS, as one uint64_t --
+   * the single canonical "what time is it right now, ms resolution" call.
+   * Built on getTime() (atomic secs+ms on a subclass that overrides it,
+   * e.g. ESP32Board's gettimeofday()-backed clock; whole-second on one
+   * that doesn't) so every caller that needs a precise instant -- MonRing
+   * appends, live event timestamps, anything that used to hand-derive
+   * this from millis() or getCurrentTime() separately -- has exactly one
+   * function to call instead of picking a domain by hand at each site.
+  */
+  uint64_t nowMillis() {
+    uint32_t secs; uint16_t ms;
+    getTime(secs, ms);
+    return (uint64_t)secs * 1000 + ms;
+  }
+
   uint32_t getCurrentTimeUnique() {
     uint32_t t = getCurrentTime();
     if (t <= last_unique) {

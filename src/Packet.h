@@ -66,7 +66,7 @@ public:
   // across a queued flood packet's delay wait even though other packets are
   // captured onto the ring in the meantime.
   uint32_t _rx_hash;    // SHA256(payload)[0:4] LE, distilled at capture
-  uint32_t _rx_time;    // capture-time clock reading, for the committed record's offset
+  uint64_t _rx_time;    // capture-time epoch-ms clock reading (RTCClock::nowMillis()), for the committed record's offset -- captured at RX, appendRx() may run meaningfully later (queued flood delay)
   int8_t   _rx_rssi;    // dBm at capture, for the ring record (independent of MSG_INCLUDE_RSSI)
   uint8_t  _rx_flags;   // nbr_len bits (see MonRing.h RXREC_FLAG_*)
   uint8_t  _rx_nbr[3];  // last-hop neighbour hash

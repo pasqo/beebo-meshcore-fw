@@ -154,7 +154,20 @@ class SimpleMeshTables : public mesh::MeshTables {
     rec.event_type = (verdict == TXCONFIRM_SUCCESS) ? EVENT_ECHO_SUCCESS : EVENT_ECHO_TIMEOUT;
     memcpy(&rec.data[1], &pkt_hash, 4);
     memcpy(&rec.data[5], &age_ms, 4);
-    _monring->appendEvent(rec, (uint32_t)_rtc->getCurrentTime());
+    // beebo: MonRing::appendEvent()'s `now_ms` is an already-resolved
+    // absolute epoch-ms instant -- _rtc->nowMillis() (RTCClock::
+    // nowMillis(), MeshCore.h), the one canonical function for "what time
+    // is it right now, ms resolution". Passing RTC epoch SECONDS here
+    // instead (as this used to) made MonRing's offset arithmetic compute a
+    // bogus ~epoch_secs-worth-of-ms-ahead offset, overflowing MON_SYNC's
+    // relatch threshold on every single call and mislabeling the record
+    // with a garbage far-future timestamp -- root-caused via a real
+    // hardware capture 2026-09-18 (gatto-mr: repeating sync/
+    // tx_echo_timeout pairs all stamped ~21 days in the future). A plain
+    // boot-relative millis() reading would be just as wrong a second time
+    // over, in the other direction -- MonRing no longer re-anchors `now`
+    // itself at all (see _ensureSync()'s own comment, MonRing.h).
+    _monring->appendEvent(rec, _rtc->nowMillis());
   }
 
   // beebo: DoS/QoS audit -- resource-exhaustion fault, see MonRing.h's
@@ -168,7 +181,7 @@ class SimpleMeshTables : public mesh::MeshTables {
     rec.event_type = EVENT_ECHO_OVERFLOW;
     memcpy(&rec.data[1], &pkt_hash, 4);
     memcpy(&rec.data[5], &age_ms, 4);
-    _monring->appendEvent(rec, (uint32_t)_rtc->getCurrentTime());
+    _monring->appendEvent(rec, _rtc->nowMillis());  // see _emitEchoEvent()'s comment
   }
 
 public:
@@ -345,17 +358,17 @@ public:
     for (int b = 0; b < MAX_HASH_SIZE; b++) {
       if (dest[b] != 0) { slot_occupied = true; break; }
     }
-    // beebo: DoS/QoS audit follow-up -- age check is millis(), not RTC
-    // epoch seconds (unlike the MonRing event timestamp below) -- real
-    // duplicate-detection gaps are sub-second, RTC-second resolution can't
-    // tell them apart. Rollover-safe unsigned subtraction, same pattern
-    // the echo ring's echo-age checks use elsewhere in this file. Only
-    // counts/logs if the window is nonzero (0 is a real, literal "disabled"
-    // setting -- see setDedupWindowMs()'s comment, not a default sentinel)
-    // AND the evicted slot's own insertion is still within it -- an
-    // eviction past that window is just the table doing its job (the entry
-    // had already outlived any realistic duplicate/retransmission delay),
-    // not a fault.
+    // beebo: age check is millis(), rollover-safe unsigned subtraction,
+    // same pattern the echo ring's echo-age checks use elsewhere in this
+    // file -- deliberately NOT the same value handed to appendEvent()
+    // below, which needs an absolute epoch-ms instant (_rtc->nowMillis()),
+    // not this boot-relative one; see _emitEchoEvent()'s comment for the
+    // bug two mismatched domains like these caused. Only counts/logs if
+    // the window is nonzero (0 is a real, literal "disabled" setting --
+    // see setDedupWindowMs()'s comment, not a default sentinel) AND the
+    // evicted slot's own insertion is still within it -- an eviction past
+    // that window is just the table doing its job (the entry had already
+    // outlived any realistic duplicate/retransmission delay), not a fault.
     uint32_t now_ms = millis();
     if (slot_occupied && _dedup_window_ms > 0
         && (now_ms - _hash_insert_time[_next_idx]) <= _dedup_window_ms) {
@@ -365,7 +378,7 @@ public:
         memset(&rec, 0, sizeof(rec));
         rec.event_type = EVENT_RX_DEDUP_TABLE_FULL;
         memcpy(&rec.data[0], &_dedup_evicted_count, 4);
-        _monring->appendEvent(rec, (uint32_t)_rtc->getCurrentTime());
+        _monring->appendEvent(rec, _rtc->nowMillis());
       }
     }
     memcpy(dest, hash, MAX_HASH_SIZE);

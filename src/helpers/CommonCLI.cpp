@@ -22,11 +22,6 @@
 mesh::LocalIdentity radio_new_identity();
 #endif
 
-#ifdef BEEBO_RTC_PERSIST
-uint32_t beebo_clockDrift(uint32_t offset);
-void beebo_persistRTCTimeForReboot(uint32_t ts);
-#endif
-
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
   uint32_t n = 0;
@@ -242,24 +237,12 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (sender_timestamp > curr) {
         getRTCClock()->setCurrentTime(sender_timestamp);
-#ifdef BEEBO_RTC_PERSIST
-        // beebo: keep rtc_ts fresh on every accepted correction -- see
-        // kbase/CLOCK_DRIFT_COMPENSATION.md's "Behavior across reset kinds".
-        beebo_persistRTCTimeForReboot(sender_timestamp);
-#endif
         uint32_t now = getRTCClock()->getCurrentTime();
         DateTime dt = DateTime(now);
         sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
       } else if (sender_timestamp == curr) {
         strcpy(reply, "OK - clock already in sync");
       } else {
-#ifdef BEEBO_RTC_PERSIST
-        // "clock sync" has no ms token (legacy, seconds-only) --
-        // scale to ms so drift_off stays consistently ms-scale
-        // regardless of which seconds-only vs. ms-precision caller last
-        // wrote it.
-        beebo_clockDrift((curr - sender_timestamp) * 1000);
-#endif
         strcpy(reply, "ERR: clock cannot go backwards");
       }
     } else if (memcmp(command, "start ota", 9) == 0) {
@@ -276,30 +259,13 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       // appended after BOOT rather than inserted before it. Bare
       // "clock.epoch" (no trailing tokens) is exactly today's plain read.
       // Reply is always the clock's value *before* any change, so the
-      // caller can compute its own drift locally. Drift is stored/logged
-      // in milliseconds; RTCClock itself is set from SECS only,
-      // unaffected by MS.
+      // caller can compute its own drift locally. RTCClock itself is set
+      // from SECS only, unaffected by MS.
       uint32_t secs, boot, ms;
       _parseClockSyncArgs(&command[11], secs, boot, ms);
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (secs > curr) {
         getRTCClock()->setCurrentTime(secs);
-#ifdef BEEBO_RTC_PERSIST
-        // beebo: int64_t, not (curr - secs) * 1000 -- curr - secs
-        // underflows as unsigned here (secs > curr), and *1000 on that
-        // wrapped uint32 overflows before the cast could ever fix it.
-        beebo_persistRTCTimeForReboot(secs);
-#endif
-      } else if (secs != 0 && secs < curr) {
-#ifdef BEEBO_RTC_PERSIST
-        int32_t drift_ms = (int32_t)((int64_t)curr * 1000 - ((int64_t)secs * 1000 + ms));
-        // beebo: always persist -- the next boot's applyDriftOffset_() is
-        // what actually corrects the clock, whether that boot is this
-        // one arriving organically later or the immediate one BOOT
-        // requests below. See scheduleRebootWithTime()'s own comment.
-        beebo_clockDrift((uint32_t)drift_ms);
-        if (boot) _callbacks->scheduleRebootWithTime();
-#endif
       }
       sprintf(reply, "%lu", (unsigned long)curr);
     } else if (memcmp(command, "clock", 5) == 0) {
@@ -310,22 +276,6 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (secs > curr) {
         getRTCClock()->setCurrentTime(secs);
-#ifdef BEEBO_RTC_PERSIST
-        // beebo: int64_t, not (curr - secs) * 1000 -- curr - secs
-        // underflows as unsigned here (secs > curr), and *1000 on that
-        // wrapped uint32 overflows before the cast could ever fix it.
-        beebo_persistRTCTimeForReboot(secs);
-#endif
-      } else if (secs != 0 && secs < curr) {
-#ifdef BEEBO_RTC_PERSIST
-        int32_t drift_ms = (int32_t)((int64_t)curr * 1000 - ((int64_t)secs * 1000 + ms));
-        // beebo: always persist -- the next boot's applyDriftOffset_() is
-        // what actually corrects the clock, whether that boot is this
-        // one arriving organically later or the immediate one BOOT
-        // requests below. See scheduleRebootWithTime()'s own comment.
-        beebo_clockDrift((uint32_t)drift_ms);
-        if (boot) _callbacks->scheduleRebootWithTime();
-#endif
       }
       DateTime dt = DateTime(curr);
       sprintf(reply, "%02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
@@ -334,20 +284,12 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (secs > curr) {
         getRTCClock()->setCurrentTime(secs);
-#ifdef BEEBO_RTC_PERSIST
-        beebo_persistRTCTimeForReboot(secs);
-#endif
         uint32_t now = getRTCClock()->getCurrentTime();
         DateTime dt = DateTime(now);
         sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
       } else if (secs == curr) {
         strcpy(reply, "OK - clock already in sync");
       } else {
-#ifdef BEEBO_RTC_PERSIST
-        // beebo: "time " has no ms token (legacy, seconds-only) -- scale
-        // to ms, see "clock sync"'s identical comment above.
-        beebo_clockDrift((curr - secs) * 1000);
-#endif
         strcpy(reply, "(ERR: clock cannot go backwards)");
       }
     } else if (memcmp(command, "neighbors", 9) == 0) {

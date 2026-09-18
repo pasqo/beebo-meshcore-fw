@@ -20,7 +20,7 @@
 extern HeltecV4Board board;
 extern WRAPPER_CLASS radio_driver;
 extern AutoDiscoverRTCClock rtc_clock;
-extern ESP32RTCClock fallback_clock;  // beebo: needed directly (not just via rtc_clock) for takePendingDriftLog()
+extern ESP32RTCClock fallback_clock;  // beebo: needed directly (not just via rtc_clock) for takePendingNvmPull()/takePendingClockRtc()/bootClockSource()
 extern EnvironmentSensorManager sensors;
 
 #ifdef DISPLAY_CLASS

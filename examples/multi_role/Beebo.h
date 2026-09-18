@@ -755,13 +755,6 @@ public:
   bool saveRegions() override { return region_map.save(_store->getPrimaryFS()); }
   void onDefaultRegionChanged(const RegionEntry* r) override { /* beebo: region_map's own default-region flag is persisted by saveRegions() above; no separate live-scoping consumer wired yet, unlike _role_state->prefs.default_scope_key's own periodic-advert path */ }
   bool setRxBoostedGain(bool enable) override { return radio_driver.setRxBoostedGainMode(enable); }
-  // beebo: satisfies CommonCLI's callback interface, but unreachable in
-  // practice -- Beebo::handleCommand() intercepts "clock.epoch"/"clock"/
-  // "time " itself (below) before CommonCLI::handleCommand() ever runs,
-  // so CommonCLI.cpp's own ahead-drift path that calls this never fires
-  // for multi_role. Beebo's own ahead-drift correction goes through
-  // applyClockSync() -> scheduleRebootAt() instead (own comment below).
-  void scheduleRebootWithTime() override { scheduleReboot(); }
 #endif
 
 private:
@@ -810,12 +803,10 @@ private:
   // can compute its own drift locally without a second round trip.
   //
   // MS (0-999, default 0) is the sub-second component of SECS from a
-  // millisecond-precision sync. The
-  // ahead/behind decision and every drift figure compare precise epoch
-  // milliseconds -- SECS/MS against monring.nowEpochMs() (the time
-  // anchor plus elapsed millis()), not a plain RTCClock read, which only
-  // ever has whole-second resolution and doesn't itself reflect any
-  // ms-precision correction already applied to the anchor. RTCClock
+  // millisecond-precision sync. The ahead/behind decision and every drift
+  // figure compare precise epoch milliseconds -- SECS/MS against
+  // getRTCClock()->getTime()'s own atomic secs+ms read, directly (see this
+  // method's own body) -- not a whole-seconds-only getCurrentTime(). RTCClock
   // itself is untouched by MS -- when correcting forward it is still set
   // to SECS directly, exactly as before this parameter existed. On an
   // ahead-drift, BOOT schedules an immediate corrective reboot instead of

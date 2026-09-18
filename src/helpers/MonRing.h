@@ -709,6 +709,24 @@ inline void setGlobalTimeAnchor(uint32_t epoch_sec, uint16_t ms_frac, uint32_t m
 }
 inline bool globalTimeAnchorValid() { return g_time_anchor_epoch_sec != 0; }
 
+// beebo: the one remaining legitimate use of the anchor's elapsed-millis()
+// reconstruction (as of 2026-09-18's clock-model unification -- see
+// _ensureSync()'s own comment for the rest of this rationale). DLOG
+// (DebugLog::logRing()) stamps an event with a raw ::millis() reading at
+// the moment it's logged, from call sites with no RTCClock reference of
+// their own to call RTCClock::nowMillis() directly (RLOGH/RLOGM are bare
+// macros, callable from anywhere) -- forwardDebugToMonRing() (Beebo.cpp)
+// is the one place that already-past millis() reading needs translating
+// into an absolute epoch-ms instant before handing it to
+// MonRing::appendDebug(), which (like every other append*()) takes an
+// already-resolved epoch-ms value directly. Plain unsigned subtraction is
+// safe for the same reason _ensureSync()'s is: the anchor is only ever
+// refreshed forward.
+inline uint64_t epochMsFromMillis(uint32_t millis_reading) {
+  return (uint64_t)g_time_anchor_epoch_sec * 1000 + g_time_anchor_ms_frac
+       + (uint64_t)(millis_reading - g_time_anchor_millis);
+}
+
 class MonRing {
 public:
   // beebo: fired from _store() for every record actually appended (after
@@ -761,24 +779,21 @@ private:
   bool      _paused_for_read = false;  // capture was force-disabled by pauseForRead()
 
   // time base (bookkeeping, never evicts)
-  uint32_t  _base = 0;            // running absolute base (epoch seconds), always a whole _sync_period bucket
-  uint32_t  _sync_period = 60;    // re-latch bucket width (seconds); variable
+  uint32_t  _base = 0;            // running absolute base (epoch seconds) -- the exact second of the last relatch
 
-  // The epoch/millis anchor is g_time_anchor_epoch_sec/g_time_anchor_millis -- a shared,
-  // ring-agnostic global (declared above), not private MonRing state, so
-  // DebugLog's own DLOG live push can read the exact same anchor directly
-  // instead of needing MonRing's wire protocol involved at all (see
-  // DebugLog.h's own use of it). Pushed in from outside via
+  // The epoch/millis anchor is g_time_anchor_epoch_sec/g_time_anchor_millis --
+  // a shared, ring-agnostic global (declared above), not private MonRing
+  // state. As of 2026-09-18 this exists PURELY for DebugLog's own DLOG live
+  // push (DebugLog.h's writeHeader()), which needs it to translate an
+  // already-logged event's own millis()-domain timestamp back into wall-
+  // clock time -- MonRing's own append*/_ensureSync() path no longer reads
+  // it at all (see _ensureSync()'s own comment): every append call now
+  // takes an already-resolved epoch-ms instant directly, so there's no
+  // separate anchor-plus-elapsed-millis() reconstruction left for a caller
+  // to feed the wrong domain into. Still pushed in from outside via
   // setTimeAnchor()/init()/clear() only, never read from a clock directly
   // here (MonRing has no Arduino/RTC dependency by design, so it stays
-  // fully native-testable). Refreshed only at boot and on an explicit RTC
-  // correction, NOT on every relatch -- on ESP32 without an external RTC
-  // chip, time()/millis() share the same underlying esp_timer counter, so
-  // there is no drift between them to compensate for between corrections
-  // (see the plan for the cross-referenced evidence). Every _ensureSync()
-  // call derives both the minute-bucket `_base` and the ms-resolution
-  // offset from this anchor by pure arithmetic -- no RTC read on the hot
-  // append path.
+  // fully native-testable).
 
   // running RADIO config
   RadioRecord _radio;
@@ -820,13 +835,14 @@ private:
   RadioRecord start_radio{};
   EnvRecord   start_env{};
 
-  // Shared by init()/clear(): latch the epoch/millis anchor + the bucketed
-  // base derived from it, and the running radio/env state, then (re)seed
-  // the three start-refs from them directly, without consuming a ring slot.
+  // Shared by init()/clear(): latch the epoch/millis anchor + the base
+  // derived from it (the exact current second -- see _ensureSync()'s own
+  // comment for why there's no wider bucket to floor to), and the running
+  // radio/env state, then (re)seed the three start-refs from them
+  // directly, without consuming a ring slot.
   void _seed(uint32_t anchor_epoch_sec, uint16_t anchor_ms_frac, uint32_t anchor_now_ms, const RadioRecord &radio, const EnvRecord &env) {
     setGlobalTimeAnchor(anchor_epoch_sec, anchor_ms_frac, anchor_now_ms);
-    uint64_t bucket_ms = (uint64_t)_sync_period * 1000;
-    _base = (uint32_t)((((uint64_t)anchor_epoch_sec * 1000 + anchor_ms_frac) / bucket_ms) * _sync_period);
+    _base = anchor_epoch_sec;
     _radio = radio; _radio.kind = MON_RADIO; _radio.offset = 0; _radio_valid = true;
     _env   = env;   _env.kind   = MON_ENV;   _env.offset   = 0; _env_valid   = true;
 
@@ -898,73 +914,58 @@ private:
   // evicts — 0 until the first capture.
   uint32_t  _end_time = 0;
 
-  // Called first by every append*/note*/sample* entry point, with `now`
-  // meaning millis() (NOT epoch seconds -- see setTimeAnchor()'s own
-  // comment for why the anchor, not a raw epoch read, is the source of
-  // truth here). Derives the current minute-bucketed `_base` (epoch
-  // seconds) and this record's own ms-resolution offset from the anchor
-  // by pure arithmetic, relatching (storing a fresh SYNC) whenever the
-  // bucket has advanced since the last one -- forward semantics: "from
-  // here on this is the base", so SYNC always precedes anything using it.
-  // Every entry point calls this exactly once with the same `now` it
-  // stamps its own record with, immediately before building that record.
+  // Called first by every append*/note*/sample* entry point, with `now_ms`
+  // an already-resolved, absolute epoch-MILLISECOND instant -- the caller's
+  // one canonical `RTCClock::nowMillis()` read (MeshCore.h), not a raw
+  // millis() reading for MonRing to re-anchor itself. MonRing has no
+  // separate time-anchor-plus-elapsed-millis() reconstruction of its own
+  // (that used to live here and in nowEpochMs(), both removed 2026-09-18 --
+  // it was a workaround for not having ms-precision on tap, made fully
+  // redundant once ESP32Board::getTime() started reading gettimeofday()
+  // directly; keeping it as a second, independently-corrected clock let it
+  // silently drift out of step with the real one, and every caller having
+  // to pick "millis() or getCurrentTime()" by hand for `now` was exactly
+  // the class of bug that produced a garbage far-future MON_SYNC record on
+  // every call from three mismatched call sites, confirmed on real
+  // hardware 2026-09-18 -- see SimpleMeshTables.h's own fix). Derives the
+  // current `_base` (epoch seconds) and this record's own ms-resolution
+  // offset by pure arithmetic against `now_ms` directly, relatching
+  // (storing a fresh SYNC) whenever the offset would overflow its
+  // uint16_t wire budget -- forward semantics: "from here on this is the
+  // base", so SYNC always precedes anything using it. Every entry point
+  // calls this exactly once with the same `now_ms` it stamps its own
+  // record with, immediately before building that record.
   //
   // beebo: no `_buf == nullptr`/"never seeded" branch here -- every caller
   // (append*/note*/sample*) already bails out on `_buf == nullptr` before
   // reaching this, and `_buf` only becomes non-null via init(), which
-  // always seeds the anchor first via _seed(). So `_ensureSync()` can
-  // never actually run before the anchor holds a real value.
+  // always seeds `_base` first via _seed(). So `_ensureSync()` can never
+  // actually run before `_base` holds a real value.
   //
-  // `now - g_time_anchor_millis` is plain UNSIGNED subtraction -- correct
-  // across a millis() rollover (~49.7 days) by the same wrapping-counter
-  // reasoning this file already documents elsewhere, and the anchor is
-  // refreshed far more often than that in any real deployment (boot, plus
-  // every RTC correction). `estimated_epoch_ms`/`bucket_ms` use uint64_t
-  // explicitly: `anchor_epoch_sec * 1000` alone already exceeds uint32_t's
-  // range for any real epoch value (~1.7e12 vs ~4.3e9 max).
-  // Converts a millis() reading into real epoch seconds via the same
-  // anchor math _ensureSync() uses internally -- needed anywhere a caller
-  // wants an absolute epoch value from `now` directly (currently just
-  // _end_time, below) rather than a per-record offset. Kept as its own
-  // helper instead of inlining at each of _end_time's several call sites,
-  // and instead of having appendXxx() reuse _ensureSync()'s own return
-  // value, since that return is deliberately the *offset* (ms since the
-  // current minute-bucket base), not an absolute epoch.
-  uint32_t _epochSecFromMillis(uint32_t now) const {
-    uint64_t estimated_epoch_ms = (uint64_t)g_time_anchor_epoch_sec * 1000 + g_time_anchor_ms_frac + (uint64_t)(now - g_time_anchor_millis);
-    return (uint32_t)(estimated_epoch_ms / 1000);
-  }
+  // Plain UNSIGNED subtraction against `_base*1000` is safe (never
+  // underflows): the RTC clock `now_ms` is read from can only ever be
+  // forward-corrected (Beebo::applyClockSync()'s one and only
+  // setTime()/scheduleRebootAt() call sites never rewind it live), so
+  // `now_ms` can never land behind a `_base` derived from an earlier read
+  // of that same clock.
 
-  uint16_t _ensureSync(uint32_t now) {
-    uint64_t bucket_ms = (uint64_t)_sync_period * 1000;
-    uint64_t estimated_epoch_ms = (uint64_t)g_time_anchor_epoch_sec * 1000 + g_time_anchor_ms_frac + (uint64_t)(now - g_time_anchor_millis);
-    uint32_t new_base = (uint32_t)((estimated_epoch_ms / bucket_ms) * _sync_period);
-    if (new_base != _base) {
-      _base = new_base;
+  uint16_t _ensureSync(uint64_t now_ms) {
+    // beebo: a MON_SYNC record exists for exactly one reason -- keeping
+    // every other record kind's own offset (ms since the current base)
+    // inside its uint16_t wire budget, allowing a reader to reconstruct
+    // the absolute epoch of any record by adding its offset to the base.
+    uint64_t offset_ms = now_ms - (uint64_t)_base * 1000;
+    if (offset_ms >= 65536) {
+      _base = (uint32_t)(now_ms / 1000);
       MonRecord r{};
       r.sync.kind = MON_SYNC;
       r.sync.timestamp = _base;
       r.sync.abi_version = MONRING_ABI_VERSION;
-      // beebo: do NOT reanchor start_sync here, even the first time a real
-      // SYNC record is ever stored (_sync_count == 0) -- records already
-      // resident in the ring (e.g. RLOG_ID_BOOT_START and friends, logged
-      // at boot well before this first relatch ever fires) are governed by
-      // the ORIGINAL boot/clear seed, not by this new record; clobbering
-      // start_sync here reinterprets their existing offsets against the
-      // wrong epoch the instant this relatch happens (confirmed on real
-      // hardware 2026-09-13: a clock-sync correction forced this relatch
-      // and every earlier backlog record's displayed time collapsed to the
-      // correction's own "now", even though the record's own embedded
-      // detail still showed its true original value). start_sync is only
-      // ever correctly updated by the real eviction path below, when the
-      // ring's actual oldest resident record is the one being replaced.
       _sync_count++;
       _store(r);
+      return (uint16_t)(now_ms % 1000);
     }
-    // This record's own offset from whichever base is now current --
-    // always < bucket_ms (< 65536 for the real 60s default), so the
-    // narrowing cast is exact, never a truncation.
-    return (uint16_t)(estimated_epoch_ms - (uint64_t)_base * 1000);
+    return (uint16_t)offset_ms;
   }
 
   // Raw append of a fully-formed record. Assigns the next seq, wraps the ring.
@@ -1089,21 +1090,6 @@ public:
     setGlobalTimeAnchor(anchor_epoch_sec, anchor_ms_frac, anchor_now_ms);
   }
 
-  // beebo: the device's actual precise "now", in epoch milliseconds -- the
-  // anchor plus elapsed millis() since it was captured (same formula
-  // _ensureSync()/_epochSecFromMillis() use internally), exposed publicly
-  // for callers that need to compare a precise (secs, ms) target against
-  // the device's own precise current instant -- e.g. Beebo::
-  // applyClockSync()'s ahead/behind decision
-  // -- rather than a plain RTCClock
-  // read, which only ever has whole-second resolution and doesn't itself
-  // reflect any ms-precision correction already applied to the anchor.
-  // NOW_MILLIS is millis() at the call site (unsigned subtraction against
-  // g_time_anchor_millis wraps correctly across a rollover, same
-  // reasoning as _ensureSync()'s own comment).
-  uint64_t nowEpochMs(uint32_t now_millis) const {
-    return (uint64_t)g_time_anchor_epoch_sec * 1000 + g_time_anchor_ms_frac + (uint64_t)(now_millis - g_time_anchor_millis);
-  }
 
   bool     allocated() const { return _buf != nullptr; }
   void     setConfig(uint8_t c) { _config = c; }
@@ -1203,7 +1189,6 @@ public:
     if (_mlog_replay_seq >= _next_seq) _mlog_replay_active = false;
     return _mlog_replay_active;
   }
-  void     setSyncPeriod(uint32_t s) { if (s) _sync_period = s; }
   uint32_t rxCount() const { return _rx_count; }
   uint32_t battCount() const { return _batt_count; }
   uint32_t tuneCount() const { return _tune_count; }
@@ -1279,25 +1264,25 @@ public:
   // (including the final disp byte) before calling this, so it is written to
   // the ring exactly once. Returns the assigned seq, or UINT32_MAX if nothing
   // was stored (ring disabled/unallocated).
-  uint32_t appendRx(RxRecord rx, uint32_t now) {
+  uint32_t appendRx(RxRecord rx, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_RX) || _buf == nullptr) return 0xFFFFFFFFu;
     MonRecord r{};
     r.rx = rx;
     r.rx.kind = MON_RX;
-    r.rx.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.rx.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _rx_count++;
     return _store(r);
   }
 
   // Append one of our own transmissions (kind/offset stamped here).
-  void appendTx(TxRecord tx, uint32_t now) {
+  void appendTx(TxRecord tx, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_TX) || _buf == nullptr) return;
     MonRecord r{};
     r.tx = tx;
     r.tx.kind = MON_TX;
-    r.tx.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.tx.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _tx_count++;
     _store(r);
   }
@@ -1306,13 +1291,13 @@ public:
   // appendTx() -- every sample the caller took is charted, not just changes,
   // since the point is to see the full Vbat trace (IR-drop sag/recovery,
   // idle vs forced reads) rather than a diffed reference like RADIO/ENV.
-  void appendBatt(BattRecord batt, uint32_t now) {
+  void appendBatt(BattRecord batt, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_BATT) || _buf == nullptr) return;
     MonRecord r{};
     r.batt = batt;
     r.batt.kind = MON_BATT;
-    r.batt.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.batt.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _batt_count++;
     _store(r);
   }
@@ -1322,13 +1307,13 @@ public:
   // runs is charted (observe-only or applied), not just changes, since the
   // point is to see the full decision history for offline review before any
   // param is promoted to live actuation.
-  void appendTune(TuneRecord tune, uint32_t now) {
+  void appendTune(TuneRecord tune, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
     MonRecord r{};
     r.tune = tune;
     r.tune.kind = MON_TUNE;
-    r.tune.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.tune.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _tune_count++;
     _store(r);
   }
@@ -1337,14 +1322,14 @@ public:
   // ENV/RADIO's dedup-on-change, every call charts a record -- an event is
   // by definition a discrete occurrence, not a running state to diff
   // against.
-  void appendEvent(EventRecord event, uint32_t now) {
+  void appendEvent(EventRecord event, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
     if (!(_event_type_mask & (1u << event.event_type))) return;
     MonRecord r{};
     r.event = event;
     r.event.kind = MON_EVENT;
-    r.event.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.event.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _event_count++;
     _store(r);
   }
@@ -1352,26 +1337,26 @@ public:
   // Append one admin-visible setting change (kind/offset stamped here).
   // Gated by the same MON_CAP_EVENT bit as appendEvent() -- see MON_SETTING's
   // comment for why this has its own kind/struct but shares the capture bit.
-  void appendSetting(SettingRecord setting, uint32_t now) {
+  void appendSetting(SettingRecord setting, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
     MonRecord r{};
     r.setting = setting;
     r.setting.kind = MON_SETTING;
-    r.setting.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.setting.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _setting_count++;
     _store(r);
   }
 
   // Append one command-run record (kind/offset stamped here). Same capture
   // gating as appendSetting()/appendEvent() -- see MON_COMMAND's comment.
-  void appendCommand(CommandRecord command, uint32_t now) {
+  void appendCommand(CommandRecord command, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
     MonRecord r{};
     r.command = command;
     r.command.kind = MON_COMMAND;
-    r.command.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.command.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _command_count++;
     _store(r);
   }
@@ -1383,13 +1368,13 @@ public:
   // dedup-on-change, every call stores a record -- a periodic snapshot is
   // meaningful even when unchanged (e.g. "still 0% wait" over the last
   // minute is itself the signal), same reasoning as appendEvent().
-  void appendRoute(RouteRecord route, uint32_t now) {
+  void appendRoute(RouteRecord route, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
     MonRecord r{};
     r.route = route;
     r.route.kind = MON_ROUTE;
-    r.route.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.route.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _route_count++;
     _store(r);
   }
@@ -1400,13 +1385,13 @@ public:
   // kind/struct but shares the capture bit. Unconditional per call, like
   // appendEvent() -- a debug event is a discrete occurrence, not a running
   // state to diff against.
-  void appendDebug(DebugRecord debug, uint32_t now) {
+  void appendDebug(DebugRecord debug, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
     MonRecord r{};
     r.debug = debug;
     r.debug.kind = MON_DEBUG;
-    r.debug.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.debug.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _debug_count++;
     _store(r);
   }
@@ -1416,7 +1401,7 @@ public:
   // state. Same shape as sampleEnv() (and shares its caller-builds-the-record
   // pattern with _seed()) so both reference kinds are seeded/diffed
   // identically.
-  void noteRadio(RadioRecord radio, uint32_t now) {
+  void noteRadio(RadioRecord radio, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_RADIO) || _buf == nullptr) return;
     // beebo: mirrors sampleEnv()'s first_real_sample handling exactly (see
     // its own comment) -- on the first real call, also replace start_radio
@@ -1439,8 +1424,8 @@ public:
     MonRecord r{};
     r.radio = _radio;
     r.radio.kind = MON_RADIO;
-    r.radio.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.radio.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _radio_count++;
     _store(r);
   }
@@ -1448,7 +1433,7 @@ public:
   // Note the current environment sample. On a real change, store the NEW
   // sample as a record immediately, then adopt it as the running state. Same
   // rule as noteRadio().
-  void sampleEnv(EnvRecord env, uint32_t now) {
+  void sampleEnv(EnvRecord env, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_ENV) || _buf == nullptr) return;
     // A genuine reading happened, regardless of whether it changed the
     // stored value -- see _env_ever_sampled's own comment. On the
@@ -1478,8 +1463,8 @@ public:
     MonRecord r{};
     r.env = _env;
     r.env.kind = MON_ENV;
-    r.env.offset = _ensureSync(now);
-    _end_time = _epochSecFromMillis(now);
+    r.env.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
     _env_count++;
     _store(r);
   }
