@@ -2230,15 +2230,22 @@ void Beebo::logRxQueueFull() {
 #endif
 }
 
-// beebo: node link (BLE/WiFi) queue-full counters live in
-// ble_interface/wifi_interface with no Dispatcher-level hook available (see
-// MonRing.h's EVENT_LINK_TX_QUEUE_FULL comment) -- poll each tick and log
-// one record per direction whose lifetime count rose since last checked.
-// LINK_TX/LINK_RX sum BLE + WiFi (only one is ever the locked session at a
-// time -- see MultiSerialInterface).
+// beebo: node link (BLE/WiFi/USB) queue-full counters live in
+// ble_interface/wifi_interface/debug_log with no Dispatcher-level hook
+// available (see MonRing.h's EVENT_LINK_TX_QUEUE_FULL comment) -- poll
+// each tick and log one record per direction whose lifetime count rose
+// since last checked. LINK_TX sums BLE + WiFi (only one is ever the
+// locked session at a time -- see MultiSerialInterface) + DebugLog's own
+// _usb_queue drop count (DLOG/MLOG/raw-ack telemetry, not the companion
+// session's own USB traffic, which has no queue of its own to overflow --
+// see DualModeSerialInterface::isWriteBusy()'s comment). LINK_RX has no
+// USB equivalent -- USB's companion frames are parsed synchronously
+// (checkRecvFrame()), never queued, so there's nothing there that can be
+// "full".
 void Beebo::appendLinkQueueDropEvents() {
   uint64_t now = getRTCClock()->nowMillis();
-  uint32_t link_tx = ble_interface.getSendQueueFullCount() + wifi_interface.getSendQueueFullCount();
+  uint32_t link_tx = ble_interface.getSendQueueFullCount() + wifi_interface.getSendQueueFullCount()
+                      + debug_log.getUsbQueueDropCount();
   uint32_t link_rx = ble_interface.getRecvQueueFullCount();
 
   if (link_tx != _last_link_tx_queue_full) {
@@ -2455,11 +2462,15 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   memcpy(&out[i], &rx_pool_exhausted, 4); i += 4;
   memcpy(&out[i], &rx_parse_error, 4); i += 4;
   // Lifetime queue-full drop counters -- these live in their owning class
-  // (PacketManager / SerialBLEInterface / SerialWifiInterface), read fresh
-  // here rather than mirrored into MonRing. LINK_TX/LINK_RX sum BLE + WiFi.
+  // (PacketManager / SerialBLEInterface / SerialWifiInterface / DebugLog),
+  // read fresh here rather than mirrored into MonRing. LINK_TX sums
+  // BLE + WiFi + DebugLog's own USB retry-queue drops (see
+  // appendLinkQueueDropEvents()'s own comment for why LINK_RX has no USB
+  // term -- must stay in lockstep with that function's identical formula).
   uint32_t mesh_tx_queue_full = _mgr->getTxQueueFullCount();
   uint32_t mesh_rx_queue_full = _mgr->getRxQueueFullCount();
-  uint32_t link_tx_queue_full = ble_interface.getSendQueueFullCount() + wifi_interface.getSendQueueFullCount();
+  uint32_t link_tx_queue_full = ble_interface.getSendQueueFullCount() + wifi_interface.getSendQueueFullCount()
+                                 + debug_log.getUsbQueueDropCount();
   uint32_t link_rx_queue_full = ble_interface.getRecvQueueFullCount();
   memcpy(&out[i], &mesh_tx_queue_full, 4); i += 4;
   memcpy(&out[i], &mesh_rx_queue_full, 4); i += 4;

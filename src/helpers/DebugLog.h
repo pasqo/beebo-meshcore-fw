@@ -234,18 +234,14 @@
 // of inferring it from RLOG_ID_CLOCK_SET's post-correction value or the
 // plausibility check's own output. detail = the raw epoch seconds read.
 #define RLOG_ID_CLOCK_RTC  57
-// beebo: fires whenever writeUsbQueued()/pushToTargets() drop a frame
-// outright because _usb_queue (bounded, USB_QUEUE_CAP slots) was already
-// full -- the one gap the queued-retry mechanism itself can't close, so
-// this exists purely for visibility instead of leaving that case silent.
-// detail = the dropped frame's length. Best-effort like every other RLOG
-// call (not retried/queued itself) -- under the very USB backpressure
-// this reports on, losing an occasional report of the loss is an
-// acceptable trade against making that backpressure worse.
-#define RLOG_ID_USB_QUEUE_DROP  58
 // GEN_RLOG_NAMES_END
 // 22, 26 retired -- subsumed by RLOG_ID_XPORT_LINK_WIFI_LISTENING.
 // 24/25 never assigned.
+// 58 was briefly RLOG_ID_USB_QUEUE_DROP (a standalone MON_DEBUG event for
+// DebugLog's own USB retry-queue drops), replaced same-day by a plain
+// DebugLog::_usb_queue_drop_count folded into link_tx_queue_full alongside
+// BLE/WiFi's own send-queue-full counters (Beebo::appendLinkQueueDropEvents()/
+// GET_MONRING header) -- one queue-full-drop reporting mechanism, not two.
 // 57 was briefly a standalone RLOG_ID_CLOCK_SRC event 2026-09-12, replaced
 // same-day by packing the value into RLOG_ID_CLOCK_SET's own record instead
 // (see that event's comment and MonRing.h's DebugRecord._user) before ever
@@ -419,13 +415,29 @@ class DebugLog {
   // FIFO; once full, a new push is dropped rather than evicting the
   // oldest, so what's already queued keeps its place), and each frame
   // gets at most MAX_RETRY_TICKS attempts before being dropped. The
-  // ceiling matters because writeFrameBestEffort() also refuses (returns
-  // 0) whenever the link's `_lastWasText` is true -- a policy refusal
-  // (don't inject binary framing after a legacy text-mode client just
-  // spoke on the same physical link), not a transient one -- which this
-  // queue can't distinguish from "buffer full" via the return value
-  // alone, so it must never retry indefinitely.
-  static const uint8_t USB_QUEUE_CAP = 4;
+  // *tick* ceiling (MAX_RETRY_TICKS) is a real, permanent escape hatch,
+  // not a capacity concern -- writeFrameBestEffort() also refuses
+  // (returns 0) whenever the link's `_lastWasText` is true, a policy
+  // refusal (don't inject binary framing after a legacy text-mode client
+  // just spoke on the same physical link) this queue can't tell apart
+  // from "buffer full" via the return value alone, so a frame that can
+  // genuinely never be delivered must still eventually give up.
+  //
+  // The *depth* ceiling (QUEUE_CAP), by contrast, exists purely to keep
+  // this a fixed-size embedded struct, not because backpressure should
+  // ever actually reach it in practice: USB throughput is orders of
+  // magnitude faster than the LoRa airtime that paces how quickly new
+  // events can even be generated (an rx/tx/route/debug burst is bounded
+  // by packets-per-second on the radio, not anything USB-side), so a
+  // generous static depth here is, for any realistic traffic pattern,
+  // equivalent to "never actually drains empty into overflow" -- real
+  // backpressure (wait for the next tick, then write), not a small
+  // shock absorber sized to be blown through under normal load. Only a
+  // genuinely stuck peripheral (the still-open HWCDC TX-hang class,
+  // plans/ARDUINO_ESP32_CORE_UPGRADE.md) or a policy-refused frame
+  // sitting at the queue head blocking everything behind it should ever
+  // realistically fill this.
+  static const uint8_t USB_QUEUE_CAP = 64;
   static const uint16_t USB_QUEUE_MAX_RETRY_TICKS = 50;
   struct QueuedUsbFrame {
     uint8_t data[200];   // matches logLink()'s own out[200] cap -- the largest frame this class ever pushes
@@ -436,28 +448,19 @@ class DebugLog {
   uint8_t _usb_queue_head = 0;
   uint8_t _usb_queue_count = 0;
 
-  // beebo: guards logRing()'s own MON_DEBUG report below against
-  // recursing back into itself -- logRing() -> _debug_sink ->
-  // MonRing::appendDebug() -> _store() -> _live_sink() ->
-  // pushMlogFrame() -> pushToTargets() -> enqueueUsb() again, and if the
-  // queue is still full at that point, an unguarded call would report,
-  // recurse, report, recurse, ... without bound. Set only around the
-  // logRing() call, so a drop encountered *while already reporting* a
-  // drop is silently swallowed instead of chasing its own report.
-  bool _reporting_usb_queue_drop = false;
+  // beebo: lifetime count of frames lost because _usb_queue itself was
+  // already full (or a frame too big for it ever arrived) -- the one drop
+  // this class still can't paper over. Surfaced the same way BLE/WiFi's
+  // own send_queue-full drops are (Beebo::appendLinkQueueDropEvents()/
+  // GET_MONRING's link_tx_queue_full header field both fold this in
+  // alongside ble_interface/wifi_interface's counters), not as an
+  // independent MON_DEBUG event -- one queue-full-drop counter mechanism,
+  // not two competing ones.
+  uint32_t _usb_queue_drop_count = 0;
 
   void enqueueUsb(const uint8_t* out, size_t pos) {
     if (_usb_queue_count >= USB_QUEUE_CAP || pos > sizeof(QueuedUsbFrame::data)) {
-      // beebo: the retry queue itself is full (or this frame could never
-      // fit it) -- the one drop this class still can't paper over. Report
-      // it rather than staying silent (see RLOG_ID_USB_QUEUE_DROP's own
-      // comment) -- guarded against the reentrant path this can trigger
-      // (see _reporting_usb_queue_drop's own comment).
-      if (!_reporting_usb_queue_drop) {
-        _reporting_usb_queue_drop = true;
-        logRing(__FILE__, __LINE__, RLOG_ID_USB_QUEUE_DROP, DLOG_SEV_H, (int32_t)pos);
-        _reporting_usb_queue_drop = false;
-      }
+      _usb_queue_drop_count++;
       return;
     }
     uint8_t tail = (uint8_t)((_usb_queue_head + _usb_queue_count) % USB_QUEUE_CAP);
@@ -705,11 +708,27 @@ public:
     if (_usb_queue_count == 0 || !_usb) return;
     QueuedUsbFrame& f = _usb_queue[_usb_queue_head];
     size_t sent = _usb->writeFrameBestEffort(f.data, f.len);
-    if (sent >= f.len || ++f.attempts >= USB_QUEUE_MAX_RETRY_TICKS) {
+    if (sent >= f.len) {
+      _usb_queue_head = (uint8_t)((_usb_queue_head + 1) % USB_QUEUE_CAP);
+      _usb_queue_count--;
+    } else if (++f.attempts >= USB_QUEUE_MAX_RETRY_TICKS) {
+      // beebo: genuinely gave up (see USB_QUEUE_CAP's own comment on
+      // MAX_RETRY_TICKS being a real, permanent escape hatch, not a
+      // capacity concern) -- counts as a drop the same as the queue
+      // being full outright.
+      _usb_queue_drop_count++;
       _usb_queue_head = (uint8_t)((_usb_queue_head + 1) % USB_QUEUE_CAP);
       _usb_queue_count--;
     }
   }
+
+  // beebo: lifetime count of frames this class has dropped via
+  // enqueueUsb()/retryUsbQueue() -- see _usb_queue_drop_count's own
+  // comment. Read fresh (not mirrored into MonRing) by
+  // Beebo::appendLinkQueueDropEvents() and the GET_MONRING header, folded
+  // into link_tx_queue_full alongside ble_interface/wifi_interface's own
+  // send-queue-full counters.
+  uint32_t getUsbQueueDropCount() const { return _usb_queue_drop_count; }
 };
 
 extern DebugLog debug_log;

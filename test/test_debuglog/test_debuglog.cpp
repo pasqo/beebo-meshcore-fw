@@ -223,46 +223,49 @@ TEST(DebugLogSink, NoOpWhenNoSinkSet) {
   ring.logRing(__FILE__, __LINE__, 5, DLOG_SEV_H, 0);
 }
 
-// beebo: pins down RLOG_ID_USB_QUEUE_DROP's own reentrancy guard
-// (DebugLog.h's _reporting_usb_queue_drop) -- the sink here calls back
-// into writeUsbQueued() the same way MonRing's real forwarding chain does
-// (logRing() -> _debug_sink -> MonRing::appendDebug() -> _store() ->
-// _live_sink() -> pushMlogFrame() -> pushToTargets() -> enqueueUsb()), so
-// without the guard this would recurse without bound instead of the
-// single extra (silently swallowed) reentrant attempt per real drop this
-// test expects.
-DebugLog* g_reentrant_ring = nullptr;
-int g_reentrant_sink_calls = 0;
-void reentrantDebugSink(uint8_t type, uint8_t, int32_t, uint32_t,
-                         const char*, int, const uint8_t[5]) {
-  g_reentrant_sink_calls++;
-  ASSERT_EQ(RLOG_ID_USB_QUEUE_DROP, type);
-  uint8_t frame[3] = {0xBE, 0x01, 0x02};
-  g_reentrant_ring->writeUsbQueued(frame, sizeof(frame));   // simulates the real forwarding chain
-}
-
-TEST(DebugLogUsbQueueDrop, QueueFullReportsOnceNotRecursively) {
+// beebo: pins down getUsbQueueDropCount() -- folded into
+// Beebo::appendLinkQueueDropEvents()'s/GET_MONRING's link_tx_queue_full
+// alongside BLE/WiFi's own send-queue-full counters, so it must count
+// every real loss and nothing else: a frame that fits the queue must not
+// bump it, one that doesn't (queue already at USB_QUEUE_CAP) must.
+TEST(DebugLogUsbQueueDrop, CountsOnlyRealDrops) {
   DebugLog ring;
   FakeSerial usb;
   ring.attach(nullptr, &usb, 0xDE, 1);
   usb.reject_writes = true;   // every write fails to send -- forces enqueueUsb() every time
-  g_reentrant_ring = &ring;
-  g_reentrant_sink_calls = 0;
-  ring.setDebugSink(&reentrantDebugSink);
 
   uint8_t frame[3] = {0xBE, 0x01, 0x02};
-  // First 4 calls (USB_QUEUE_CAP) fill the retry queue without dropping.
-  for (int i = 0; i < 4; i++) ring.writeUsbQueued(frame, sizeof(frame));
-  EXPECT_EQ(0, g_reentrant_sink_calls);
+  // First USB_QUEUE_CAP (64) calls fill the retry queue without dropping.
+  for (int i = 0; i < 64; i++) ring.writeUsbQueued(frame, sizeof(frame));
+  EXPECT_EQ(0u, ring.getUsbQueueDropCount());
 
-  // The queue is now full: this call (and the next) each report exactly
-  // once, not twice -- the reentrant call the sink itself makes must be
-  // swallowed by the guard, or this test would hang/crash on unbounded
-  // recursion before ever reaching these assertions.
+  // The queue is now full: each further call is a genuine drop.
   ring.writeUsbQueued(frame, sizeof(frame));
-  EXPECT_EQ(1, g_reentrant_sink_calls);
+  EXPECT_EQ(1u, ring.getUsbQueueDropCount());
   ring.writeUsbQueued(frame, sizeof(frame));
-  EXPECT_EQ(2, g_reentrant_sink_calls);
+  EXPECT_EQ(2u, ring.getUsbQueueDropCount());
+}
+
+// beebo: pins down retryUsbQueue()'s own drop path -- a frame that never
+// gets acked (writeFrameBestEffort() keeps returning 0, e.g. a policy
+// refusal per USB_QUEUE_CAP's own comment) must count as a drop once
+// USB_QUEUE_MAX_RETRY_TICKS is exhausted, the same as the queue being
+// full outright -- this was the one drop path the counter didn't cover
+// before this test was written.
+TEST(DebugLogUsbQueueDrop, RetryExhaustionCountsAsADrop) {
+  DebugLog ring;
+  FakeSerial usb;
+  ring.attach(nullptr, &usb, 0xDE, 1);
+
+  uint8_t frame[3] = {0xBE, 0x01, 0x02};
+  ring.writeUsbQueued(frame, sizeof(frame));   // succeeds (usb accepts by default)
+  EXPECT_EQ(0u, ring.getUsbQueueDropCount());
+
+  usb.reject_writes = true;
+  ring.writeUsbQueued(frame, sizeof(frame));   // queued (rejected)
+  // USB_QUEUE_MAX_RETRY_TICKS (50) failed attempts exhausts it.
+  for (int i = 0; i < 50; i++) ring.retryUsbQueue();
+  EXPECT_EQ(1u, ring.getUsbQueueDropCount());
 }
 
 }  // namespace
