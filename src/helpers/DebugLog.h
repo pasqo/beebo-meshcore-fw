@@ -234,6 +234,15 @@
 // of inferring it from RLOG_ID_CLOCK_SET's post-correction value or the
 // plausibility check's own output. detail = the raw epoch seconds read.
 #define RLOG_ID_CLOCK_RTC  57
+// beebo: fires whenever writeUsbQueued()/pushToTargets() drop a frame
+// outright because _usb_queue (bounded, USB_QUEUE_CAP slots) was already
+// full -- the one gap the queued-retry mechanism itself can't close, so
+// this exists purely for visibility instead of leaving that case silent.
+// detail = the dropped frame's length. Best-effort like every other RLOG
+// call (not retried/queued itself) -- under the very USB backpressure
+// this reports on, losing an occasional report of the loss is an
+// acceptable trade against making that backpressure worse.
+#define RLOG_ID_USB_QUEUE_DROP  58
 // GEN_RLOG_NAMES_END
 // 22, 26 retired -- subsumed by RLOG_ID_XPORT_LINK_WIFI_LISTENING.
 // 24/25 never assigned.
@@ -427,8 +436,30 @@ class DebugLog {
   uint8_t _usb_queue_head = 0;
   uint8_t _usb_queue_count = 0;
 
+  // beebo: guards logRing()'s own MON_DEBUG report below against
+  // recursing back into itself -- logRing() -> _debug_sink ->
+  // MonRing::appendDebug() -> _store() -> _live_sink() ->
+  // pushMlogFrame() -> pushToTargets() -> enqueueUsb() again, and if the
+  // queue is still full at that point, an unguarded call would report,
+  // recurse, report, recurse, ... without bound. Set only around the
+  // logRing() call, so a drop encountered *while already reporting* a
+  // drop is silently swallowed instead of chasing its own report.
+  bool _reporting_usb_queue_drop = false;
+
   void enqueueUsb(const uint8_t* out, size_t pos) {
-    if (_usb_queue_count >= USB_QUEUE_CAP || pos > sizeof(QueuedUsbFrame::data)) return;
+    if (_usb_queue_count >= USB_QUEUE_CAP || pos > sizeof(QueuedUsbFrame::data)) {
+      // beebo: the retry queue itself is full (or this frame could never
+      // fit it) -- the one drop this class still can't paper over. Report
+      // it rather than staying silent (see RLOG_ID_USB_QUEUE_DROP's own
+      // comment) -- guarded against the reentrant path this can trigger
+      // (see _reporting_usb_queue_drop's own comment).
+      if (!_reporting_usb_queue_drop) {
+        _reporting_usb_queue_drop = true;
+        logRing(__FILE__, __LINE__, RLOG_ID_USB_QUEUE_DROP, DLOG_SEV_H, (int32_t)pos);
+        _reporting_usb_queue_drop = false;
+      }
+      return;
+    }
     uint8_t tail = (uint8_t)((_usb_queue_head + _usb_queue_count) % USB_QUEUE_CAP);
     memcpy(_usb_queue[tail].data, out, pos);
     _usb_queue[tail].len = (uint8_t)pos;
