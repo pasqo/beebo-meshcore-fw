@@ -615,6 +615,19 @@ private:
   }
 
 public:
+  // beebo: queued-retry best-effort USB write, for callers outside this
+  // class's own pushToTargets() (e.g. Beebo.cpp's session-less
+  // BEEBO_RESP_RAW_ACK replies) that want the same "never silently drop
+  // under momentary TX backpressure" protection pushMlogFrame() already
+  // gets -- see _usb_queue's own comment for why a bare
+  // writeFrameBestEffort() call isn't safe on this hardware. No-op if no
+  // USB target is attached.
+  void writeUsbQueued(const uint8_t* out, size_t pos) {
+    if (!_usb) return;
+    size_t sent = _usb->writeFrameBestEffort(out, pos);
+    if (sent < pos) enqueueUsb(out, pos);
+  }
+
   // MLOG live push -- wired as
   // MonRing's LiveSink, so it fires from MonRing::_store() for every record
   // actually appended (and, during a disabled->enabled replay, once per

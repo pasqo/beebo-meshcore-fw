@@ -5829,14 +5829,23 @@ void Beebo::checkSerialInterface() {
         debug_log.setUsbMlogEnabled(mlog_enabling);
       }
       // beebo: ack every raw sub-frame the instant it's processed -- see
-      // BEEBO_RESP_RAW_ACK's own protocol.yaml desc. Written straight to
-      // usb_interface (bypassing _serial's session arbitration, same as
-      // DebugLog::pushToTargets()'s own _usb->writeFrameBestEffort() calls),
-      // since this sits below the session layer entirely and must reach a
-      // session-less raw client regardless of whether anything holds the
-      // companion session.
+      // BEEBO_RESP_RAW_ACK's own protocol.yaml desc. Bypasses _serial's
+      // session arbitration (writes straight to usb_interface, via
+      // debug_log's own queued-retry _usb target -- see
+      // DebugLog::writeUsbQueued()'s own comment for why a bare
+      // writeFrameBestEffort() call here isn't safe), since this sits below
+      // the session layer entirely and must reach a session-less raw client
+      // regardless of whether anything holds the companion session. Queued
+      // rather than fire-and-forget because seedMlogStartRefs() above can
+      // have just pushed up to 3 more best-effort USB writes in this same
+      // call -- without retry, this ack was routinely the one that didn't
+      // fit the TX FIFO, silently lost, forcing the client's ack-wait to
+      // time out and resend the whole enable (confirmed on real hardware:
+      // `monitor watch` sessions intermittently stalling where `monitor
+      // debug` -- whose replay path is paced one write per tick instead
+      // of bursted here -- did not).
       uint8_t ack[3] = { RESP_CODE_BEEBO, BEEBO_RESP_RAW_ACK, raw_sub };
-      usb_interface.writeFrameBestEffort(ack, 3);
+      debug_log.writeUsbQueued(ack, 3);
     }
     if (raw_sub == BEEBO_RAW_SUB_TIME_SYNC && len >= 7) {
       // beebo: fire-and-forget from the request/reply layer's own
@@ -5869,7 +5878,7 @@ void Beebo::checkSerialInterface() {
         applyClockSync(secs, false, ms, nullptr, nullptr, RLOG_CLOCK_SRC_KEEPALIVE);
       }
       uint8_t ack[3] = { RESP_CODE_BEEBO, BEEBO_RESP_RAW_ACK, raw_sub };
-      usb_interface.writeFrameBestEffort(ack, 3);
+      debug_log.writeUsbQueued(ack, 3);  // see the DBG_ENABLE ack's own comment above
     }
     return;
   }
