@@ -629,11 +629,24 @@ private:
   // this same targeting logic.
   void pushToTargets(const uint8_t* out, size_t pos, bool usb_enabled, bool session_enabled) const {
     if (usb_enabled && _usb) {
-      // beebo: queue for retry (see this class's own top-of-file comment
-      // on _usb_queue) whenever the write didn't fully land, rather than
-      // treating a short/zero writeFrameBestEffort() result as final.
-      size_t sent = const_cast<DebugLog*>(this)->_usb->writeFrameBestEffort(out, pos);
-      if (sent < pos) const_cast<DebugLog*>(this)->enqueueUsb(out, pos);
+      DebugLog* self = const_cast<DebugLog*>(this);
+      // beebo: same isWriteBusy()-gated-before-attempting methodology
+      // checkSerialInterface()'s own paced chain already uses for every
+      // other USB write (contacts/neighbors/advert-path/stats/monring
+      // streaming, MLOG replay) -- skip the attempt outright when busy
+      // instead of calling writeFrameBestEffort() only to have it fail
+      // the identical availableForWrite() check internally. Also never
+      // attempt a direct write while anything is already queued: writing
+      // straight through here would let this frame reach the wire ahead
+      // of an older one still waiting in _usb_queue, reordering the
+      // stream -- queueing behind it instead preserves FIFO order (see
+      // _usb_queue's own comment for why that queue exists at all).
+      if (self->_usb_queue_count > 0 || self->_usb->isWriteBusy()) {
+        self->enqueueUsb(out, pos);
+      } else {
+        size_t sent = self->_usb->writeFrameBestEffort(out, pos);
+        if (sent < pos) self->enqueueUsb(out, pos);
+      }
     }
     if (session_enabled && _serial) {
       BaseSerialInterface* serial = const_cast<DebugLog*>(this)->_serial;
@@ -655,6 +668,13 @@ public:
   // USB target is attached.
   void writeUsbQueued(const uint8_t* out, size_t pos) {
     if (!_usb) return;
+    // beebo: same busy-gated-before-attempting, queue-preserves-order
+    // methodology as pushToTargets()'s _usb branch -- see its own
+    // comment for why both checks matter.
+    if (_usb_queue_count > 0 || _usb->isWriteBusy()) {
+      enqueueUsb(out, pos);
+      return;
+    }
     size_t sent = _usb->writeFrameBestEffort(out, pos);
     if (sent < pos) enqueueUsb(out, pos);
   }

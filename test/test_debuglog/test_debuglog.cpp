@@ -95,6 +95,33 @@ TEST(DebugLogPushTargets, UsbSessionLockedPushesOnceNotTwice) {
   EXPECT_EQ(serial.push_count, 0) << "same physical wire as usb -- must not double-send";
 }
 
+// beebo: pins down pushToTargets()'s ordering fix -- a frame arriving
+// while an earlier one is still queued (from a prior busy/rejected write)
+// must itself queue behind it rather than writing straight through, or
+// the stream would deliver frame2 before frame1 whenever the peripheral
+// happened to free up between the two calls.
+TEST(DebugLogPushTargets, QueuedFrameBlocksLaterDirectWritePreservingOrder) {
+  DebugLog ring;
+  FakeSerial usb;
+  ring.attach(nullptr, &usb, 0xDE, 1);
+
+  uint8_t frame1[3] = {0xAA, 0x01, 0x02};
+  usb.reject_writes = true;
+  ring.writeUsbQueued(frame1, sizeof(frame1));   // fails to send -- queued
+  int attempts_before = usb.push_count;
+
+  uint8_t frame2[3] = {0xBB, 0x03, 0x04};
+  usb.reject_writes = false;   // peripheral is free again
+  ring.writeUsbQueued(frame2, sizeof(frame2));
+  EXPECT_EQ(attempts_before, usb.push_count)
+      << "frame2 must not be written directly while frame1 is still queued";
+
+  ring.retryUsbQueue();
+  EXPECT_EQ(std::vector<uint8_t>(frame1, frame1 + 3), usb.last_frame);
+  ring.retryUsbQueue();
+  EXPECT_EQ(std::vector<uint8_t>(frame2, frame2 + 3), usb.last_frame);
+}
+
 // beebo: MLOG (plans/MLOG_LIVE_STREAM.md) -- pushMlogFrame() gated on its
 // own _usb_mlog_enabled/_session_mlog_enabled flags, independent of DLOG/
 // RLOG's _usb_enabled/_session_enabled, but routed through the same
