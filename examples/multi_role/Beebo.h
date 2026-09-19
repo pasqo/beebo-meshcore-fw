@@ -1829,6 +1829,11 @@ private:
   // matches HWCDC's own boot-time state before enumeration finishes, so a
   // spurious reset can't fire on the very first check.
   bool _last_usb_serial_present = true;
+  // beebo: 0 means "currently true" (or not-yet-seen-false since boot);
+  // otherwise the millis() timestamp of the most recent true->false
+  // transition, for USB_SERIAL_FALSE_DEBOUNCE_MS's debounce -- see
+  // _checkTransportStateChanges()'s own comment.
+  uint32_t _usb_serial_false_since = 0;
   // beebo: edge-triggered input to driveBtp() -- see consumeWifiCredsPending()'s
   // own comment above for why this can't be inferred from ble_on/tcp_on
   // level-comparison the way an enable/disable toggle can.

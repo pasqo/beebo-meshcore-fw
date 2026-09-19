@@ -35,6 +35,11 @@
 #define CPU_WINDOW_MS         1000u           // beebo: CPU accounting live-window compute cadence
 #define CPU_REPORT_MS         10000u          // beebo: CPU accounting reported-snapshot cadence (MonRing/STATS_TYPE_SYSTEM)
 #define ROUTE_WINDOW_MS       60000u          // beebo: RouteRecord (MON_ROUTE) report window, 1 minute
+// beebo: debounce for the (bool)Serial physical-attach signal's
+// USB-Serial-JTAG-enumeration flicker (see _checkTransportStateChanges()'s
+// own comment) -- several times the confirmed ~150ms flicker duration,
+// still well under human-perceptible for a genuine unplug.
+#define USB_SERIAL_FALSE_DEBOUNCE_MS  500u
 // beebo: general loop-latency stall watchdog threshold (EVENT_MAX_LOOP_LATENCY)
 // -- a first-pick constant, no
 // real-traffic trigger data yet (same caveat as ROLLBACK_THRESHOLD/
@@ -1608,6 +1613,25 @@ void Beebo::_checkTransportStateChanges() {
   // not session ownership (a live debug link with no session at all must
   // still reset debug_log's enable state on a real cable pull).
   bool usb_serial_present = (bool)Serial;
+  // beebo: debounced against the confirmed ~150ms enumeration flicker
+  // (this function's own top comment) -- a single false read no longer
+  // counts on its own; only a read that stays false for
+  // USB_SERIAL_FALSE_DEBOUNCE_MS straight is treated as a real
+  // disconnect. Without this, that flicker recurring *mid-session* (not
+  // just at boot, which the 2026-09-13 fix below already handles) would
+  // silently and permanently disable MLOG for an already-connected
+  // client with no re-enable path short of a fresh connection --
+  // confirmed on real hardware 2026-09-18: a `monitor watch` session
+  // going completely silent for minutes with zero USB queue drops
+  // recorded (nothing was even attempting to push), recoverable only by
+  // restarting the watch client.
+  if (usb_serial_present) {
+    _usb_serial_false_since = 0;
+  } else if (_usb_serial_false_since == 0) {
+    _usb_serial_false_since = millis();
+  }
+  bool usb_serial_present_debounced = usb_serial_present ||
+      (millis() - _usb_serial_false_since) < USB_SERIAL_FALSE_DEBOUNCE_MS;
   // beebo: DebugLog's raw-USB enable state (_usb_enabled/_usb_mlog_enabled)
   // has no notion of "session" -- an abrupt physical USB disconnect (killed
   // client, cable pull) never sends the raw disable byte, so without this
@@ -1617,11 +1641,18 @@ void Beebo::_checkTransportStateChanges() {
   // client's events permanently unresolved (no anchor ever pushed until
   // some unrelated future periodic MON_SYNC). Confirmed on real hardware
   // 2026-09-13.
-  if (_last_usb_serial_present && !usb_serial_present) {
+  if (_last_usb_serial_present && !usb_serial_present_debounced) {
+    // beebo: logged BEFORE the disable below, not after -- this record's
+    // own live MLOG push depends on the very isMlogEnabled() flag about
+    // to be cleared, so logging it first is what lets it actually reach
+    // a live `monitor watch`/`debug` session instead of only being
+    // recoverable later via `monitor pull` (see RLOG_ID_USB_SERIAL_
+    // RESET's own comment).
+    RLOGH(RLOG_ID_USB_SERIAL_RESET, (int32_t)(millis() - _usb_serial_false_since));
     debug_log.setUsbEnabled(false);
     debug_log.setUsbMlogEnabled(false);
   }
-  _last_usb_serial_present = usb_serial_present;
+  _last_usb_serial_present = usb_serial_present_debounced;
   check(RLOG_ID_XPORT_LINK_MULTI_ENABLED,         serial_interface.isEnabled());
   check(RLOG_ID_XPORT_LINK_MULTI_CONNECTED,       serial_interface.isConnected());
   // FSM transitions get their own event id pair (RLOG_ID_XLINK_INIT/_CHANGE)

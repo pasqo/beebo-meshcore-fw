@@ -234,6 +234,14 @@
 // of inferring it from RLOG_ID_CLOCK_SET's post-correction value or the
 // plausibility check's own output. detail = the raw epoch seconds read.
 #define RLOG_ID_CLOCK_RTC  57
+// beebo: fires whenever _checkTransportStateChanges() treats a confirmed
+// (debounced) (bool)Serial false reading as a real USB disconnect and
+// resets DebugLog's raw-USB enable state -- direct confirmation this
+// path fired at all, since it has no other observable side effect (no
+// wire-level disconnect, no write, no drop) that would otherwise show up
+// anywhere. detail = milliseconds the signal had read false before the
+// debounce confirmed it (>= USB_SERIAL_FALSE_DEBOUNCE_MS).
+#define RLOG_ID_USB_SERIAL_RESET  59
 // GEN_RLOG_NAMES_END
 // 22, 26 retired -- subsumed by RLOG_ID_XPORT_LINK_WIFI_LISTENING.
 // 24/25 never assigned.
