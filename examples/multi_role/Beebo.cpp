@@ -5384,7 +5384,10 @@ void Beebo::handleCmdFrame(size_t len) {
       // termination in stream mode. Pause capture for the duration of the read.
       monring.pauseForRead();
       _monread.active = true;
-      _monread.after_seq = after_seq;
+      // serialize() serves from max(after_seq, oldest); start the pump's
+      // cursor there too, or a wrapped ring re-sends its oldest page until
+      // the cursor catches up (after_seq += returned would trail `oldest`).
+      _monread.after_seq = (after_seq > monring.oldestSeq()) ? after_seq : monring.oldestSeq();
       _monread.next = monring.nextSeq();
       _monread.reset = reset;
       // Only the very first request of a read may need start-refs spliced in;
