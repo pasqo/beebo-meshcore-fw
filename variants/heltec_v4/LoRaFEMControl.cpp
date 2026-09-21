@@ -22,7 +22,11 @@ void LoRaFEMControl::init(void)
     rtc_gpio_hold_dis((gpio_num_t)P_LORA_KCT8103L_PA_CSD);
     pinMode(P_LORA_KCT8103L_PA_CSD, INPUT);
     delay(1);
-    if(digitalRead(P_LORA_KCT8103L_PA_CSD)==HIGH) {
+    bool is_kct = digitalRead(P_LORA_KCT8103L_PA_CSD)==HIGH;
+#ifdef HELTEC_V4_R8
+    is_kct = true;  // beebo: R8 is always KCT8103L, no GC1109 variant exists
+#endif
+    if(is_kct) {
         // FEM is KCT8103L (V4.3)
         fem_type= KCT8103L_PA;
         pinMode(P_LORA_KCT8103L_PA_CSD, OUTPUT);
