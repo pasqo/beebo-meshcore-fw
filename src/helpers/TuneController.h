@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include "MonRing.h"
+#include "EvalWindow.h"
 
 // On-device, observe-only dynamic-tuning controller.
 //
@@ -12,80 +13,34 @@
 // reward is never confounded by two knobs moving at once; that's Phase B
 // (SPSA joint perturbation)'s job, not this one's.
 //
-// The reward is txConfirmReward() -- a "TX reception confirmation" rate,
-// replacing the original delivery-proxy reward (forwarded / (forwarded +
-// no_forward + path_full)), which turned out to be structurally insensitive
-// to nearly every one of these parameters: no_forward is an admin policy
-// choice, path_full is a topology/hop-count ceiling, and "forwarded" itself
-// only means a retransmission was *scheduled*, not that it was received by
-// anyone. txConfirmReward() instead measures whether this node's own
-// transmissions (self-originated or forwarded) actually got a confirmed
-// response from the mesh -- a flood echo (SimpleMeshTables::getEchoSuccessCount())
-// or a DM ACK (BaseChatMesh::getAckSuccessCount()/getAckTimeoutCount()) --
-// blended into one rate:
+// One decision is evaluated per closed EvalWindow (see EvalWindow.h): tick()
+// receives that window's Result, so a change is judged only by the window
+// that immediately follows it, never by a lifetime total or by a revisit
+// several ticks later.
 //
-//   reward = (ack_success + rpt) /
-//            (ack_success + ack_timeout + echo_flood)
+// Per window, in order:
+//  1. Unmeasured (insufficient data, invalidated, baseline still filling):
+//     emit the MON_EVAL record and hold -- no arm update, no rollback, no
+//     proposal, round-robin does not advance.
+//  2. Measured: judge the pending decision. A live change rolls back if the
+//     window's confirm ratio fell past ROLLBACK_THRESHOLD below the ratio of
+//     the window before the change, or the utilization guardrail tripped.
+//     Otherwise it is accepted and the arm learns the window's goodput
+//     (ros_norm x confirm_ratio, capped) -- volume only ever enters here,
+//     accumulated across windows, never a single window's rollback call.
+//  3. Emit the MON_EVAL record (accepted/rollback), then either revert (the
+//     rollback tick proposes nothing new) or propose the next param.
 //
-// This is a pure link-confirmation-quality RATIO ("confirm ratio"), not
-// widened by rx_drop (pool-exhausted/parse-error/queue-full) the way
-// an earlier revision did -- that capacity signal is SoH's job (see
-// MonRing::SohStats), and folding it into this ratio's denominator hid the
-// effect of any parameter (radio txpower, RX/FEM gain) whose main effect is
-// on routing VOLUME rather than this ratio: this reward alone is still
-// structurally blind to a node routing 1 packet/hour at 100% vs. 1000/hour
-// at 100%. MonRing::computeRos() is the companion raw-volume half;
-// a combined goodput-style reward (ros_count, baseline-normalized,
-// times this ratio) is the target shape once the decision-window gate's
-// per-window deltas exist. This class still only computes the ratio half
-// for now -- see the plan's Step 1 progress list for what's staged next.
+// Every proposal is a MON_TUNE record carrying `iteration`, the id of the
+// window that will evaluate it. This class never touches NodePrefs/ComPrefs
+// itself -- it only returns a Decision for the caller (Beebo.cpp) to act on.
+// A param only gets should_apply=true when its bit is set in `applied_mask`
+// (all off by default, see Beebo::_tune_applied_mask), and
+// `interference_threshold` is permanently excluded (see specFor()'s comment).
 //
-// Both halves are proper 0/1-per-attempt indicators, not just any count that
-// happened to be lying around:
-// - ack_success/ack_timeout: exactly one outcome per DM attempt (onAckRecv()'s
-//   match / txt_send_timeout's firing are mutually exclusive per send).
-// - rpt: SimpleMeshTables tracks each flood-type self-transmission in a
-//   small ring with a per-slot "already confirmed" flag, so no matter how
-//   many neighbors independently echo the *same* original transmission,
-//   it contributes at most 1 to echo_success_count -- an earlier draft of this
-//   reward incremented echo_success_count once per echo *arrival* instead of
-//   once per transmission, which made it an unbounded "mean echoes per TX"
-//   that could exceed 100% and wasn't a valid probability to combine with
-//   ack_success_rate at all. Fixed at the source (SimpleMeshTables.h), not
-//   worked around here.
-// - echo_flood: only flood-type self-transmissions (SimpleMeshTables::
-//   getEchoAttemptCount()) -- direct/addressed sends are deliberately
-//   excluded, since a direct packet structurally can't come back to us as a
-//   flood echo and would otherwise inflate this denominator with zero
-//   chance of ever moving the rpt half of the numerator, while still
-//   being fully (and correctly, exactly once) covered by ack_success/
-//   ack_timeout. An earlier draft pooled ALL self-transmissions here,
-//   silently penalizing direct-only DM traffic relative to flood-routed
-//   traffic for no reason connected to actual link quality.
-//
-// Both counters are lifetime totals (same "cumulative since boot" shape the
-// original delivery-proxy histogram had), so the same caveat applies: early
-// history dominates and the rate gets less responsive to recent conditions
-// as the denominator grows over uptime.
-//
-// Every decision is logged as a MON_TUNE record. This class never touches
-// NodePrefs/ComPrefs itself (no board/prefs access at all) -- it only
-// returns a Decision{param_id, value, should_apply} for the caller
-// (Beebo.cpp) to act on. A param only ever gets should_apply=true when its
-// bit is set in the `applied_mask` passed into tick() (all off by default,
-// see Beebo::_tune_applied_mask) -- Phase A ships with every param
-// observe-only until individually promoted. `interference_threshold` is
-// permanently excluded from should_apply regardless of its mask bit (see
-// specFor()'s comment) since Beebo::getInterferenceThreshold() ignores the
-// pref entirely today -- applying it would be a silent no-op.
-//
-// Rollback: after a live change on a param, its NEXT visit compares the
-// freshly-read reward to the reward recorded just before that change; a
-// drop past ROLLBACK_THRESHOLD reverts to the last known-good value
-// (should_apply=true, proposed_value=last_good) instead of trying the
-// bandit's next arm, and skips that arm's stats update for the tick (treated
-// as neutral, neither reward nor visit-count evidence for the arm that
-// caused the regression).
+// The bandit's arms are UCB1 over goodput in the 0-20000 range, so the
+// exploration bonus (order 1) is negligible next to reward differences: the
+// selection is effectively greedy after each arm's first pull.
 class TuneController {
 public:
   static const int NUM_PARAMS = 6;
@@ -153,113 +108,114 @@ public:
     uint8_t param_id;
     int16_t value;         // value to write if should_apply, else undefined
     bool should_apply;
+    bool hold;             // unmeasured window: nothing proposed, param_id/value undefined
+    uint16_t window_id;    // id to open the next EvalWindow with
   };
 
-  // Lifetime counters the caller reads fresh every tick (companion
-  // BaseChatMesh::getAckSuccessCount()/getAckTimeoutCount(), mesh-wide
-  // SimpleMeshTables::getEchoSuccessCount()/getEchoAttemptCount()) -- see
-  // txConfirmReward() below for how they combine into the confirm-ratio
-  // reward. echo_attempt_count deliberately excludes direct-routed self-tx
-  // (see SimpleMeshTables::markSelfTx()) -- those are fully covered by
-  // ack_success_count/ack_timeout_count instead.
-  // No rx_drop_count field here -- capacity drops
-  // (pool-exhausted/parse-error/queue-full) are SoH's job, not this ratio's;
-  // folding them in here also hid the effect of volume-sensitive parameters
-  // (radio txpower, RX/FEM gain) this ratio can't see regardless. Same
-  // shape as MonRing::QosStats by construction (see txConfirmReward()).
-  struct TxConfirmStats {
-    uint32_t ack_success_count;
-    uint32_t ack_timeout_count;
-    uint32_t echo_attempt_count;
-    uint32_t echo_success_count;
-  };
+  // Arm reward is capped so one burst window cannot dominate an arm's mean.
+  static const uint32_t GOODPUT_CAP = 20000;
 
   void begin() {
     for (int p = 0; p < NUM_PARAMS; p++) {
       _state[p] = ParamState{};
     }
     _next_param = 0;
+    _pending_param = -1;
+    _window_id = 1;
   }
 
-  // Called periodically (e.g. every few minutes) from the firmware's main
-  // loop, repeater role only. `current_values[i]` must hold TUNE_*
-  // (SPECS[i].param_id)'s live value, in that param's fixed-point scale --
-  // the caller reads it from wherever that param actually lives (companion
-  // NodePrefs, RAM-cached ComPrefs fields, or readComPrefsField()) since
-  // that varies per parameter and this class has no board/prefs access.
-  // `applied_mask` bit i = TUNE_* i (specFor(i).param_id) is promoted to
-  // live actuation; 0 (all bits clear) reproduces the original fully
-  // observe-only behaviour exactly. Returns the decision so the caller can
-  // perform the actual write when should_apply is true -- this class never
-  // does so itself.
+  // Id of the window currently open (or about to be opened).
+  uint16_t windowId() const { return _window_id; }
+  uint32_t armPulls(int p, int a) const { return _state[p].arms[a].pulls; }
+  float armRewardSum(int p, int a) const { return _state[p].arms[a].reward_sum; }
+
+  // Called once per closed EvalWindow, repeater role only. `current_values[i]`
+  // must hold TUNE_* (specFor(i).param_id)'s live value, in that param's
+  // fixed-point scale -- the caller reads it from wherever that param actually
+  // lives (companion NodePrefs, RAM-cached ComPrefs fields, or
+  // readComPrefsField()) since that varies per parameter and this class has no
+  // board/prefs access. `applied_mask` bit i promotes TUNE_* i to live
+  // actuation; 0 reproduces fully observe-only behavior exactly. Returns the
+  // decision so the caller can perform the actual write when should_apply is
+  // true and open the next window with `window_id`.
   Decision tick(MonRing &ring, uint64_t now, const int16_t current_values[NUM_PARAMS],
-                const TxConfirmStats &stats, uint8_t applied_mask = 0) {
+                const EvalWindow::Result &window, uint8_t applied_mask = 0) {
+    uint16_t closing_id = _window_id;
+    _window_id++;
+
+    Decision d = {};
+    d.window_id = _window_id;
+
+    if (!window.measured) {
+      emitEval(ring, now, window, closing_id, window.outcome);
+      d.hold = true;
+      return d;
+    }
+
+    // Judge the decision the previous tick left pending, if any.
+    bool rollback = false;
+    int q = _pending_param;
+    if (q >= 0) {
+      ParamState &qs = _state[q];
+      if (qs.has_pending_live_change) {
+        rollback = (uint32_t)window.confirm_ratio + ROLLBACK_THRESHOLD <
+                       (uint32_t)qs.reward_at_last_change ||
+                   (window.flags & EVALF_GUARDRAIL);
+      }
+      if (!rollback && qs.pending_arm >= 0) {
+        ArmState &arm = qs.arms[qs.pending_arm];
+        arm.pulls++;
+        arm.reward_sum += goodput(window);
+      }
+      qs.pending_arm = -1;
+      qs.has_pending_live_change = false;
+      _pending_param = -1;
+    }
+
+    emitEval(ring, now, window, closing_id, rollback ? EVAL_ROLLBACK : EVAL_ACCEPTED);
+
+    if (rollback) {
+      ParamSpec spec = specFor(q);
+      d.param_id = spec.param_id;
+      d.value = _state[q].last_good_value;
+      d.should_apply = true;
+      appendTuneRecord(ring, now, spec.param_id, true, current_values[q], d.value,
+                       window.confirm_ratio);
+      return d;
+    }
+
     int p = _next_param;
     ParamSpec spec = specFor(p);
     ParamState &ps = _state[p];
     int16_t current = current_values[p];
     bool param_applied_enabled = isApplicable(spec.param_id) && (applied_mask & (1 << p)) != 0;
 
-    uint16_t reward = txConfirmReward(stats);
+    int chosen = chooseArm(ps);
+    ps.total_pulls++;
+    ps.pending_arm = chosen;
 
-    // Regression check: only meaningful if this param actually had a live
-    // change applied on a previous visit (has_pending_live_change) -- an
-    // observe-only-only history has nothing to roll back.
-    bool rollback = ps.has_pending_live_change &&
-                    (uint32_t)reward + ROLLBACK_THRESHOLD < (uint32_t)ps.reward_at_last_change;
+    int16_t offset = (int16_t)(chosen - 1) * spec.step;  // arm 0/1/2 -> -step/0/+step
+    int16_t proposed = current + offset;
+    if (proposed < spec.min_value) proposed = spec.min_value;
+    if (proposed > spec.max_value) proposed = spec.max_value;
 
-    if (!rollback && ps.pending_arm >= 0) {
-      ArmState &arm = ps.arms[ps.pending_arm];
-      arm.pulls++;
-      arm.reward_sum += reward;
-    }
-
-    int16_t proposed;
     bool should_apply = false;
-
-    if (rollback) {
-      proposed = ps.last_good_value;
+    if (param_applied_enabled && proposed != current) {
       should_apply = true;
-      ps.has_pending_live_change = false;
-      ps.pending_arm = -1;   // reverted -- no arm-stats update from this tick
-    } else {
-      int chosen = chooseArm(ps);
-      ps.total_pulls++;
-      ps.pending_arm = chosen;
-
-      int16_t offset = (int16_t)(chosen - 1) * spec.step;  // arm 0/1/2 -> -step/0/+step
-      proposed = current + offset;
-      if (proposed < spec.min_value) proposed = spec.min_value;
-      if (proposed > spec.max_value) proposed = spec.max_value;
-
-      if (param_applied_enabled && proposed != current) {
-        should_apply = true;
-        // Always the value right before THIS change, not just the first-ever
-        // one: `current` at this point is either the pre-trial value (no
-        // prior live change) or a value already confirmed stable (rollback
-        // above would have fired instead of reaching here if the previous
-        // change had regressed) -- so a later rollback reverts to the most
-        // recent known-good value, not all the way back to where the param
-        // started.
-        ps.last_good_value = current;
-        ps.has_last_good = true;
-        ps.reward_at_last_change = reward;
-        ps.has_pending_live_change = true;
-      }
+      // `current` is either the pre-trial value or one already accepted as
+      // stable (a regression would have rolled back above), so a later
+      // rollback reverts to the most recent known-good value.
+      ps.last_good_value = current;
+      ps.has_last_good = true;
+      ps.reward_at_last_change = window.confirm_ratio;
+      ps.has_pending_live_change = true;
     }
-
-    TuneRecord rec;
-    memset(&rec, 0, sizeof(rec));
-    rec.param_id = spec.param_id;
-    rec.applied = should_apply ? 1 : 0;
-    rec.old_value = current;
-    rec.proposed_value = proposed;
-    rec.reward_before = reward;
-    ring.appendTune(rec, now);
+    _pending_param = (int8_t)p;
+    appendTuneRecord(ring, now, spec.param_id, should_apply, current, proposed,
+                     window.confirm_ratio);
 
     _next_param = (uint8_t)((p + 1) % NUM_PARAMS);
 
-    Decision d;
     d.param_id = spec.param_id;
     d.value = proposed;
     d.should_apply = should_apply;
@@ -283,18 +239,34 @@ private:
 
   ParamState _state[NUM_PARAMS];
   uint8_t _next_param = 0;
+  int8_t _pending_param = -1;   // param proposed by the previous tick, awaiting its window's verdict
+  uint16_t _window_id = 1;
 
-  // TX reception confirmation reward, scaled to the TuneRecord.reward_before
-  // wire range (0-10000 = 0-100%) -- see the class-level comment above for
-  // the derivation and known limitations. This IS the QoS objective
-  // function -- it delegates to MonRing::computeQos()
-  // so there is exactly one implementation of this formula, not two that
-  // could silently drift apart (TxConfirmStats/MonRing::QosStats are the
-  // same shape by construction).
-  static uint16_t txConfirmReward(const TxConfirmStats &s) {
-    MonRing::QosStats qs{s.ack_success_count, s.ack_timeout_count,
-                          s.echo_attempt_count, s.echo_success_count};
-    return MonRing::computeQos(qs);
+  // ros_norm (1000 = baseline volume) x confirm ratio (0-10000), capped.
+  static float goodput(const EvalWindow::Result &w) {
+    uint64_t g = (uint64_t)w.ros_norm * w.confirm_ratio / 1000;
+    return (float)(g > GOODPUT_CAP ? GOODPUT_CAP : g);
+  }
+
+  static void emitEval(MonRing &ring, uint64_t now, const EvalWindow::Result &w,
+                       uint16_t window_id, uint8_t outcome) {
+    EvalRecordA a;
+    EvalRecordB b;
+    EvalWindow::toRecords(w, window_id, outcome, a, b);
+    ring.appendEval(a, b, now);
+  }
+
+  void appendTuneRecord(MonRing &ring, uint64_t now, uint8_t param_id, bool applied,
+                        int16_t old_value, int16_t proposed, uint16_t ratio) const {
+    TuneRecord rec;
+    memset(&rec, 0, sizeof(rec));
+    rec.param_id = param_id;
+    rec.applied = applied ? 1 : 0;
+    rec.old_value = old_value;
+    rec.proposed_value = proposed;
+    rec.reward_before = ratio;
+    rec.iteration = _window_id;   // already advanced: the window that will evaluate this
+    ring.appendTune(rec, now);
   }
 
   // UCB1: try every never-pulled arm first, then argmax(mean + sqrt(2 ln(N)/n)).

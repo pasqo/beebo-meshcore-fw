@@ -113,7 +113,7 @@ class SimpleMeshTables : public mesh::MeshTables {
   // a direct/addressed packet structurally can't come back to us as a flood
   // echo, so it was never meaningful to track here; it's fully accounted for
   // by ack_success_count/ack_timeout_count instead. self_tx_direct_count is
-  // kept for visibility only, not part of TuneController::txConfirmReward().
+  // kept for visibility only, not part of the tuning reward.
   uint32_t _echo_attempt_count;
   uint32_t _self_tx_direct_count;
   // beebo: DoS/QoS audit follow-up -- lifetime count of markSeen() evicting a

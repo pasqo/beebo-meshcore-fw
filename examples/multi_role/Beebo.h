@@ -1870,7 +1870,57 @@ private:
   // this experimental feature.
   TuneController tune_controller;
   bool _tune_enabled = false;
-  unsigned long _next_tune_tick = 0;
+  // beebo: decision-window evaluator feeding tune_controller (one closed
+  // window = one tick). RAM-only rule, like _tune_enabled: min_exposure
+  // confirmable attempts and min_s elapsed close a window, max_s without
+  // enough exposure makes it insufficient_data -- see EvalWindow.h.
+  EvalWindow eval_window;
+  uint16_t _tune_win_min_exposure = 40;
+  uint16_t _tune_win_min_s = 300;
+  uint16_t _tune_win_max_s = 3600;
+  unsigned long _next_util_sample_ms = 0;
+  EvalWindow::Config evalWindowConfig() const {
+    EvalWindow::Config c;
+    c.min_exposure = _tune_win_min_exposure;
+    c.min_ms = (uint32_t)_tune_win_min_s * 1000u;
+    c.max_ms = (uint32_t)_tune_win_max_s * 1000u;
+    return c;
+  }
+  // beebo: window-rule setters. Return false (nothing changed) when the new
+  // value would leave min_s > max_s or is 0; the caller replies ILLEGAL_ARG.
+  bool setTuneWindowMinExposure(uint16_t v, uint8_t source) {
+    if (v == 0) return false;
+    if (v != _tune_win_min_exposure) {
+      appendSettingChangedEvent(SETTING_TUNE_WINDOW_MIN_EXPOSURE, _tune_win_min_exposure, v, source);
+    }
+    _tune_win_min_exposure = v;
+    eval_window.setConfig(evalWindowConfig());
+    return true;
+  }
+  bool setTuneWindowMinS(uint16_t v, uint8_t source) {
+    if (v == 0 || v > _tune_win_max_s) return false;
+    if (v != _tune_win_min_s) {
+      appendSettingChangedEvent(SETTING_TUNE_WINDOW_MIN_S, _tune_win_min_s, v, source);
+    }
+    _tune_win_min_s = v;
+    eval_window.setConfig(evalWindowConfig());
+    return true;
+  }
+  bool setTuneWindowMaxS(uint16_t v, uint8_t source) {
+    if (v == 0 || v < _tune_win_min_s) return false;
+    if (v != _tune_win_max_s) {
+      appendSettingChangedEvent(SETTING_TUNE_WINDOW_MAX_S, _tune_win_max_s, v, source);
+    }
+    _tune_win_max_s = v;
+    eval_window.setConfig(evalWindowConfig());
+    return true;
+  }
+  MonRing::QosStats tuneQosStats();
+  // Open a fresh evaluation window from the current counters.
+  void openEvalWindow(uint16_t window_id);
+  // One-per-loop tuning step: samples utilization, closes the window by rule
+  // and, when it closes, runs one TuneController tick and opens the next.
+  void loopTune();
   // beebo: per-param live-actuation promotion, bit i = TuneController::
   // specFor(i)'s param_id. 0 (default) = every param stays observe-only
   // (TuneController::tick()'s should_apply is only ever true for a param
@@ -1884,12 +1934,17 @@ private:
   void setTuneEnabled(bool on, uint8_t source) {
     if (on != _tune_enabled) {
       appendSettingChangedEvent(SETTING_TUNE_ENABLED, _tune_enabled ? 1 : 0, on ? 1 : 0, source);
+      // A fresh start either way: no window, baseline or bandit state carries
+      // across an off/on toggle.
+      tune_controller.begin();
+      eval_window.begin(evalWindowConfig());
     }
     _tune_enabled = on;
   }
   void setTuneAppliedMask(uint8_t mask, uint8_t source) {
     if (mask != _tune_applied_mask) {
       appendSettingChangedEvent(SETTING_TUNE_APPLIED_MASK, _tune_applied_mask, mask, source);
+      eval_window.invalidate(EVALF_CONFIG);
     }
     _tune_applied_mask = mask;
   }

@@ -346,6 +346,9 @@ enum : uint8_t {
   // PREFS_TLV_REPEATER_DEDUP_WINDOW (20) instead, per this enum's own
   // comment -- it IS TLV-registered.
   SETTING_DEDUP_WINDOW = 103,
+  // beebo: tuning evaluation-window rule (EvalWindow::Config), RAM-only.
+  SETTING_TUNE_WINDOW_MIN_EXPOSURE = 104, SETTING_TUNE_WINDOW_MIN_S = 105,
+  SETTING_TUNE_WINDOW_MAX_S = 106,
 };
 
 // ---- persisted capture config: per-kind mask + global enable (bit7) -------
@@ -539,8 +542,9 @@ struct __attribute__((packed)) TuneRecord {
   uint8_t  applied;         // 0 = observe-only, 1 = applied
   int16_t  old_value;       // current param value, native fixed-point scale
   int16_t  proposed_value;  // what the controller would set / did set
-  uint16_t reward_before;   // delivery-proxy indicator over the preceding window (0-10000 scaled)
-  uint8_t  _rsvd[5];
+  uint16_t reward_before;   // confirm ratio of the window that just closed (0-10000 scaled)
+  uint16_t iteration;       // decision/window id this proposal is evaluated by (== EvalRecordA.window_id)
+  uint8_t  _rsvd[3];
 };
 // beebo: MON_EVAL outcome (EvalRecordA.outcome)
 #define EVAL_ACCEPTED           0
@@ -1685,9 +1689,8 @@ public:
   // diagnostics, same spirit as TuneController::txConfirmReward() (which
   // QoS *is* -- see below).
 
-  // QoS inputs -- identical shape to TuneController::TxConfirmStats
-  // (TuneController.h delegates its txConfirmReward() here so there is only
-  // one implementation of this formula, not two that could drift apart).
+  // QoS inputs -- the four lifetime counters; EvalWindow takes their deltas
+  // per decision window and computes the same formulas below over those.
   struct QosStats {
     uint32_t ack_success_count;
     uint32_t ack_timeout_count;

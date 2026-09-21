@@ -50,7 +50,8 @@
 // duration isn't empirically measured, so this stays conservative until
 // real trigger data says otherwise.
 #define MAX_LOOP_LATENCY_THRESHOLD_MS  500u
-#define TUNE_TICK_INTERVAL_MS 300000u         // beebo: dynamic-tuning optimizer re-tune cadence (5 min)
+#define TUNE_UTIL_SAMPLE_MS 1000u             // beebo: packet-pool occupancy sample period for the tuning window guardrail
+#define BEEBO_PACKET_POOL_SIZE 16             // beebo: StaticPoolPacketManager size (Beebo ctor)
 
 // beebo: MonRing's LiveSink hook target -- a
 // plain free function (MonRing.h stays Arduino-free, so it can't call
@@ -1060,7 +1061,7 @@ void Beebo::onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code, 
 }
 
 Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store)
-    : BEEBO_MESH_BASE(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
+    : BEEBO_MESH_BASE(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(BEEBO_PACKET_POOL_SIZE), tables),
       _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store)
 #if BEEBO_ENABLE_COMPANION_ROLE
       // beebo: _iter has no in-class default member initializer (see
@@ -2029,8 +2030,70 @@ void Beebo::initMonRing() {
 #endif
 
   tune_controller.begin();
-  _next_tune_tick = futureMillis(TUNE_TICK_INTERVAL_MS);
+  eval_window.begin(evalWindowConfig());
 }
+
+#if BEEBO_ENABLE_REPEATER_ROLE
+// beebo: lifetime reward counters, the same four every QoS/RoS computation uses.
+MonRing::QosStats Beebo::tuneQosStats() {
+  SimpleMeshTables* tables = (SimpleMeshTables*)getTables();
+  MonRing::QosStats q;
+  q.ack_success_count = getAckSuccessCount();
+  q.ack_timeout_count = getAckTimeoutCount();
+  q.echo_attempt_count = tables->getEchoAttemptCount();
+  q.echo_success_count = tables->getEchoSuccessCount();
+  return q;
+}
+
+void Beebo::openEvalWindow(uint16_t window_id) {
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint32_t cad_ms = getTxWaitCadMs();
+#else
+  uint32_t cad_ms = 0;
+#endif
+  eval_window.open(millis(), tuneQosStats(), window_id, cad_ms);
+}
+
+// beebo: dynamic-tuning step, repeater role only, run every loop() while
+// tune.enabled. Off by default; per-param live actuation (_tune_applied_mask)
+// is a separate opt-in on top. The window closes by rule (EvalWindow.h), and
+// each closed window is exactly one TuneController tick.
+void Beebo::loopTune() {
+  if (!eval_window.isOpen()) openEvalWindow(tune_controller.windowId());
+  if (millisHasNowPassed(_next_util_sample_ms)) {
+    _next_util_sample_ms = futureMillis(TUNE_UTIL_SAMPLE_MS);
+    int used = BEEBO_PACKET_POOL_SIZE - _mgr->getFreeCount();
+    eval_window.sampleUtil((uint8_t)(used <= 0 ? 0 : used * 100 / BEEBO_PACKET_POOL_SIZE));
+  }
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint32_t cad_ms = getTxWaitCadMs();
+#else
+  uint32_t cad_ms = 0;
+#endif
+  EvalWindow::Result window;
+  if (!eval_window.poll(millis(), tuneQosStats(), cad_ms, window)) {
+    return;
+  }
+  int16_t current_values[TuneController::NUM_PARAMS] = {
+    (int16_t)(_role_state->prefs.rx_delay_base * 100.0f + 0.5f),
+    (int16_t)(_role_state->prefs.tx_delay_factor * 100.0f + 0.5f),
+    (int16_t)(_role_state->prefs.direct_tx_delay_factor * 100.0f + 0.5f),
+    (int16_t)_role_state->prefs.agc_reset_interval,
+    (int16_t)_role_state->prefs.interference_threshold,
+    (int16_t)(_role_state->prefs.airtime_factor * 100.0f + 0.5f),
+  };
+  TuneController::Decision decision = tune_controller.tick(
+    monring, getRTCClock()->nowMillis(), current_values, window, _tune_applied_mask);
+  if (decision.should_apply) {
+    applyTuneDecision(decision.param_id, decision.value);
+  }
+  openEvalWindow(decision.window_id);
+}
+#else
+MonRing::QosStats Beebo::tuneQosStats() { return MonRing::QosStats{}; }
+void Beebo::openEvalWindow(uint16_t) {}
+void Beebo::loopTune() {}
+#endif
 
 // beebo: applies the real persisted event-capture preference, correcting
 // initMonRing()'s temporary force-on -- call LAST in setup(), right after
@@ -5253,6 +5316,24 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_SET_TUNE_APPLIED_MASK && sub_len >= 2) {
     setTuneAppliedMask(sub[1], EVENT_SOURCE_BINARY);
     writeOKFrame();
+  } else if (sub[0] == BEEBO_CMD_GET_TUNE_WINDOW_MIN_EXPOSURE ||
+             sub[0] == BEEBO_CMD_GET_TUNE_WINDOW_MIN_S ||
+             sub[0] == BEEBO_CMD_GET_TUNE_WINDOW_MAX_S) {
+    // beebo: evaluation-window rule (EvalWindow::Config), RAM-only like
+    // tune.enabled/tune.applied. OK + u32 LE value.
+    uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNE_WINDOW_MIN_EXPOSURE) ? _tune_win_min_exposure
+               : (sub[0] == BEEBO_CMD_GET_TUNE_WINDOW_MIN_S) ? _tune_win_min_s : _tune_win_max_s;
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &v, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if ((sub[0] == BEEBO_CMD_SET_TUNE_WINDOW_MIN_EXPOSURE ||
+              sub[0] == BEEBO_CMD_SET_TUNE_WINDOW_MIN_S ||
+              sub[0] == BEEBO_CMD_SET_TUNE_WINDOW_MAX_S) && sub_len >= 3) {
+    uint16_t v = sub[1] | ((uint16_t)sub[2] << 8);
+    bool ok = (sub[0] == BEEBO_CMD_SET_TUNE_WINDOW_MIN_EXPOSURE) ? setTuneWindowMinExposure(v, EVENT_SOURCE_BINARY)
+            : (sub[0] == BEEBO_CMD_SET_TUNE_WINDOW_MIN_S) ? setTuneWindowMinS(v, EVENT_SOURCE_BINARY)
+            : setTuneWindowMaxS(v, EVENT_SOURCE_BINARY);
+    if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_QUIET) {
     out_frame[0] = RESP_CODE_OK;
     memset(&out_frame[1], 0, 4);
@@ -6592,28 +6673,7 @@ void Beebo::loop() {
   // ("set tune.enabled on"). Per-param live actuation (_tune_applied_mask,
   // default 0) is a separate, narrower opt-in on top of that -- every param
   // stays observe-only until its own bit is set.
-  if (isRepeater() && _tune_enabled && monring.allocated() &&
-      millisHasNowPassed(_next_tune_tick)) {
-    _next_tune_tick = futureMillis(TUNE_TICK_INTERVAL_MS);
-    int16_t current_values[TuneController::NUM_PARAMS] = {
-      (int16_t)(_role_state->prefs.rx_delay_base * 100.0f + 0.5f),
-      (int16_t)(_role_state->prefs.tx_delay_factor * 100.0f + 0.5f),
-      (int16_t)(_role_state->prefs.direct_tx_delay_factor * 100.0f + 0.5f),
-      (int16_t)_role_state->prefs.agc_reset_interval,
-      (int16_t)_role_state->prefs.interference_threshold,
-      (int16_t)(_role_state->prefs.airtime_factor * 100.0f + 0.5f),
-    };
-    TuneController::TxConfirmStats tx_stats;
-    tx_stats.ack_success_count = getAckSuccessCount();
-    tx_stats.ack_timeout_count = getAckTimeoutCount();
-    tx_stats.echo_attempt_count = ((SimpleMeshTables*)getTables())->getEchoAttemptCount();
-    tx_stats.echo_success_count = ((SimpleMeshTables*)getTables())->getEchoSuccessCount();
-    TuneController::Decision decision = tune_controller.tick(
-      monring, getRTCClock()->nowMillis(), current_values, tx_stats, _tune_applied_mask);
-    if (decision.should_apply) {
-      applyTuneDecision(decision.param_id, decision.value);
-    }
-  }
+  if (isRepeater() && _tune_enabled && monring.allocated()) loopTune();
 #endif
 
   // is there are pending dirty contacts/ACL write needed?
@@ -7870,6 +7930,12 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       // (flood.max, int.thresh, ...), unlike monring.config's own hex
       // convention (a different key, different history).
       sprintf(reply, "> %u", (unsigned)_tune_applied_mask);
+    } else if (strcmp(key, "tune.window.min_exposure") == 0) {
+      sprintf(reply, "> %u", (unsigned)_tune_win_min_exposure);
+    } else if (strcmp(key, "tune.window.min_s") == 0) {
+      sprintf(reply, "> %u", (unsigned)_tune_win_min_s);
+    } else if (strcmp(key, "tune.window.max_s") == 0) {
+      sprintf(reply, "> %u", (unsigned)_tune_win_max_s);
     } else {
 #if BEEBO_ENABLE_REPEATER_ROLE
       if (isRepeater()) { cli.handleCommand(sender_timestamp, command, reply); return; }
@@ -8266,6 +8332,24 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "tune.applied ", 13) == 0) {
       setTuneAppliedMask((uint8_t)atoi(&key[13]), EVENT_SOURCE_TEXT_CLI);
       sprintf(reply, "> %u", (unsigned)_tune_applied_mask);
+    } else if (memcmp(key, "tune.window.", 12) == 0) {
+      // beebo: evaluation-window rule, see BEEBO_CMD_SET_TUNE_WINDOW_*.
+      const char* k = &key[12];
+      const char* sp = strchr(k, ' ');
+      long v = sp ? atol(sp + 1) : -1;
+      bool ok = false;
+      if (v >= 1 && v <= 65535) {
+        if (strncmp(k, "min_exposure ", 13) == 0) ok = setTuneWindowMinExposure((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+        else if (strncmp(k, "min_s ", 6) == 0) ok = setTuneWindowMinS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+        else if (strncmp(k, "max_s ", 6) == 0) ok = setTuneWindowMaxS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+        else { sprintf(reply, "ERR: unknown key: %s", key); return; }
+      } else if (!(strncmp(k, "min_exposure ", 13) == 0 || strncmp(k, "min_s ", 6) == 0 ||
+                   strncmp(k, "max_s ", 6) == 0)) {
+        sprintf(reply, "ERR: unknown key: %s", key);
+        return;
+      }
+      if (!ok) { strcpy(reply, "ERR: expected 1-65535, min_s <= max_s"); return; }
+      sprintf(reply, "> %ld", v);
     } else {
 #if BEEBO_ENABLE_REPEATER_ROLE
       if (isRepeater()) { cli.handleCommand(sender_timestamp, command, reply); return; }
