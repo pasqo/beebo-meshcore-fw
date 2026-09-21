@@ -64,12 +64,36 @@ public:
   bool isOpen() const { return _open; }
   uint16_t windowId() const { return _window_id; }
 
-  void open(uint32_t now_ms, const MonRing::QosStats &snap, uint16_t window_id) {
+  // Replace the window rule. Keeps the baseline; a window already open was
+  // opened under the old rule, so it is invalidated (EVALF_CONFIG).
+  void setConfig(const Config &cfg) {
+    _cfg = cfg;
+    if (_open) _flags |= EVALF_CONFIG;
+  }
+
+  // `cad_wait_ms` is the cumulative TX-blocked time (Dispatcher::
+  // getTxWaitCadMs(): CAD-busy plus TX backoff); its delta over the window
+  // is `cad_busy_pct`.
+  void open(uint32_t now_ms, const MonRing::QosStats &snap, uint16_t window_id,
+            uint32_t cad_wait_ms = 0) {
     _open = true;
     _t0 = now_ms;
     _snap = snap;
+    _cad0 = cad_wait_ms;
     _window_id = window_id;
     _flags = 0;
+    _util_sum = 0;
+    _util_n = 0;
+  }
+
+  // Packet-pool occupancy sample (0-100), called about once a second by the
+  // firmware loop; `util_pct` is their mean over the window (a 16-slot pool
+  // peaks at 100% in any normal burst, so peak would be noise). Ignored while
+  // no window is open.
+  void sampleUtil(uint8_t pool_used_pct) {
+    if (!_open) return;
+    _util_sum += (pool_used_pct > 100) ? 100 : pool_used_pct;
+    _util_n++;
   }
 
   // Mark the open window invalid (config change, capture gap, ...). It closes
@@ -77,8 +101,8 @@ public:
   void invalidate(uint8_t evalf) { _flags |= evalf; }
 
   // Returns true (and fills `out`) when the window closes this call.
-  bool poll(uint32_t now_ms, const MonRing::QosStats &cur, uint8_t util_pct,
-            uint8_t cad_busy_pct, Result &out) {
+  bool poll(uint32_t now_ms, const MonRing::QosStats &cur, uint32_t cad_wait_ms,
+            Result &out) {
     if (!_open) return false;
     uint32_t elapsed = now_ms - _t0;  // unsigned: millis() rollover-safe
     uint32_t d_ack_ok = cur.ack_success_count - _snap.ack_success_count;
@@ -94,8 +118,9 @@ public:
 
     memset(&out, 0, sizeof(out));
     out.flags = _flags;
-    out.util_pct = util_pct;
-    out.cad_busy_pct = cad_busy_pct;
+    out.util_pct = _util_n ? (uint8_t)(_util_sum / _util_n) : 0;
+    uint64_t cad_pct = elapsed ? (uint64_t)(cad_wait_ms - _cad0) * 100ULL / elapsed : 0;
+    out.cad_busy_pct = (uint8_t)(cad_pct > 100 ? 100 : cad_pct);
     out.window_ms = elapsed;
 
     if (_flags) {
@@ -127,7 +152,7 @@ public:
       uint64_t norm = (uint64_t)out.ros_rate * 1000ULL / out.baseline_ros_rate;
       out.ros_norm = (uint16_t)(norm > 0xFFFF ? 0xFFFF : norm);
     }
-    if (util_pct > GUARDRAIL_UTIL_PCT) out.flags |= EVALF_GUARDRAIL;
+    if (out.util_pct > GUARDRAIL_UTIL_PCT) out.flags |= EVALF_GUARDRAIL;
 
     // Every exposed window feeds the baseline, cold-start ones included.
     _rates[_next] = out.ros_rate;
@@ -188,6 +213,9 @@ private:
   Config _cfg;
   bool _open = false;
   uint32_t _t0 = 0;
+  uint32_t _cad0 = 0;
+  uint32_t _util_sum = 0;
+  uint32_t _util_n = 0;
   uint16_t _window_id = 0;
   uint8_t _flags = 0;
   MonRing::QosStats _snap{};

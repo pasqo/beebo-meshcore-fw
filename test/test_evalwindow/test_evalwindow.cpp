@@ -27,7 +27,7 @@ EvalWindow::Result runWindow(EvalWindow &w, uint32_t t0, Stats &cur, uint32_t ex
   cur.echo_attempt_count += exposure;
   cur.echo_success_count += ok;
   EvalWindow::Result r{};
-  EXPECT_TRUE(w.poll(t0 + dur_ms, cur, 10, 5, r));
+  EXPECT_TRUE(w.poll(t0 + dur_ms, cur, 0, r));
   return r;
 }
 
@@ -35,7 +35,7 @@ TEST(EvalWindow, PollBeforeOpenReturnsFalse) {
   EvalWindow w;
   w.begin(cfg());
   EvalWindow::Result r{};
-  EXPECT_FALSE(w.poll(1000, stats(0, 0, 0, 0), 0, 0, r));
+  EXPECT_FALSE(w.poll(1000, stats(0, 0, 0, 0), 0, r));
 }
 
 TEST(EvalWindow, DoesNotCloseBeforeMinDurationEvenWithEnoughExposure) {
@@ -43,8 +43,8 @@ TEST(EvalWindow, DoesNotCloseBeforeMinDurationEvenWithEnoughExposure) {
   w.begin(cfg(40, 300000));
   w.open(0, stats(0, 0, 0, 0), 1);
   EvalWindow::Result r{};
-  EXPECT_FALSE(w.poll(299999, stats(0, 0, 100, 90), 0, 0, r));
-  EXPECT_TRUE(w.poll(300000, stats(0, 0, 100, 90), 0, 0, r));
+  EXPECT_FALSE(w.poll(299999, stats(0, 0, 100, 90), 0, r));
+  EXPECT_TRUE(w.poll(300000, stats(0, 0, 100, 90), 0, r));
 }
 
 TEST(EvalWindow, StaysOpenPastMinDurationUntilExposureReached) {
@@ -52,8 +52,8 @@ TEST(EvalWindow, StaysOpenPastMinDurationUntilExposureReached) {
   w.begin(cfg(40, 300000, 3600000));
   w.open(0, stats(0, 0, 0, 0), 1);
   EvalWindow::Result r{};
-  EXPECT_FALSE(w.poll(900000, stats(0, 0, 39, 30), 0, 0, r));   // 15 min, 39 attempts
-  EXPECT_TRUE(w.poll(1200000, stats(0, 0, 40, 30), 0, 0, r));   // 20 min, 40 attempts
+  EXPECT_FALSE(w.poll(900000, stats(0, 0, 39, 30), 0, r));   // 15 min, 39 attempts
+  EXPECT_TRUE(w.poll(1200000, stats(0, 0, 40, 30), 0, r));   // 20 min, 40 attempts
   EXPECT_EQ(1200000u, r.window_ms);
 }
 
@@ -62,8 +62,8 @@ TEST(EvalWindow, InsufficientDataAtMaxDurationWithoutEnoughExposure) {
   w.begin(cfg(40, 300000, 3600000));
   w.open(0, stats(0, 0, 0, 0), 1);
   EvalWindow::Result r{};
-  EXPECT_FALSE(w.poll(3599999, stats(0, 0, 10, 8), 0, 0, r));
-  ASSERT_TRUE(w.poll(3600000, stats(0, 0, 10, 8), 0, 0, r));
+  EXPECT_FALSE(w.poll(3599999, stats(0, 0, 10, 8), 0, r));
+  ASSERT_TRUE(w.poll(3600000, stats(0, 0, 10, 8), 0, r));
   EXPECT_FALSE(r.measured);
   EXPECT_EQ(EVAL_INSUFFICIENT_DATA, r.outcome);
   EXPECT_EQ(10u, r.exposure);
@@ -74,7 +74,7 @@ TEST(EvalWindow, ZeroExposureIsInsufficientNotAZeroRatio) {
   w.begin(cfg());
   w.open(0, stats(5, 5, 5, 5), 1);
   EvalWindow::Result r{};
-  ASSERT_TRUE(w.poll(3600000, stats(5, 5, 5, 5), 0, 0, r));
+  ASSERT_TRUE(w.poll(3600000, stats(5, 5, 5, 5), 0, r));
   EXPECT_FALSE(r.measured);
   EXPECT_EQ(EVAL_INSUFFICIENT_DATA, r.outcome);
   EXPECT_EQ(0u, r.exposure);
@@ -90,7 +90,7 @@ TEST(EvalWindow, UsesCounterDeltasNotLifetimeTotals) {
   cur.echo_attempt_count += 20;
   cur.echo_success_count += 15;
   EvalWindow::Result r{};
-  ASSERT_TRUE(w.poll(300000, cur, 0, 0, r));
+  ASSERT_TRUE(w.poll(300000, cur, 0, r));
   EXPECT_EQ(60u, r.exposure);      // 30 + 10 + 20
   EXPECT_EQ(45u, r.ros_count);     // 30 + 15
   EXPECT_EQ(7500u, r.confirm_ratio);
@@ -101,7 +101,7 @@ TEST(EvalWindow, CounterDecreaseInvalidatesAsCounterReset) {
   w.begin(cfg());
   w.open(0, stats(100, 0, 100, 100), 1);
   EvalWindow::Result r{};
-  ASSERT_TRUE(w.poll(1000, stats(0, 0, 3, 2), 0, 0, r));
+  ASSERT_TRUE(w.poll(1000, stats(0, 0, 3, 2), 0, r));
   EXPECT_FALSE(r.measured);
   EXPECT_EQ(EVAL_INVALIDATED, r.outcome);
   EXPECT_TRUE(r.flags & EVALF_COUNTER_RST);
@@ -113,7 +113,7 @@ TEST(EvalWindow, FlagInvalidateClosesImmediatelyWithThatFlag) {
   w.open(0, stats(0, 0, 0, 0), 1);
   w.invalidate(EVALF_CONFIG);
   EvalWindow::Result r{};
-  ASSERT_TRUE(w.poll(10, stats(0, 0, 500, 500), 0, 0, r));
+  ASSERT_TRUE(w.poll(10, stats(0, 0, 500, 500), 0, r));
   EXPECT_FALSE(r.measured);
   EXPECT_EQ(EVAL_INVALIDATED, r.outcome);
   EXPECT_TRUE(r.flags & EVALF_CONFIG);
@@ -125,7 +125,7 @@ TEST(EvalWindow, InvalidatedWindowDoesNotFeedBaseline) {
   w.open(0, stats(0, 0, 0, 0), 1);
   w.invalidate(EVALF_CAPTURE_GAP);
   EvalWindow::Result r{};
-  ASSERT_TRUE(w.poll(10, stats(0, 0, 500, 500), 0, 0, r));
+  ASSERT_TRUE(w.poll(10, stats(0, 0, 500, 500), 0, r));
   EXPECT_EQ(0u, w.baselineCount());
 }
 
@@ -193,24 +193,131 @@ TEST(EvalWindow, InsufficientWindowsDoNotFeedBaseline) {
   w.begin(cfg(40, 300000, 900000));
   w.open(0, stats(0, 0, 0, 0), 1);
   EvalWindow::Result r{};
-  ASSERT_TRUE(w.poll(900000, stats(0, 0, 10, 9), 0, 0, r));
+  ASSERT_TRUE(w.poll(900000, stats(0, 0, 10, 9), 0, r));
   EXPECT_EQ(0u, w.baselineCount());
 }
 
-TEST(EvalWindow, HighUtilizationSetsGuardrailFlagButStaysMeasured) {
+TEST(EvalWindow, UtilIsMeanOfSamplesOverTheWindow) {
+  EvalWindow w;
+  w.begin(cfg(40, 300000));
+  w.open(0, stats(0, 0, 0, 0), 1);
+  w.sampleUtil(20); w.sampleUtil(40); w.sampleUtil(60);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 0, r));
+  EXPECT_EQ(40u, r.util_pct);
+}
+
+TEST(EvalWindow, NoUtilSamplesReportsZero) {
+  EvalWindow w;
+  w.begin(cfg(40, 300000));
+  w.open(0, stats(0, 0, 0, 0), 1);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 0, r));
+  EXPECT_EQ(0u, r.util_pct);
+}
+
+TEST(EvalWindow, UtilSamplesResetWhenNextWindowOpens) {
+  EvalWindow w;
+  w.begin(cfg(40, 300000));
+  w.open(0, stats(0, 0, 0, 0), 1);
+  w.sampleUtil(90);
+  w.open(300000, stats(0, 0, 0, 0), 2);
+  w.sampleUtil(10);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(600000, stats(0, 0, 50, 40), 0, r));
+  EXPECT_EQ(10u, r.util_pct);
+}
+
+TEST(EvalWindow, UtilSamplesIgnoredWhileNoWindowOpen) {
+  EvalWindow w;
+  w.begin(cfg(40, 300000));
+  w.sampleUtil(100);
+  w.open(0, stats(0, 0, 0, 0), 1);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 0, r));
+  EXPECT_EQ(0u, r.util_pct);
+}
+
+TEST(EvalWindow, CadBusyPctIsCumulativeDeltaOverWindow) {
+  EvalWindow w;
+  w.begin(cfg(40, 300000));
+  w.open(0, stats(0, 0, 0, 0), 1, /*cad_wait_ms=*/1000);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 1000 + 60000, r));  // 60 s of 300 s
+  EXPECT_EQ(20u, r.cad_busy_pct);
+}
+
+TEST(EvalWindow, CadBusyPctClampsAtOneHundred) {
+  EvalWindow w;
+  w.begin(cfg(40, 300000));
+  w.open(0, stats(0, 0, 0, 0), 1, 0);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 900000, r));
+  EXPECT_EQ(100u, r.cad_busy_pct);
+}
+
+TEST(EvalWindow, MeanUtilizationAboveThresholdSetsGuardrailButStaysMeasured) {
   EvalWindow w;
   w.begin(cfg(40, 300000));
   Stats cur = stats(0, 0, 0, 0);
   for (int i = 0; i < 4; i++) runWindow(w, i * 300000u, cur, 50, 40);
   w.open(4 * 300000u, cur, 9);
+  w.sampleUtil(100); w.sampleUtil(100); w.sampleUtil(50);   // mean 83
   cur.echo_attempt_count += 50;
   cur.echo_success_count += 40;
   EvalWindow::Result r{};
-  ASSERT_TRUE(w.poll(5 * 300000u, cur, EvalWindow::GUARDRAIL_UTIL_PCT + 1, 30, r));
+  ASSERT_TRUE(w.poll(5 * 300000u, cur, 0, r));
   EXPECT_TRUE(r.measured);
   EXPECT_TRUE(r.flags & EVALF_GUARDRAIL);
-  EXPECT_EQ(EvalWindow::GUARDRAIL_UTIL_PCT + 1, r.util_pct);
-  EXPECT_EQ(30u, r.cad_busy_pct);
+  EXPECT_EQ(83u, r.util_pct);
+}
+
+TEST(EvalWindow, MeanUtilizationAtThresholdDoesNotTripGuardrail) {
+  EvalWindow w;
+  w.begin(cfg(40, 300000));
+  Stats cur = stats(0, 0, 0, 0);
+  for (int i = 0; i < 4; i++) runWindow(w, i * 300000u, cur, 50, 40);
+  w.open(4 * 300000u, cur, 9);
+  w.sampleUtil(EvalWindow::GUARDRAIL_UTIL_PCT);
+  cur.echo_attempt_count += 50;
+  cur.echo_success_count += 40;
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(5 * 300000u, cur, 0, r));
+  EXPECT_FALSE(r.flags & EVALF_GUARDRAIL);
+}
+
+TEST(EvalWindow, SetConfigInvalidatesOpenWindowAsConfigChange) {
+  EvalWindow w;
+  w.begin(cfg());
+  w.open(0, stats(0, 0, 0, 0), 1);
+  w.setConfig(cfg(10, 60000, 120000));
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(10, stats(0, 0, 500, 500), 0, r));
+  EXPECT_FALSE(r.measured);
+  EXPECT_TRUE(r.flags & EVALF_CONFIG);
+}
+
+TEST(EvalWindow, SetConfigKeepsBaselineAndAppliesToNextWindow) {
+  EvalWindow w;
+  w.begin(cfg(40, 300000));
+  Stats cur = stats(0, 0, 0, 0);
+  for (int i = 0; i < 5; i++) runWindow(w, i * 300000u, cur, 50, 40);
+  ASSERT_EQ(5u, w.baselineCount());
+  w.setConfig(cfg(10, 60000, 120000));
+  EXPECT_EQ(5u, w.baselineCount());
+  w.open(0, cur, 2);
+  cur.echo_attempt_count += 10;
+  cur.echo_success_count += 8;
+  EvalWindow::Result r{};
+  EXPECT_FALSE(w.poll(59999, cur, 0, r));
+  EXPECT_TRUE(w.poll(60000, cur, 0, r));   // new min_exposure/min_ms in force
+}
+
+TEST(EvalWindow, SetConfigWithNoOpenWindowIsHarmless) {
+  EvalWindow w;
+  w.begin(cfg());
+  w.setConfig(cfg(10, 60000, 120000));
+  EXPECT_FALSE(w.isOpen());
 }
 
 TEST(EvalWindow, ResetBaselineClearsHistory) {
