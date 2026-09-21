@@ -645,6 +645,8 @@ void Beebo::putNeighbour(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t adv
   }
   slot->heard_timestamp = getRTCClock()->getCurrentTime();
   slot->snr = snr;
+  if (is_new) { slot->rx_count = 0; slot->win_count = 0; }
+  NeighbourReach::bump(*slot);
   if (name != NULL) {
     slot->advert_timestamp = advert_timestamp;
     slot->type = type;
@@ -2052,6 +2054,7 @@ void Beebo::openEvalWindow(uint16_t window_id) {
   uint32_t cad_ms = 0;
 #endif
   eval_window.open(millis(), tuneQosStats(), window_id, cad_ms);
+  NeighbourReach::resetWindow(neighbours, MAX_NEIGHBOURS);
 }
 
 // beebo: dynamic-tuning step, repeater role only, run every loop() while
@@ -2059,6 +2062,12 @@ void Beebo::openEvalWindow(uint16_t window_id) {
 // is a separate opt-in on top. The window closes by rule (EvalWindow.h), and
 // each closed window is exactly one TuneController tick.
 void Beebo::loopTune() {
+  if (trialRunning()) { loopTrial(); return; }
+  uint8_t pending = _trial_switches & ~_trial_done_mask;
+  if (pending && tune_controller.idle() && startTrial((pending & 1) ? 0 : 1)) {
+    loopTrial();
+    return;
+  }
   if (!eval_window.isOpen()) openEvalWindow(tune_controller.windowId());
   if (millisHasNowPassed(_next_util_sample_ms)) {
     _next_util_sample_ms = futureMillis(TUNE_UTIL_SAMPLE_MS);
@@ -2082,6 +2091,7 @@ void Beebo::loopTune() {
     (int16_t)_role_state->prefs.interference_threshold,
     (int16_t)(_role_state->prefs.airtime_factor * 100.0f + 0.5f),
   };
+  NeighbourReach::scan(neighbours, MAX_NEIGHBOURS, window.reach_heard, window.reach_marginal);
   TuneController::Decision decision = tune_controller.tick(
     monring, getRTCClock()->nowMillis(), current_values, window, _tune_applied_mask);
   if (decision.should_apply) {
@@ -2089,10 +2099,146 @@ void Beebo::loopTune() {
   }
   openEvalWindow(decision.window_id);
 }
+
+// ---- on-device RX front-end trial (TrialFSM.h) ----------------------------
+
+uint8_t Beebo::trialSwitchStoredValue(int sw) const {
+  return sw == 0 ? _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain
+                 : _role_state->prefs.rx_boosted_gain;
+}
+
+// Live only -- never persistRoleSlot(): a reboot mid-trial reverts to the
+// stored value on its own.
+void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
+  if (sw == 0) {
+    if (board.canControlLoRaFemLna() && board.setLoRaFemLnaEnabled(value != 0)) radio_driver.resetAGC();
+  } else {
+    radio_driver.setRxBoostedGainMode(value);
+    radio_driver.resetAGC();
+  }
+}
+
+void Beebo::emitTrialTune(int sw, uint8_t old_value, uint8_t value, uint16_t ratio) {
+  TuneRecord rec;
+  memset(&rec, 0, sizeof(rec));
+  rec.param_id = sw == 0 ? TUNE_FEM_LNA : TUNE_RX_BOOST;
+  rec.applied = 1;
+  rec.old_value = old_value;
+  rec.proposed_value = value;
+  rec.reward_before = ratio;
+  rec.iteration = trialWindowId();
+  monring.appendTune(rec, getRTCClock()->nowMillis());
+}
+
+void Beebo::emitTrialResult(int sw, const TrialFSM::Step& step) {
+  TrialFSM::Stats st = trial.stats();
+  EventRecord ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.event_type = EVENT_TRIAL_RESULT;
+  ev.data[0] = sw == 0 ? TUNE_FEM_LNA : TUNE_RX_BOOST;
+  ev.data[1] = (uint8_t)step.outcome;
+  uint16_t n = (uint16_t)(st.n_pairs > 0xFFFF ? 0xFFFF : st.n_pairs);
+  int16_t rel = (int16_t)st.mean_rel_x1000, se = (int16_t)st.se_x1000, rd = (int16_t)st.mean_ratio_diff;
+  memcpy(&ev.data[2], &n, 2);
+  memcpy(&ev.data[4], &rel, 2);
+  memcpy(&ev.data[6], &se, 2);
+  memcpy(&ev.data[8], &rd, 2);
+  ev.data[10] = step.final_value;
+  monring.appendEvent(ev, getRTCClock()->nowMillis());
+}
+
+bool Beebo::startTrial(int sw) {
+  if (sw == 0 && !board.canControlLoRaFemLna()) {   // no controllable FEM LNA on this board
+    _trial_done_mask |= 1;
+    return false;
+  }
+  TrialFSM::Config tc;
+  tc.block_s = _trial_block_s;
+  tc.blocks = _trial_blocks;
+  trial.begin(tc);
+  trial.start(trialSwitchStoredValue(sw));
+  _trial_switch = (int8_t)sw;
+  EvalWindow::Config wc;
+  wc.min_exposure = _tune_win_min_exposure;
+  wc.min_ms = wc.max_ms = (uint32_t)_trial_block_s * 1000u;
+  wc.use_baseline = false;
+  trial_window.begin(wc);
+  emitTrialTune(sw, trial.currentValue(), trial.currentValue(), 0);
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint32_t cad_ms = getTxWaitCadMs();
+#else
+  uint32_t cad_ms = 0;
+#endif
+  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms);
+  NeighbourReach::resetWindow(neighbours, MAX_NEIGHBOURS);
+  return true;
+}
+
+void Beebo::loopTrial() {
+  if (millisHasNowPassed(_next_util_sample_ms)) {
+    _next_util_sample_ms = futureMillis(TUNE_UTIL_SAMPLE_MS);
+    int used = BEEBO_PACKET_POOL_SIZE - _mgr->getFreeCount();
+    trial_window.sampleUtil((uint8_t)(used <= 0 ? 0 : used * 100 / BEEBO_PACKET_POOL_SIZE));
+  }
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint32_t cad_ms = getTxWaitCadMs();
+#else
+  uint32_t cad_ms = 0;
+#endif
+  EvalWindow::Result r;
+  if (!trial_window.poll(millis(), tuneQosStats(), cad_ms, r)) return;
+  NeighbourReach::scan(neighbours, MAX_NEIGHBOURS, r.reach_heard, r.reach_marginal);
+  EvalRecordA a;
+  EvalRecordB b;
+  EvalWindow::toRecords(r, trialWindowId(), r.measured ? EVAL_ACCEPTED : r.outcome, a, b);
+  monring.appendEval(a, b, getRTCClock()->nowMillis());
+  int sw = _trial_switch;
+  uint8_t live = trial.currentValue();
+  TrialFSM::Step step = trial.onBlock(r, r.reach_heard, r.reach_marginal);
+  if (step.finished) {
+    finishTrial(step);
+    return;
+  }
+  if (step.set_value && step.value != live) applyTrialSwitchLive(sw, step.value);
+  emitTrialTune(sw, live, step.value, r.confirm_ratio);
+  NeighbourReach::resetWindow(neighbours, MAX_NEIGHBOURS);
+  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms);
+}
+
+void Beebo::finishTrial(const TrialFSM::Step& step) {
+  int sw = _trial_switch;
+  emitTrialResult(sw, step);
+  if (step.outcome == TrialFSM::ADOPT_B) {
+    // Persist the winner (also applies it live) through the normal setter path.
+    uint8_t stored = trialSwitchStoredValue(sw);
+    _trial_switch = -1;   // so the setter's own manual-change hook does not abort
+    if (sw == 0) tlvSetRadioFemRxgain(this, _board.role, step.final_value);
+    else tlvSetRadioRxgain(this, _board.role, step.final_value);
+    appendSettingChangedEvent(sw == 0 ? PREFS_TLV_RADIO_FEM_RXGAIN : PREFS_TLV_RADIO_RXGAIN,
+                              stored, step.final_value, EVENT_SOURCE_TUNER);
+    eval_window.resetBaseline();   // the radio changed under the rolling baseline
+  } else {
+    applyTrialSwitchLive(sw, step.value);   // back to the original
+  }
+  _trial_done_mask |= (1 << sw);
+  _trial_switch = -1;
+  openEvalWindow(tune_controller.windowId());   // resume the bandit's windows
+}
+
+void Beebo::abortTrial(bool mark_done) {
+  if (!trialRunning()) return;
+  int sw = _trial_switch;
+  TrialFSM::Step step = trial.abort();
+  applyTrialSwitchLive(sw, step.value);
+  emitTrialResult(sw, step);
+  if (mark_done) _trial_done_mask |= (1 << sw);
+  _trial_switch = -1;
+}
 #else
 MonRing::QosStats Beebo::tuneQosStats() { return MonRing::QosStats{}; }
 void Beebo::openEvalWindow(uint16_t) {}
 void Beebo::loopTune() {}
+void Beebo::abortTrial(bool) {}
 #endif
 
 // beebo: applies the real persisted event-capture preference, correcting
@@ -3083,6 +3229,7 @@ uint32_t Beebo::tlvGetRadioFemRxgain(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetRadioFemRxgain(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > 1) return false;
+  if (self->_trial_switch == 0) self->abortTrial(false);   // a manual change ends the trial first
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.BeeboBasePrefs::radio_fem_rxgain = (uint8_t)raw;
   persistRoleSlot(self, role, slot);
@@ -3111,6 +3258,7 @@ uint32_t Beebo::tlvGetRadioRxgain(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > 1) return false;
+  if (self->_trial_switch == 1) self->abortTrial(false);   // a manual change ends the trial first
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.rx_boosted_gain = (uint8_t)raw;
   persistRoleSlot(self, role, slot);
@@ -5334,6 +5482,23 @@ void Beebo::handleCmdFrame(size_t len) {
             : (sub[0] == BEEBO_CMD_SET_TUNE_WINDOW_MIN_S) ? setTuneWindowMinS(v, EVENT_SOURCE_BINARY)
             : setTuneWindowMaxS(v, EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+  } else if (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_SWITCHES ||
+             sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_BLOCK_S ||
+             sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_BLOCKS) {
+    // beebo: on-device RX front-end trial settings (RAM-only), see TrialFSM.h.
+    uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_SWITCHES) ? _trial_switches
+               : (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_BLOCK_S) ? _trial_block_s : _trial_blocks;
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &v, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if ((sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_SWITCHES && sub_len >= 2) ||
+             ((sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_BLOCK_S ||
+               sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_BLOCKS) && sub_len >= 3)) {
+    uint16_t v = sub[1] | ((sub_len >= 3) ? ((uint16_t)sub[2] << 8) : 0);
+    bool ok = (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_SWITCHES) ? setTrialSwitches((uint8_t)v, EVENT_SOURCE_BINARY)
+            : (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_BLOCK_S) ? setTrialBlockS(v, EVENT_SOURCE_BINARY)
+            : setTrialBlocks(v, EVENT_SOURCE_BINARY);
+    if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_QUIET) {
     out_frame[0] = RESP_CODE_OK;
     memset(&out_frame[1], 0, 4);
@@ -6208,6 +6373,7 @@ void Beebo::checkSerialInterface() {
       memcpy(&out_frame[j], &nb->lat, 4); j += 4;
       memcpy(&out_frame[j], &nb->lon, 4); j += 4;
       StrHelper::strzcpy((char*)&out_frame[j], nb->name, 32); j += 32;
+      memcpy(&out_frame[j], &nb->rx_count, 2); j += 2;      // trailing, older readers ignore it
       _serial->writeFrame(out_frame, j);
     } else { // EOF
       out_frame[0] = RESP_CODE_BEEBO;
@@ -7936,6 +8102,12 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_tune_win_min_s);
     } else if (strcmp(key, "tune.window.max_s") == 0) {
       sprintf(reply, "> %u", (unsigned)_tune_win_max_s);
+    } else if (strcmp(key, "tune.trial.switches") == 0) {
+      sprintf(reply, "> %u", (unsigned)_trial_switches);
+    } else if (strcmp(key, "tune.trial.block_s") == 0) {
+      sprintf(reply, "> %u", (unsigned)_trial_block_s);
+    } else if (strcmp(key, "tune.trial.blocks") == 0) {
+      sprintf(reply, "> %u", (unsigned)_trial_blocks);
     } else {
 #if BEEBO_ENABLE_REPEATER_ROLE
       if (isRepeater()) { cli.handleCommand(sender_timestamp, command, reply); return; }
@@ -8349,6 +8521,18 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         return;
       }
       if (!ok) { strcpy(reply, "ERR: expected 1-65535, min_s <= max_s"); return; }
+      sprintf(reply, "> %ld", v);
+    } else if (memcmp(key, "tune.trial.", 11) == 0) {
+      // beebo: on-device RX front-end trial settings, see BEEBO_CMD_SET_TUNE_TRIAL_*.
+      const char* k = &key[11];
+      const char* sp = strchr(k, ' ');
+      long v = sp ? atol(sp + 1) : -1;
+      bool ok;
+      if (strncmp(k, "switches ", 9) == 0) ok = v >= 0 && setTrialSwitches((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "block_s ", 8) == 0) ok = v >= 1 && v <= 65535 && setTrialBlockS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "blocks ", 7) == 0) ok = v >= 2 && v <= 65535 && setTrialBlocks((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+      else { sprintf(reply, "ERR: unknown key: %s", key); return; }
+      if (!ok) { strcpy(reply, "ERR: out of range"); return; }
       sprintf(reply, "> %ld", v);
     } else {
 #if BEEBO_ENABLE_REPEATER_ROLE

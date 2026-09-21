@@ -4,6 +4,8 @@
 #include <Mesh.h>
 #include <helpers/MonRing.h>
 #include <helpers/TuneController.h>
+#include <helpers/TrialFSM.h>
+#include <helpers/NeighbourReach.h>
 #include <esp_ota_ops.h>
 
 /*------------ Frame Protocol --------------*/
@@ -365,6 +367,8 @@ struct NeighbourInfo {
   uint8_t  type;               // ADV_TYPE_* (chat/repeater/room/sensor), 0xFF if unknown
   int32_t  lat, lon;           // 1e6 fixed-point, 0 if never adverted / no location
   char     name[32];           // empty if never adverted
+  uint16_t rx_count;           // RX packets naming this neighbour, lifetime, saturating
+  uint8_t  win_count;          // same, per RX front-end trial block (reset each block)
 };
 
 // beebo: wire-compatible with examples/simple_repeater's own RepeaterStats
@@ -1915,6 +1919,61 @@ private:
     eval_window.setConfig(evalWindowConfig());
     return true;
   }
+  // beebo: on-device A/B trial of the RX front-end switches (stage 1 of the
+  // tuner, see TrialFSM.h). RAM-only settings like everything under tune.*:
+  // `switches` bit0 = FEM LNA, bit1 = RX boosted gain (0 = off); one switch
+  // runs at a time, LNA first. A trial toggles the switch LIVE ONLY, so a
+  // reboot mid-trial returns to the stored value; only a winner is persisted.
+  TrialFSM trial;
+  EvalWindow trial_window;
+  uint8_t _trial_switches = 0;
+  uint16_t _trial_block_s = 1800;
+  uint16_t _trial_blocks = 96;
+  uint8_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
+  int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, -1 = none running
+  bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
+  bool setTrialSwitches(uint8_t mask, uint8_t source) {
+    if (mask > 3) return false;
+    if (mask != _trial_switches) {
+      appendSettingChangedEvent(SETTING_TUNE_TRIAL_SWITCHES, _trial_switches, mask, source);
+      abortTrial(false);
+      _trial_done_mask = 0;
+    }
+    _trial_switches = mask;
+    return true;
+  }
+  bool setTrialBlockS(uint16_t v, uint8_t source) {
+    if (v == 0) return false;
+    if (v != _trial_block_s) {
+      appendSettingChangedEvent(SETTING_TUNE_TRIAL_BLOCK_S, _trial_block_s, v, source);
+      abortTrial(false);
+      _trial_done_mask = 0;
+    }
+    _trial_block_s = v;
+    return true;
+  }
+  bool setTrialBlocks(uint16_t v, uint8_t source) {
+    if (v < 2) return false;
+    if (v != _trial_blocks) {
+      appendSettingChangedEvent(SETTING_TUNE_TRIAL_BLOCKS, _trial_blocks, v, source);
+      abortTrial(false);
+      _trial_done_mask = 0;
+    }
+    _trial_blocks = v;
+    return true;
+  }
+  // Stop a running trial and put the switch back to its original value.
+  // `mark_done` records the switch as decided (guardrail abort) so it is not
+  // immediately retried; a settings-driven abort leaves it eligible.
+  void abortTrial(bool mark_done);
+  bool startTrial(int sw);
+  void loopTrial();
+  void finishTrial(const TrialFSM::Step& step);
+  uint8_t trialSwitchStoredValue(int sw) const;
+  void applyTrialSwitchLive(int sw, uint8_t value);
+  void emitTrialTune(int sw, uint8_t old_value, uint8_t value, uint16_t ratio);
+  void emitTrialResult(int sw, const TrialFSM::Step& step);
+  uint16_t trialWindowId() const { return 0x8000 | trial.blockIndex(); }
   MonRing::QosStats tuneQosStats();
   // Open a fresh evaluation window from the current counters.
   void openEvalWindow(uint16_t window_id);
@@ -1936,6 +1995,8 @@ private:
       appendSettingChangedEvent(SETTING_TUNE_ENABLED, _tune_enabled ? 1 : 0, on ? 1 : 0, source);
       // A fresh start either way: no window, baseline or bandit state carries
       // across an off/on toggle.
+      abortTrial(false);
+      _trial_done_mask = 0;
       tune_controller.begin();
       eval_window.begin(evalWindowConfig());
     }

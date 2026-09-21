@@ -294,6 +294,17 @@ TEST(TuneController, RollbackTickProposesNothingNew) {
   EXPECT_EQ(TUNE_DIRECT_TX_DELAY_FACTOR, d3.param_id);
 }
 
+TEST(TuneController, IdleOnlyWhileNoDecisionAwaitsItsWindow) {
+  RingFixture<256> f;
+  TuneController tc;
+  tc.begin();
+  EXPECT_TRUE(tc.idle());
+  tc.tick(f.ring, f.ms(1000), kZeros, measured(9000));   // proposes param 0
+  EXPECT_FALSE(tc.idle());
+  tc.tick(f.ring, f.ms(1001), kZeros, unmeasured(EVAL_INSUFFICIENT_DATA));   // still pending
+  EXPECT_FALSE(tc.idle());
+}
+
 TEST(TuneController, StableWindowAfterLiveChangeIsAcceptedAndUpdatesArmWithGoodput) {
   RingFixture<256> f;
   TuneController tc;

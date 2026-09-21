@@ -94,6 +94,10 @@ enum : uint8_t {
 enum {
   TUNE_RX_DELAY_BASE = 0, TUNE_TX_DELAY_FACTOR, TUNE_DIRECT_TX_DELAY_FACTOR,
   TUNE_AGC_RESET_INTERVAL, TUNE_INTERFERENCE_THRESHOLD, TUNE_AIRTIME_FACTOR,
+  // beebo: RX front-end switches decided by TrialFSM (0/1), not by the
+  // bandit -- they only appear in TuneRecords, never in
+  // TuneController::specFor().
+  TUNE_FEM_LNA, TUNE_RX_BOOST,
 };
 
 // ---- EVENT types: what kind of thing an EventRecord reports, plus its own
@@ -302,6 +306,17 @@ enum : uint8_t {
   //               EVENT_RX_POOL_FULL/EVENT_TX_POOL_FULL etc. above
   //   data[6:12] = reserved
   EVENT_MAX_LOOP_LATENCY = 24,
+  // beebo: TrialFSM finished (decided, kept the original, or aborted) --
+  // the summary of one on-device RX front-end A/B trial (see TrialFSM.h).
+  //   data[0]    = TUNE_FEM_LNA / TUNE_RX_BOOST
+  //   data[1]    = TrialFSM::Outcome (1 keep A, 2 adopt B, 3 aborted)
+  //   data[2:4]  = valid pairs (u16 LE)
+  //   data[4:6]  = mean relative goodput difference B-A, x1000 (i16 LE)
+  //   data[6:8]  = its standard error, x1000 (i16 LE)
+  //   data[8:10] = mean confirm-ratio difference B-A, 0-10000 scale (i16 LE)
+  //   data[10]   = final value left on the switch
+  //   data[11]   = reserved
+  EVENT_TRIAL_RESULT = 25,
 };
 
 // ---- TXCONFIRM_*: verdict enum used ONLY for internal bookkeeping now
@@ -327,6 +342,7 @@ enum : uint8_t {
 // them, so neither does this).
 enum : uint8_t {
   EVENT_SOURCE_BINARY = 0, EVENT_SOURCE_TEXT_CLI = 1,
+  EVENT_SOURCE_TUNER = 2,   // the on-device tuner itself (e.g. a trial winner being persisted)
 };
 
 // ---- SETTING_* keys (SettingRecord.setting): reuses Beebo.h's PrefsTlvKey
@@ -349,6 +365,9 @@ enum : uint8_t {
   // beebo: tuning evaluation-window rule (EvalWindow::Config), RAM-only.
   SETTING_TUNE_WINDOW_MIN_EXPOSURE = 104, SETTING_TUNE_WINDOW_MIN_S = 105,
   SETTING_TUNE_WINDOW_MAX_S = 106,
+  // beebo: RX front-end trial settings (TrialFSM), RAM-only.
+  SETTING_TUNE_TRIAL_SWITCHES = 107, SETTING_TUNE_TRIAL_BLOCK_S = 108,
+  SETTING_TUNE_TRIAL_BLOCKS = 109,
 };
 
 // ---- persisted capture config: per-kind mask + global enable (bit7) -------
@@ -584,7 +603,9 @@ struct __attribute__((packed)) EvalRecordB {
   uint16_t ros_norm;          // window ros rate / baseline, fixed point
   uint8_t  n_baseline;        // windows in the baseline
   uint8_t  cad_busy_pct;
-  uint8_t  _rsvd[3];
+  uint8_t  reach_heard;       // direct neighbours heard >= NeighbourReach::MIN_HEARD times in the window
+  uint8_t  reach_marginal;    // of those, how many below NeighbourReach::MARGINAL_SNR_X4
+  uint8_t  _rsvd[1];
 };
 // beebo: general-purpose event log -- one record per notable state
 // transition, so events get real timestamps and context instead of a bare

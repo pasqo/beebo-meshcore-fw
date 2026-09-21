@@ -124,6 +124,10 @@ public:
     _window_id = 1;
   }
 
+  // True when no decision is awaiting its window's verdict (safe to run a
+  // TrialFSM trial without confounding a pending live change).
+  bool idle() const { return _pending_param < 0; }
+
   // Id of the window currently open (or about to be opened).
   uint16_t windowId() const { return _window_id; }
   uint32_t armPulls(int p, int a) const { return _state[p].arms[a].pulls; }

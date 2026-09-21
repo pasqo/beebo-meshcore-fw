@@ -368,6 +368,8 @@ TEST(EvalWindow, ToRecordsFillsBothSlotsAndSaturates) {
   r.ros_norm = 1000;
   r.n_baseline = 8;
   r.cad_busy_pct = 12;
+  r.reach_heard = 17;
+  r.reach_marginal = 4;
   EvalRecordA a; EvalRecordB b;
   EvalWindow::toRecords(r, 42, EVAL_ROLLBACK, a, b);
   EXPECT_EQ(42, a.window_id);
@@ -384,6 +386,8 @@ TEST(EvalWindow, ToRecordsFillsBothSlotsAndSaturates) {
   EXPECT_EQ(1000, b.ros_norm);
   EXPECT_EQ(8, b.n_baseline);
   EXPECT_EQ(12, b.cad_busy_pct);
+  EXPECT_EQ(17, b.reach_heard);
+  EXPECT_EQ(4, b.reach_marginal);
 }
 
 }  // namespace
