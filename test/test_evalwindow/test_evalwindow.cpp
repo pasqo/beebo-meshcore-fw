@@ -320,6 +320,33 @@ TEST(EvalWindow, SetConfigWithNoOpenWindowIsHarmless) {
   EXPECT_FALSE(w.isOpen());
 }
 
+TEST(EvalWindow, WithoutBaselineTheFirstExposedWindowIsMeasured) {
+  EvalWindow w;
+  EvalWindow::Config c = cfg(40, 300000, 300000);
+  c.use_baseline = false;
+  w.begin(c);
+  w.open(0, stats(0, 0, 0, 0), 1);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 0, r));
+  EXPECT_TRUE(r.measured);
+  EXPECT_EQ(480u, r.ros_rate);
+  EXPECT_EQ(0u, r.baseline_ros_rate);
+  EXPECT_EQ(0u, r.ros_norm);
+  EXPECT_EQ(0u, w.baselineCount());   // trial windows never feed a baseline
+}
+
+TEST(EvalWindow, WithoutBaselineAnUnexposedWindowIsStillInsufficient) {
+  EvalWindow w;
+  EvalWindow::Config c = cfg(40, 300000, 300000);
+  c.use_baseline = false;
+  w.begin(c);
+  w.open(0, stats(0, 0, 0, 0), 1);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(300000, stats(0, 0, 10, 8), 0, r));
+  EXPECT_FALSE(r.measured);
+  EXPECT_EQ(EVAL_INSUFFICIENT_DATA, r.outcome);
+}
+
 TEST(EvalWindow, ResetBaselineClearsHistory) {
   EvalWindow w;
   w.begin(cfg(40, 300000));

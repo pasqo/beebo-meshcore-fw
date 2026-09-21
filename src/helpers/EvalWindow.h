@@ -31,6 +31,10 @@ public:
     uint16_t min_exposure = 40;
     uint32_t min_ms = 300000;
     uint32_t max_ms = 3600000;
+    // false: no rolling baseline and no cold start -- a window is measured as
+    // soon as it is exposed (used by TrialFSM blocks, which compare arms
+    // directly rather than against a baseline).
+    bool use_baseline = true;
   };
 
   struct Result {
@@ -153,6 +157,12 @@ public:
       out.ros_norm = (uint16_t)(norm > 0xFFFF ? 0xFFFF : norm);
     }
     if (out.util_pct > GUARDRAIL_UTIL_PCT) out.flags |= EVALF_GUARDRAIL;
+
+    if (!_cfg.use_baseline) {
+      out.measured = true;
+      out.outcome = EVAL_ACCEPTED;
+      return true;
+    }
 
     // Every exposed window feeds the baseline, cold-start ones included.
     _rates[_next] = out.ros_rate;
