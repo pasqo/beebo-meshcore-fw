@@ -72,6 +72,11 @@ enum : uint8_t {
   // same reasoning as MON_COMMAND/MON_SETTING/MON_ROUTE above (no free
   // MON_CAP_* bits remain).
   MON_DEBUG = 11,
+  // Dynamic-optimizer per-window evaluation result (EvalRecordA/B): always a
+  // 2-slot continuation run (RLOG_CONT_BIT on the first slot). Gated by
+  // MON_CAP_TUNE; each slot counts toward tuneCount() so the wire header is
+  // unchanged.
+  MON_EVAL = 12,
 };
 
 // ---- multi-record continuation: bit 7 (MSB) of a stored record's `kind`
@@ -537,6 +542,46 @@ struct __attribute__((packed)) TuneRecord {
   uint16_t reward_before;   // delivery-proxy indicator over the preceding window (0-10000 scaled)
   uint8_t  _rsvd[5];
 };
+// beebo: MON_EVAL outcome (EvalRecordA.outcome)
+#define EVAL_ACCEPTED           0
+#define EVAL_ROLLBACK           1
+#define EVAL_INSUFFICIENT_DATA  2
+#define EVAL_INVALIDATED        3
+// beebo: MON_EVAL flags (EvalRecordA.flags)
+#define EVALF_REBOOT      0x01
+#define EVALF_CONFIG      0x02
+#define EVALF_COUNTER_RST 0x04
+#define EVALF_CAPTURE_GAP 0x08
+#define EVALF_GUARDRAIL   0x10
+// beebo: one dynamic-tuning evaluation window's result, slot 1 of 2 (see
+// MON_EVAL). All counts saturate at their field width. Counter deltas are not
+// stored: the ring already holds every ACK/echo event, so they are rebuilt
+// offline.
+struct __attribute__((packed)) EvalRecordA {
+  uint8_t  kind;            // MON_EVAL | RLOG_CONT_BIT
+  uint16_t offset;
+  uint16_t window_id;       // == TuneRecord.iteration of the decision it evaluates
+  uint8_t  outcome;         // EVAL_*
+  uint8_t  flags;           // EVALF_*
+  uint16_t exposure;        // confirmable attempts in the window
+  uint16_t ros_count;       // confirmed deliveries in the window
+  uint16_t confirm_ratio;   // 0-10000
+  uint8_t  util_pct;        // utilization guardrail sample, 0-100
+  uint8_t  version;         // record format version
+  uint8_t  _rsvd[1];
+};
+// beebo: slot 2 of 2 of a MON_EVAL run.
+struct __attribute__((packed)) EvalRecordB {
+  uint8_t  kind;              // MON_EVAL
+  uint16_t offset;            // same value as slot 1
+  uint16_t window_id;
+  uint16_t window_s;          // window length, seconds
+  uint16_t baseline_ros_rate; // rolling-median ros per minute the window was normalized against
+  uint16_t ros_norm;          // window ros rate / baseline, fixed point
+  uint8_t  n_baseline;        // windows in the baseline
+  uint8_t  cad_busy_pct;
+  uint8_t  _rsvd[3];
+};
 // beebo: general-purpose event log -- one record per notable state
 // transition, so events get real timestamps and context instead of a bare
 // sticky flag with no history (see Dispatcher::_err_flags, which never
@@ -657,6 +702,8 @@ union MonRecord {
   EnvRecord   env;
   BattRecord  batt;
   TuneRecord  tune;
+  EvalRecordA eval_a;
+  EvalRecordB eval_b;
   EventRecord event;
   SettingRecord setting;
   CommandRecord command;
@@ -672,6 +719,8 @@ static_assert(sizeof(RadioRecord) == 16, "RadioRecord must be 16 bytes");
 static_assert(sizeof(EnvRecord)   == 16, "EnvRecord must be 16 bytes");
 static_assert(sizeof(BattRecord)  == 16, "BattRecord must be 16 bytes");
 static_assert(sizeof(TuneRecord)  == 16, "TuneRecord must be 16 bytes");
+static_assert(sizeof(EvalRecordA) == 16, "EvalRecordA must be 16 bytes");
+static_assert(sizeof(EvalRecordB) == 16, "EvalRecordB must be 16 bytes");
 static_assert(sizeof(EventRecord) == 16, "EventRecord must be 16 bytes");
 static_assert(sizeof(SettingRecord) == 16, "SettingRecord must be 16 bytes");
 static_assert(sizeof(CommandRecord) == 16, "CommandRecord must be 16 bytes");
@@ -985,6 +1034,10 @@ private:
     // catches up to it.
     if (_live_sink && !_mlog_replay_active && !_mlog_replay_pending) _live_sink(rec);
     if (_count == _cap) {
+      // beebo: a multi-record run (RLOG_CONT_BIT set on all but its last slot)
+      // is evicted as one unit, so the oldest resident record is always a run
+      // head -- evicting only a run's first slot would leave its tail as an
+      // orphan that reads as an ordinary record.
       // Full ring: _buf[_head] is the oldest record, about to be overwritten.
       // If it is a reference kind, it is the floor for whatever of its
       // dependents are still resident — remember it before it is lost.
@@ -1000,48 +1053,56 @@ private:
       // -- a continuation slot's raw kind byte is always >= 128 and would
       // otherwise fall through to `default: break`, leaking its per-kind
       // resident counter.
-      switch (_buf[_head].kind & RLOG_KIND_MASK) {
-        case MON_SYNC:
-          start_sync = _buf[_head].sync;
-          if (_sync_count) _sync_count--;
-          break;
-        case MON_RADIO:
-          start_radio = _buf[_head].radio;
-          if (_radio_count) _radio_count--;
-          break;
-        case MON_ENV:
-          start_env = _buf[_head].env;
-          if (_env_count) _env_count--;
-          break;
-        case MON_RX:
-          if (_rx_count) _rx_count--;
-          break;
-        case MON_TX:
-          if (_tx_count) _tx_count--;
-          break;
-        case MON_BATT:
-          if (_batt_count) _batt_count--;
-          break;
-        case MON_TUNE:
-          if (_tune_count) _tune_count--;
-          break;
-        case MON_EVENT:
-          if (_event_count) _event_count--;
-          break;
-        case MON_SETTING:
-          if (_setting_count) _setting_count--;
-          break;
-        case MON_COMMAND:
-          if (_command_count) _command_count--;
-          break;
-        case MON_ROUTE:
-          if (_route_count) _route_count--;
-          break;
-        case MON_DEBUG:
-          if (_debug_count) _debug_count--;
-          break;
-        default: break;
-      }
+      bool cont;
+      do {
+        uint32_t oldest_idx = (_head + _cap - _count) % _cap;
+        MonRecord &old = _buf[oldest_idx];
+        cont = (old.kind & RLOG_CONT_BIT) != 0;
+        switch (old.kind & RLOG_KIND_MASK) {
+          case MON_SYNC:
+            start_sync = old.sync;
+            if (_sync_count) _sync_count--;
+            break;
+          case MON_RADIO:
+            start_radio = old.radio;
+            if (_radio_count) _radio_count--;
+            break;
+          case MON_ENV:
+            start_env = old.env;
+            if (_env_count) _env_count--;
+            break;
+          case MON_RX:
+            if (_rx_count) _rx_count--;
+            break;
+          case MON_TX:
+            if (_tx_count) _tx_count--;
+            break;
+          case MON_BATT:
+            if (_batt_count) _batt_count--;
+            break;
+          case MON_TUNE:
+          case MON_EVAL:
+            if (_tune_count) _tune_count--;
+            break;
+          case MON_EVENT:
+            if (_event_count) _event_count--;
+            break;
+          case MON_SETTING:
+            if (_setting_count) _setting_count--;
+            break;
+          case MON_COMMAND:
+            if (_command_count) _command_count--;
+            break;
+          case MON_ROUTE:
+            if (_route_count) _route_count--;
+            break;
+          case MON_DEBUG:
+            if (_debug_count) _debug_count--;
+            break;
+          default: break;
+        }
+        if (_count) _count--;
+      } while (cont && _count > 0);
     }
     uint32_t seq = _next_seq;
     _buf[_head] = rec;
@@ -1329,6 +1390,28 @@ public:
     _end_time = (uint32_t)(now_ms / 1000);
     _tune_count++;
     _store(r);
+  }
+
+  // Append one evaluation window result as a 2-slot MON_EVAL continuation
+  // run. Gated by MON_CAP_TUNE. The offset is resolved once, before either
+  // slot is stored, so a SYNC relatch (the only thing _ensureSync() ever
+  // appends) lands ahead of the run, never between its slots.
+  void appendEval(EvalRecordA a, EvalRecordB b, uint64_t now_ms) {
+    if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
+    uint16_t offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
+    MonRecord r{};
+    r.eval_a = a;
+    r.eval_a.kind = MON_EVAL | RLOG_CONT_BIT;
+    r.eval_a.offset = offset;
+    _tune_count++;
+    _store(r);
+    MonRecord r2{};
+    r2.eval_b = b;
+    r2.eval_b.kind = MON_EVAL;
+    r2.eval_b.offset = offset;
+    _tune_count++;
+    _store(r2);
   }
 
   // Append one general-purpose event (kind/offset stamped here). Unlike
@@ -1774,6 +1857,16 @@ public:
     uint32_t avail = max_len / sizeof(MonRecord);
     uint32_t n = (available < avail) ? available : avail;
     uint32_t oldest_idx = (_head + _cap - _count) % _cap;
+    // beebo: never end a page on a slot whose continuation bit is set -- the
+    // rest of that run is on the next page, and a reader reassembles runs
+    // within a page. Runs are contiguous and start at a run head (see
+    // _store()'s run-aware eviction), so backing off to the last complete run
+    // is always safe.
+    while (n > 0) {
+      uint32_t last_seq = from + n - 1;
+      if (!(_buf[(oldest_idx + (last_seq - oldest)) % _cap].kind & RLOG_CONT_BIT)) break;
+      n--;
+    }
 
     int pos = 0;
     for (uint32_t j = 0; j < n; j++) {

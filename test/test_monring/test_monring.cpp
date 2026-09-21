@@ -1558,6 +1558,106 @@ TEST(MonRingMlogReplay, BeginMlogReplayClearsPending) {
   EXPECT_FALSE(f.ring.mlogReplayPending());
 }
 
+// beebo: MON_EVAL -- the dynamic-optimizer's per-window evaluation record, a
+// 2-slot run using the continuation bit (RLOG_CONT_BIT on slot 1). These pin
+// down the run invariants: contiguous, single shared offset, evicted whole,
+// never split across a page.
+EvalRecordA makeEvalA(uint16_t window_id = 7) {
+  EvalRecordA a; memset(&a, 0, sizeof(a));
+  a.window_id = window_id;
+  a.outcome = EVAL_ACCEPTED;
+  a.exposure = 123;
+  return a;
+}
+
+EvalRecordB makeEvalB(uint16_t window_id = 7) {
+  EvalRecordB b; memset(&b, 0, sizeof(b));
+  b.window_id = window_id;
+  b.window_s = 900;
+  return b;
+}
+
+TEST(MonRingEval, AppendStoresTwoContiguousSlotsContinuationOnFirst) {
+  RingFixture<8> f;
+  f.ring.appendEval(makeEvalA(), makeEvalB(), f.ms(1000));
+
+  ASSERT_EQ(2u, f.ring.count());
+  MonRecord a, b;
+  ASSERT_TRUE(f.ring.peek(0, &a));
+  ASSERT_TRUE(f.ring.peek(1, &b));
+  EXPECT_EQ(MON_EVAL | RLOG_CONT_BIT, a.kind);
+  EXPECT_EQ(MON_EVAL, b.kind);
+  EXPECT_EQ(a.eval_a.offset, b.eval_b.offset);
+  EXPECT_EQ(7, a.eval_a.window_id);
+  EXPECT_EQ(7, b.eval_b.window_id);
+  EXPECT_EQ(2u, f.ring.tuneCount());
+}
+
+TEST(MonRingEval, GatedByTuneCapture) {
+  RingFixture<8> f;
+  f.ring.setConfig((MON_CAP_ALL & ~MON_CAP_TUNE) | MON_CAP_ENABLED);
+  f.ring.appendEval(makeEvalA(), makeEvalB(), f.ms(1000));
+  EXPECT_EQ(0u, f.ring.count());
+}
+
+TEST(MonRingEval, RelatchSyncPrecedesRunNeverSplitsIt) {
+  // A now_ms far past the seed forces an overflow relatch; the SYNC must land
+  // before slot 1, not between the two slots.
+  RingFixture<8> f;
+  f.ring.appendEval(makeEvalA(), makeEvalB(), 100001000ULL);
+
+  ASSERT_EQ(3u, f.ring.count());
+  MonRecord r0, r1, r2;
+  ASSERT_TRUE(f.ring.peek(0, &r0));
+  ASSERT_TRUE(f.ring.peek(1, &r1));
+  ASSERT_TRUE(f.ring.peek(2, &r2));
+  EXPECT_EQ(MON_SYNC, r0.kind);
+  EXPECT_EQ(MON_EVAL | RLOG_CONT_BIT, r1.kind);
+  EXPECT_EQ(MON_EVAL, r2.kind);
+}
+
+TEST(MonRingEval, EvictionDropsWholeRunNotJustItsHead) {
+  RingFixture<4> f;
+  f.ring.appendEval(makeEvalA(), makeEvalB(), f.ms(1000));  // seq0,1
+  f.ring.appendTx(makeTx(), f.ms(1001));                     // seq2
+  f.ring.appendTx(makeTx(), f.ms(1002));                     // seq3, ring full
+  ASSERT_EQ(4u, f.ring.count());
+
+  f.ring.appendTx(makeTx(), f.ms(1003));  // evicts seq0 and, with it, seq1
+
+  EXPECT_EQ(3u, f.ring.count());
+  EXPECT_EQ(2u, f.ring.oldestSeq());
+  EXPECT_EQ(0u, f.ring.tuneCount());
+  MonRecord oldest;
+  ASSERT_TRUE(f.ring.peek(f.ring.oldestSeq(), &oldest));
+  EXPECT_EQ(MON_TX, oldest.kind);
+}
+
+TEST(MonRingEval, SerializeNeverEndsPageMidRun) {
+  RingFixture<8> f;
+  f.ring.appendTx(makeTx(), f.ms(1000));                     // seq0
+  f.ring.appendEval(makeEvalA(), makeEvalB(), f.ms(1001));  // seq1,2
+  uint8_t buf[sizeof(MonRecord) * 4];
+  uint32_t n = 0;
+
+  // Room for two records would end on the run head: trim back to just TX.
+  f.ring.serialize(buf, sizeof(MonRecord) * 2, 0, &n);
+  EXPECT_EQ(1u, n);
+
+  // Room for three takes the complete run.
+  f.ring.serialize(buf, sizeof(MonRecord) * 3, 0, &n);
+  EXPECT_EQ(3u, n);
+}
+
+TEST(MonRingEval, SerializeStartingAtRunHeadWithRoomForOneReturnsNothing) {
+  RingFixture<8> f;
+  f.ring.appendEval(makeEvalA(), makeEvalB(), f.ms(1000));
+  uint8_t buf[sizeof(MonRecord)];
+  uint32_t n = 99;
+  f.ring.serialize(buf, sizeof(buf), 0, &n);
+  EXPECT_EQ(0u, n);
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
