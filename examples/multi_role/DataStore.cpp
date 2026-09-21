@@ -419,6 +419,7 @@ static size_t comPrefsFieldsLen(const ComPrefs& c) {
     + sizeof(c.path_hash_mode) + sizeof(c.loop_detect) + sizeof(c.cad_enabled) + sizeof(c.extra_sf);
 }
 
+#if BEEBO_ENABLE_REPEATER_ROLE
 bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _board) {
   bool has_com_prefs = false;
   ComPrefs& c = _prefs;  // BeeboRepeaterPrefs's ComPrefs base -- see BeeboRepeaterPrefs.h
@@ -626,6 +627,13 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
   _abi.repeater_prefs_version = REPEATER_PREFS_VERSION;
   saveAbi();
 }
+#else
+// beebo: a companion-only static build (BEEBO_ENABLE_REPEATER_ROLE=0) has no
+// ComPrefs base on BeeboPrefs and never runs the repeater role, so there is no
+// /beebo_repeater file to load or save.
+bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs&, BeeboBoardPrefs&) { return false; }
+void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs&, const BeeboBoardPrefs&) {}
+#endif
 
 #if BEEBO_ENABLE_COMPANION_ROLE
 void DataStore::loadContacts(DataStoreHost* host) {
