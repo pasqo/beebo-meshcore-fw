@@ -5,7 +5,7 @@
 #include <helpers/MonRing.h>
 #include <helpers/TuneController.h>
 #include <helpers/TrialFSM.h>
-#include <helpers/NeighbourReach.h>
+#include <helpers/NeighborReach.h>
 #include <esp_ota_ops.h>
 
 /*------------ Frame Protocol --------------*/
@@ -367,7 +367,7 @@ struct NeighbourInfo {
   uint8_t  type;               // ADV_TYPE_* (chat/repeater/room/sensor), 0xFF if unknown
   int32_t  lat, lon;           // 1e6 fixed-point, 0 if never adverted / no location
   char     name[32];           // empty if never adverted
-  uint16_t rx_count;           // RX packets naming this neighbour, lifetime, saturating
+  uint16_t rx_count;           // RX packets naming this neighbor, lifetime, saturating
   uint8_t  win_count;          // same, per RX front-end trial block (reset each block)
 };
 

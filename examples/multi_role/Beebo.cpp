@@ -646,7 +646,7 @@ void Beebo::putNeighbour(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t adv
   slot->heard_timestamp = getRTCClock()->getCurrentTime();
   slot->snr = snr;
   if (is_new) { slot->rx_count = 0; slot->win_count = 0; }
-  NeighbourReach::bump(*slot);
+  NeighborReach::bump(*slot);
   if (name != NULL) {
     slot->advert_timestamp = advert_timestamp;
     slot->type = type;
@@ -2054,7 +2054,7 @@ void Beebo::openEvalWindow(uint16_t window_id) {
   uint32_t cad_ms = 0;
 #endif
   eval_window.open(millis(), tuneQosStats(), window_id, cad_ms);
-  NeighbourReach::resetWindow(neighbours, MAX_NEIGHBOURS);
+  NeighborReach::resetWindow(neighbours, MAX_NEIGHBOURS);
 }
 
 // beebo: dynamic-tuning step, repeater role only, run every loop() while
@@ -2091,7 +2091,7 @@ void Beebo::loopTune() {
     (int16_t)_role_state->prefs.interference_threshold,
     (int16_t)(_role_state->prefs.airtime_factor * 100.0f + 0.5f),
   };
-  NeighbourReach::scan(neighbours, MAX_NEIGHBOURS, window.reach_heard, window.reach_marginal);
+  NeighborReach::scan(neighbours, MAX_NEIGHBOURS, window.reach_heard, window.reach_marginal);
   TuneController::Decision decision = tune_controller.tick(
     monring, getRTCClock()->nowMillis(), current_values, window, _tune_applied_mask);
   if (decision.should_apply) {
@@ -2170,7 +2170,7 @@ bool Beebo::startTrial(int sw) {
   uint32_t cad_ms = 0;
 #endif
   trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms);
-  NeighbourReach::resetWindow(neighbours, MAX_NEIGHBOURS);
+  NeighborReach::resetWindow(neighbours, MAX_NEIGHBOURS);
   return true;
 }
 
@@ -2187,7 +2187,7 @@ void Beebo::loopTrial() {
 #endif
   EvalWindow::Result r;
   if (!trial_window.poll(millis(), tuneQosStats(), cad_ms, r)) return;
-  NeighbourReach::scan(neighbours, MAX_NEIGHBOURS, r.reach_heard, r.reach_marginal);
+  NeighborReach::scan(neighbours, MAX_NEIGHBOURS, r.reach_heard, r.reach_marginal);
   EvalRecordA a;
   EvalRecordB b;
   EvalWindow::toRecords(r, trialWindowId(), r.measured ? EVAL_ACCEPTED : r.outcome, a, b);
@@ -2201,7 +2201,7 @@ void Beebo::loopTrial() {
   }
   if (step.set_value && step.value != live) applyTrialSwitchLive(sw, step.value);
   emitTrialTune(sw, live, step.value, r.confirm_ratio);
-  NeighbourReach::resetWindow(neighbours, MAX_NEIGHBOURS);
+  NeighborReach::resetWindow(neighbours, MAX_NEIGHBOURS);
   trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms);
 }
 

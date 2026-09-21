@@ -603,8 +603,8 @@ struct __attribute__((packed)) EvalRecordB {
   uint16_t ros_norm;          // window ros rate / baseline, fixed point
   uint8_t  n_baseline;        // windows in the baseline
   uint8_t  cad_busy_pct;
-  uint8_t  reach_heard;       // direct neighbours heard >= NeighbourReach::MIN_HEARD times in the window
-  uint8_t  reach_marginal;    // of those, how many below NeighbourReach::MARGINAL_SNR_X4
+  uint8_t  reach_heard;       // direct neighbors heard >= NeighborReach::MIN_HEARD times in the window
+  uint8_t  reach_marginal;    // of those, how many below NeighborReach::MARGINAL_SNR_X4
   uint8_t  _rsvd[1];
 };
 // beebo: general-purpose event log -- one record per notable state

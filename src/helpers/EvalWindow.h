@@ -51,7 +51,7 @@ public:
     uint32_t baseline_ros_rate;  // rolling median, ros per hour (before this window)
     uint16_t ros_norm;        // ros_rate / baseline, fixed point (1000 = 1.0)
     uint8_t  n_baseline;      // windows in the baseline (before this window)
-    // Neighbour-table reach for the window (NeighbourReach::scan()); filled in
+    // Neighbor-table reach for the window (NeighborReach::scan()); filled in
     // by the caller after poll() closes the window, not measured here.
     uint8_t  reach_heard;
     uint8_t  reach_marginal;

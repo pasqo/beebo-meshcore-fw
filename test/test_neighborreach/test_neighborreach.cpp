@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include <helpers/NeighbourReach.h>
+#include <helpers/NeighborReach.h>
 
 namespace {
 
@@ -13,7 +13,7 @@ struct Nb {
 
 }  // namespace
 
-TEST(NeighbourReach, CountsOnlyEntriesHeardEnoughTimesInTheBlock) {
+TEST(NeighborReach, CountsOnlyEntriesHeardEnoughTimesInTheBlock) {
   Nb t[4] = {
     {100, 20, 5, 1},    // once: a one-off decode, not reach
     {100, 20, 9, 2},
@@ -21,52 +21,52 @@ TEST(NeighbourReach, CountsOnlyEntriesHeardEnoughTimesInTheBlock) {
     {0, 20, 0, 9},      // empty slot
   };
   uint8_t heard = 0, marginal = 0;
-  NeighbourReach::scan(t, 4, heard, marginal);
+  NeighborReach::scan(t, 4, heard, marginal);
   EXPECT_EQ(2, heard);
   EXPECT_EQ(0, marginal);
 }
 
-TEST(NeighbourReach, MarginalIsHeardEntriesBelowTheSnrThreshold) {
+TEST(NeighborReach, MarginalIsHeardEntriesBelowTheSnrThreshold) {
   Nb t[3] = {
-    {100, NeighbourReach::MARGINAL_SNR_X4 - 1, 5, 3},   // marginal
-    {100, NeighbourReach::MARGINAL_SNR_X4, 5, 3},       // at threshold: not marginal
+    {100, NeighborReach::MARGINAL_SNR_X4 - 1, 5, 3},   // marginal
+    {100, NeighborReach::MARGINAL_SNR_X4, 5, 3},       // at threshold: not marginal
     {100, 40, 5, 3},
   };
   uint8_t heard = 0, marginal = 0;
-  NeighbourReach::scan(t, 3, heard, marginal);
+  NeighborReach::scan(t, 3, heard, marginal);
   EXPECT_EQ(3, heard);
   EXPECT_EQ(1, marginal);
 }
 
-TEST(NeighbourReach, MarginalIgnoresEntriesNotHeardEnough) {
+TEST(NeighborReach, MarginalIgnoresEntriesNotHeardEnough) {
   Nb t[1] = {{100, -80, 5, 1}};
   uint8_t heard = 9, marginal = 9;
-  NeighbourReach::scan(t, 1, heard, marginal);
+  NeighborReach::scan(t, 1, heard, marginal);
   EXPECT_EQ(0, heard);
   EXPECT_EQ(0, marginal);
 }
 
-TEST(NeighbourReach, SaturatesAtTwoFiftyFive) {
+TEST(NeighborReach, SaturatesAtTwoFiftyFive) {
   Nb t[300];
   for (int i = 0; i < 300; i++) t[i] = {100, 40, 5, 3};
   uint8_t heard = 0, marginal = 0;
-  NeighbourReach::scan(t, 300, heard, marginal);
+  NeighborReach::scan(t, 300, heard, marginal);
   EXPECT_EQ(255, heard);
 }
 
-TEST(NeighbourReach, BumpIncrementsBothCountersAndSaturates) {
+TEST(NeighborReach, BumpIncrementsBothCountersAndSaturates) {
   Nb n = {100, 0, 65534, 254};
-  NeighbourReach::bump(n);
+  NeighborReach::bump(n);
   EXPECT_EQ(65535, n.rx_count);
   EXPECT_EQ(255, n.win_count);
-  NeighbourReach::bump(n);
+  NeighborReach::bump(n);
   EXPECT_EQ(65535, n.rx_count);
   EXPECT_EQ(255, n.win_count);
 }
 
-TEST(NeighbourReach, ResetWindowZeroesOnlyTheBlockCounters) {
+TEST(NeighborReach, ResetWindowZeroesOnlyTheBlockCounters) {
   Nb t[2] = {{100, 0, 40, 6}, {100, 0, 12, 3}};
-  NeighbourReach::resetWindow(t, 2);
+  NeighborReach::resetWindow(t, 2);
   EXPECT_EQ(0, t[0].win_count);
   EXPECT_EQ(0, t[1].win_count);
   EXPECT_EQ(40, t[0].rx_count);   // lifetime counts survive
