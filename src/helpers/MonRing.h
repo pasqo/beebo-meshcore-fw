@@ -387,9 +387,9 @@ enum : uint8_t {
 // hops mirrors Packet::getPathHashCount() exactly (0-63, same 6-bit width),
 // captured in logRxRaw() before a Packet object even exists -- lets
 // zero-hop receptions (e.g. an ADVERT heard directly, same check
-// onAdvertRecv() uses to populate the direct-neighbour table) be
+// onAdvertRecv() uses to populate the direct-neighbor table) be
 // distinguished after the fact via `analyze packets --hops 0`, without
-// needing a live device's neighbour table. b2-7 were reserved-and-always-
+// needing a live device's neighbor table. b2-7 were reserved-and-always-
 // zeroed before MONRING_ABI_VERSION 2 -- see that define below for why a
 // hops of 0 from an older capture must NOT be trusted as "zero hops".
 #define RXREC_FLAG_NBRLEN_MASK  0x03
@@ -496,7 +496,7 @@ struct __attribute__((packed)) RxRecord {
   uint8_t  header;      // route(2b) | payload-type(4b) | ver(2b)
   uint8_t  flags;       // nbr_len(b0-1) | hops(b2-7)
   uint8_t  disp;        // endpoint(b0-3) | routing(b4-5) | distill(b6) | rsvd(b7)
-  uint8_t  nbr[3];      // last-hop hash = immediate neighbour (nbr_len valid)
+  uint8_t  nbr[3];      // last-hop hash = immediate neighbor (nbr_len valid)
   uint8_t  _rsvd;
 };
 struct __attribute__((packed)) TxRecord {
@@ -506,7 +506,7 @@ struct __attribute__((packed)) TxRecord {
   uint8_t  header;
   uint8_t  result;      // TXR_* send outcome
   uint16_t airtime_ms;  // estimated on-air time (deterministic from sf/bw/cr/len)
-  uint8_t  dst[3];      // next-hop neighbour hash (DIRECT only; zero for FLOOD)
+  uint8_t  dst[3];      // next-hop neighbor hash (DIRECT only; zero for FLOOD)
   uint8_t  _rsvd[2];
 };
 struct __attribute__((packed)) RadioRecord {

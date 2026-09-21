@@ -8,13 +8,13 @@
 // neighbor paths) and a per-block `win_count` (u8) the trial resets each
 // block. A neighbor counts as heard in a block only with at least MIN_HEARD
 // packets, so a one-off noise decode -- which an LNA change can add -- is not
-// counted as reach. Templates over the slot type (Beebo.h's NeighbourInfo, or
+// counted as reach. Templates over the slot type (Beebo.h's NeighborInfo, or
 // a mock in the native tests) so the logic stays testable with no Arduino
 // dependency. Constants are first picks.
 namespace NeighborReach {
 
 static constexpr uint8_t MIN_HEARD = 2;
-// SNR x4 as stored in NeighbourInfo: below this (-5 dB) a neighbor is
+// SNR x4 as stored in NeighborInfo: below this (-5 dB) a neighbor is
 // marginal -- close to the SF8 demodulation floor.
 static constexpr int8_t MARGINAL_SNR_X4 = -20;
 

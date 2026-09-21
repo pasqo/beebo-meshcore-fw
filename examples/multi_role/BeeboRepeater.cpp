@@ -697,21 +697,21 @@ void Beebo::sendSelfAdvertisement(int delay_millis, bool flood) {
   }
 }
 
-// beebo: this board's NeighbourInfo shape (pubkey/pubkey_len prefix, not a
-// fixed mesh::Identity) -- "hex:secs_ago:snr" line-per-neighbour format,
+// beebo: this board's NeighborInfo shape (pubkey/pubkey_len prefix, not a
+// fixed mesh::Identity) -- "hex:secs_ago:snr" line-per-neighbor format,
 // newest first, bounded well inside the 160-byte reply buffer.
 void Beebo::formatNeighborsReply(char* reply) {
   char* dp = reply;
   int16_t count = 0;
-  NeighbourInfo* sorted[MAX_NEIGHBOURS];
+  NeighborInfo* sorted[MAX_NEIGHBOURS];
   for (int i = 0; i < MAX_NEIGHBOURS; i++) {
-    if (neighbours[i].heard_timestamp > 0) sorted[count++] = &neighbours[i];
+    if (neighbors[i].heard_timestamp > 0) sorted[count++] = &neighbors[i];
   }
-  std::sort(sorted, sorted + count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
+  std::sort(sorted, sorted + count, [](const NeighborInfo* a, const NeighborInfo* b) {
     return a->heard_timestamp > b->heard_timestamp;
   });
   for (int i = 0; i < count && dp - reply < 134; i++) {
-    NeighbourInfo* nb = sorted[i];
+    NeighborInfo* nb = sorted[i];
     if (i > 0) *dp++ = '\n';
     char hex[10];
     mesh::Utils::toHex(hex, nb->pubkey, min((int)nb->pubkey_len, 4));
@@ -771,10 +771,10 @@ mesh::Packet* Beebo::createRepeaterSelfAdvert(const char* name, double lat, doub
 
 /* ------------------------------------------------------------------------
  * beebo: repeater-role inbound login/ACL request handler, reusing
- * companion's own existing stats/telemetry/neighbour-table code wherever
+ * companion's own existing stats/telemetry/neighbor-table code wherever
  * it already covers the same ground (RepeaterStats' fields, telemetry
  * gathering, GET_NEIGHBOURS adapted to companion's own richer
- * NeighbourInfo table). The TXT_TYPE_CLI_DATA / handleCommand() path is
+ * NeighborInfo table). The TXT_TYPE_CLI_DATA / handleCommand() path is
  * deliberately excluded -- deferred until multi_role has a text
  * dispatcher at all.
  * ------------------------------------------------------------------------ */
@@ -1008,7 +1008,7 @@ int Beebo::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t 
   if (payload[0] == REQ_TYPE_GET_NEIGHBOURS) {
     uint8_t request_version = payload[1];
     if (request_version == 0) {
-      // beebo: uses companion's own neighbours[MAX_NEIGHBOURS] table
+      // beebo: uses companion's own neighbors[MAX_NEIGHBOURS] table
       // (variable-length pubkey prefix); repeater role has no separate one.
       int reply_offset = 4;
 
@@ -1020,30 +1020,30 @@ int Beebo::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t 
 
       if (pubkey_prefix_length > PUB_KEY_SIZE) pubkey_prefix_length = PUB_KEY_SIZE;
 
-      int16_t neighbours_count = 0;
-      NeighbourInfo* sorted_neighbours[MAX_NEIGHBOURS];
+      int16_t neighbors_count = 0;
+      NeighborInfo* sorted_neighbors[MAX_NEIGHBOURS];
       for (int i = 0; i < MAX_NEIGHBOURS; i++) {
-        auto neighbour = &neighbours[i];
-        if (neighbour->heard_timestamp > 0) {
-          sorted_neighbours[neighbours_count] = neighbour;
-          neighbours_count++;
+        auto neighbor = &neighbors[i];
+        if (neighbor->heard_timestamp > 0) {
+          sorted_neighbors[neighbors_count] = neighbor;
+          neighbors_count++;
         }
       }
 
       if (order_by == 0) {
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
+        std::sort(sorted_neighbors, sorted_neighbors + neighbors_count, [](const NeighborInfo* a, const NeighborInfo* b) {
           return a->heard_timestamp > b->heard_timestamp;
         });
       } else if (order_by == 1) {
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
+        std::sort(sorted_neighbors, sorted_neighbors + neighbors_count, [](const NeighborInfo* a, const NeighborInfo* b) {
           return a->heard_timestamp < b->heard_timestamp;
         });
       } else if (order_by == 2) {
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
+        std::sort(sorted_neighbors, sorted_neighbors + neighbors_count, [](const NeighborInfo* a, const NeighborInfo* b) {
           return a->snr > b->snr;
         });
       } else if (order_by == 3) {
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
+        std::sort(sorted_neighbors, sorted_neighbors + neighbors_count, [](const NeighborInfo* a, const NeighborInfo* b) {
           return a->snr < b->snr;
         });
       }
@@ -1051,21 +1051,21 @@ int Beebo::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t 
       int results_count = 0;
       int results_offset = 0;
       uint8_t results_buffer[130];
-      for (int index = 0; index < count && index + offset < neighbours_count; index++) {
+      for (int index = 0; index < count && index + offset < neighbors_count; index++) {
         int entry_size = pubkey_prefix_length + 4 + 1;
         if (results_offset + entry_size > (int)sizeof(results_buffer)) break;
 
-        auto neighbour = sorted_neighbours[index + offset];
-        uint32_t heard_seconds_ago = getRTCClock()->getCurrentTime() - neighbour->heard_timestamp;
-        uint8_t send_prefix_len = pubkey_prefix_length < neighbour->pubkey_len ? pubkey_prefix_length : neighbour->pubkey_len;
+        auto neighbor = sorted_neighbors[index + offset];
+        uint32_t heard_seconds_ago = getRTCClock()->getCurrentTime() - neighbor->heard_timestamp;
+        uint8_t send_prefix_len = pubkey_prefix_length < neighbor->pubkey_len ? pubkey_prefix_length : neighbor->pubkey_len;
         memset(&results_buffer[results_offset], 0, pubkey_prefix_length);
-        memcpy(&results_buffer[results_offset], neighbour->pubkey, send_prefix_len); results_offset += pubkey_prefix_length;
+        memcpy(&results_buffer[results_offset], neighbor->pubkey, send_prefix_len); results_offset += pubkey_prefix_length;
         memcpy(&results_buffer[results_offset], &heard_seconds_ago, 4); results_offset += 4;
-        memcpy(&results_buffer[results_offset], &neighbour->snr, 1); results_offset += 1;
+        memcpy(&results_buffer[results_offset], &neighbor->snr, 1); results_offset += 1;
         results_count++;
       }
 
-      memcpy(&reply_data[reply_offset], &neighbours_count, 2); reply_offset += 2;
+      memcpy(&reply_data[reply_offset], &neighbors_count, 2); reply_offset += 2;
       memcpy(&reply_data[reply_offset], &results_count, 2); reply_offset += 2;
       memcpy(&reply_data[reply_offset], &results_buffer, results_offset); reply_offset += results_offset;
 

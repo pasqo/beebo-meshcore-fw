@@ -41,7 +41,7 @@ TEST(FloodHopLimit, ScopedFloodStillHonoursFloodMaxAndAdvertMax) {
 }
 
 // flood.max.unscoped=0 hits adverts too, well before flood_max_advert applies: a node
-// still advertising un-scoped is invisible past its immediate neighbours
+// still advertising un-scoped is invisible past its immediate neighbors
 TEST(FloodHopLimit, UnscopedAdvertIsAlsoDroppedAtHopZero) {
     auto advert = makeFlood(ROUTE_TYPE_FLOOD, PAYLOAD_TYPE_ADVERT, 0);
     EXPECT_TRUE(isFloodHopLimitExceeded(&advert, 64, 0, 8));

@@ -258,21 +258,21 @@ void Beebo::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt
 void Beebo::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                            const char *text) {
   markConnectionActive(from); // in case this is from a server, and we have a connection
-  refreshNeighbourFromContact(from, pkt);
+  refreshNeighborFromContact(from, pkt);
   queueMessage(from, TXT_TYPE_PLAIN, pkt, sender_timestamp, NULL, 0, text);
 }
 
 void Beebo::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                                const char *text) {
   markConnectionActive(from); // in case this is from a server, and we have a connection
-  refreshNeighbourFromContact(from, pkt);
+  refreshNeighborFromContact(from, pkt);
   queueMessage(from, TXT_TYPE_CLI_DATA, pkt, sender_timestamp, NULL, 0, text);
 }
 
 void Beebo::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                                  const uint8_t *sender_prefix, const char *text) {
   markConnectionActive(from);
-  refreshNeighbourFromContact(from, pkt);
+  refreshNeighborFromContact(from, pkt);
   // from.sync_since change needs to be persisted
   dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
   queueMessage(from, TXT_TYPE_SIGNED_PLAIN, pkt, sender_timestamp, sender_prefix, 4, text);
@@ -359,7 +359,7 @@ uint8_t Beebo::onContactRequest(const ContactInfo &contact, uint32_t sender_time
                                  uint8_t len, uint8_t *reply) {
   if (data[0] == REQ_TYPE_GET_TELEMETRY_DATA) {
     uint8_t permissions = 0;
-    uint8_t cp = contact.flags >> 1; // LSB used as 'favourite' bit (so only use upper bits)
+    uint8_t cp = contact.flags >> 1; // LSB used as 'favorite' bit (so only use upper bits)
 
     if (_role_state->prefs.telemetry_mode_base == TELEM_MODE_ALLOW_ALL) {
       permissions = TELEM_PERM_BASE;

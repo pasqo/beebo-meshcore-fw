@@ -247,7 +247,7 @@
 // beebo: repeater-role remote-admin-over-mesh protocol
 // constants, ported unchanged from examples/simple_repeater/MyMesh.cpp so
 // existing remote-admin clients (meshcli, phone app remote-admin) see
-// identical wire behaviour from a repeater-role multi_role node.
+// identical wire behavior from a repeater-role multi_role node.
 // REQ_TYPE_GET_STATUS/KEEP_ALIVE/GET_TELEMETRY_DATA already declared above
 // (companion's own client-side "query a remote repeater" code already uses
 // these exact values) -- reused as-is, not redefined.
@@ -331,14 +331,14 @@ struct AdvertPath {
   uint8_t path[MAX_PATH_SIZE];
 };
 
-// beebo: direct (zero-hop) neighbours heard via ANY zero-hop RX that carries a
+// beebo: direct (zero-hop) neighbors heard via ANY zero-hop RX that carries a
 // resolvable sender prefix — an advert (full 32-byte pubkey) or a control/
 // discover response (1-32 byte pubkey prefix, per the requester's --full
 // flag). Packet types that carry no identity at zero-hop (ACK: none at all;
 // TXT/PATH/REQ/RESPONSE: always just a 1-byte src_hash, no better even with
-// --full) are NOT recorded — there is nothing to key a neighbour on. Auto-add
+// --full) are NOT recorded — there is nothing to key a neighbor on. Auto-add
 // is usually off (too many nodes), so this RAM-only table is how an immediate
-// neighbour that isn't a saved contact can still be identified and, if
+// neighbor that isn't a saved contact can still be identified and, if
 // wanted, promoted (promotion needs the full 32-byte key, so pubkey_len < 32
 // entries can't be promoted directly). Carries name + location when known
 // (from an advert only); SNR is stored x4 (divide by 4 for dB), matching the
@@ -348,7 +348,7 @@ struct AdvertPath {
 // 1 byte of pubkey, two distinct nodes can share a stored prefix. We treat a
 // new sighting as the SAME node only if the prefix bytes match over the
 // shorter of the two lengths AND the SNR hasn't drifted more than
-// NEIGHBOUR_SNR_DRIFT (independent radio links land at different SNRs), else
+// NEIGHBOR_SNR_DRIFT (independent radio links land at different SNRs), else
 // it's treated as a different node and evicts the oldest slot instead. A
 // longer prefix seen later (e.g. an advert following a 1-byte discover hit)
 // upgrades the stored prefix in place.
@@ -356,9 +356,9 @@ struct AdvertPath {
 #define MAX_NEIGHBOURS 16
 #endif
 
-#define NEIGHBOUR_SNR_DRIFT  24   // x4 => 6dB; beyond this, same prefix is treated as a different node
+#define NEIGHBOR_SNR_DRIFT  24   // x4 => 6dB; beyond this, same prefix is treated as a different node
 
-struct NeighbourInfo {
+struct NeighborInfo {
   uint8_t  pubkey[PUB_KEY_SIZE];   // prefix, right-padded with zeroes past pubkey_len
   uint8_t  pubkey_len;             // valid prefix length in bytes (0 = empty slot)
   uint32_t advert_timestamp;   // by THEIR clock (from the advert, 0 if never adverted)
@@ -582,7 +582,7 @@ protected:
   bool onContactPathRecv(ContactInfo& from, uint8_t* in_path, uint8_t in_path_len, uint8_t* out_path, uint8_t out_path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) override;
   void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) override;
 #endif
-  void onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp, const uint8_t* app_data, size_t app_data_len) override;  // beebo: track direct neighbours
+  void onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp, const uint8_t* app_data, size_t app_data_len) override;  // beebo: track direct neighbors
   void onAckRecv(mesh::Packet* packet, uint32_t ack_crc) override;  // beebo: gate companion's ACK bookkeeping on isCompanion()
 #if BEEBO_ENABLE_COMPANION_ROLE
   void onContactPathUpdated(const ContactInfo &contact) override;
@@ -2318,22 +2318,22 @@ private:
   #define ADVERT_PATH_TABLE_SIZE   16
   AdvertPath advert_paths[ADVERT_PATH_TABLE_SIZE]; // circular table
 
-  // beebo: direct-neighbour table (see NeighbourInfo). Evict-oldest on overflow.
-  NeighbourInfo neighbours[MAX_NEIGHBOURS];
+  // beebo: direct-neighbor table (see NeighborInfo). Evict-oldest on overflow.
+  NeighborInfo neighbors[MAX_NEIGHBOURS];
   // `pubkey`/`pubkey_len`: 1-32 bytes of the sender's prefix, as available at
   // the RX site (full for adverts, partial for control/discover responses).
   // `name`==NULL means "no advert info" — an existing slot's name/type/
   // location/advert_timestamp are left untouched (a discover hit doesn't
-  // regress an already-adverted neighbour back to unknown).
-  void putNeighbour(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t advert_timestamp,
+  // regress an already-adverted neighbor back to unknown).
+  void putNeighbor(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t advert_timestamp,
                     int8_t snr, uint8_t type, const char* name, int32_t lat, int32_t lon);
   // beebo: any zero-hop peer-decrypted packet from a known contact is as good
-  // a neighbour sighting as an advert -- called from every companion-side
+  // a neighbor sighting as an advert -- called from every companion-side
   // onPeerDataRecv hook that resolves a ContactInfo (onMessageRecv/
   // onCommandDataRecv/onSignedMessageRecv). Full pubkey is always known here
   // (ContactInfo), unlike the 1-byte hash a discover response carries.
 #if BEEBO_ENABLE_COMPANION_ROLE
-  void refreshNeighbourFromContact(const ContactInfo& from, mesh::Packet* pkt);
+  void refreshNeighborFromContact(const ContactInfo& from, mesh::Packet* pkt);
 #endif
 };
 

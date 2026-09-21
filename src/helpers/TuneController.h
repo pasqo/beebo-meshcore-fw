@@ -7,7 +7,7 @@
 // On-device, observe-only dynamic-tuning controller.
 //
 // Runs one small multi-armed bandit (UCB1) per tunable repeater parameter,
-// over a fixed 3-arm neighbourhood {-step, 0 (stay), +step} around whatever
+// over a fixed 3-arm neighborhood {-step, 0 (stay), +step} around whatever
 // the parameter's live value currently is. Only one parameter's bandit
 // advances per tick (round-robin across TUNE_* -- see MonRing.h), so a
 // reward is never confounded by two knobs moving at once; that's Phase B

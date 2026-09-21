@@ -273,8 +273,8 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
   // The route/hop-count/sender-identity walk below always runs (len>0 is the
   // only gate) — it feeds two independent consumers: MonRing's RxRecord
   // capture (rxlog, still gated on monring.enabled()/allocated() below) and,
-  // new, the direct-neighbour table (putNeighbour(), unconditional). A
-  // neighbour sighting shouldn't disappear just because rxlog capture happens
+  // new, the direct-neighbor table (putNeighbor(), unconditional). A
+  // neighbor sighting shouldn't disappear just because rxlog capture happens
   // to be off.
   bool want_monring = monring.enabled() && monring.allocated() && len > 0;
   const uint8_t *idsrc = nullptr;
@@ -307,18 +307,18 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
         parsed = true;
         rec.flags |= (hops << RXREC_FLAG_HOPS_SHIFT) & RXREC_FLAG_HOPS_MASK;
         if (hops > 0) {
-          // Immediate neighbour = last hop's hash (last hash_size path bytes).
+          // Immediate neighbor = last hop's hash (last hash_size path bytes).
           uint8_t nlen = hash_size < 3 ? hash_size : 3;
           memcpy(rec.nbr, raw + off + path_bytes - nlen, nlen);
           rec.flags |= (nlen & RXREC_FLAG_NBRLEN_MASK);
           // beebo: whoever transmitted the last hop to us is a genuine direct
-          // RF neighbour, regardless of how many hops the packet has
+          // RF neighbor, regardless of how many hops the packet has
           // traveled overall or what it's carrying -- this is the dominant
-          // real-world neighbour sighting (any relayed flood/direct traffic),
+          // real-world neighbor sighting (any relayed flood/direct traffic),
           // unlike the hops==0 payload-embedded-identity case below. Uses the
           // full hash_size (1-4 bytes), not the 3-byte cap the MonRing
           // rec.nbr display field above is limited to.
-          putNeighbour(raw + off + path_bytes - hash_size, hash_size, 0,
+          putNeighbor(raw + off + path_bytes - hash_size, hash_size, 0,
                        (int8_t)(snr * 4), 0xFF, NULL, 0, 0);
         }
 
@@ -332,7 +332,7 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
           // request/response/text-message/path prefixes itself with, the
           // ephemeral pubkey an anon request prefixes itself with, or (for a
           // NODE_DISCOVER_RESP control reply) the responder's own pubkey --
-          // same identity putNeighbour() reads out of this exact reply in
+          // same identity putNeighbor() reads out of this exact reply in
           // onControlDataRecv().
           uint8_t payload_type = (raw[0] & 0x3C) >> 2;  // PH_TYPE_MASK/SHIFT
           uint8_t nlen = 0;
@@ -390,21 +390,21 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
   }
   _rx_staged = want_monring;
 
-  // beebo: any zero-hop RX naming a sender is a direct-neighbour sighting,
+  // beebo: any zero-hop RX naming a sender is a direct-neighbor sighting,
   // not just an advert. ADVERT and the NODE_DISCOVER_RESP CONTROL case are
   // excluded here: onAdvertRecv()/onControlDataRecv() already call
-  // putNeighbour() for those, once the packet is fully parsed, with a better
+  // putNeighbor() for those, once the packet is fully parsed, with a better
   // (full-pubkey, for adverts) identity than this raw-frame heuristic gets --
   // adding them here would just be a redundant short-prefix write immediately
   // superseded by the real one. Every other zero-hop-identified type
   // (REQ/RESPONSE/TXT_MSG/PATH src hash, ANON_REQ ephemeral key) never gets
-  // more than a 1-3 byte prefix, so this is their only source. putNeighbour()
+  // more than a 1-3 byte prefix, so this is their only source. putNeighbor()
   // itself handles matching an existing slot (refreshing heard_timestamp/SNR)
   // vs. creating a new one, and a later full-pubkey advert always upgrades a
   // short prefix recorded here in place.
   if (idsrc && hops == 0 && idsrc_payload_type != PAYLOAD_TYPE_ADVERT &&
       idsrc_payload_type != PAYLOAD_TYPE_CONTROL) {
-    putNeighbour(idsrc, idsrc_len, 0, (int8_t)(snr * 4), 0xFF, NULL, 0, 0);
+    putNeighbor(idsrc, idsrc_len, 0, (int8_t)(snr * 4), 0xFF, NULL, 0, 0);
   }
 
   if (_serial->isConnected() && len + 3 <= MAX_FRAME_SIZE) {
@@ -564,15 +564,15 @@ void Beebo::emitAckOverflowEvent(uint32_t pkt_hash, uint32_t age_ms) {
 }
 #endif // BEEBO_ENABLE_COMPANION_ROLE
 
-// beebo: record/refresh a direct neighbour (evict least-recently-heard on
+// beebo: record/refresh a direct neighbor (evict least-recently-heard on
 // overflow). Matches an existing slot by prefix over the shorter of the two
 // lengths, searching every slot for the MOST SPECIFIC match rather than
 // stopping at the first one found (see the specificity comment in the loop
-// below). The SNR-drift check (NEIGHBOUR_SNR_DRIFT) only applies when both
+// below). The SNR-drift check (NEIGHBOR_SNR_DRIFT) only applies when both
 // sightings carry the SAME prefix length -- that's the genuinely ambiguous
 // case (two candidates of comparable specificity, nothing else to tell them
 // apart). Whenever the two lengths DIFFER -- a short src-hash refresh
-// against a neighbour whose full pubkey is already known, or a fresh full
+// against a neighbor whose full pubkey is already known, or a fresh full
 // advert arriving to upgrade an already-known short-prefix sighting -- the
 // prefix match alone is trusted regardless of SNR drift, in either
 // direction: requiring fresh SNR agreement on every such match made
@@ -592,15 +592,15 @@ uint32_t Beebo::calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t 
           (path_hash_count + 1));
 }
 
-void Beebo::putNeighbour(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t advert_timestamp,
+void Beebo::putNeighbor(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t advert_timestamp,
                           int8_t snr, uint8_t type, const char* name, int32_t lat, int32_t lon) {
-  NeighbourInfo* slot = &neighbours[0];
-  NeighbourInfo* oldest_slot = &neighbours[0];
+  NeighborInfo* slot = &neighbors[0];
+  NeighborInfo* oldest_slot = &neighbors[0];
   uint32_t oldest = 0xFFFFFFFF;
   bool matched = false;
   int best_specificity = -1;
   for (int i = 0; i < MAX_NEIGHBOURS; i++) {
-    NeighbourInfo& nb = neighbours[i];
+    NeighborInfo& nb = neighbors[i];
     if (nb.heard_timestamp != 0) {
       uint8_t shared = pubkey_len < nb.pubkey_len ? pubkey_len : nb.pubkey_len;
       // beebo: trust the prefix match alone whenever the two sightings carry
@@ -615,13 +615,13 @@ void Beebo::putNeighbour(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t adv
       int drift = (int)snr - (int)nb.snr;
       if (drift < 0) drift = -drift;
       if (memcmp(pubkey, nb.pubkey, shared) == 0 &&
-          (trust_established || drift <= NEIGHBOUR_SNR_DRIFT)) {
+          (trust_established || drift <= NEIGHBOR_SNR_DRIFT)) {
         // beebo: keep searching all slots and take the MOST SPECIFIC match
         // (longest stored prefix), not just the first one iteration
         // happens to reach -- a short-prefix slot that matches itself
         // (shared == both lengths, no trust_established) would otherwise
         // shadow a later, more specific slot the same sighting also
-        // matches (e.g. a full-pubkey neighbour already known from an
+        // matches (e.g. a full-pubkey neighbor already known from an
         // advert), permanently splitting the two into separate entries.
         // Ties keep the first (lowest-index) candidate.
         if (!matched || nb.pubkey_len > best_specificity) {
@@ -664,13 +664,13 @@ void Beebo::putNeighbour(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t adv
 // beebo: companion-side counterpart to the repeater ACL refresh in
 // onPeerDataRecv (BeeboRepeater.cpp isn't involved -- that call sits inline
 // in this file's own onPeerDataRecv override, below) -- both funnel into the
-// same putNeighbour(). getPathHashCount()==0 gates on zero-hop the same way
+// same putNeighbor(). getPathHashCount()==0 gates on zero-hop the same way
 // onAdvertRecv() does; a multi-hop message from a known contact says nothing
-// about who our own direct neighbours are.
+// about who our own direct neighbors are.
 #if BEEBO_ENABLE_COMPANION_ROLE
-void Beebo::refreshNeighbourFromContact(const ContactInfo& from, mesh::Packet* pkt) {
+void Beebo::refreshNeighborFromContact(const ContactInfo& from, mesh::Packet* pkt) {
   if (pkt->getPathHashCount() != 0) return;
-  putNeighbour(from.id.pub_key, PUB_KEY_SIZE, from.last_advert_timestamp,
+  putNeighbor(from.id.pub_key, PUB_KEY_SIZE, from.last_advert_timestamp,
                (int8_t)(pkt->getSNR() * 4), from.type, from.name, from.gps_lat, from.gps_lon);
 }
 #endif
@@ -679,24 +679,24 @@ void Beebo::refreshNeighbourFromContact(const ContactInfo& from, mesh::Packet* p
 // this file) and CommonCLICallbacks::removeNeighbor() (the CommonCLI
 // fallback's 'neighbor.remove <hex>', BeeboRepeater.cpp) -- one
 // implementation, so they can't drift apart. Not role-gated: the direct-
-// neighbour table itself isn't repeater-only (putNeighbour() above runs for
+// neighbor table itself isn't repeater-only (putNeighbor() above runs for
 // any received advert regardless of role).
 //
-// Unlike putNeighbour()'s prefix-over-shared-length match, this requires the
+// Unlike putNeighbor()'s prefix-over-shared-length match, this requires the
 // stored slot's length to match the request length EXACTLY, not just share
 // a prefix over the shorter of the two. `beebo neighbors remove`/`forget`
 // only accept a specific row's sequence number (never a bare hash/name), so
 // each request here always carries that one row's own exact stored key --
 // but if that row happens to be a still-unmerged partial-key duplicate (see
-// putNeighbour()'s specificity comment), a shared-length match would let its
+// putNeighbor()'s specificity comment), a shared-length match would let its
 // short key also match a longer, unrelated (or "good") slot that merely
 // happens to share the prefix -- e.g. deleting a 3-byte row could otherwise
-// take out the real full-pubkey neighbour behind it too. Exact-length
+// take out the real full-pubkey neighbor behind it too. Exact-length
 // matching means a request can only ever hit a slot of the identical
 // specificity it was resolved from.
 bool Beebo::removeNeighborByPrefix(const uint8_t* pubkey, int key_len) {
   for (int i = 0; i < MAX_NEIGHBOURS; i++) {
-    NeighbourInfo& nb = neighbours[i];
+    NeighborInfo& nb = neighbors[i];
     if (nb.heard_timestamp == 0) continue;
     if (nb.pubkey_len == key_len && key_len > 0 && memcmp(pubkey, nb.pubkey, key_len) == 0) {
       nb.pubkey_len = 0;
@@ -709,18 +709,18 @@ bool Beebo::removeNeighborByPrefix(const uint8_t* pubkey, int key_len) {
 
 // beebo: every advert flows through here. We still chain to the base (contact
 // discovery / auto-add are unchanged), then additionally capture zero-hop
-// adverts into the direct-neighbour table — these are our immediate neighbours,
+// adverts into the direct-neighbor table — these are our immediate neighbors,
 // regardless of whether they're a saved contact.
 void Beebo::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp,
                           const uint8_t* app_data, size_t app_data_len) {
   if (isCompanion()) BEEBO_MESH_BASE::onAdvertRecv(packet, id, timestamp, app_data, app_data_len);
 
-  if (packet->getPathHashCount() != 0) return;   // not heard directly => not a neighbour
+  if (packet->getPathHashCount() != 0) return;   // not heard directly => not a neighbor
   AdvertDataParser parser(app_data, app_data_len);
   if (!(parser.isValid() && parser.hasName())) return;
   int32_t lat = parser.hasLatLon() ? parser.getIntLat() : 0;
   int32_t lon = parser.hasLatLon() ? parser.getIntLon() : 0;
-  putNeighbour(id.pub_key, PUB_KEY_SIZE, timestamp, (int8_t)(packet->getSNR() * 4),
+  putNeighbor(id.pub_key, PUB_KEY_SIZE, timestamp, (int8_t)(packet->getSNR() * 4),
                parser.getType(), parser.getName(), lat, lon);
 }
 
@@ -810,7 +810,7 @@ bool Beebo::isLooped(const mesh::Packet* packet, const uint8_t max_counters[]) {
 }
 
 bool Beebo::allowPacketForward(const mesh::Packet* packet) {
-  // beebo: role-branched -- companion keeps its pre-existing behaviour
+  // beebo: role-branched -- companion keeps its pre-existing behavior
   // unchanged (client_repeat, a companion-only "also relay while acting as
   // someone's client" toggle); repeater role reads
   // the RAM-cached /com_prefs fields loadRepeaterFwdPrefs() populates
@@ -897,14 +897,14 @@ void Beebo::onControlDataRecv(mesh::Packet *packet) {
     return;
   }
 
-  // beebo: a NODE_DISCOVER_RESP heard directly is as good a neighbour sighting
+  // beebo: a NODE_DISCOVER_RESP heard directly is as good a neighbor sighting
   // as an advert, just with (at most) a partial pubkey and no name/location.
   // Wire layout after the control-type byte: [SNR_in:1][tag:4][pubkey:1..32].
   if (packet->getPathHashCount() == 0 && packet->payload_len >= 6
       && (packet->payload[0] & 0xF0) == 0x90 /* ControlType::NODE_DISCOVER_RESP */) {
     uint8_t pubkey_len = packet->payload_len - 6;
     if (pubkey_len > 0 && pubkey_len <= PUB_KEY_SIZE) {
-      putNeighbour(&packet->payload[6], pubkey_len, 0, (int8_t)(_radio->getLastSNR() * 4),
+      putNeighbor(&packet->payload[6], pubkey_len, 0, (int8_t)(_radio->getLastSNR() * 4),
                    0xFF, NULL, 0, 0);
     }
   }
@@ -962,7 +962,7 @@ void Beebo::onControlDataRecv(mesh::Packet *packet) {
       uint32_t tag;
       memcpy(&tag, &packet->payload[2], 4);
       if (tag == pending_discover_tag) {
-        putNeighbour(&packet->payload[6], (uint8_t)pubkey_len, 0, packet->_snr, node_type, NULL, 0, 0);
+        putNeighbor(&packet->payload[6], (uint8_t)pubkey_len, 0, packet->_snr, node_type, NULL, 0, 0);
       }
     }
   }
@@ -1094,7 +1094,7 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   ota_partition = NULL;
   dirty_contacts_expiry = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
-  memset(neighbours, 0, sizeof(neighbours));   // beebo: direct-neighbour table
+  memset(neighbors, 0, sizeof(neighbors));   // beebo: direct-neighbor table
   memset(send_scope.key, 0, sizeof(send_scope.key));
   send_unscoped = false;
 
@@ -1495,7 +1495,7 @@ void Beebo::begin() {
   // Safety invariant: never leave the node with no transport at all. Turning
   // usb off buys nothing power-wise once both radios are off, so use it as
   // the fallback instead of forcing a radio back on -- an explicit "set usb
-  // off" later is still honoured, this only fires here at load.
+  // off" later is still honored, this only fires here at load.
   if (!_role_state->prefs.ble_enabled && !(_role_state->prefs.tcp_enabled && _role_state->prefs.wifi_ssid[0] != '\0' && _role_state->prefs.wifi_pwd[0] != '\0')) {
     _role_state->prefs.usb_enabled = 1;
   }
@@ -2054,7 +2054,7 @@ void Beebo::openEvalWindow(uint16_t window_id) {
   uint32_t cad_ms = 0;
 #endif
   eval_window.open(millis(), tuneQosStats(), window_id, cad_ms);
-  NeighborReach::resetWindow(neighbours, MAX_NEIGHBOURS);
+  NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
 }
 
 // beebo: dynamic-tuning step, repeater role only, run every loop() while
@@ -2091,7 +2091,7 @@ void Beebo::loopTune() {
     (int16_t)_role_state->prefs.interference_threshold,
     (int16_t)(_role_state->prefs.airtime_factor * 100.0f + 0.5f),
   };
-  NeighborReach::scan(neighbours, MAX_NEIGHBOURS, window.reach_heard, window.reach_marginal);
+  NeighborReach::scan(neighbors, MAX_NEIGHBOURS, window.reach_heard, window.reach_marginal);
   TuneController::Decision decision = tune_controller.tick(
     monring, getRTCClock()->nowMillis(), current_values, window, _tune_applied_mask);
   if (decision.should_apply) {
@@ -2170,7 +2170,7 @@ bool Beebo::startTrial(int sw) {
   uint32_t cad_ms = 0;
 #endif
   trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms);
-  NeighborReach::resetWindow(neighbours, MAX_NEIGHBOURS);
+  NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
   return true;
 }
 
@@ -2187,7 +2187,7 @@ void Beebo::loopTrial() {
 #endif
   EvalWindow::Result r;
   if (!trial_window.poll(millis(), tuneQosStats(), cad_ms, r)) return;
-  NeighborReach::scan(neighbours, MAX_NEIGHBOURS, r.reach_heard, r.reach_marginal);
+  NeighborReach::scan(neighbors, MAX_NEIGHBOURS, r.reach_heard, r.reach_marginal);
   EvalRecordA a;
   EvalRecordB b;
   EvalWindow::toRecords(r, trialWindowId(), r.measured ? EVAL_ACCEPTED : r.outcome, a, b);
@@ -2201,7 +2201,7 @@ void Beebo::loopTrial() {
   }
   if (step.set_value && step.value != live) applyTrialSwitchLive(sw, step.value);
   emitTrialTune(sw, live, step.value, r.confirm_ratio);
-  NeighborReach::resetWindow(neighbours, MAX_NEIGHBOURS);
+  NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
   trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms);
 }
 
@@ -4359,7 +4359,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
 #endif
 #if BEEBO_ENABLE_COMPANION_ROLE
-  } else if (cmd_frame[0] == CMD_SEND_TELEMETRY_REQ && len >= 4 + PUB_KEY_SIZE) {  // can deprecate, in favour of CMD_SEND_BINARY_REQ
+  } else if (cmd_frame[0] == CMD_SEND_TELEMETRY_REQ && len >= 4 + PUB_KEY_SIZE) {  // can deprecate, in favor of CMD_SEND_BINARY_REQ
     uint8_t *pub_key = &cmd_frame[4];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
     if (recipient) {
@@ -5544,7 +5544,7 @@ void Beebo::handleCmdFrame(size_t len) {
     radio_driver.setTxPower(_role_state->prefs.tx_power_dbm);
     writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_NEIGHBORS) {
-    // beebo: stream the direct (zero-hop) neighbour table. START (count + our
+    // beebo: stream the direct (zero-hop) neighbor table. START (count + our
     // current clock, so the app can age each heard_timestamp) is sent here;
     // one NEIGHBOR frame per loop() tick then follows, paced against
     // isWriteBusy() the same way the contacts iterator is (see
@@ -5555,7 +5555,7 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_BAD_STATE); // stream already busy
     } else {
       uint32_t count = 0;
-      for (int i = 0; i < MAX_NEIGHBOURS; i++) if (neighbours[i].heard_timestamp) count++;
+      for (int i = 0; i < MAX_NEIGHBOURS; i++) if (neighbors[i].heard_timestamp) count++;
       int n = 0;
       out_frame[n++] = RESP_CODE_BEEBO;
       out_frame[n++] = BEEBO_RESP_NEIGHBORS_START;
@@ -5568,9 +5568,9 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_SET_NEIGHBOR_REMOVE && sub_len >= 3) {
     // beebo: mirrors CommonCLI's text-CLI 'neighbor.remove <hex>' -- prunes
-    // one direct-neighbour table entry (RAM-only; re-populated as adverts
+    // one direct-neighbor table entry (RAM-only; re-populated as adverts
     // are heard again), matched the same prefix-compare way
-    // Beebo::putNeighbour() matches an existing slot to an incoming advert
+    // Beebo::putNeighbor() matches an existing slot to an incoming advert
     // (compare over min(request len, stored pubkey_len) bytes).
     uint8_t len = sub[1];
     if (len > PUB_KEY_SIZE) len = PUB_KEY_SIZE;
@@ -5713,7 +5713,7 @@ void Beebo::handleCmdFrame(size_t len) {
       // priority asks loop() to skip radio dispatch while this transfer is
       // active, on whichever transport is carrying it (see loop()) --
       // older CLIs that don't send the byte get priority=0, i.e. today's
-      // behaviour. Chunks always stream straight to flash; esp_ota_write
+      // behavior. Chunks always stream straight to flash; esp_ota_write
       // batches partial sectors internally, so there is no PSRAM buffer.
       uint32_t total_size = 0;
       if (sub_len >= 5) {
@@ -5793,7 +5793,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // (see protocol.yaml and sendNodeDiscoverReq()) -- previously only
     // reachable via the USB-only text-CLI "discover.neighbors". Request is
     // fire-and-forget (zero-hop broadcast); matching responses trickle into
-    // the direct-neighbour table over the following ~60s, same as any other
+    // the direct-neighbor table over the following ~60s, same as any other
     // NODE_DISCOVER_RESP -- poll BEEBO_CMD_GET_NEIGHBORS after a short wait.
     uint8_t filter = sub[1];
     bool prefix_only = sub_len >= 3 && sub[2] != 0;
@@ -6354,9 +6354,9 @@ void Beebo::checkSerialInterface() {
   } else if (_neighread.active && !_serial->isWriteBusy()) {
     // beebo: stream GET_NEIGHBORS one entry per loop, same pacing as the
     // contacts iterator above.
-    NeighbourInfo* nb = NULL;
+    NeighborInfo* nb = NULL;
     while (_neighread.index < MAX_NEIGHBOURS) {
-      nb = &neighbours[_neighread.index++];
+      nb = &neighbors[_neighread.index++];
       if (nb->heard_timestamp) break;
       nb = NULL;
     }
@@ -6537,7 +6537,7 @@ void Beebo::loop() {
   // beebo: CMD_OTA_BEGIN's priority flag asks us to skip a radio dispatch
   // pass entirely while the transfer is active, so checkSerialInterface()
   // can drain OTA chunks back-to-back instead of sharing each loop()
-  // iteration with mesh/radio work. Honoured on every transport -- BLE/USB
+  // iteration with mesh/radio work. Honored on every transport -- BLE/USB
   // OTA benefits from a clear radio gap just as much as TCP does (a live
   // mesh's RX/routing work was found to throttle BLE/USB OTA throughput by
   // several times, not just add a fixed gap), and OTA is always a short,
@@ -6833,7 +6833,7 @@ void Beebo::loop() {
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: Phase A dynamic-tuning optimizer tick (see TuneController.h /
   // Repeater role only (these knobs only affect
-  // live behaviour for the repeater path -- see getAirtimeBudgetFactor()/
+  // live behavior for the repeater path -- see getAirtimeBudgetFactor()/
   // calcRxDelay()/getRetransmitDelay()/getDirectRetransmitDelay()/
   // getAGCResetInterval() above), off by default until explicitly enabled
   // ("set tune.enabled on"). Per-param live actuation (_tune_applied_mask,
@@ -7742,7 +7742,7 @@ static void _parseClockSyncArgs(const char* args, uint32_t& out_secs, uint32_t& 
 }
 
 // beebo: matches CommonCLI.cpp's own isValidName() exactly, for identical
-// meshcli-visible validation behaviour on "set name ...".
+// meshcli-visible validation behavior on "set name ...".
 static bool isValidName(const char *n) {
   while (*n) {
     if (*n == '[' || *n == ']' || *n == '\\' || *n == ':' || *n == ',' || *n == '?' || *n == '*') return false;
@@ -8555,8 +8555,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
   // version only ever asked for repeaters. Not
   // role-gated: unlike answering a request (which replies as whatever this
   // node's own current type is), asking "who's near me" has no such
-  // constraint -- responses are logged into putNeighbour(), the same
-  // shared neighbour table both roles already use.
+  // constraint -- responses are logged into putNeighbor(), the same
+  // shared neighbor table both roles already use.
   } else if (memcmp(command, "discover.neighbors", 19) == 0) {
     const char* sub = command + 19;
     while (*sub == ' ') sub++;
