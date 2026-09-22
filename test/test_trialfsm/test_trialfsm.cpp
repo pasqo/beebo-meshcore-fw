@@ -37,7 +37,7 @@ uint32_t aRate(int pair) { return 100 + (pair % 3) * 10; }
 
 // Feed `pairs` adjacent pairs; `b_of_a` maps A's ros_rate to B's. Returns the
 // final Step. Each pair is (A block, B block) or (B block, A block) per ABBA,
-// so the arm is taken from the FSM's own value, not assumed.
+// so the value is taken from the FSM's own value, not assumed.
 TrialFSM::Step runPairs(TrialFSM &t, uint8_t original, int pairs,
                         uint32_t (*b_of_a)(uint32_t), uint16_t a_ratio = 9000,
                         uint16_t b_ratio = 9000) {
@@ -240,7 +240,7 @@ TEST(TrialFSM, ExplicitAbortRevertsAndFinishes) {
   EXPECT_EQ(TrialFSM::DONE, t.state());
 }
 
-TEST(TrialFSM, ReachIsAveragedPerArmForDiagnostics) {
+TEST(TrialFSM, ReachIsAveragedPerValueForDiagnostics) {
   TrialFSM t;
   t.begin(cfg(96));
   t.start(1);

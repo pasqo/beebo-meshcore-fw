@@ -7,7 +7,7 @@
 // On-device, observe-only dynamic-tuning controller.
 //
 // Runs one small multi-armed bandit (UCB1) per tunable repeater parameter,
-// over a fixed 3-arm neighborhood {-step, 0 (stay), +step} around whatever
+// over a fixed 3-step neighborhood {-step, 0 (stay), +step} around whatever
 // the parameter's live value currently is. Only one parameter's bandit
 // advances per tick (round-robin across TUNE_* -- see MonRing.h), so a
 // reward is never confounded by two knobs moving at once; that's Phase B
@@ -20,12 +20,12 @@
 //
 // Per window, in order:
 //  1. Unmeasured (insufficient data, invalidated, baseline still filling):
-//     emit the MON_EVAL record and hold -- no arm update, no rollback, no
+//     emit the MON_EVAL record and hold -- no step update, no rollback, no
 //     proposal, round-robin does not advance.
 //  2. Measured: judge the pending decision. A live change rolls back if the
 //     window's confirm ratio fell past ROLLBACK_THRESHOLD below the ratio of
 //     the window before the change, or the utilization guardrail tripped.
-//     Otherwise it is accepted and the arm learns the window's goodput
+//     Otherwise it is accepted and the step learns the window's goodput
 //     (ros_norm x confirm_ratio, capped) -- volume only ever enters here,
 //     accumulated across windows, never a single window's rollback call.
 //  3. Emit the MON_EVAL record (accepted/rollback), then either revert (the
@@ -38,17 +38,17 @@
 // (all off by default, see Beebo::_tune_applied_mask), and
 // `interference_threshold` is permanently excluded (see specFor()'s comment).
 //
-// The bandit's arms are UCB1 over goodput in the 0-20000 range, so the
+// The bandit's steps are UCB1 over goodput in the 0-20000 range, so the
 // exploration bonus (order 1) is negligible next to reward differences: the
-// selection is effectively greedy after each arm's first pull.
+// selection is effectively greedy after each step's first pull.
 class TuneController {
 public:
   static const int NUM_PARAMS = 6;
-  static const int NUM_ARMS = 3;   // arm 0 = -step, 1 = stay, 2 = +step
+  static const int NUM_STEPS = 3;   // step 0 = -step, 1 = stay, 2 = +step
 
   struct ParamSpec {
     uint8_t param_id;    // TUNE_* (MonRing.h)
-    int16_t step;        // arm spacing, in the param's own fixed-point scale
+    int16_t step;        // spacing between adjacent steps, in the param's own fixed-point scale
     int16_t min_value;
     int16_t max_value;
   };
@@ -98,7 +98,7 @@ public:
   }
 
   // Reward drop (0-10000 scale) past which a live-applied param reverts to
-  // its last known-good value instead of trying the bandit's next arm.
+  // its last known-good value instead of trying the bandit's next step.
   // 1500 = 15 percentage points -- a coarse, deliberately conservative
   // threshold (no data yet on real reward noise/variance for this mesh);
   // revisit once enough live-actuation history exists to tune it properly.
@@ -112,7 +112,7 @@ public:
     uint16_t window_id;    // id to open the next EvalWindow with
   };
 
-  // Arm reward is capped so one burst window cannot dominate an arm's mean.
+  // Step reward is capped so one burst window cannot dominate a step's mean.
   static const uint32_t GOODPUT_CAP = 20000;
 
   void begin() {
@@ -130,8 +130,8 @@ public:
 
   // Id of the window currently open (or about to be opened).
   uint16_t windowId() const { return _window_id; }
-  uint32_t armPulls(int p, int a) const { return _state[p].arms[a].pulls; }
-  float armRewardSum(int p, int a) const { return _state[p].arms[a].reward_sum; }
+  uint32_t stepPulls(int p, int s) const { return _state[p].steps[s].pulls; }
+  float stepRewardSum(int p, int s) const { return _state[p].steps[s].reward_sum; }
 
   // Called once per closed EvalWindow, repeater role only. `current_values[i]`
   // must hold TUNE_* (specFor(i).param_id)'s live value, in that param's
@@ -166,12 +166,12 @@ public:
                        (uint32_t)qs.reward_at_last_change ||
                    (window.flags & EVALF_GUARDRAIL);
       }
-      if (!rollback && qs.pending_arm >= 0) {
-        ArmState &arm = qs.arms[qs.pending_arm];
-        arm.pulls++;
-        arm.reward_sum += goodput(window);
+      if (!rollback && qs.pending_step >= 0) {
+        StepState &st = qs.steps[qs.pending_step];
+        st.pulls++;
+        st.reward_sum += goodput(window);
       }
-      qs.pending_arm = -1;
+      qs.pending_step = -1;
       qs.has_pending_live_change = false;
       _pending_param = -1;
     }
@@ -194,11 +194,11 @@ public:
     int16_t current = current_values[p];
     bool param_applied_enabled = isApplicable(spec.param_id) && (applied_mask & (1 << p)) != 0;
 
-    int chosen = chooseArm(ps);
+    int chosen = chooseStep(ps);
     ps.total_pulls++;
-    ps.pending_arm = chosen;
+    ps.pending_step = chosen;
 
-    int16_t offset = (int16_t)(chosen - 1) * spec.step;  // arm 0/1/2 -> -step/0/+step
+    int16_t offset = (int16_t)(chosen - 1) * spec.step;  // step 0/1/2 -> -step/0/+step
     int16_t proposed = current + offset;
     if (proposed < spec.min_value) proposed = spec.min_value;
     if (proposed > spec.max_value) proposed = spec.max_value;
@@ -227,14 +227,14 @@ public:
   }
 
 private:
-  struct ArmState {
+  struct StepState {
     uint32_t pulls = 0;
     float reward_sum = 0.0f;
   };
   struct ParamState {
-    ArmState arms[NUM_ARMS];
+    StepState steps[NUM_STEPS];
     uint32_t total_pulls = 0;
-    int8_t pending_arm = -1;   // arm proposed on this param's previous visit, -1 = none yet
+    int8_t pending_step = -1;   // step proposed on this param's previous visit, -1 = none yet
     bool has_last_good = false;
     int16_t last_good_value = 0;        // value before the first-ever live change to this param
     uint16_t reward_at_last_change = 0;  // reward recorded just before the most recent live change
@@ -273,22 +273,22 @@ private:
     ring.appendTune(rec, now);
   }
 
-  // UCB1: try every never-pulled arm first, then argmax(mean + sqrt(2 ln(N)/n)).
-  static int chooseArm(const ParamState &ps) {
-    for (int a = 0; a < NUM_ARMS; a++) {
-      if (ps.arms[a].pulls == 0) return a;
+  // UCB1: try every never-pulled step first, then argmax(mean + sqrt(2 ln(N)/n)).
+  static int chooseStep(const ParamState &ps) {
+    for (int s = 0; s < NUM_STEPS; s++) {
+      if (ps.steps[s].pulls == 0) return s;
     }
     int best = 0;
     float best_score = -1.0f;
     float logN = logf((float)(ps.total_pulls + 1));
-    for (int a = 0; a < NUM_ARMS; a++) {
-      const ArmState &arm = ps.arms[a];
-      float mean = arm.reward_sum / (float)arm.pulls;
-      float bonus = sqrtf(2.0f * logN / (float)arm.pulls);
+    for (int s = 0; s < NUM_STEPS; s++) {
+      const StepState &st = ps.steps[s];
+      float mean = st.reward_sum / (float)st.pulls;
+      float bonus = sqrtf(2.0f * logN / (float)st.pulls);
       float score = mean + bonus;
       if (score > best_score) {
         best_score = score;
-        best = a;
+        best = s;
       }
     }
     return best;

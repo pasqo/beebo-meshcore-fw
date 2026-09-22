@@ -24,8 +24,8 @@
 // than RATIO_TOLERANCE; otherwise keep A. A B block whose ratio collapses
 // below A's running mean, or any block with the utilization guardrail
 // tripped, aborts and reverts. Unmeasured blocks discard their pair only.
-// Reach (neighbors heard / marginal) is averaged per arm for diagnostics; it
-// does not enter the decision. All constants are first picks.
+// Reach (neighbors heard / marginal) is averaged per value (A, B) for
+// diagnostics; it does not enter the decision. All constants are first picks.
 class TrialFSM {
 public:
   enum State : uint8_t { IDLE, RUN, DONE };

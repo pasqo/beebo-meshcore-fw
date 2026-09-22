@@ -90,7 +90,7 @@ TEST(TuneController, ProposedValueStaysWithinSpecRangeAtLowerBound) {
   TuneController tc;
   tc.begin();
 
-  // rx_delay_base (param 0) at its floor: every arm must clamp to [0, 2000].
+  // rx_delay_base (param 0) at its floor: every step must clamp to [0, 2000].
   tc.tick(f.ring, f.ms(1000), kZeros, measured(9000));
 
   auto tunes = ofKind(f.ring, MON_TUNE);
@@ -164,7 +164,7 @@ TEST(TuneController, UnmeasuredWindowEmitsEvalOnlyAndHolds) {
   EXPECT_EQ(0u, ofKind(f.ring, MON_TUNE).size());
 }
 
-TEST(TuneController, UnmeasuredWindowDoesNotAdvanceRoundRobinOrArmStats) {
+TEST(TuneController, UnmeasuredWindowDoesNotAdvanceRoundRobinOrStepStats) {
   RingFixture<128> f;
   TuneController tc;
   tc.begin();
@@ -175,8 +175,8 @@ TEST(TuneController, UnmeasuredWindowDoesNotAdvanceRoundRobinOrArmStats) {
   auto tunes = ofKind(f.ring, MON_TUNE);
   ASSERT_EQ(1u, tunes.size());
   EXPECT_EQ(TUNE_RX_DELAY_BASE, tunes[0].tune.param_id);  // still the first param
-  for (int a = 0; a < TuneController::NUM_ARMS; a++) {
-    EXPECT_EQ(0u, tc.armPulls(0, a));
+  for (int a = 0; a < TuneController::NUM_STEPS; a++) {
+    EXPECT_EQ(0u, tc.stepPulls(0, a));
   }
 }
 
@@ -188,8 +188,8 @@ TEST(TuneController, AppliedMaskBitEnablesLiveActuationDecision) {
   int16_t current[TuneController::NUM_PARAMS] = {1000, 50, 50, 10, 5, 200};
   uint8_t mask = 1 << 0;  // TUNE_RX_DELAY_BASE only
 
-  // First-ever visit to param 0: chooseArm() picks the first never-pulled
-  // arm (index 0 = -step), so the proposal is deterministic.
+  // First-ever visit to param 0: chooseStep() picks the first never-pulled
+  // step (index 0 = -step), so the proposal is deterministic.
   TuneController::Decision d = tc.tick(f.ring, f.ms(1000), current, measured(9000), mask);
   EXPECT_EQ(TUNE_RX_DELAY_BASE, d.param_id);
   EXPECT_EQ(900, d.value);          // 1000 - step(100)
@@ -305,7 +305,7 @@ TEST(TuneController, IdleOnlyWhileNoDecisionAwaitsItsWindow) {
   EXPECT_FALSE(tc.idle());
 }
 
-TEST(TuneController, StableWindowAfterLiveChangeIsAcceptedAndUpdatesArmWithGoodput) {
+TEST(TuneController, StableWindowAfterLiveChangeIsAcceptedAndUpdatesStepWithGoodput) {
   RingFixture<256> f;
   TuneController tc;
   tc.begin();
@@ -319,18 +319,18 @@ TEST(TuneController, StableWindowAfterLiveChangeIsAcceptedAndUpdatesArmWithGoodp
   // baseline volume -> goodput 13500.
   TuneController::Decision d2 = tc.tick(f.ring, f.ms(1020), current, measured(9000, 1500), mask);
   EXPECT_NE(TUNE_TX_DELAY_FACTOR, d2.param_id);  // moved on, no rollback
-  EXPECT_EQ(1u, tc.armPulls(1, 0));              // the -step arm that was applied
-  EXPECT_FLOAT_EQ(13500.0f, tc.armRewardSum(1, 0));
+  EXPECT_EQ(1u, tc.stepPulls(1, 0));              // the -step step that was applied
+  EXPECT_FLOAT_EQ(13500.0f, tc.stepRewardSum(1, 0));
 }
 
-TEST(TuneController, GoodputArmRewardIsCappedAtTwentyThousand) {
+TEST(TuneController, GoodputStepRewardIsCappedAtTwentyThousand) {
   RingFixture<256> f;
   TuneController tc;
   tc.begin();
   int16_t current[TuneController::NUM_PARAMS] = {500, 50, 50, 10, 5, 200};
   tc.tick(f.ring, f.ms(1000), current, measured(10000));           // param 0 proposed (observe)
   tc.tick(f.ring, f.ms(1001), current, measured(10000, 60000));    // evaluates it
-  EXPECT_FLOAT_EQ(20000.0f, tc.armRewardSum(0, 0));
+  EXPECT_FLOAT_EQ(20000.0f, tc.stepRewardSum(0, 0));
 }
 
 TEST(TuneController, UnmeasuredWindowWhileLiveChangePendingKeepsItPending) {
@@ -365,7 +365,7 @@ TEST(TuneController, RollbackRevertsToMostRecentGoodValueNotTheOriginal) {
   const EvalWindow::Result healthy = measured(10000);
   int t = 2000;
 
-  // Visit 1: first-ever visit picks arm 0 (-step) -> 900, a real change.
+  // Visit 1: first-ever visit picks step 0 (-step) -> 900, a real change.
   TuneController::Decision d = tc.tick(f.ring, f.ms(t++), current, healthy, mask);
   ASSERT_EQ(900, d.value);
   ASSERT_TRUE(d.should_apply);
@@ -374,14 +374,14 @@ TEST(TuneController, RollbackRevertsToMostRecentGoodValueNotTheOriginal) {
   // Evaluating window (accepted) also proposes param 1; then 4 more to
   // come back around to param 0.
   for (int i = 0; i < 6; i++) d = tc.tick(f.ring, f.ms(t++), current, healthy, mask);
-  // Visit 2 of param 0 happened on the 6th call above: arm 1 (stay) -> 900.
+  // Visit 2 of param 0 happened on the 6th call above: step 1 (stay) -> 900.
   ASSERT_EQ(TUNE_RX_DELAY_BASE, d.param_id);
   ASSERT_EQ(900, d.value);
   ASSERT_FALSE(d.should_apply);
   current[0] = d.value;
 
   for (int i = 0; i < 6; i++) d = tc.tick(f.ring, f.ms(t++), current, healthy, mask);
-  // Visit 3: arm 2 (+step) -> 1000, a second real change; last_good must be 900.
+  // Visit 3: step 2 (+step) -> 1000, a second real change; last_good must be 900.
   ASSERT_EQ(TUNE_RX_DELAY_BASE, d.param_id);
   ASSERT_EQ(1000, d.value);
   ASSERT_TRUE(d.should_apply);
