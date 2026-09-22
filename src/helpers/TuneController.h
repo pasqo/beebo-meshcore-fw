@@ -255,8 +255,9 @@ private:
                        uint16_t window_id, uint8_t outcome) {
     EvalRecordA a;
     EvalRecordB b;
-    EvalWindow::toRecords(w, window_id, outcome, a, b);
-    ring.appendEval(a, b, now);
+    EvalRecordC c;
+    EvalWindow::toRecords(w, window_id, outcome, a, b, c);
+    ring.appendEval(a, b, c, now);
   }
 
   void appendTuneRecord(MonRing &ring, uint64_t now, uint8_t param_id, bool applied,

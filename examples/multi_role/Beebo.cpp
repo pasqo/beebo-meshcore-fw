@@ -2064,7 +2064,9 @@ void Beebo::openEvalWindow(uint16_t window_id) {
 #else
   uint32_t cad_ms = 0;
 #endif
-  eval_window.open(millis(), tuneQosStats(), window_id, cad_ms, radio_driver.getPacketsRecv());
+  eval_window.open(millis(), tuneQosStats(), window_id, cad_ms, radio_driver.getPacketsRecv(),
+                   monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
+                   radio_driver.getPacketsSent());
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
 }
 
@@ -2091,7 +2093,9 @@ void Beebo::loopTune() {
   uint32_t cad_ms = 0;
 #endif
   EvalWindow::Result window;
-  if (!eval_window.poll(millis(), tuneQosStats(), cad_ms, window, radio_driver.getPacketsRecv())) {
+  if (!eval_window.poll(millis(), tuneQosStats(), cad_ms, window, radio_driver.getPacketsRecv(),
+                        monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
+                        radio_driver.getPacketsSent())) {
     return;
   }
   int16_t current_values[TuneController::NUM_PARAMS] = {
@@ -2180,7 +2184,9 @@ bool Beebo::startTrial(int sw) {
 #else
   uint32_t cad_ms = 0;
 #endif
-  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv());
+  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
+                    monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
+                    radio_driver.getPacketsSent());
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
   return true;
 }
@@ -2197,12 +2203,15 @@ void Beebo::loopTrial() {
   uint32_t cad_ms = 0;
 #endif
   EvalWindow::Result r;
-  if (!trial_window.poll(millis(), tuneQosStats(), cad_ms, r, radio_driver.getPacketsRecv())) return;
+  if (!trial_window.poll(millis(), tuneQosStats(), cad_ms, r, radio_driver.getPacketsRecv(),
+                         monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
+                         radio_driver.getPacketsSent())) return;
   NeighborReach::scan(neighbors, MAX_NEIGHBOURS, r.reach_heard, r.reach_marginal);
   EvalRecordA a;
   EvalRecordB b;
-  EvalWindow::toRecords(r, trialWindowId(), r.measured ? EVAL_ACCEPTED : r.outcome, a, b);
-  monring.appendEval(a, b, getRTCClock()->nowMillis());
+  EvalRecordC c;
+  EvalWindow::toRecords(r, trialWindowId(), r.measured ? EVAL_ACCEPTED : r.outcome, a, b, c);
+  monring.appendEval(a, b, c, getRTCClock()->nowMillis());
   int sw = _trial_switch;
   uint8_t live = trial.currentValue();
   TrialFSM::Step step = trial.onBlock(r, r.reach_heard, r.reach_marginal);
@@ -2213,7 +2222,9 @@ void Beebo::loopTrial() {
   if (step.set_value && step.value != live) applyTrialSwitchLive(sw, step.value);
   emitTrialTune(sw, live, step.value, r.confirm_ratio);
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
-  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv());
+  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
+                    monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
+                    radio_driver.getPacketsSent());
 }
 
 void Beebo::finishTrial(const TrialFSM::Step& step) {

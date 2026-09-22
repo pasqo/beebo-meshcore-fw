@@ -1577,6 +1577,31 @@ EvalRecordB makeEvalB(uint16_t window_id = 7) {
   return b;
 }
 
+EvalRecordC makeEvalC(uint16_t window_id = 7) {
+  EvalRecordC c; memset(&c, 0, sizeof(c));
+  c.window_id = window_id;
+  c.rx_valid = 55;
+  return c;
+}
+
+TEST(MonRingEval, AppendStoresThreeContiguousSlotsContinuationOnFirstTwo) {
+  RingFixture<8> f;
+  f.ring.appendEval(makeEvalA(), makeEvalB(), makeEvalC(), f.ms(1000));
+
+  ASSERT_EQ(3u, f.ring.count());
+  MonRecord a, b, c;
+  ASSERT_TRUE(f.ring.peek(0, &a));
+  ASSERT_TRUE(f.ring.peek(1, &b));
+  ASSERT_TRUE(f.ring.peek(2, &c));
+  EXPECT_EQ(MON_EVAL | RLOG_CONT_BIT, a.kind);
+  EXPECT_EQ(MON_EVAL | RLOG_CONT_BIT, b.kind);
+  EXPECT_EQ(MON_EVAL, c.kind);
+  EXPECT_EQ(a.eval_a.offset, c.eval_c.offset);
+  EXPECT_EQ(7, c.eval_c.window_id);
+  EXPECT_EQ(55, c.eval_c.rx_valid);
+  EXPECT_EQ(3u, f.ring.tuneCount());
+}
+
 TEST(MonRingEval, AppendStoresTwoContiguousSlotsContinuationOnFirst) {
   RingFixture<8> f;
   f.ring.appendEval(makeEvalA(), makeEvalB(), f.ms(1000));

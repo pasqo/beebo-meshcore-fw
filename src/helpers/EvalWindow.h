@@ -35,7 +35,12 @@ public:
   // First-pick constant, same "revisit once real data exists" posture as
   // TuneController::ROLLBACK_THRESHOLD.
   static constexpr uint8_t GUARDRAIL_UTIL_PCT = 80;
-  static constexpr uint8_t RECORD_VERSION = 1;
+  // Bumped 1 -> 2 when RX Valid/Invalid/Errors and TX Dispatched were added
+  // as a third MON_EVAL slot (EvalRecordC, MonRing.h) -- a version-1 run
+  // has no slot 3. Not itself load-bearing for the CLI's slot-count
+  // decision (that's RLOG_CONT_BIT chaining, self-describing per run); this
+  // is the human-readable "what format wrote this" marker.
+  static constexpr uint8_t RECORD_VERSION = 2;
 
   struct Config {
     // No longer gates window validity (see class comment) -- `exposure` is
@@ -69,6 +74,15 @@ public:
     // by the caller after poll() closes the window, not measured here.
     uint8_t  reach_heard;
     uint8_t  reach_marginal;
+    // On-device RX/TX breakdown (EvalRecordC) -- deltas over the window,
+    // same convention as ros_count/exposure above. rx_valid duplicates
+    // what `active`/window-validity already reads off `rx_count` (see
+    // open()/poll() below); it just wasn't stored into a visible field
+    // until now.
+    uint32_t rx_valid;       // RadioLibWrapper::getPacketsRecv() delta
+    uint32_t rx_invalid;     // MonRing::rxParseErrorCount() delta
+    uint32_t rx_errors;      // RadioLibWrapper::getPacketsRecvErrors() delta
+    uint32_t tx_dispatched;  // RadioLibWrapper::getPacketsSent() delta
   };
 
   void begin(const Config &cfg) {
@@ -97,14 +111,23 @@ public:
   // getTxWaitCadMs(): CAD-busy plus TX backoff); its delta over the window
   // is `cad_busy_pct`. `rx_count` is the radio's lifetime received-packet
   // counter (RadioLibWrapper::getPacketsRecv()); its delta over the window
-  // is what decides validity now, see class comment.
+  // is what decides validity now, see class comment, and is also reported
+  // as `rx_valid`. `rx_invalid`/`rx_errors`/`tx_count` are the lifetime
+  // counterparts of Result's rx_invalid/rx_errors/tx_dispatched
+  // (MonRing::rxParseErrorCount(), RadioLibWrapper::getPacketsRecvErrors(),
+  // RadioLibWrapper::getPacketsSent()) -- diagnostic only, none of them
+  // gate anything.
   void open(uint32_t now_ms, const MonRing::QosStats &snap, uint16_t window_id,
-            uint32_t cad_wait_ms = 0, uint32_t rx_count = 0) {
+            uint32_t cad_wait_ms = 0, uint32_t rx_count = 0,
+            uint32_t rx_invalid = 0, uint32_t rx_errors = 0, uint32_t tx_count = 0) {
     _open = true;
     _t0 = now_ms;
     _snap = snap;
     _cad0 = cad_wait_ms;
     _rx0 = rx_count;
+    _rxinv0 = rx_invalid;
+    _rxerr0 = rx_errors;
+    _tx0 = tx_count;
     _window_id = window_id;
     _flags = 0;
     _util_sum = 0;
@@ -127,7 +150,8 @@ public:
 
   // Returns true (and fills `out`) when the window closes this call.
   bool poll(uint32_t now_ms, const MonRing::QosStats &cur, uint32_t cad_wait_ms,
-            Result &out, uint32_t rx_count = 0) {
+            Result &out, uint32_t rx_count = 0,
+            uint32_t rx_invalid = 0, uint32_t rx_errors = 0, uint32_t tx_count = 0) {
     if (!_open) return false;
     uint32_t elapsed = now_ms - _t0;  // unsigned: millis() rollover-safe
     uint32_t d_ack_ok = cur.ack_success_count - _snap.ack_success_count;
@@ -135,11 +159,15 @@ public:
     uint32_t d_echo_att = cur.echo_attempt_count - _snap.echo_attempt_count;
     uint32_t d_echo_ok = cur.echo_success_count - _snap.echo_success_count;
     uint32_t d_rx = rx_count - _rx0;
+    uint32_t d_rxinv = rx_invalid - _rxinv0;
+    uint32_t d_rxerr = rx_errors - _rxerr0;
+    uint32_t d_tx = tx_count - _tx0;
     // A counter that went backwards (device-side reset) shows up as a huge
     // unsigned delta.
     if (d_ack_ok > 0x80000000u || d_ack_to > 0x80000000u ||
         d_echo_att > 0x80000000u || d_echo_ok > 0x80000000u ||
-        d_rx > 0x80000000u) {
+        d_rx > 0x80000000u || d_rxinv > 0x80000000u ||
+        d_rxerr > 0x80000000u || d_tx > 0x80000000u) {
       _flags |= EVALF_COUNTER_RST;
     }
 
@@ -161,6 +189,10 @@ public:
     out.exposure = MonRing::computeQosExposure(delta);
     out.ros_count = MonRing::computeRos(delta);
     out.confirm_ratio = MonRing::computeQos(delta);
+    out.rx_valid = d_rx;
+    out.rx_invalid = d_rxinv;
+    out.rx_errors = d_rxerr;
+    out.tx_dispatched = d_tx;
 
     bool active = d_rx > 0;
     if (!(active && elapsed >= _cfg.min_ms) && elapsed < _cfg.max_ms) return false;
@@ -202,13 +234,14 @@ public:
     return true;
   }
 
-  // Build the two MON_EVAL slots from a closed window. `outcome` is the
+  // Build the three MON_EVAL slots from a closed window. `outcome` is the
   // final EVAL_* the controller decided (accepted/rollback for a measured
   // window, else the result's own).
   static void toRecords(const Result &r, uint16_t window_id, uint8_t outcome,
-                        EvalRecordA &a, EvalRecordB &b) {
+                        EvalRecordA &a, EvalRecordB &b, EvalRecordC &c) {
     memset(&a, 0, sizeof(a));
     memset(&b, 0, sizeof(b));
+    memset(&c, 0, sizeof(c));
     a.window_id = window_id;
     a.outcome = outcome;
     a.flags = r.flags;
@@ -225,6 +258,11 @@ public:
     b.cad_busy_pct = r.cad_busy_pct;
     b.reach_heard = r.reach_heard;
     b.reach_marginal = r.reach_marginal;
+    c.window_id = window_id;
+    c.rx_valid = sat16(r.rx_valid);
+    c.rx_invalid = sat16(r.rx_invalid);
+    c.rx_errors = sat16(r.rx_errors);
+    c.tx_dispatched = sat16(r.tx_dispatched);
   }
 
 private:
@@ -250,6 +288,9 @@ private:
   uint32_t _t0 = 0;
   uint32_t _cad0 = 0;
   uint32_t _rx0 = 0;
+  uint32_t _rxinv0 = 0;
+  uint32_t _rxerr0 = 0;
+  uint32_t _tx0 = 0;
   uint32_t _util_sum = 0;
   uint32_t _util_n = 0;
   uint16_t _window_id = 0;

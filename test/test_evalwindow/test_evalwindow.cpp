@@ -405,7 +405,7 @@ TEST(EvalWindow, ResetBaselineClearsHistory) {
   EXPECT_EQ(0u, w.baselineCount());
 }
 
-TEST(EvalWindow, ToRecordsFillsBothSlotsAndSaturates) {
+TEST(EvalWindow, ToRecordsFillsAllThreeSlotsAndSaturates) {
   EvalWindow::Result r{};
   r.flags = EVALF_GUARDRAIL;
   r.exposure = 100000;      // > u16
@@ -419,8 +419,12 @@ TEST(EvalWindow, ToRecordsFillsBothSlotsAndSaturates) {
   r.cad_busy_pct = 12;
   r.reach_heard = 17;
   r.reach_marginal = 4;
-  EvalRecordA a; EvalRecordB b;
-  EvalWindow::toRecords(r, 42, EVAL_ROLLBACK, a, b);
+  r.rx_valid = 80000;       // > u16
+  r.rx_invalid = 30;
+  r.rx_errors = 9;
+  r.tx_dispatched = 200;
+  EvalRecordA a; EvalRecordB b; EvalRecordC c;
+  EvalWindow::toRecords(r, 42, EVAL_ROLLBACK, a, b, c);
   EXPECT_EQ(42, a.window_id);
   EXPECT_EQ(EVAL_ROLLBACK, a.outcome);
   EXPECT_EQ(EVALF_GUARDRAIL, a.flags);
@@ -437,6 +441,36 @@ TEST(EvalWindow, ToRecordsFillsBothSlotsAndSaturates) {
   EXPECT_EQ(12, b.cad_busy_pct);
   EXPECT_EQ(17, b.reach_heard);
   EXPECT_EQ(4, b.reach_marginal);
+  EXPECT_EQ(42, c.window_id);
+  EXPECT_EQ(65535, c.rx_valid);
+  EXPECT_EQ(30, c.rx_invalid);
+  EXPECT_EQ(9, c.rx_errors);
+  EXPECT_EQ(200, c.tx_dispatched);
+}
+
+TEST(EvalWindow, RxTxBreakdownIsCounterDeltasOverTheWindow) {
+  EvalWindow w;
+  w.begin(cfg(40, 300000));
+  w.open(0, stats(0, 0, 0, 0), 1, 0, /*rx_count=*/1000,
+         /*rx_invalid=*/50, /*rx_errors=*/20, /*tx_count=*/300);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 0, r,
+                     /*rx_count=*/1010, /*rx_invalid=*/55, /*rx_errors=*/23, /*tx_count=*/312));
+  EXPECT_EQ(10u, r.rx_valid);
+  EXPECT_EQ(5u, r.rx_invalid);
+  EXPECT_EQ(3u, r.rx_errors);
+  EXPECT_EQ(12u, r.tx_dispatched);
+}
+
+TEST(EvalWindow, RxInvalidDecreaseAlsoInvalidatesAsCounterReset) {
+  EvalWindow w;
+  w.begin(cfg());
+  w.open(0, stats(0, 0, 0, 0), 1, 0, /*rx_count=*/1000, /*rx_invalid=*/50);
+  EvalWindow::Result r{};
+  ASSERT_TRUE(w.poll(1000, stats(0, 0, 0, 0), 0, r, /*rx_count=*/1000, /*rx_invalid=*/3));
+  EXPECT_FALSE(r.measured);
+  EXPECT_EQ(EVAL_INVALIDATED, r.outcome);
+  EXPECT_TRUE(r.flags & EVALF_COUNTER_RST);
 }
 
 int main(int argc, char **argv) {

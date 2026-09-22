@@ -593,9 +593,12 @@ struct __attribute__((packed)) EvalRecordA {
   uint8_t  version;         // record format version
   uint8_t  _rsvd[1];
 };
-// beebo: slot 2 of 2 of a MON_EVAL run.
+// beebo: slot 2 of a MON_EVAL run -- 2 slots (RECORD_VERSION 1) or 3
+// (RECORD_VERSION 2, EvalRecordC below added). kind carries RLOG_CONT_BIT
+// when a slot 3 follows, same convention as slot 1; a version-1 capture's
+// slot 2 never does, since it's always the run's last slot.
 struct __attribute__((packed)) EvalRecordB {
-  uint8_t  kind;              // MON_EVAL
+  uint8_t  kind;              // MON_EVAL [| RLOG_CONT_BIT]
   uint16_t offset;            // same value as slot 1
   uint16_t window_id;
   uint16_t window_s;          // window length, seconds
@@ -606,6 +609,21 @@ struct __attribute__((packed)) EvalRecordB {
   uint8_t  reach_heard;       // direct neighbors heard >= NeighborReach::MIN_HEARD times in the window
   uint8_t  reach_marginal;    // of those, how many below NeighborReach::MARGINAL_SNR_X4
   uint8_t  _rsvd[1];
+};
+// beebo: slot 3 of 3 of a MON_EVAL run (RECORD_VERSION 2+ only -- a
+// version-1 run has no slot 3, see EvalRecordA.version). Always the run's
+// last slot (kind carries no RLOG_CONT_BIT). RX Valid/Invalid/Errors and TX
+// Dispatched -- on-device counterparts of the same items the offline
+// analyzer could previously only reconstruct from raw event logs.
+struct __attribute__((packed)) EvalRecordC {
+  uint8_t  kind;            // MON_EVAL
+  uint16_t offset;          // same value as slots 1/2
+  uint16_t window_id;
+  uint16_t rx_valid;        // RadioLibWrapper::getPacketsRecv() delta -- demodulated+parsed ok
+  uint16_t rx_invalid;      // MonRing::rxParseErrorCount() delta -- captured but failed to parse
+  uint16_t rx_errors;       // RadioLibWrapper::getPacketsRecvErrors() delta -- never demodulated at all
+  uint16_t tx_dispatched;   // RadioLibWrapper::getPacketsSent() delta -- handed to the radio for TX
+  uint8_t  _rsvd[3];
 };
 // beebo: general-purpose event log -- one record per notable state
 // transition, so events get real timestamps and context instead of a bare
@@ -729,6 +747,7 @@ union MonRecord {
   TuneRecord  tune;
   EvalRecordA eval_a;
   EvalRecordB eval_b;
+  EvalRecordC eval_c;
   EventRecord event;
   SettingRecord setting;
   CommandRecord command;
@@ -746,6 +765,7 @@ static_assert(sizeof(BattRecord)  == 16, "BattRecord must be 16 bytes");
 static_assert(sizeof(TuneRecord)  == 16, "TuneRecord must be 16 bytes");
 static_assert(sizeof(EvalRecordA) == 16, "EvalRecordA must be 16 bytes");
 static_assert(sizeof(EvalRecordB) == 16, "EvalRecordB must be 16 bytes");
+static_assert(sizeof(EvalRecordC) == 16, "EvalRecordC must be 16 bytes");
 static_assert(sizeof(EventRecord) == 16, "EventRecord must be 16 bytes");
 static_assert(sizeof(SettingRecord) == 16, "SettingRecord must be 16 bytes");
 static_assert(sizeof(CommandRecord) == 16, "CommandRecord must be 16 bytes");
@@ -1420,7 +1440,11 @@ public:
   // Append one evaluation window result as a 2-slot MON_EVAL continuation
   // run. Gated by MON_CAP_TUNE. The offset is resolved once, before either
   // slot is stored, so a SYNC relatch (the only thing _ensureSync() ever
-  // appends) lands ahead of the run, never between its slots.
+  // appends) lands ahead of the run, never between its slots. Version-1
+  // form, still used directly by callers that only ever fill A/B (kept so
+  // e.g. test_monring's ring-mechanics tests don't need a C slot to
+  // exercise generic continuation-run behavior); EvalWindow::RECORD_VERSION
+  // is 2 now, so real callers use the 3-slot overload below instead.
   void appendEval(EvalRecordA a, EvalRecordB b, uint64_t now_ms) {
     if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
     uint16_t offset = _ensureSync(now_ms);
@@ -1437,6 +1461,34 @@ public:
     r2.eval_b.offset = offset;
     _tune_count++;
     _store(r2);
+  }
+
+  // 3-slot form (EvalRecordC added). Same offset-then-three-slots shape as
+  // the 2-slot overload above -- slot 2 now carries RLOG_CONT_BIT too (a
+  // slot 3 follows it), only slot 3 is the run's terminator.
+  void appendEval(EvalRecordA a, EvalRecordB b, EvalRecordC c, uint64_t now_ms) {
+    if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
+    uint16_t offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
+    MonRecord r{};
+    r.eval_a = a;
+    r.eval_a.kind = MON_EVAL | RLOG_CONT_BIT;
+    r.eval_a.offset = offset;
+    _tune_count++;
+    _store(r);
+    MonRecord r2{};
+    r2.eval_b = b;
+    r2.eval_b.kind = MON_EVAL | RLOG_CONT_BIT;
+    r2.eval_b.offset = offset;
+    _tune_count++;
+    _store(r2);
+    MonRecord r3{};
+    r3.eval_c = c;
+    r3.eval_c.kind = MON_EVAL;
+    r3.eval_c.offset = offset;
+    r3.eval_c.window_id = a.window_id;
+    _tune_count++;
+    _store(r3);
   }
 
   // Append one general-purpose event (kind/offset stamped here). Unlike
