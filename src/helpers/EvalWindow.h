@@ -4,13 +4,23 @@
 #include "MonRing.h"
 
 // beebo: the dynamic optimizer's decision-window evaluator. A window opens
-// with a snapshot of the reward counters, and closes by rule -- once it has
-// both `min_exposure` confirmable attempts and `min_ms` elapsed, or as
-// insufficient_data at `max_ms` -- so sparse nodes get longer windows and busy
-// ones shorter. The length is deliberately not something the optimizer tunes:
-// it changes measurement precision, not delivery, so a reward could not judge
-// it. Reward inputs are wrap-safe counter DELTAS over the window, never
-// lifetime totals.
+// with a snapshot of the reward counters, and closes by rule -- once the
+// node has heard at least one packet and `min_ms` elapsed, or as
+// insufficient_data at `max_ms` with no activity at all -- so sparse nodes
+// get longer windows and busy ones shorter. The length is deliberately not
+// something the optimizer tunes: it changes measurement precision, not
+// delivery, so a reward could not judge it. Reward inputs are wrap-safe
+// counter DELTAS over the window, never lifetime totals.
+//
+// Validity is RX activity, not confirmable-attempt count (`exposure`, still
+// computed and reported, just no longer the gate): a window with real RX but
+// few or zero forwards is real information -- for a repeater, failing to
+// convert reception into forwards IS the service quality being measured, not
+// noise to discard -- and gets a real (if noisy) confirm_ratio/ros_rate;
+// only a window that heard nothing at all has no information. Per-block
+// noise at low exposure is what the paired statistics (TrialFSM's mean/SE
+// across many blocks) already exist to absorb, not something to solve by
+// discarding thin windows outright.
 //
 // This class only measures. accepted/rollback is the controller's call (it
 // owns the comparison against the value it just changed); measured windows
@@ -28,6 +38,10 @@ public:
   static constexpr uint8_t RECORD_VERSION = 1;
 
   struct Config {
+    // No longer gates window validity (see class comment) -- `exposure` is
+    // still computed and reported for diagnostics, this field is currently
+    // unused. Kept rather than removed to avoid a larger settings/protocol
+    // surface change (tune.window.min_exposure) as part of this one.
     uint16_t min_exposure = 40;
     uint32_t min_ms = 300000;
     uint32_t max_ms = 3600000;
@@ -41,7 +55,7 @@ public:
     bool     measured;        // false: see `outcome` (insufficient_data/invalidated)
     uint8_t  outcome;         // EVAL_* when !measured
     uint8_t  flags;           // EVALF_*
-    uint32_t exposure;        // confirmable attempts in the window
+    uint32_t exposure;        // confirmable attempts in the window (diagnostic only)
     uint32_t ros_count;       // confirmed deliveries in the window
     uint16_t confirm_ratio;   // 0-10000
     uint8_t  util_pct;
@@ -81,13 +95,16 @@ public:
 
   // `cad_wait_ms` is the cumulative TX-blocked time (Dispatcher::
   // getTxWaitCadMs(): CAD-busy plus TX backoff); its delta over the window
-  // is `cad_busy_pct`.
+  // is `cad_busy_pct`. `rx_count` is the radio's lifetime received-packet
+  // counter (RadioLibWrapper::getPacketsRecv()); its delta over the window
+  // is what decides validity now, see class comment.
   void open(uint32_t now_ms, const MonRing::QosStats &snap, uint16_t window_id,
-            uint32_t cad_wait_ms = 0) {
+            uint32_t cad_wait_ms = 0, uint32_t rx_count = 0) {
     _open = true;
     _t0 = now_ms;
     _snap = snap;
     _cad0 = cad_wait_ms;
+    _rx0 = rx_count;
     _window_id = window_id;
     _flags = 0;
     _util_sum = 0;
@@ -110,17 +127,19 @@ public:
 
   // Returns true (and fills `out`) when the window closes this call.
   bool poll(uint32_t now_ms, const MonRing::QosStats &cur, uint32_t cad_wait_ms,
-            Result &out) {
+            Result &out, uint32_t rx_count = 0) {
     if (!_open) return false;
     uint32_t elapsed = now_ms - _t0;  // unsigned: millis() rollover-safe
     uint32_t d_ack_ok = cur.ack_success_count - _snap.ack_success_count;
     uint32_t d_ack_to = cur.ack_timeout_count - _snap.ack_timeout_count;
     uint32_t d_echo_att = cur.echo_attempt_count - _snap.echo_attempt_count;
     uint32_t d_echo_ok = cur.echo_success_count - _snap.echo_success_count;
+    uint32_t d_rx = rx_count - _rx0;
     // A counter that went backwards (device-side reset) shows up as a huge
     // unsigned delta.
     if (d_ack_ok > 0x80000000u || d_ack_to > 0x80000000u ||
-        d_echo_att > 0x80000000u || d_echo_ok > 0x80000000u) {
+        d_echo_att > 0x80000000u || d_echo_ok > 0x80000000u ||
+        d_rx > 0x80000000u) {
       _flags |= EVALF_COUNTER_RST;
     }
 
@@ -143,11 +162,11 @@ public:
     out.ros_count = MonRing::computeRos(delta);
     out.confirm_ratio = MonRing::computeQos(delta);
 
-    bool exposed = out.exposure >= _cfg.min_exposure;
-    if (!(exposed && elapsed >= _cfg.min_ms) && elapsed < _cfg.max_ms) return false;
+    bool active = d_rx > 0;
+    if (!(active && elapsed >= _cfg.min_ms) && elapsed < _cfg.max_ms) return false;
 
     _open = false;
-    if (!exposed) {
+    if (!active) {
       out.measured = false;
       out.outcome = EVAL_INSUFFICIENT_DATA;
       return true;
@@ -168,7 +187,7 @@ public:
       return true;
     }
 
-    // Every exposed window feeds the baseline, cold-start ones included.
+    // Every active window feeds the baseline, cold-start ones included.
     _rates[_next] = out.ros_rate;
     _next = (uint8_t)((_next + 1) % BASELINE_WINDOWS);
     if (_n < BASELINE_WINDOWS) _n++;
@@ -230,6 +249,7 @@ private:
   bool _open = false;
   uint32_t _t0 = 0;
   uint32_t _cad0 = 0;
+  uint32_t _rx0 = 0;
   uint32_t _util_sum = 0;
   uint32_t _util_n = 0;
   uint16_t _window_id = 0;

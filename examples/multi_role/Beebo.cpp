@@ -2064,7 +2064,7 @@ void Beebo::openEvalWindow(uint16_t window_id) {
 #else
   uint32_t cad_ms = 0;
 #endif
-  eval_window.open(millis(), tuneQosStats(), window_id, cad_ms);
+  eval_window.open(millis(), tuneQosStats(), window_id, cad_ms, radio_driver.getPacketsRecv());
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
 }
 
@@ -2091,7 +2091,7 @@ void Beebo::loopTune() {
   uint32_t cad_ms = 0;
 #endif
   EvalWindow::Result window;
-  if (!eval_window.poll(millis(), tuneQosStats(), cad_ms, window)) {
+  if (!eval_window.poll(millis(), tuneQosStats(), cad_ms, window, radio_driver.getPacketsRecv())) {
     return;
   }
   int16_t current_values[TuneController::NUM_PARAMS] = {
@@ -2180,7 +2180,7 @@ bool Beebo::startTrial(int sw) {
 #else
   uint32_t cad_ms = 0;
 #endif
-  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms);
+  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv());
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
   return true;
 }
@@ -2197,7 +2197,7 @@ void Beebo::loopTrial() {
   uint32_t cad_ms = 0;
 #endif
   EvalWindow::Result r;
-  if (!trial_window.poll(millis(), tuneQosStats(), cad_ms, r)) return;
+  if (!trial_window.poll(millis(), tuneQosStats(), cad_ms, r, radio_driver.getPacketsRecv())) return;
   NeighborReach::scan(neighbors, MAX_NEIGHBOURS, r.reach_heard, r.reach_marginal);
   EvalRecordA a;
   EvalRecordB b;
@@ -2213,7 +2213,7 @@ void Beebo::loopTrial() {
   if (step.set_value && step.value != live) applyTrialSwitchLive(sw, step.value);
   emitTrialTune(sw, live, step.value, r.confirm_ratio);
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
-  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms);
+  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv());
 }
 
 void Beebo::finishTrial(const TrialFSM::Step& step) {

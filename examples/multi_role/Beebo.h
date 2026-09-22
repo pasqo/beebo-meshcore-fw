@@ -1875,9 +1875,13 @@ private:
   TuneController tune_controller;
   bool _tune_enabled = false;
   // beebo: decision-window evaluator feeding tune_controller (one closed
-  // window = one tick). RAM-only rule, like _tune_enabled: min_exposure
-  // confirmable attempts and min_s elapsed close a window, max_s without
-  // enough exposure makes it insufficient_data -- see EvalWindow.h.
+  // window = one tick). RAM-only rule, like _tune_enabled: at least one RX
+  // packet and min_s elapsed close a window, max_s with no RX activity at
+  // all makes it insufficient_data -- see EvalWindow.h. _tune_win_min_
+  // exposure/setTuneWindowMinExposure() are currently unused (no longer
+  // gate window validity), kept rather than removed from the settings
+  // surface pending a decision on whether to drop tune.window.min_exposure
+  // entirely.
   EvalWindow eval_window;
   uint16_t _tune_win_min_exposure = 40;
   uint16_t _tune_win_min_s = 300;
