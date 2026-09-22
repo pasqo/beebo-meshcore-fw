@@ -35,9 +35,12 @@ TrialFSM::Config cfg(uint16_t blocks) {
 // Baseline A goodput varies a little so the paired differences have a spread.
 uint32_t aRate(int pair) { return 100 + (pair % 3) * 10; }
 
-// Feed `pairs` adjacent pairs; `b_of_a` maps A's ros_rate to B's. Returns the
-// final Step. Each pair is (A block, B block) or (B block, A block) per ABBA,
-// so the value is taken from the FSM's own value, not assumed.
+// Feed up to `pairs` adjacent pairs; `b_of_a` maps A's ros_rate to B's.
+// Returns the final Step -- stops as soon as the trial finishes (early stop
+// or an abort mid-pair), since calling onBlock() again once DONE returns an
+// empty, unfinished Step that would otherwise overwrite the real one. Each
+// pair is (A block, B block) or (B block, A block) per ABBA, so the value is
+// taken from the FSM's own value, not assumed.
 TrialFSM::Step runPairs(TrialFSM &t, uint8_t original, int pairs,
                         uint32_t (*b_of_a)(uint32_t), uint16_t a_ratio = 9000,
                         uint16_t b_ratio = 9000) {
@@ -47,6 +50,7 @@ TrialFSM::Step runPairs(TrialFSM &t, uint8_t original, int pairs,
     for (int k = 0; k < 2; k++) {
       bool is_a = (t.currentValue() == original);
       step = t.onBlock(is_a ? blk(a, a_ratio) : blk(b_of_a(a), b_ratio), 0, 0);
+      if (step.finished) return step;
     }
   }
   return step;
@@ -100,15 +104,19 @@ TEST(TrialFSM, OriginalZeroInvertsTheSchedule) {
 
 TEST(TrialFSM, AdoptsBWhenClearlyBetterOverEnoughPairs) {
   TrialFSM t;
-  t.begin(cfg(48));   // 24 pairs
+  t.begin(cfg(48));   // 24 pairs available
   t.start(1);
+  // clearlyBetter's gain is a constant relative diff every pair (the
+  // multiplicative model cancels aRate()'s jitter -- SE stays exactly 0),
+  // so the pragmatic early stop (EARLY_STOP_MIN_PAIRS=5) fires well before
+  // all 24 run; that IS the well-before-MIN_PAIRS(20) case this now covers.
   TrialFSM::Step s = runPairs(t, 1, 24, clearlyBetter);
   ASSERT_TRUE(s.finished);
   EXPECT_EQ(TrialFSM::ADOPT_B, s.outcome);
   EXPECT_EQ(0, s.final_value);       // B = the opposite of the original 1
   EXPECT_EQ(0, s.value);             // and it is applied
   EXPECT_EQ(TrialFSM::DONE, t.state());
-  EXPECT_EQ(24u, t.stats().n_pairs);
+  EXPECT_EQ(TrialFSM::EARLY_STOP_MIN_PAIRS, t.stats().n_pairs);
   EXPECT_GT(t.stats().mean_rel_x1000, 0);
 }
 
@@ -116,10 +124,13 @@ TEST(TrialFSM, KeepsAWhenBIsWorse) {
   TrialFSM t;
   t.begin(cfg(48));
   t.start(1);
+  // clearlyWorse is the mirror case: early stop's losing branch fires at
+  // the same floor, well before the full 24 pairs or MIN_PAIRS(20).
   TrialFSM::Step s = runPairs(t, 1, 24, clearlyWorse);
   ASSERT_TRUE(s.finished);
   EXPECT_EQ(TrialFSM::KEEP_A, s.outcome);
   EXPECT_EQ(1, s.final_value);
+  EXPECT_EQ(TrialFSM::EARLY_STOP_MIN_PAIRS, t.stats().n_pairs);
   EXPECT_LT(t.stats().mean_rel_x1000, 0);
 }
 
@@ -135,12 +146,53 @@ TEST(TrialFSM, KeepsAWhenTheDifferenceIsWithinNoise) {
 
 TEST(TrialFSM, KeepsAWithTooFewValidPairsEvenIfBLooksBetter) {
   TrialFSM t;
-  t.begin(cfg(16));   // only 8 pairs < MIN_PAIRS
+  // Below EARLY_STOP_MIN_PAIRS too, not just MIN_PAIRS -- this exercises
+  // decide()'s own floor at the end of the schedule, not the early-stop path
+  // (see EarlyStopAdoptsBWellBeforeMinPairs for that).
+  ASSERT_LT((int)TrialFSM::EARLY_STOP_MIN_PAIRS - 1, 5);
+  t.begin(cfg(8));   // only 4 pairs < both floors
   t.start(1);
-  TrialFSM::Step s = runPairs(t, 1, 8, clearlyBetter);
+  TrialFSM::Step s = runPairs(t, 1, 4, clearlyBetter);
   ASSERT_TRUE(s.finished);
   EXPECT_EQ(TrialFSM::KEEP_A, s.outcome);
-  EXPECT_EQ(8u, t.stats().n_pairs);
+  EXPECT_EQ(4u, t.stats().n_pairs);
+}
+
+TEST(TrialFSM, EarlyStopAdoptsBWellBeforeMinPairs) {
+  TrialFSM t;
+  t.begin(cfg(96));   // 48 pairs available -- far more than needed
+  t.start(1);
+  TrialFSM::Step s = runPairs(t, 1, 48, clearlyBetter);
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::ADOPT_B, s.outcome);
+  EXPECT_EQ(TrialFSM::EARLY_STOP_MIN_PAIRS, t.stats().n_pairs);
+  EXPECT_LT(t.stats().n_pairs, TrialFSM::MIN_PAIRS);
+  EXPECT_LT(t.blockIndex(), t.totalBlocks());   // really stopped early
+}
+
+TEST(TrialFSM, EarlyStopDoesNotFireOnRatioTooFarBelowTolerance) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  // clearlyBetter's goodput gain alone would trigger the early stop, but a
+  // confirm ratio far worse than RATIO_TOLERANCE must still block it, same
+  // as the equivalent full-schedule case (KeepsAWhenBGainsVolumeButConfirmRatioIsWorse).
+  TrialFSM::Step s = runPairs(t, 1, 48, clearlyBetter, /*a_ratio=*/9000, /*b_ratio=*/8500);
+  ASSERT_TRUE(s.finished);   // still finishes -- via decide() at schedule end
+  EXPECT_EQ(TrialFSM::KEEP_A, s.outcome);
+  EXPECT_EQ(48u, t.stats().n_pairs);   // ran the full schedule, never early-stopped
+}
+
+TEST(TrialFSM, EarlyStopDoesNotFireOnNoise) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  // noise() has real spread (SE > 0) and no consistent direction, so it
+  // must not cross the strict EARLY_STOP_Z bar within a handful of pairs --
+  // confirm the trial is still running, not finished on a false positive.
+  TrialFSM::Step s = runPairs(t, 1, (int)TrialFSM::EARLY_STOP_MIN_PAIRS + 1, noise);
+  EXPECT_FALSE(s.finished);
+  EXPECT_EQ(TrialFSM::RUN, t.state());
 }
 
 TEST(TrialFSM, KeepsAWhenBGainsVolumeButConfirmRatioIsWorse) {

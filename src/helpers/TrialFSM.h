@@ -26,6 +26,17 @@
 // tripped, aborts and reverts. Unmeasured blocks discard their pair only.
 // Reach (neighbors heard / marginal) is averaged per value (A, B) for
 // diagnostics; it does not enter the decision. All constants are first picks.
+//
+// Pragmatic early stop: checked after every new pair once
+// EARLY_STOP_MIN_PAIRS are in, in EITHER direction (B clearly better ->
+// ADOPT_B, B clearly worse -> KEEP_A -- no reason to keep running degraded
+// service once that's obvious either). EARLY_STOP_Z is deliberately much
+// stricter than ADOPT_Z: checking every pair, instead of once at the end,
+// inflates the false-positive rate a single ADOPT_Z=2 check controls for,
+// so the bar has to be high enough to absorb that. This is not a real
+// group-sequential/alpha-spending design (no per-checkpoint schedule,
+// no formal error-rate guarantee) -- a deliberately simple stopgap; revisit
+// if it turns out to fire on noise early in a trial's span of hours.
 class TrialFSM {
 public:
   enum State : uint8_t { IDLE, RUN, DONE };
@@ -35,6 +46,8 @@ public:
   static constexpr float    ADOPT_Z = 2.0f;
   static constexpr int16_t  RATIO_TOLERANCE = 200;    // confirm ratio, 0-10000
   static constexpr int16_t  COLLAPSE_THRESHOLD = 1500;
+  static constexpr uint32_t EARLY_STOP_MIN_PAIRS = 5;
+  static constexpr float    EARLY_STOP_Z = 4.0f;
 
   struct Config {
     uint16_t block_s = 1800;
@@ -106,6 +119,7 @@ public:
     }
 
     double g = valid ? (double)r.ros_rate * r.confirm_ratio / 10000.0 : 0.0;
+    bool pair_added = false;
     if (!(_idx & 1)) {
       _prev_valid = valid;
       _prev_is_b = is_b;
@@ -120,10 +134,20 @@ public:
         _sum_d += d;
         _sum_d2 += d * d;
         _sum_rd += (double)(rb - ra);
+        pair_added = true;
       }
     }
 
     _idx++;
+    if (pair_added && _n >= EARLY_STOP_MIN_PAIRS) {
+      double mean = _sum_d / _n;
+      double se = stdErr();
+      bool ratio_ok = (_sum_rd / _n) >= -(double)RATIO_TOLERANCE;
+      bool winning = mean > 0.0 && (se > 0.0 ? mean / se >= EARLY_STOP_Z : true);
+      bool losing  = mean < 0.0 && (se > 0.0 ? mean / se <= -EARLY_STOP_Z : true);
+      if (winning && ratio_ok) return finish(ADOPT_B);
+      if (losing) return finish(KEEP_A);
+    }
     if (_idx >= _total) return decide();
     s.set_value = true;
     s.value = valueFor(_idx);
