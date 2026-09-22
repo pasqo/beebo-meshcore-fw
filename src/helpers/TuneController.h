@@ -35,8 +35,8 @@
 // window that will evaluate it. This class never touches NodePrefs/ComPrefs
 // itself -- it only returns a Decision for the caller (Beebo.cpp) to act on.
 // A param only gets should_apply=true when its bit is set in `applied_mask`
-// (all off by default, see Beebo::_tune_applied_mask), and
-// `interference_threshold` is permanently excluded (see specFor()'s comment).
+// (all off by default, see Beebo::_tune_applied_mask); every current param
+// is applicable (isApplicable()).
 //
 // The bandit's steps are UCB1 over goodput in the 0-20000 range, so the
 // exploration bonus (order 1) is negligible next to reward differences: the
@@ -75,26 +75,25 @@ public:
                                                         // not the full uint8_t range:
                                                         // Beebo::tlvSetInterferenceThreshold
                                                         // (BeeboRepeater.cpp) silently
-                                                        // clamps any raw > 9. NOTE:
-                                                        // Beebo::getInterferenceThreshold()
-                                                        // is separately hardcoded to
-                                                        // return 0 regardless of this
-                                                        // pref (Beebo.cpp) -- proposals
-                                                        // for this param are logged but
-                                                        // permanently excluded from
-                                                        // should_apply (see isApplicable())
-                                                        // until that's fixed upstream.
+                                                        // clamps any raw > 9. Live-appliable
+                                                        // since Beebo::getInterferenceThreshold()
+                                                        // reads the real pref (was
+                                                        // permanently hardcoded to 0; fixed
+                                                        // upstream, meshcore-dev/MeshCore@
+                                                        // 5d82ed35, applied directly here).
       { TUNE_AIRTIME_FACTOR,           50, 0,  900 },  // 0.00 ..  9.00, step 0.50
     };
     return table[p];
   }
 
-  // interference_threshold's live path is currently dead (see specFor()'s
-  // comment) -- excluded from actuation regardless of applied_mask, so a
-  // caller can't accidentally "apply" a change that has zero real effect
-  // and silently think it did something.
+  // Every current param can now take live effect (see specFor()'s
+  // interference_threshold comment for the one that couldn't until
+  // recently). Kept as a real function, not `return true;`, so a future
+  // param that genuinely can't be applied yet has an obvious place to add
+  // its exclusion, the way interference_threshold's used to live here.
   static bool isApplicable(uint8_t param_id) {
-    return param_id != TUNE_INTERFERENCE_THRESHOLD;
+    (void)param_id;
+    return true;
   }
 
   // Reward drop (0-10000 scale) past which a live-applied param reverts to

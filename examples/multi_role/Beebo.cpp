@@ -197,8 +197,19 @@ float Beebo::getAirtimeBudgetFactor() const {
   return _role_state->prefs.airtime_factor;
 }
 
+// beebo: upstream's own getter was permanently hardcoded to 0 ("disabled
+// for now, until currentRSSI() problem is resolved") long after that
+// mechanism was superseded by the separate getCADEnabled() below -- fixed
+// upstream (meshcore-dev/MeshCore@5d82ed35, not yet in the companion-v1.17.1
+// release this fork is pinned to) by simply reading the real preference,
+// applied here directly rather than waiting for a rebase. Same role guard
+// as getCADEnabled()/getAGCResetInterval(): interference_threshold is a
+// ComPrefs field (repeater-only), companion keeps Dispatcher's own default.
 int Beebo::getInterferenceThreshold() const {
-  return 0; // disabled for now, until currentRSSI() problem is resolved
+#if BEEBO_ENABLE_REPEATER_ROLE
+  if (isRepeater()) return _role_state->prefs.interference_threshold;
+#endif
+  return 0;
 }
 
 // beebo: cad_enabled is a ComPrefs field (repeater-only) -- companion has no
@@ -2372,8 +2383,7 @@ void Beebo::computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
 // tlvSetAirtimeFactor instead of the shared companion _role_state->prefs fields
 // -- the tuning optimizer only ever runs on a repeater (see loop()'s
 // `isRepeater() && _tune_enabled` gate), so this is never reached for a
-// companion. TUNE_INTERFERENCE_THRESHOLD never reaches here
-// (TuneController::isApplicable() excludes it from should_apply).
+// companion.
 void Beebo::applyTuneDecision(uint8_t param_id, int16_t value) {
   switch (param_id) {
     case TUNE_RX_DELAY_BASE: {
@@ -2408,8 +2418,12 @@ void Beebo::applyTuneDecision(uint8_t param_id, int16_t value) {
       flushDirtyPrefs();
       break;
     }
+    case TUNE_INTERFERENCE_THRESHOLD:
+      tlvSetInterferenceThreshold(this, NODE_ROLE_REPEATER, (uint32_t)value);
+      flushDirtyPrefs();
+      break;
     default:
-      break;   // TUNE_INTERFERENCE_THRESHOLD (dead knob) or unknown -- no-op
+      break;   // unknown param_id -- no-op
   }
 }
 

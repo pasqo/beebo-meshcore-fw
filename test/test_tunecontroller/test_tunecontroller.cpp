@@ -210,7 +210,12 @@ TEST(TuneController, AppliedMaskBitClearLeavesDecisionObserveOnly) {
   EXPECT_FALSE(d.should_apply);
 }
 
-TEST(TuneController, InterferenceThresholdNeverAppliesEvenWhenMasked) {
+TEST(TuneController, InterferenceThresholdAppliesWhenMasked) {
+  // Beebo::getInterferenceThreshold() used to be permanently hardcoded to 0
+  // (upstream bug, fixed directly here), so this param's proposals could
+  // never take live effect regardless of applied_mask; that exclusion is
+  // gone now that the getter reads the real pref -- isApplicable() no
+  // longer treats any param specially.
   RingFixture<256> f;
   TuneController tc;
   tc.begin();
@@ -223,7 +228,8 @@ TEST(TuneController, InterferenceThresholdNeverAppliesEvenWhenMasked) {
     d = tc.tick(f.ring, f.ms(1000 + i), current, measured(9000), mask);
   }
   EXPECT_EQ(TUNE_INTERFERENCE_THRESHOLD, d.param_id);
-  EXPECT_FALSE(d.should_apply);  // isApplicable() excludes it regardless of the mask
+  EXPECT_TRUE(d.should_apply);
+  EXPECT_TRUE(TuneController::isApplicable(TUNE_INTERFERENCE_THRESHOLD));
 }
 
 // Params are visited in order, so the tx_delay_factor (param 1) proposal is
