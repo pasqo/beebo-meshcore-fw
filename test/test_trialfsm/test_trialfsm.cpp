@@ -331,3 +331,33 @@ int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+TEST(TrialFSM, ExplicitAlternativeValueRunsAbbaAndAdoptsIt) {
+  TrialFSM t;
+  t.begin(cfg(48));
+  ASSERT_TRUE(t.start(5, 8));   // coding rate 5 vs 8
+  EXPECT_EQ(5, t.original());
+  EXPECT_EQ(8, t.alternative());
+  const uint8_t expect[8] = {5, 8, 8, 5, 5, 8, 8, 5};
+  TrialFSM probe;
+  probe.begin(cfg(48));
+  probe.start(5, 8);
+  for (int i = 0; i < 8; i++) {
+    EXPECT_EQ(expect[i], probe.currentValue());
+    probe.onBlock(blk(100), 0, 0);
+  }
+  TrialFSM::Step s = runPairs(t, 5, 24, clearlyBetter);
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::ADOPT_B, s.outcome);
+  EXPECT_EQ(8, s.final_value);
+}
+
+TEST(TrialFSM, ExplicitAlternativeKeepsTheOriginalWhenWorse) {
+  TrialFSM t;
+  t.begin(cfg(48));
+  t.start(6, 8);
+  TrialFSM::Step s = runPairs(t, 6, 24, clearlyWorse);
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::KEEP_A, s.outcome);
+  EXPECT_EQ(6, s.final_value);
+}

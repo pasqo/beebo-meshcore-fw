@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include "EvalWindow.h"
 
-// beebo: on-device A/B trial for one binary front-end switch (FEM LNA, RX
-// boosted gain), stage 1 of the two-stage tuner (see plans/
+// beebo: on-device A/B trial for one front-end switch (FEM LNA, RX
+// boosted gain, coding rate), stage 1 of the two-stage tuner (see plans/
 // DYNAMIC_OPTIMIZER_PLAN.md). These switches are high-sensitivity and
 // site/environment dependent, so a bandit's -step/stay/+step arms are the
 // wrong tool; a paired trial decides them directly.
@@ -17,7 +17,8 @@
 //
 // Blocks are fixed duration (the caller runs an EvalWindow with min_s == max_s
 // == block_s), so blocks match the time of day. Order is ABBA cyclic
-// (A = the original value, B = its opposite), which cancels drift within a few
+// (A = the original value, B = its alternative, the opposite for a binary
+// switch), which cancels drift within a few
 // blocks; each adjacent block pair is one A/B pair. Decision, deliberately
 // conservative: adopt B only with >= MIN_PAIRS valid pairs, a mean relative
 // goodput gain above ADOPT_Z standard errors, and a confirm ratio not worse
@@ -84,12 +85,23 @@ public:
   uint16_t totalBlocks() const { return _total; }
   uint16_t blockSeconds() const { return _cfg.block_s; }
   uint8_t original() const { return _orig; }
+  uint8_t alternative() const { return _alt; }
   uint8_t currentValue() const { return valueFor(_idx); }
 
-  bool start(uint8_t original) {
+  // `alt` is arm B's value. Omitted (a binary switch), B is the opposite of
+  // `original` and `original` is clamped to 0/1; a multi-valued switch (coding
+  // rate) passes both explicitly.
+  static constexpr uint8_t ALT_OPPOSITE = 0xFF;
+  bool start(uint8_t original, uint8_t alt = ALT_OPPOSITE) {
     if (_state == RUN) return false;
     resetRun();
-    _orig = original ? 1 : 0;
+    if (alt == ALT_OPPOSITE) {
+      _orig = original ? 1 : 0;
+      _alt = !_orig;
+    } else {
+      _orig = original;
+      _alt = alt;
+    }
     _state = RUN;
     return true;
   }
@@ -170,11 +182,12 @@ public:
 
 private:
   static bool armIsB(uint16_t idx) { uint8_t m = idx & 3; return m == 1 || m == 2; }   // A B B A
-  uint8_t valueFor(uint16_t idx) const { return armIsB(idx) ? (uint8_t)!_orig : _orig; }
+  uint8_t valueFor(uint16_t idx) const { return armIsB(idx) ? _alt : _orig; }
 
   void resetRun() {
     _idx = 0;
     _orig = 0;
+    _alt = 1;
     _prev_valid = false; _prev_is_b = false; _prev_g = 0; _prev_ratio = 0;
     _n = 0; _sum_d = _sum_d2 = _sum_rd = 0.0;
     _a_ratio_sum = 0; _a_ratio_n = 0;
@@ -195,7 +208,7 @@ private:
     _state = DONE;
     s.finished = true;
     s.outcome = o;
-    s.final_value = (o == ADOPT_B) ? (uint8_t)!_orig : _orig;
+    s.final_value = (o == ADOPT_B) ? _alt : _orig;
     s.set_value = true;
     s.value = s.final_value;
     return s;
@@ -215,6 +228,7 @@ private:
   uint16_t _total = 96;
   uint16_t _idx = 0;
   uint8_t _orig = 0;
+  uint8_t _alt = 1;
   bool _prev_valid = false, _prev_is_b = false;
   double _prev_g = 0;
   int32_t _prev_ratio = 0;

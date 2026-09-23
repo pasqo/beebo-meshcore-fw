@@ -10,10 +10,8 @@ Stats stats(uint32_t ack_ok, uint32_t ack_to, uint32_t echo_attempt, uint32_t ec
   return Stats{ack_ok, ack_to, echo_attempt, echo_ok};
 }
 
-EvalWindow::Config cfg(uint16_t min_exposure = 40, uint32_t min_ms = 300000,
-                       uint32_t max_ms = 3600000) {
+EvalWindow::Config cfg(uint32_t min_ms = 300000, uint32_t max_ms = 3600000) {
   EvalWindow::Config c;
-  c.min_exposure = min_exposure;
   c.min_ms = min_ms;
   c.max_ms = max_ms;
   return c;
@@ -47,7 +45,7 @@ TEST(EvalWindow, PollBeforeOpenReturnsFalse) {
 
 TEST(EvalWindow, DoesNotCloseBeforeMinDurationEvenWithRxActivity) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   w.open(0, stats(0, 0, 0, 0), 1, 0, 0);
   EvalWindow::Result r{};
   EXPECT_FALSE(w.poll(299999, stats(0, 0, 100, 90), 0, r, 500));
@@ -56,7 +54,7 @@ TEST(EvalWindow, DoesNotCloseBeforeMinDurationEvenWithRxActivity) {
 
 TEST(EvalWindow, StaysOpenPastMinDurationUntilRxActivity) {
   EvalWindow w;
-  w.begin(cfg(40, 300000, 3600000));
+  w.begin(cfg(300000, 3600000));
   w.open(0, stats(0, 0, 0, 0), 1, 0, 1000);
   EvalWindow::Result r{};
   EXPECT_FALSE(w.poll(900000, stats(0, 0, 0, 0), 0, r, 1000));    // 15 min, no RX yet
@@ -66,7 +64,7 @@ TEST(EvalWindow, StaysOpenPastMinDurationUntilRxActivity) {
 
 TEST(EvalWindow, InsufficientDataAtMaxDurationWithNoRxActivityAtAll) {
   EvalWindow w;
-  w.begin(cfg(40, 300000, 3600000));
+  w.begin(cfg(300000, 3600000));
   w.open(0, stats(0, 0, 0, 0), 1, 0, 1000);
   EvalWindow::Result r{};
   EXPECT_FALSE(w.poll(3599999, stats(0, 0, 10, 8), 0, r, 1000));
@@ -100,7 +98,7 @@ TEST(EvalWindow, ZeroRxActivityIsInsufficientRegardlessOfExposure) {
   // activity in the window means genuinely nothing happened (no new
   // information at all) -- this is the one case still worth discarding.
   EvalWindow w;
-  w.begin(cfg(1, 100, 200));   // low min_exposure -- irrelevant now, not the gate
+  w.begin(cfg(100, 200));
   w.open(0, stats(0, 0, 0, 0), 1, 0, 500);
   EvalWindow::Result r{};
   ASSERT_TRUE(w.poll(200, stats(0, 0, 50, 40), 0, r, 500));   // exposure=50, rx delta=0
@@ -111,7 +109,7 @@ TEST(EvalWindow, ZeroRxActivityIsInsufficientRegardlessOfExposure) {
 
 TEST(EvalWindow, UsesCounterDeltasNotLifetimeTotals) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(1000000, 5000, 900000, 800000);
   w.open(0, cur, 1, 0, 2000000);
   cur.ack_success_count += 30;
@@ -171,7 +169,7 @@ TEST(EvalWindow, InvalidatedWindowDoesNotFeedBaseline) {
 
 TEST(EvalWindow, ColdStartIsInsufficientUntilBaselineFilled) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(0, 0, 0, 0);
   uint32_t rx = 0;
   for (int i = 0; i < EvalWindow::MIN_BASELINE; i++) {
@@ -188,7 +186,7 @@ TEST(EvalWindow, ColdStartIsInsufficientUntilBaselineFilled) {
 
 TEST(EvalWindow, RosNormIsFixedPointOneThousandAtBaseline) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(0, 0, 0, 0);
   uint32_t rx = 0;
   for (int i = 0; i < 4; i++) runWindow(w, i * 300000u, cur, rx, 50, 40);  // 40 ros / 5 min = 480/h
@@ -202,7 +200,7 @@ TEST(EvalWindow, RosNormIsFixedPointOneThousandAtBaseline) {
 
 TEST(EvalWindow, RateIsPerHourIndependentOfWindowLength) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(0, 0, 0, 0);
   uint32_t rx = 0;
   EvalWindow::Result r = runWindow(w, 0, cur, rx, 50, 40, 600000);  // 40 ros in 10 min
@@ -211,7 +209,7 @@ TEST(EvalWindow, RateIsPerHourIndependentOfWindowLength) {
 
 TEST(EvalWindow, BaselineRollsOverLastEightWindows) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(0, 0, 0, 0);
   uint32_t rx = 0;
   for (int i = 0; i < 20; i++) runWindow(w, i * 300000u, cur, rx, 50, 40);
@@ -224,7 +222,7 @@ TEST(EvalWindow, BaselineRollsOverLastEightWindows) {
 
 TEST(EvalWindow, BaselineMedianIgnoresASingleOutlierWindow) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(0, 0, 0, 0);
   uint32_t rx = 0;
   for (int i = 0; i < 5; i++) runWindow(w, i * 300000u, cur, rx, 50, 40);
@@ -235,7 +233,7 @@ TEST(EvalWindow, BaselineMedianIgnoresASingleOutlierWindow) {
 
 TEST(EvalWindow, InsufficientWindowsDoNotFeedBaseline) {
   EvalWindow w;
-  w.begin(cfg(40, 300000, 900000));
+  w.begin(cfg(300000, 900000));
   w.open(0, stats(0, 0, 0, 0), 1, 0, 500);
   EvalWindow::Result r{};
   ASSERT_TRUE(w.poll(900000, stats(0, 0, 10, 9), 0, r, 500));   // rx delta 0: insufficient
@@ -244,7 +242,7 @@ TEST(EvalWindow, InsufficientWindowsDoNotFeedBaseline) {
 
 TEST(EvalWindow, UtilIsMeanOfSamplesOverTheWindow) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   w.open(0, stats(0, 0, 0, 0), 1, 0, 0);
   w.sampleUtil(20); w.sampleUtil(40); w.sampleUtil(60);
   EvalWindow::Result r{};
@@ -254,7 +252,7 @@ TEST(EvalWindow, UtilIsMeanOfSamplesOverTheWindow) {
 
 TEST(EvalWindow, NoUtilSamplesReportsZero) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   w.open(0, stats(0, 0, 0, 0), 1, 0, 0);
   EvalWindow::Result r{};
   ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 0, r, 500));
@@ -263,7 +261,7 @@ TEST(EvalWindow, NoUtilSamplesReportsZero) {
 
 TEST(EvalWindow, UtilSamplesResetWhenNextWindowOpens) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   w.open(0, stats(0, 0, 0, 0), 1, 0, 0);
   w.sampleUtil(90);
   w.open(300000, stats(0, 0, 0, 0), 2, 0, 0);
@@ -275,7 +273,7 @@ TEST(EvalWindow, UtilSamplesResetWhenNextWindowOpens) {
 
 TEST(EvalWindow, UtilSamplesIgnoredWhileNoWindowOpen) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   w.sampleUtil(100);
   w.open(0, stats(0, 0, 0, 0), 1, 0, 0);
   EvalWindow::Result r{};
@@ -285,7 +283,7 @@ TEST(EvalWindow, UtilSamplesIgnoredWhileNoWindowOpen) {
 
 TEST(EvalWindow, CadBusyPctIsCumulativeDeltaOverWindow) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   w.open(0, stats(0, 0, 0, 0), 1, /*cad_wait_ms=*/1000, 0);
   EvalWindow::Result r{};
   ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 1000 + 60000, r, 500));  // 60 s of 300 s
@@ -294,7 +292,7 @@ TEST(EvalWindow, CadBusyPctIsCumulativeDeltaOverWindow) {
 
 TEST(EvalWindow, CadBusyPctClampsAtOneHundred) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   w.open(0, stats(0, 0, 0, 0), 1, 0, 0);
   EvalWindow::Result r{};
   ASSERT_TRUE(w.poll(300000, stats(0, 0, 50, 40), 900000, r, 500));
@@ -303,7 +301,7 @@ TEST(EvalWindow, CadBusyPctClampsAtOneHundred) {
 
 TEST(EvalWindow, MeanUtilizationAboveThresholdSetsGuardrailButStaysMeasured) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(0, 0, 0, 0);
   uint32_t rx = 0;
   for (int i = 0; i < 4; i++) runWindow(w, i * 300000u, cur, rx, 50, 40);
@@ -320,7 +318,7 @@ TEST(EvalWindow, MeanUtilizationAboveThresholdSetsGuardrailButStaysMeasured) {
 
 TEST(EvalWindow, MeanUtilizationAtThresholdDoesNotTripGuardrail) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(0, 0, 0, 0);
   uint32_t rx = 0;
   for (int i = 0; i < 4; i++) runWindow(w, i * 300000u, cur, rx, 50, 40);
@@ -337,7 +335,7 @@ TEST(EvalWindow, SetConfigInvalidatesOpenWindowAsConfigChange) {
   EvalWindow w;
   w.begin(cfg());
   w.open(0, stats(0, 0, 0, 0), 1, 0, 0);
-  w.setConfig(cfg(10, 60000, 120000));
+  w.setConfig(cfg(60000, 120000));
   EvalWindow::Result r{};
   ASSERT_TRUE(w.poll(10, stats(0, 0, 500, 500), 0, r, 500));
   EXPECT_FALSE(r.measured);
@@ -346,12 +344,12 @@ TEST(EvalWindow, SetConfigInvalidatesOpenWindowAsConfigChange) {
 
 TEST(EvalWindow, SetConfigKeepsBaselineAndAppliesToNextWindow) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(0, 0, 0, 0);
   uint32_t rx = 0;
   for (int i = 0; i < 5; i++) runWindow(w, i * 300000u, cur, rx, 50, 40);
   ASSERT_EQ(5u, w.baselineCount());
-  w.setConfig(cfg(10, 60000, 120000));
+  w.setConfig(cfg(60000, 120000));
   EXPECT_EQ(5u, w.baselineCount());
   w.open(0, cur, 2, 0, rx);
   cur.echo_attempt_count += 10;
@@ -364,13 +362,13 @@ TEST(EvalWindow, SetConfigKeepsBaselineAndAppliesToNextWindow) {
 TEST(EvalWindow, SetConfigWithNoOpenWindowIsHarmless) {
   EvalWindow w;
   w.begin(cfg());
-  w.setConfig(cfg(10, 60000, 120000));
+  w.setConfig(cfg(60000, 120000));
   EXPECT_FALSE(w.isOpen());
 }
 
 TEST(EvalWindow, WithoutBaselineTheFirstExposedWindowIsMeasured) {
   EvalWindow w;
-  EvalWindow::Config c = cfg(40, 300000, 300000);
+  EvalWindow::Config c = cfg(300000, 300000);
   c.use_baseline = false;
   w.begin(c);
   w.open(0, stats(0, 0, 0, 0), 1, 0, 0);
@@ -385,7 +383,7 @@ TEST(EvalWindow, WithoutBaselineTheFirstExposedWindowIsMeasured) {
 
 TEST(EvalWindow, WithoutBaselineAWindowWithNoRxIsStillInsufficient) {
   EvalWindow w;
-  EvalWindow::Config c = cfg(40, 300000, 300000);
+  EvalWindow::Config c = cfg(300000, 300000);
   c.use_baseline = false;
   w.begin(c);
   w.open(0, stats(0, 0, 0, 0), 1, 0, 500);
@@ -397,7 +395,7 @@ TEST(EvalWindow, WithoutBaselineAWindowWithNoRxIsStillInsufficient) {
 
 TEST(EvalWindow, ResetBaselineClearsHistory) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   Stats cur = stats(0, 0, 0, 0);
   uint32_t rx = 0;
   for (int i = 0; i < 5; i++) runWindow(w, i * 300000u, cur, rx, 50, 40);
@@ -450,7 +448,7 @@ TEST(EvalWindow, ToRecordsFillsAllThreeSlotsAndSaturates) {
 
 TEST(EvalWindow, RxTxBreakdownIsCounterDeltasOverTheWindow) {
   EvalWindow w;
-  w.begin(cfg(40, 300000));
+  w.begin(cfg(300000));
   w.open(0, stats(0, 0, 0, 0), 1, 0, /*rx_count=*/1000,
          /*rx_invalid=*/50, /*rx_errors=*/20, /*tx_count=*/300);
   EvalWindow::Result r{};

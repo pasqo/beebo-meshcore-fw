@@ -1877,34 +1877,19 @@ private:
   // beebo: decision-window evaluator feeding tune_controller (one closed
   // window = one tick). RAM-only rule, like _tune_enabled: at least one RX
   // packet and min_s elapsed close a window, max_s with no RX activity at
-  // all makes it insufficient_data -- see EvalWindow.h. _tune_win_min_
-  // exposure/setTuneWindowMinExposure() are currently unused (no longer
-  // gate window validity), kept rather than removed from the settings
-  // surface pending a decision on whether to drop tune.window.min_exposure
-  // entirely.
+  // all makes it insufficient_data -- see EvalWindow.h.
   EvalWindow eval_window;
-  uint16_t _tune_win_min_exposure = 40;
   uint16_t _tune_win_min_s = 300;
   uint16_t _tune_win_max_s = 3600;
   unsigned long _next_util_sample_ms = 0;
   EvalWindow::Config evalWindowConfig() const {
     EvalWindow::Config c;
-    c.min_exposure = _tune_win_min_exposure;
     c.min_ms = (uint32_t)_tune_win_min_s * 1000u;
     c.max_ms = (uint32_t)_tune_win_max_s * 1000u;
     return c;
   }
   // beebo: window-rule setters. Return false (nothing changed) when the new
   // value would leave min_s > max_s or is 0; the caller replies ILLEGAL_ARG.
-  bool setTuneWindowMinExposure(uint16_t v, uint8_t source) {
-    if (v == 0) return false;
-    if (v != _tune_win_min_exposure) {
-      appendSettingChangedEvent(SETTING_TUNE_WINDOW_MIN_EXPOSURE, _tune_win_min_exposure, v, source);
-    }
-    _tune_win_min_exposure = v;
-    eval_window.setConfig(evalWindowConfig());
-    return true;
-  }
   bool setTuneWindowMinS(uint16_t v, uint8_t source) {
     if (v == 0 || v > _tune_win_max_s) return false;
     if (v != _tune_win_min_s) {
@@ -1930,20 +1915,42 @@ private:
   // reboot mid-trial returns to the stored value; only a winner is persisted.
   TrialFSM trial;
   EvalWindow trial_window;
+  bool _trial_enabled = false;    // trial master switch, independent of _tune_enabled (the adaptive tuner)
   uint8_t _trial_switches = 0;
   uint16_t _trial_block_s = 1800;
   uint16_t _trial_blocks = 96;
   uint8_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
-  int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, -1 = none running
+  int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, 2 = coding rate, -1 = none running
+  // Arm B per switch: what the stored value is compared against. A trial whose
+  // alt equals the stored value has nothing to compare and is skipped.
+  uint8_t _trial_alt[3] = {0, 0, 8};
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
+  void setTrialEnabled(bool on, uint8_t source) {
+    if (on != _trial_enabled) {
+      appendSettingChangedEvent(SETTING_TUNE_TRIAL_ENABLED, _trial_enabled ? 1 : 0, on ? 1 : 0, source);
+      abortTrial(false);
+      _trial_done_mask = 0;
+    }
+    _trial_enabled = on;
+  }
   bool setTrialSwitches(uint8_t mask, uint8_t source) {
-    if (mask > 3) return false;
+    if (mask > 7) return false;
     if (mask != _trial_switches) {
       appendSettingChangedEvent(SETTING_TUNE_TRIAL_SWITCHES, _trial_switches, mask, source);
       abortTrial(false);
       _trial_done_mask = 0;
     }
     _trial_switches = mask;
+    return true;
+  }
+  bool setTrialValue(uint8_t sw, uint8_t v, uint8_t source) {
+    if (sw > 2 || (sw < 2 ? v > 1 : (v < 5 || v > 8))) return false;
+    if (v != _trial_alt[sw]) {
+      appendSettingChangedEvent(SETTING_TUNE_TRIAL_VALUE_LNA + sw, _trial_alt[sw], v, source);
+      abortTrial(false);
+      _trial_done_mask = 0;
+    }
+    _trial_alt[sw] = v;
     return true;
   }
   bool setTrialBlockS(uint16_t v, uint8_t source) {
@@ -1973,6 +1980,7 @@ private:
   bool startTrial(int sw);
   void loopTrial();
   void finishTrial(const TrialFSM::Step& step);
+  static uint8_t trialParamId(int sw);
   uint8_t trialSwitchStoredValue(int sw) const;
   void applyTrialSwitchLive(int sw, uint8_t value);
   void emitTrialTune(int sw, uint8_t old_value, uint8_t value, uint16_t ratio);
@@ -1999,8 +2007,6 @@ private:
       appendSettingChangedEvent(SETTING_TUNE_ENABLED, _tune_enabled ? 1 : 0, on ? 1 : 0, source);
       // A fresh start either way: no window, baseline or bandit state carries
       // across an off/on toggle.
-      abortTrial(false);
-      _trial_done_mask = 0;
       tune_controller.begin();
       eval_window.begin(evalWindowConfig());
     }
@@ -2210,14 +2216,16 @@ private:
   // BEEBO_CPU_ACCOUNTING window/report timers this lives alongside.
   uint32_t _max_loop_latency_event_count = 0;
 
-  // Live packets/minute -- same
-  // reported (10s) tier as loops_per_sec above, riding the same
-  // _next_cpu_report_ms cadence. Derived from Dispatcher's own existing
-  // lifetime totals (getNumRecvFlood()+getNumRecvDirect() /
-  // getNumSentFlood()+getNumSentDirect()) via snapshot-and-delta, same
-  // technique _loop_count_at_report already uses -- no new increment call
-  // sites needed, no per-packet cost.
-  uint32_t _pkt_count_at_report_rx = 0, _pkt_count_at_report_tx = 0;
+  // Live packets/minute: moving 60 s sum, refreshed every CPU_WINDOW_MS (1 s).
+  // Derived from Dispatcher's own lifetime totals (getNumRecvFlood()+
+  // getNumRecvDirect() / getNumSentFlood()+getNumSentDirect()) via
+  // snapshot-and-delta into a 60-slot per-second ring -- no new increment
+  // call sites, no per-packet cost. Until the ring has 60 s of history the
+  // sum is scaled up to a full minute.
+  static constexpr uint8_t PKT_RATE_SLOTS = 60;
+  uint32_t _pkt_count_at_window_rx = 0, _pkt_count_at_window_tx = 0;
+  uint16_t _rx_pkts_sec[PKT_RATE_SLOTS] = {0}, _tx_pkts_sec[PKT_RATE_SLOTS] = {0};
+  uint8_t _pkt_sec_idx = 0, _pkt_sec_filled = 0;
   uint16_t _rx_per_min_reported = 0, _tx_per_min_reported = 0;
 #endif
 

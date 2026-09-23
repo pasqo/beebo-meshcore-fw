@@ -94,10 +94,10 @@ enum : uint8_t {
 enum {
   TUNE_RX_DELAY_BASE = 0, TUNE_TX_DELAY_FACTOR, TUNE_DIRECT_TX_DELAY_FACTOR,
   TUNE_AGC_RESET_INTERVAL, TUNE_INTERFERENCE_THRESHOLD, TUNE_AIRTIME_FACTOR,
-  // beebo: RX front-end switches decided by TrialFSM (0/1), not by the
+  // beebo: RX front-end switches decided by TrialFSM (0/1, or a CR 5-8), not by the
   // bandit -- they only appear in TuneRecords, never in
   // TuneController::specFor().
-  TUNE_FEM_LNA, TUNE_RX_BOOST,
+  TUNE_FEM_LNA, TUNE_RX_BOOST, TUNE_CR,
 };
 
 // ---- EVENT types: what kind of thing an EventRecord reports, plus its own
@@ -308,14 +308,14 @@ enum : uint8_t {
   EVENT_MAX_LOOP_LATENCY = 24,
   // beebo: TrialFSM finished (decided, kept the original, or aborted) --
   // the summary of one on-device RX front-end A/B trial (see TrialFSM.h).
-  //   data[0]    = TUNE_FEM_LNA / TUNE_RX_BOOST
+  //   data[0]    = TUNE_FEM_LNA / TUNE_RX_BOOST / TUNE_CR
   //   data[1]    = TrialFSM::Outcome (1 keep A, 2 adopt B, 3 aborted)
   //   data[2:4]  = valid pairs (u16 LE)
   //   data[4:6]  = mean relative goodput difference B-A, x1000 (i16 LE)
   //   data[6:8]  = its standard error, x1000 (i16 LE)
   //   data[8:10] = mean confirm-ratio difference B-A, 0-10000 scale (i16 LE)
   //   data[10]   = final value left on the switch
-  //   data[11]   = reserved
+  //   data[11]   = arm B's value (the alternative the original was compared with)
   EVENT_TRIAL_RESULT = 25,
 };
 
@@ -363,11 +363,13 @@ enum : uint8_t {
   // comment -- it IS TLV-registered.
   SETTING_DEDUP_WINDOW = 103,
   // beebo: tuning evaluation-window rule (EvalWindow::Config), RAM-only.
-  SETTING_TUNE_WINDOW_MIN_EXPOSURE = 104, SETTING_TUNE_WINDOW_MIN_S = 105,
+  SETTING_TUNE_WINDOW_MIN_S = 105,
   SETTING_TUNE_WINDOW_MAX_S = 106,
   // beebo: RX front-end trial settings (TrialFSM), RAM-only.
   SETTING_TUNE_TRIAL_SWITCHES = 107, SETTING_TUNE_TRIAL_BLOCK_S = 108,
   SETTING_TUNE_TRIAL_BLOCKS = 109,
+  SETTING_TUNE_TRIAL_VALUE_LNA = 110, SETTING_TUNE_TRIAL_VALUE_RXBOOST = 111,
+  SETTING_TUNE_TRIAL_VALUE_CR = 112, SETTING_TUNE_TRIAL_ENABLED = 113,
 };
 
 // ---- persisted capture config: per-kind mask + global enable (bit7) -------

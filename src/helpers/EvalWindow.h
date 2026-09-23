@@ -43,11 +43,6 @@ public:
   static constexpr uint8_t RECORD_VERSION = 2;
 
   struct Config {
-    // No longer gates window validity (see class comment) -- `exposure` is
-    // still computed and reported for diagnostics, this field is currently
-    // unused. Kept rather than removed to avoid a larger settings/protocol
-    // surface change (tune.window.min_exposure) as part of this one.
-    uint16_t min_exposure = 40;
     uint32_t min_ms = 300000;
     uint32_t max_ms = 3600000;
     // false: no rolling baseline and no cold start -- a window is measured as

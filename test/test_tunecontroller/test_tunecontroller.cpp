@@ -133,16 +133,17 @@ TEST(TuneController, EmitsEvalRunThenTuneRecordSharingWindowIds) {
   TuneController::Decision d = tc.tick(f.ring, f.ms(1000), kZeros, measured(9000));
 
   auto all = readAll(f.ring);
-  ASSERT_EQ(3u, all.size());
+  ASSERT_EQ(4u, all.size());
   EXPECT_EQ(MON_EVAL | RLOG_CONT_BIT, all[0].kind);
-  EXPECT_EQ(MON_EVAL, all[1].kind);
-  EXPECT_EQ(MON_TUNE, all[2].kind);
+  EXPECT_EQ(MON_EVAL | RLOG_CONT_BIT, all[1].kind);
+  EXPECT_EQ(MON_EVAL, all[2].kind);
+  EXPECT_EQ(MON_TUNE, all[3].kind);
   EXPECT_EQ(closing, all[0].eval_a.window_id);
   EXPECT_EQ(EVAL_ACCEPTED, all[0].eval_a.outcome);
   EXPECT_EQ(9000, all[0].eval_a.confirm_ratio);
   // the new decision is evaluated by the NEXT window
   EXPECT_EQ((uint16_t)(closing + 1), d.window_id);
-  EXPECT_EQ(d.window_id, all[2].tune.iteration);
+  EXPECT_EQ(d.window_id, all[3].tune.iteration);
   EXPECT_EQ(d.window_id, tc.windowId());
 }
 
@@ -159,7 +160,7 @@ TEST(TuneController, UnmeasuredWindowEmitsEvalOnlyAndHolds) {
   EXPECT_FALSE(d.should_apply);
   EXPECT_EQ((uint16_t)(closing + 1), d.window_id);
   auto all = readAll(f.ring);
-  ASSERT_EQ(2u, all.size());  // MON_EVAL run only, no MON_TUNE
+  ASSERT_EQ(3u, all.size());  // MON_EVAL run (3 slots) only, no MON_TUNE
   EXPECT_EQ(EVAL_INSUFFICIENT_DATA, all[0].eval_a.outcome);
   EXPECT_EQ(0u, ofKind(f.ring, MON_TUNE).size());
 }
@@ -261,8 +262,8 @@ TEST(TuneController, RegressionInTheNextWindowRollsBackImmediately) {
   EXPECT_TRUE(d2.should_apply);
 
   auto evals = ofKind(f.ring, MON_EVAL);
-  ASSERT_GE(evals.size(), 2u);
-  const MonRecord &last_a = evals[evals.size() - 2];
+  ASSERT_GE(evals.size(), 3u);
+  const MonRecord &last_a = evals[evals.size() - 3];
   EXPECT_EQ(EVAL_ROLLBACK, last_a.eval_a.outcome);
 }
 
@@ -403,4 +404,19 @@ TEST(TuneController, RollbackRevertsToMostRecentGoodValueNotTheOriginal) {
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
+}
+
+TEST(TuneController, ProposeFalseJudgesPendingButLeavesControllerIdle) {
+  RingFixture<128> f;
+  TuneController tc;
+  tc.begin();
+  tc.tick(f.ring, f.ms(1000), kZeros, measured(9000));
+  EXPECT_FALSE(tc.idle());   // a proposal is awaiting its window's verdict
+  TuneController::Decision d = tc.tick(f.ring, f.ms(1300), kZeros, measured(9000), 0, false);
+  EXPECT_TRUE(tc.idle());
+  EXPECT_TRUE(d.hold);
+  EXPECT_FALSE(d.should_apply);
+  // and the normal path resumes afterwards
+  tc.tick(f.ring, f.ms(1600), kZeros, measured(9000));
+  EXPECT_FALSE(tc.idle());
 }

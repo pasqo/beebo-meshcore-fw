@@ -142,7 +142,8 @@ public:
   // decision so the caller can perform the actual write when should_apply is
   // true and open the next window with `window_id`.
   Decision tick(MonRing &ring, uint64_t now, const int16_t current_values[NUM_PARAMS],
-                const EvalWindow::Result &window, uint8_t applied_mask = 0) {
+                const EvalWindow::Result &window, uint8_t applied_mask = 0,
+                bool propose = true) {
     uint16_t closing_id = _window_id;
     _window_id++;
 
@@ -184,6 +185,13 @@ public:
       d.should_apply = true;
       appendTuneRecord(ring, now, spec.param_id, true, current_values[q], d.value,
                        window.confirm_ratio);
+      return d;
+    }
+
+    // `propose` false: judge the pending decision above but leave nothing
+    // pending, so idle() turns true and the caller can start a TrialFSM trial.
+    if (!propose) {
+      d.hold = true;
       return d;
     }
 
