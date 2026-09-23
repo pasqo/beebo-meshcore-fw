@@ -309,7 +309,10 @@ enum : uint8_t {
   // beebo: TrialFSM finished (decided, kept the original, or aborted) --
   // the summary of one on-device RX front-end A/B trial (see TrialFSM.h).
   //   data[0]    = TUNE_FEM_LNA / TUNE_RX_BOOST / TUNE_CR
-  //   data[1]    = TrialFSM::Outcome (1 keep A, 2 adopt B, 3 aborted)
+  //   data[1]    = TrialFSM::Outcome (1 keep A, 2 adopt B, 3 aborted,
+  //                4 skipped: alternative equals the stored value, 5 skipped: switch not
+  //                controllable on this board; a skip has n/rel/se/ratio 0,
+  //                data[10] = stored value, data[11] = the alternative)
   //   data[2:4]  = valid pairs (u16 LE)
   //   data[4:6]  = mean relative goodput difference B-A, x1000 (i16 LE)
   //   data[6:8]  = its standard error, x1000 (i16 LE)

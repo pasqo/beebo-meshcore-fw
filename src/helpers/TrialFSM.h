@@ -41,7 +41,9 @@
 class TrialFSM {
 public:
   enum State : uint8_t { IDLE, RUN, DONE };
-  enum Outcome : uint8_t { NONE, KEEP_A, ADOPT_B, ABORTED };
+  // SKIPPED_* are never produced by the FSM: Beebo::startTrial() reports a
+  // switch it declined to run (see emitTrialSkip()) in the same trial_result event.
+  enum Outcome : uint8_t { NONE, KEEP_A, ADOPT_B, ABORTED, SKIPPED_SAME, SKIPPED_NO_CONTROL };
 
   static constexpr uint8_t  MIN_PAIRS = 20;
   static constexpr float    ADOPT_Z = 2.0f;

@@ -2174,13 +2174,28 @@ void Beebo::emitTrialResult(int sw, const TrialFSM::Step& step) {
   monring.appendEvent(ev, getRTCClock()->nowMillis());
 }
 
+// A switch startTrial() declined to run leaves a trial_result event (outcome
+// SKIPPED_*) so the decision is visible in the ring, not just a silent no-op.
+void Beebo::emitTrialSkip(int sw, TrialFSM::Outcome outcome) {
+  EventRecord ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.event_type = EVENT_TRIAL_RESULT;
+  ev.data[0] = trialParamId(sw);
+  ev.data[1] = (uint8_t)outcome;
+  ev.data[10] = trialSwitchStoredValue(sw);
+  ev.data[11] = _trial_alt[sw];
+  monring.appendEvent(ev, getRTCClock()->nowMillis());
+}
+
 bool Beebo::startTrial(int sw) {
   if (sw == 0 && !board.canControlLoRaFemLna()) {   // no controllable FEM LNA on this board
     _trial_done_mask |= 1;
+    emitTrialSkip(sw, TrialFSM::SKIPPED_NO_CONTROL);
     return false;
   }
   if (_trial_alt[sw] == trialSwitchStoredValue(sw)) {   // arm B equals arm A: nothing to compare
     _trial_done_mask |= (1 << sw);
+    emitTrialSkip(sw, TrialFSM::SKIPPED_SAME);
     return false;
   }
   TrialFSM::Config tc;
@@ -4794,10 +4809,6 @@ void Beebo::handleCmdFrame(size_t len) {
       memcpy(&out_frame[i], &_tx_wait_airtime_reported, 2); i += 2;
       memcpy(&out_frame[i], &_tx_wait_cad_reported, 2); i += 2;
       memcpy(&out_frame[i], &_rx_wait_relay_reported, 2); i += 2;
-      // beebo: live packets/minute, same reported (10s) tier (see
-      // Beebo::_rx_per_min_reported/_tx_per_min_reported). Append-only.
-      memcpy(&out_frame[i], &_rx_per_min_reported, 2); i += 2;
-      memcpy(&out_frame[i], &_tx_per_min_reported, 2); i += 2;
       // beebo: sys_busy -- loop()-housekeeping time not attributed to
       // rx/tx/lx (see Beebo::_sys_busy_us's comment), same reported (10s)
       // tier as busy above. Genuinely append-only.
@@ -5091,6 +5102,21 @@ void Beebo::handleCmdFrame(size_t len) {
   // a scalar GET, RESP_CODE_BEEBO+sub+bytes for a string GET, OK/ERR frame
   // for a SET) still lives here, matching the plain BEEBO_CMD_GET/SET_*
   // convention every other field in this file uses.
+  } else if (sub[0] == BEEBO_CMD_GET_COUNTER_RATES) {
+#ifdef BEEBO_CPU_ACCOUNTING
+    // beebo: moving 60 s per-minute rates, see Beebo.h's RATE_COUNTERS.
+    out_frame[0] = RESP_CODE_BEEBO;
+    out_frame[1] = BEEBO_RESP_COUNTER_RATES;
+    out_frame[2] = RATE_COUNTERS;
+    for (uint8_t c = 0; c < RATE_COUNTERS; c++) {
+      uint16_t v = (uint16_t)min(_rate_sum[c] * RATE_SLOTS / (_rate_filled ? _rate_filled : 1),
+                                 (uint32_t)0xFFFF);
+      memcpy(&out_frame[3 + 2 * c], &v, 2);
+    }
+    _serial->writeFrame(out_frame, 3 + 2 * RATE_COUNTERS);
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (sub[0] == BEEBO_CMD_GET_ACK_STATS) {
     // beebo: "TX reception confirmation".
     // Lifetime counts, RAM-only (BaseChatMesh's own _ack_success_count/
@@ -6539,6 +6565,34 @@ uint16_t Beebo::updateBattTrend(bool force_read) {
   return new_batt_mv;
 }
 
+#ifdef BEEBO_CPU_ACCOUNTING
+// beebo: the lifetime counters whose moving per-minute rates
+// BEEBO_CMD_GET_COUNTER_RATES reports, in wire order (Beebo.h RATE_COUNTERS).
+uint32_t Beebo::rateCounter(uint8_t i) {
+  SimpleMeshTables* t = (SimpleMeshTables*)getTables();
+  switch (i) {
+    case 0: return radio_driver.getPacketsRecv();
+    case 1: return getNumRecvFlood();
+    case 2: return t->getNumFloodDups();
+    case 3: return getNumRecvDirect();
+    case 4: return t->getNumDirectDups();
+    case 5: return radio_driver.getPacketsRecvErrors();
+    case 6: return radio_driver.getPacketsSent();
+    case 7: return getNumSentFlood();
+    case 8: return getNumSentDirect();
+    case 9: return getAckSuccessCount();
+    case 10: return getAckTimeoutCount();
+    case 11: return t->getEchoSuccessCount();
+    case 12: return t->getEchoTimeoutCount();
+    case 13: return _max_hop_no_fwd_count;
+    case 14: return _region_no_fwd_count;
+    case 15: return _loop_no_fwd_count;
+    case 16: return monring.rxParseErrorCount();
+  }
+  return 0;
+}
+#endif
+
 void Beebo::loop() {
 #ifdef BEEBO_CPU_ACCOUNTING
   // beebo: headroom metrics -- cause-agnostic, unlike the RX/TX/CLI/IDLE
@@ -6770,21 +6824,17 @@ void Beebo::loop() {
       _loops_per_sec = (uint16_t)(((uint64_t)(_loop_count - _loop_count_at_window) * 1000000ULL) / window_us);
     }
     _loop_count_at_window = _loop_count;
-    // Moving-minute packet rates: one slot per window tick (~1 s).
-    {
-      uint32_t rx_now = getNumRecvFlood() + getNumRecvDirect();
-      uint32_t tx_now = getNumSentFlood() + getNumSentDirect();
-      _rx_pkts_sec[_pkt_sec_idx] = (uint16_t)min(rx_now - _pkt_count_at_window_rx, (uint32_t)0xFFFF);
-      _tx_pkts_sec[_pkt_sec_idx] = (uint16_t)min(tx_now - _pkt_count_at_window_tx, (uint32_t)0xFFFF);
-      _pkt_count_at_window_rx = rx_now;
-      _pkt_count_at_window_tx = tx_now;
-      _pkt_sec_idx = (_pkt_sec_idx + 1) % PKT_RATE_SLOTS;
-      if (_pkt_sec_filled < PKT_RATE_SLOTS) _pkt_sec_filled++;
-      uint32_t rx_sum = 0, tx_sum = 0;
-      for (uint8_t s = 0; s < _pkt_sec_filled; s++) { rx_sum += _rx_pkts_sec[s]; tx_sum += _tx_pkts_sec[s]; }
-      _rx_per_min_reported = (uint16_t)min(rx_sum * PKT_RATE_SLOTS / _pkt_sec_filled, (uint32_t)0xFFFF);
-      _tx_per_min_reported = (uint16_t)min(tx_sum * PKT_RATE_SLOTS / _pkt_sec_filled, (uint32_t)0xFFFF);
+    // Moving-minute counter rates: one slot per window tick (~1 s).
+    for (uint8_t c = 0; c < RATE_COUNTERS; c++) {
+      uint32_t now_v = rateCounter(c);
+      uint16_t d = (uint16_t)min(now_v - _rate_prev[c], (uint32_t)0xFFFF);
+      _rate_prev[c] = now_v;
+      _rate_sum[c] += d;
+      _rate_sum[c] -= _rate_ring[c][_rate_idx];   // slot being overwritten (0 until first wrap)
+      _rate_ring[c][_rate_idx] = d;
     }
+    _rate_idx = (_rate_idx + 1) % RATE_SLOTS;
+    if (_rate_filled < RATE_SLOTS) _rate_filled++;
     if (_max_loop_latency_us > _max_loop_latency_us_peak) {
       _max_loop_latency_us_peak = _max_loop_latency_us;
     }

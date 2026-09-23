@@ -1985,6 +1985,7 @@ private:
   void applyTrialSwitchLive(int sw, uint8_t value);
   void emitTrialTune(int sw, uint8_t old_value, uint8_t value, uint16_t ratio);
   void emitTrialResult(int sw, const TrialFSM::Step& step);
+  void emitTrialSkip(int sw, TrialFSM::Outcome outcome);
   uint16_t trialWindowId() const { return 0x8000 | trial.blockIndex(); }
   MonRing::QosStats tuneQosStats();
   // Open a fresh evaluation window from the current counters.
@@ -2216,17 +2217,19 @@ private:
   // BEEBO_CPU_ACCOUNTING window/report timers this lives alongside.
   uint32_t _max_loop_latency_event_count = 0;
 
-  // Live packets/minute: moving 60 s sum, refreshed every CPU_WINDOW_MS (1 s).
-  // Derived from Dispatcher's own lifetime totals (getNumRecvFlood()+
-  // getNumRecvDirect() / getNumSentFlood()+getNumSentDirect()) via
-  // snapshot-and-delta into a 60-slot per-second ring -- no new increment
-  // call sites, no per-packet cost. Until the ring has 60 s of history the
-  // sum is scaled up to a full minute.
-  static constexpr uint8_t PKT_RATE_SLOTS = 60;
-  uint32_t _pkt_count_at_window_rx = 0, _pkt_count_at_window_tx = 0;
-  uint16_t _rx_pkts_sec[PKT_RATE_SLOTS] = {0}, _tx_pkts_sec[PKT_RATE_SLOTS] = {0};
-  uint8_t _pkt_sec_idx = 0, _pkt_sec_filled = 0;
-  uint16_t _rx_per_min_reported = 0, _tx_per_min_reported = 0;
+  // Moving per-minute rates of the lifetime counters behind `monitor status`'s
+  // Service Status table (BEEBO_CMD_GET_COUNTER_RATES): a 60 s sum refreshed
+  // every CPU_WINDOW_MS (1 s). Each counter is snapshot-and-diffed into a
+  // 60-slot per-second ring with a running sum -- no new increment call
+  // sites, no per-packet cost. Until the ring has 60 s of history the sum
+  // is scaled up to a full minute. rateCounter() defines the fixed order.
+  static constexpr uint8_t RATE_COUNTERS = 17;
+  static constexpr uint8_t RATE_SLOTS = 60;
+  uint32_t rateCounter(uint8_t i);
+  uint32_t _rate_prev[RATE_COUNTERS] = {0};
+  uint32_t _rate_sum[RATE_COUNTERS] = {0};
+  uint16_t _rate_ring[RATE_COUNTERS][RATE_SLOTS] = {{0}};
+  uint8_t _rate_idx = 0, _rate_filled = 0;
 #endif
 
   TransportKey send_scope;
