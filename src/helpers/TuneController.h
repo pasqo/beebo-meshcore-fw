@@ -3,6 +3,7 @@
 #include <math.h>
 #include "MonRing.h"
 #include "EvalWindow.h"
+#include "Objective.h"
 
 // On-device, observe-only dynamic-tuning controller.
 //
@@ -127,6 +128,10 @@ public:
   // TrialFSM trial without confounding a pending live change).
   bool idle() const { return _pending_param < 0; }
 
+  // Score windows with the shared objective instead of plain goodput; the
+  // controller keeps the pointer (the caller owns it and its weights).
+  void setObjective(Objective *o) { _objective = o; }
+
   // Id of the window currently open (or about to be opened).
   uint16_t windowId() const { return _window_id; }
   uint32_t stepPulls(int p, int s) const { return _state[p].steps[s].pulls; }
@@ -169,7 +174,7 @@ public:
       if (!rollback && qs.pending_step >= 0) {
         StepState &st = qs.steps[qs.pending_step];
         st.pulls++;
-        st.reward_sum += goodput(window);
+        st.reward_sum += reward(window);
       }
       qs.pending_step = -1;
       qs.has_pending_live_change = false;
@@ -249,11 +254,19 @@ private:
   };
 
   ParamState _state[NUM_PARAMS];
+  Objective *_objective = nullptr;   // null = plain goodput
   uint8_t _next_param = 0;
   int8_t _pending_param = -1;   // param proposed by the previous tick, awaiting its window's verdict
   uint16_t _window_id = 1;
 
   // ros_norm (1000 = baseline volume) x confirm ratio (0-10000), capped.
+  // A window's step reward: the shared objective (Objective.h) when one is
+  // attached, else plain goodput; capped either way.
+  float reward(const EvalWindow::Result &w) {
+    if (!_objective) return goodput(w);
+    return _objective->banditReward(w, (float)GOODPUT_CAP);
+  }
+
   static float goodput(const EvalWindow::Result &w) {
     uint64_t g = (uint64_t)w.ros_norm * w.confirm_ratio / 1000;
     return (float)(g > GOODPUT_CAP ? GOODPUT_CAP : g);

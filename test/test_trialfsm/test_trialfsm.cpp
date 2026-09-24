@@ -278,13 +278,26 @@ TEST(TrialFSM, InvalidatedBlockIsDiscardedToo) {
   EXPECT_EQ(TrialFSM::RUN, t.state());
 }
 
-TEST(TrialFSM, ZeroGoodputPairIsSkipped) {
+TEST(TrialFSM, PairOfZeroGoodputBlocksCountsAsNoDifference) {
   TrialFSM t;
   t.begin(cfg(96));
   t.start(1);
   t.onBlock(blk(0, 0), 0, 0);
   t.onBlock(blk(0, 0), 0, 0);
-  EXPECT_EQ(0u, t.stats().n_pairs);
+  // both floored the same: a real (measured) pair whose difference is 0
+  EXPECT_EQ(1u, t.stats().n_pairs);
+  EXPECT_EQ(0, t.stats().mean_rel_x1000);
+}
+
+TEST(TrialFSM, DeadBlockOnOneSideIsALargeFiniteDifference) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  t.onBlock(blk(200, 9000), 0, 0);   // A
+  t.onBlock(blk(0, 8000), 0, 0);     // B: no deliveries (the ratio guard tolerates 1500)
+  EXPECT_EQ(1u, t.stats().n_pairs);
+  EXPECT_LT(t.stats().mean_rel_x1000, -5000);   // ~ ln(0.01 * 0.8 / (200 * 0.9)) = -10 in x1000
+  EXPECT_GT(t.stats().mean_rel_x1000, -30000);
 }
 
 TEST(TrialFSM, BlocksAreRoundedDownToWholePairsWithAMinimumOfTwo) {
@@ -376,4 +389,33 @@ TEST(TrialFSM, ExplicitAlternativeKeepsTheOriginalWhenWorse) {
   ASSERT_TRUE(s.finished);
   EXPECT_EQ(TrialFSM::KEEP_A, s.outcome);
   EXPECT_EQ(6, s.final_value);
+}
+
+TEST(TrialFSM, ObjectiveWeightsChangeWhatTheTrialOptimizes) {
+  // B has the same goodput as A but hears twice as many valid packets.
+  auto run = [](const Objective *obj) {
+    TrialFSM t;
+    TrialFSM::Config c = cfg(48);
+    c.objective = obj;
+    t.begin(c);
+    t.start(1);
+    TrialFSM::Step s = {};
+    for (int i = 0; i < 48 && !s.finished; i++) {
+      bool is_b = t.currentValue() != 1;
+      EvalWindow::Result r = blk(100 + (i % 3) * 5, 9000);
+      r.window_ms = 1800000;
+      r.rx_valid = is_b ? 200 : 100;
+      s = t.onBlock(r, 0, 0);
+    }
+    return s;
+  };
+  Objective goodput;                  // rx_valid weight 0: no difference, keeps A
+  TrialFSM::Step a = run(&goodput);
+  ASSERT_TRUE(a.finished);
+  EXPECT_EQ(TrialFSM::KEEP_A, a.outcome);
+  Objective rx;
+  rx.weights[Objective::RX_VALID] = 10;   // rx_valid counts: B wins
+  TrialFSM::Step b = run(&rx);
+  ASSERT_TRUE(b.finished);
+  EXPECT_EQ(TrialFSM::ADOPT_B, b.outcome);
 }

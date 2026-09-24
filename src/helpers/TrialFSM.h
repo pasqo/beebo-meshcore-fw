@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdint.h>
 #include "EvalWindow.h"
+#include "Objective.h"
 
 // beebo: on-device A/B trial for one front-end switch (FEM LNA, RX
 // boosted gain, coding rate), stage 1 of the two-stage tuner (see plans/
@@ -21,7 +22,8 @@
 // switch), which cancels drift within a few blocks; each adjacent block pair
 // is one A/B pair.
 //
-// Decision: a sequential test on the paired relative goodput difference d
+// Decision: a sequential test on the paired difference d of ln(objective)
+// (Objective.h; goodput by default), i.e. the weighted relative change B vs A
 // (B - A, relative to the pair mean), checked after every new pair once
 // MIN_LOOK_PAIRS are in, so the trial stops as soon as the evidence settles
 // instead of at a fixed pair count. With n pairs, mean m and standard error
@@ -61,6 +63,7 @@ public:
     uint16_t blocks = 96;
     uint8_t alpha_pct = 5;   // overall error rate: 1, 5 or 10 (other values use 5)
     uint8_t min_gain_pct = 5;    // smallest worthwhile relative gain, percent
+    const Objective *objective = nullptr;   // per-block value; null = the default goodput weights
   };
 
   // Two-sided Student-t critical value for `df` degrees of freedom at
@@ -161,7 +164,7 @@ public:
       else      { _heard_a += reach_heard; _marg_a += reach_marginal; _reach_a_n++; }
     }
 
-    double g = valid ? (double)r.ros_rate * r.confirm_ratio / 10000.0 : 0.0;
+    double g = valid ? objective().trialLog(r) : 0.0;   // ln of the objective
     bool pair_added = false;
     if (!(_idx & 1)) {
       _prev_valid = valid;
@@ -171,8 +174,8 @@ public:
     } else if (valid && _prev_valid) {
       double gb = is_b ? g : _prev_g, ga = is_b ? _prev_g : g;
       int32_t rb = is_b ? r.confirm_ratio : _prev_ratio, ra = is_b ? _prev_ratio : r.confirm_ratio;
-      if (ga + gb > 0.0) {
-        double d = (gb - ga) / ((ga + gb) / 2.0);
+      {
+        double d = gb - ga;   // difference of ln(objective): the weighted relative change
         _n++;
         _sum_d += d;
         _sum_d2 += d * d;
@@ -241,6 +244,11 @@ private:
     return s;
   }
 
+  const Objective &objective() const {
+    static const Objective defaults;
+    return _cfg.objective ? *_cfg.objective : defaults;
+  }
+
   // +1: B wins, -1: keep A (no worthwhile gain), 0: keep measuring. `final`
   // is the last look of the schedule, where the plain t bound applies.
   int look(bool final) const {
@@ -251,7 +259,7 @@ private:
     if (!final) b *= sqrt((double)(_total / 2) / n);
     double lower = mean - b * se, upper = mean + b * se;
     bool ratio_ok = (_sum_rd / n) >= -(double)RATIO_TOLERANCE;
-    if (upper < _cfg.min_gain_pct / 100.0) return -1;   // even the best case is below the minimum gain
+    if (upper < log(1.0 + _cfg.min_gain_pct / 100.0)) return -1;   // even the best case is below the minimum gain
     if (lower > 0.0 && ratio_ok) return 1;
     return 0;
   }

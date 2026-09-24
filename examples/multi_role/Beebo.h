@@ -1873,6 +1873,7 @@ private:
   // counterpart: resets to off/all-observe-only on reboot, acceptable for
   // this experimental feature.
   TuneController tune_controller;
+  Objective objective;   // scores windows for both tuners; weights are RAM-only settings
   bool _tune_enabled = false;
   // beebo: decision-window evaluator feeding tune_controller (one closed
   // window = one tick). RAM-only rule, like _tune_enabled: at least one RX
@@ -1975,6 +1976,23 @@ private:
     _trial_min_gain_pct = v;
     return true;
   }
+  // Objective weight in tenths (Objective.h). The value scale changes under
+  // both tuners, so a change aborts a running trial and restarts the adaptive
+  // tuner's statistics.
+  bool setRewardWeight(uint8_t idx, int8_t v, uint8_t source) {
+    if (idx >= Objective::NUM_INDICATORS || v < Objective::WEIGHT_MIN || v > Objective::WEIGHT_MAX) return false;
+    if (v != objective.weights[idx]) {
+      appendSettingChangedEvent(SETTING_TUNE_REWARD_WEIGHT_BASE + idx, (uint32_t)(int32_t)objective.weights[idx],
+                                (uint32_t)(int32_t)v, source);
+      abortTrial(false);
+      _trial_done_mask = 0;
+      tune_controller.begin();
+      objective.resetBaselines();
+      eval_window.begin(evalWindowConfig());
+    }
+    objective.weights[idx] = v;
+    return true;
+  }
   bool setTrialBlockS(uint16_t v, uint8_t source) {
     if (v == 0) return false;
     if (v != _trial_block_s) {
@@ -2003,6 +2021,7 @@ private:
   void loopTrial();
   void finishTrial(const TrialFSM::Step& step);
   static uint8_t trialParamId(int sw);
+  static int rewardIndex(const char* name, int len = -1);
   uint8_t trialSwitchStoredValue(int sw) const;
   void applyTrialSwitchLive(int sw, uint8_t value);
   void emitTrialTune(int sw, uint8_t old_value, uint8_t value, uint16_t ratio);

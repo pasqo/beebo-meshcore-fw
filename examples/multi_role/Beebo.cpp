@@ -2043,6 +2043,7 @@ void Beebo::initMonRing() {
 #endif
 
   tune_controller.begin();
+  tune_controller.setObjective(&objective);
   eval_window.begin(evalWindowConfig());
 }
 
@@ -2121,6 +2122,18 @@ void Beebo::loopTune() {
 
 // ---- on-device RX front-end trial (TrialFSM.h) ----------------------------
 
+// Objective indicator by its setting name; `len` limits the compared prefix
+// (a "set" key carries its value after a space), -1 = whole string.
+int Beebo::rewardIndex(const char* name, int len) {
+  static const char* const names[Objective::NUM_INDICATORS] = {
+    "routed", "confirm", "rx_valid", "rx_errors", "tx_dispatched", "nbr_heard", "pool_busy", "cad_busy"};
+  for (int i = 0; i < Objective::NUM_INDICATORS; i++) {
+    size_t n = strlen(names[i]);
+    if (len < 0 ? strcmp(name, names[i]) == 0 : ((size_t)len == n && strncmp(name, names[i], n) == 0)) return i;
+  }
+  return -1;
+}
+
 uint8_t Beebo::trialParamId(int sw) {
   return sw == 0 ? TUNE_FEM_LNA : sw == 1 ? TUNE_RX_BOOST : TUNE_CR;
 }
@@ -2162,7 +2175,7 @@ void Beebo::emitTrialResult(int sw, const TrialFSM::Step& step) {
   memset(&ev, 0, sizeof(ev));
   ev.event_type = EVENT_TRIAL_RESULT;
   ev.data[0] = trialParamId(sw);
-  ev.data[1] = (uint8_t)step.outcome;
+  ev.data[1] = (uint8_t)step.outcome | TRIAL_RESULT_LOG_UNITS;
   uint16_t n = (uint16_t)(st.n_pairs > 0xFFFF ? 0xFFFF : st.n_pairs);
   int16_t rel = (int16_t)st.mean_rel_x1000, se = (int16_t)st.se_x1000, rd = (int16_t)st.mean_ratio_diff;
   memcpy(&ev.data[2], &n, 2);
@@ -2203,6 +2216,7 @@ bool Beebo::startTrial(int sw) {
   tc.blocks = _trial_blocks;
   tc.alpha_pct = 100 - _trial_confidence_pct;   // TrialFSM works in error rate
   tc.min_gain_pct = _trial_min_gain_pct;
+  tc.objective = &objective;
   trial.begin(tc);
   trial.start(trialSwitchStoredValue(sw), _trial_alt[sw]);
   _trial_switch = (int8_t)sw;
@@ -5582,6 +5596,18 @@ void Beebo::handleCmdFrame(size_t len) {
     bool ok = (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_CONFIDENCE) ? setTrialConfidence(sub[1], EVENT_SOURCE_BINARY)
                                                          : setTrialMinGain(sub[1], EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+  } else if (sub[0] == BEEBO_CMD_GET_TUNE_REWARD_WEIGHT && sub_len >= 2) {
+    if (sub[1] < Objective::NUM_INDICATORS) {
+      int32_t v = objective.weights[sub[1]];
+      out_frame[0] = RESP_CODE_OK;
+      memcpy(&out_frame[1], &v, 4);
+      _serial->writeFrame(out_frame, 5);
+    } else {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_TUNE_REWARD_WEIGHT && sub_len >= 3) {
+    if (setRewardWeight(sub[1], (int8_t)sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
+    else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_VALUE && sub_len >= 2) {
     if (sub[1] < 3) {
       uint32_t v = _trial_alt[sub[1]];
@@ -8230,6 +8256,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_tune_win_max_s);
     } else if (strcmp(key, "tune.trial.switches") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_switches);
+    } else if (strncmp(key, "tune.reward.", 12) == 0) {
+      int idx = rewardIndex(&key[12]);
+      if (idx < 0) sprintf(reply, "??: %s", key);
+      else sprintf(reply, "> %d", (int)objective.weights[idx]);
     } else if (strcmp(key, "tune.trial.confidence_pct") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_confidence_pct);
     } else if (strcmp(key, "tune.trial.min_gain_pct") == 0) {
@@ -8660,6 +8690,17 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         return;
       }
       if (!ok) { strcpy(reply, "ERR: expected 1-65535, min_s <= max_s"); return; }
+      sprintf(reply, "> %ld", v);
+    } else if (memcmp(key, "tune.reward.", 12) == 0) {
+      // beebo: objective weight in tenths, "set tune.reward.<indicator> <-50..50>"
+      const char* sp = strchr(&key[12], ' ');
+      int idx = sp ? rewardIndex(&key[12], (int)(sp - &key[12])) : -1;
+      long v = sp ? atol(sp + 1) : 0;
+      if (idx < 0) { sprintf(reply, "ERR: unknown key: %s", key); return; }
+      if (v < Objective::WEIGHT_MIN || v > Objective::WEIGHT_MAX ||
+          !setRewardWeight((uint8_t)idx, (int8_t)v, EVENT_SOURCE_TEXT_CLI)) {
+        strcpy(reply, "ERR: expected -50 to 50"); return;
+      }
       sprintf(reply, "> %ld", v);
     } else if (memcmp(key, "tune.trial.", 11) == 0) {
       // beebo: on-device RX front-end trial settings, see BEEBO_CMD_SET_TUNE_TRIAL_*.

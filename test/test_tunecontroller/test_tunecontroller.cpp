@@ -420,3 +420,16 @@ TEST(TuneController, ProposeFalseJudgesPendingButLeavesControllerIdle) {
   tc.tick(f.ring, f.ms(1600), kZeros, measured(9000));
   EXPECT_FALSE(tc.idle());
 }
+
+TEST(TuneController, AttachedObjectiveScoresStepsInsteadOfGoodput) {
+  RingFixture<256> f;
+  TuneController tc;
+  tc.begin();
+  Objective o;
+  o.weights[Objective::ROUTED] = 0;   // ignore volume: reward is the ratio alone
+  tc.setObjective(&o);
+  // two identical-ratio windows with very different volume must reward the same
+  tc.tick(f.ring, f.ms(1000), kZeros, measured(9000, 500));
+  tc.tick(f.ring, f.ms(1010), kZeros, measured(9000, 2000));
+  EXPECT_NEAR(9000.0f, tc.stepRewardSum(TUNE_RX_DELAY_BASE, 0), 1.0f);
+}

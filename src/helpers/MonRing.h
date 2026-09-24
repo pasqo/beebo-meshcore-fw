@@ -309,18 +309,22 @@ enum : uint8_t {
   // beebo: TrialFSM finished (decided, kept the original, or aborted) --
   // the summary of one on-device RX front-end A/B trial (see TrialFSM.h).
   //   data[0]    = TUNE_FEM_LNA / TUNE_RX_BOOST / TUNE_CR
-  //   data[1]    = TrialFSM::Outcome (1 keep A, 2 adopt B, 3 aborted,
+  //   data[1]    = TrialFSM::Outcome | TRIAL_RESULT_LOG_UNITS (1 keep A, 2 adopt B, 3 aborted,
   //                4 skipped: alternative equals the stored value, 5 skipped: switch not
   //                controllable on this board; a skip has n/rel/se/ratio 0,
   //                data[10] = stored value, data[11] = the alternative)
   //   data[2:4]  = valid pairs (u16 LE)
-  //   data[4:6]  = mean relative goodput difference B-A, x1000 (i16 LE)
+  //   data[4:6]  = mean paired ln(objective) difference B-A, x1000 (i16 LE)
   //   data[6:8]  = its standard error, x1000 (i16 LE)
   //   data[8:10] = mean confirm-ratio difference B-A, 0-10000 scale (i16 LE)
   //   data[10]   = final value left on the switch
   //   data[11]   = arm B's value (the alternative the original was compared with)
   EVENT_TRIAL_RESULT = 25,
 };
+// beebo: set on EVENT_TRIAL_RESULT's data[1] when data[4:6]/[6:8] are in ln units
+// (mean/SE of the paired ln(objective) difference); clear on results from
+// firmware that reported the plain relative goodput difference.
+static constexpr uint8_t TRIAL_RESULT_LOG_UNITS = 0x80;
 
 // ---- TXCONFIRM_*: verdict enum used ONLY for internal bookkeeping now
 // (SimpleMeshTables/AckTableEntry track which verdict, if any, a slot has
@@ -374,6 +378,8 @@ enum : uint8_t {
   SETTING_TUNE_TRIAL_VALUE_LNA = 110, SETTING_TUNE_TRIAL_VALUE_RXBOOST = 111,
   SETTING_TUNE_TRIAL_VALUE_CR = 112, SETTING_TUNE_TRIAL_ENABLED = 113,
   SETTING_TUNE_TRIAL_CONFIDENCE = 114, SETTING_TUNE_TRIAL_MIN_GAIN = 115,
+  // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
+  SETTING_TUNE_REWARD_WEIGHT_BASE = 116,
 };
 
 // ---- persisted capture config: per-kind mask + global enable (bit7) -------
