@@ -1916,7 +1916,7 @@ private:
   TrialFSM trial;
   EvalWindow trial_window;
   bool _trial_enabled = false;    // trial master switch, independent of _tune_enabled (the adaptive tuner)
-  uint8_t _trial_alpha_pct = 5;   // TrialFSM overall error rate: 1, 5 or 10
+  uint8_t _trial_confidence_pct = 95;   // TrialFSM confidence level: 90, 95 or 99
   uint8_t _trial_band_pct = 5;    // TrialFSM worthwhile relative gain, percent
   uint8_t _trial_switches = 0;
   uint16_t _trial_block_s = 1800;
@@ -1955,14 +1955,14 @@ private:
     _trial_alt[sw] = v;
     return true;
   }
-  bool setTrialAlpha(uint8_t v, uint8_t source) {
-    if (v != 1 && v != 5 && v != 10) return false;
-    if (v != _trial_alpha_pct) {
-      appendSettingChangedEvent(SETTING_TUNE_TRIAL_ALPHA, _trial_alpha_pct, v, source);
+  bool setTrialConfidence(uint8_t v, uint8_t source) {
+    if (v != 90 && v != 95 && v != 99) return false;
+    if (v != _trial_confidence_pct) {
+      appendSettingChangedEvent(SETTING_TUNE_TRIAL_CONFIDENCE, _trial_confidence_pct, v, source);
       abortTrial(false);
       _trial_done_mask = 0;
     }
-    _trial_alpha_pct = v;
+    _trial_confidence_pct = v;
     return true;
   }
   bool setTrialBand(uint8_t v, uint8_t source) {
