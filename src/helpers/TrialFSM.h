@@ -32,8 +32,8 @@
 // the sqrt(N / n) factor is an O'Brien-Fleming-style tightening that keeps
 // checking after every pair from inflating the false-positive rate (it is 1
 // at the last pair of the schedule, so the final look is the plain t-test).
-//   keep A   when the upper bound m + b*se is below the worthwhile-gain band
-//            (B cannot beat A by band_pct), i.e. no meaningful difference or B
+//   keep A   when the upper bound m + b*se is below the minimum worthwhile gain
+//            (B cannot beat A by min_gain_pct), i.e. no meaningful difference or B
 //            worse (checked first)
 //   adopt B  when the lower bound m - b*se > 0 and the confirm ratio is no
 //            worse than RATIO_TOLERANCE
@@ -60,7 +60,7 @@ public:
     uint16_t block_s = 1800;
     uint16_t blocks = 96;
     uint8_t alpha_pct = 5;   // overall error rate: 1, 5 or 10 (other values use 5)
-    uint8_t band_pct = 5;    // smallest worthwhile relative gain, percent
+    uint8_t min_gain_pct = 5;    // smallest worthwhile relative gain, percent
   };
 
   // Two-sided Student-t critical value for `df` degrees of freedom at
@@ -251,7 +251,7 @@ private:
     if (!final) b *= sqrt((double)(_total / 2) / n);
     double lower = mean - b * se, upper = mean + b * se;
     bool ratio_ok = (_sum_rd / n) >= -(double)RATIO_TOLERANCE;
-    if (upper < _cfg.band_pct / 100.0) return -1;   // even the best case is below the band
+    if (upper < _cfg.min_gain_pct / 100.0) return -1;   // even the best case is below the minimum gain
     if (lower > 0.0 && ratio_ok) return 1;
     return 0;
   }

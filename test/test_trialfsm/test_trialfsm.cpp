@@ -156,7 +156,7 @@ TEST(TrialFSM, StopsEarlyWhenTheGainIsBelowTheWorthwhileBand) {
   TrialFSM t;
   t.begin(cfg(96));
   t.start(1);
-  // +1% is real but well under the default 5% band: no reason to keep
+  // +1% is real but well under the default 5% minimum gain: no reason to keep
   // measuring, keep A.
   TrialFSM::Step s = runPairs(t, 1, 48, [](uint32_t a) { return a * 101 / 100; });
   ASSERT_TRUE(s.finished);
@@ -169,7 +169,7 @@ TEST(TrialFSM, RatioBelowToleranceBlocksAdoptionUntilTheScheduleEnds) {
   t.begin(cfg(96));
   t.start(1);
   // The goodput gain alone would adopt at once, but a confirm ratio far worse
-  // than RATIO_TOLERANCE blocks it, and the gain is above the band so the
+  // than RATIO_TOLERANCE blocks it, and the gain is above the minimum so the
   // trial does not stop for "no gain" either.
   TrialFSM::Step s = runPairs(t, 1, 48, clearlyBetter, /*a_ratio=*/9000, /*b_ratio=*/8500);
   ASSERT_TRUE(s.finished);

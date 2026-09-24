@@ -2202,7 +2202,7 @@ bool Beebo::startTrial(int sw) {
   tc.block_s = _trial_block_s;
   tc.blocks = _trial_blocks;
   tc.alpha_pct = 100 - _trial_confidence_pct;   // TrialFSM works in error rate
-  tc.band_pct = _trial_band_pct;
+  tc.min_gain_pct = _trial_min_gain_pct;
   trial.begin(tc);
   trial.start(trialSwitchStoredValue(sw), _trial_alt[sw]);
   _trial_switch = (int8_t)sw;
@@ -5573,14 +5573,14 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_ENABLED && sub_len >= 2) {
     setTrialEnabled(sub[1] != 0, EVENT_SOURCE_BINARY);
     writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_CONFIDENCE || sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_BAND) {
-    uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_CONFIDENCE) ? _trial_confidence_pct : _trial_band_pct;
+  } else if (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_CONFIDENCE || sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_MIN_GAIN) {
+    uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_CONFIDENCE) ? _trial_confidence_pct : _trial_min_gain_pct;
     out_frame[0] = RESP_CODE_OK;
     memcpy(&out_frame[1], &v, 4);
     _serial->writeFrame(out_frame, 5);
-  } else if ((sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_CONFIDENCE || sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_BAND) && sub_len >= 2) {
+  } else if ((sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_CONFIDENCE || sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_MIN_GAIN) && sub_len >= 2) {
     bool ok = (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_CONFIDENCE) ? setTrialConfidence(sub[1], EVENT_SOURCE_BINARY)
-                                                         : setTrialBand(sub[1], EVENT_SOURCE_BINARY);
+                                                         : setTrialMinGain(sub[1], EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_VALUE && sub_len >= 2) {
     if (sub[1] < 3) {
@@ -8232,8 +8232,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_trial_switches);
     } else if (strcmp(key, "tune.trial.confidence_pct") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_confidence_pct);
-    } else if (strcmp(key, "tune.trial.band_pct") == 0) {
-      sprintf(reply, "> %u", (unsigned)_trial_band_pct);
+    } else if (strcmp(key, "tune.trial.min_gain_pct") == 0) {
+      sprintf(reply, "> %u", (unsigned)_trial_min_gain_pct);
     } else if (strcmp(key, "tune.trial.enabled") == 0) {
       sprintf(reply, "> %s", _trial_enabled ? "on" : "off");
     } else if (strncmp(key, "tune.trial.switches.", 20) == 0) {
@@ -8689,7 +8689,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       }
       else if (strncmp(k, "switches ", 9) == 0) ok = v >= 0 && setTrialSwitches((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "confidence_pct ", 15) == 0) ok = v >= 0 && v <= 255 && setTrialConfidence((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
-      else if (strncmp(k, "band_pct ", 9) == 0) ok = v >= 0 && v <= 255 && setTrialBand((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "min_gain_pct ", 9) == 0) ok = v >= 0 && v <= 255 && setTrialMinGain((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_s ", 8) == 0) ok = v >= 1 && v <= 65535 && setTrialBlockS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "blocks ", 7) == 0) ok = v >= 2 && v <= 65535 && setTrialBlocks((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else { sprintf(reply, "ERR: unknown key: %s", key); return; }
