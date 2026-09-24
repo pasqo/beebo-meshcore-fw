@@ -15,18 +15,21 @@ EvalWindow::Result win(uint32_t ros_rate, uint16_t ratio = 9000) {
 
 }  // namespace
 
-TEST(Objective, DefaultWeightsAreGoodput) {
+TEST(Objective, DefaultWeightsScoreGoodputOnAPercentScale) {
   Objective o;
-  EXPECT_NEAR(200.0 * 0.9, o.trialValue(win(200, 9000)), 1e-4);
-  EXPECT_NEAR(50.0 * 0.5, o.trialValue(win(50, 5000)), 1e-4);
+  // 3600 events/h is the volume reference (100); the ratio is a percent
+  EXPECT_NEAR(2.0 * log(100.0), o.trialLog(win(3600, 10000)), 1e-4);
+  // the B - A difference is exactly goodput's relative change
+  double d = o.trialLog(win(220, 9900)) - o.trialLog(win(200, 9000));
+  EXPECT_NEAR(log(1.1) + log(1.1), d, 1e-4);
 }
 
 TEST(Objective, WeightIsAnExponentInTenths) {
   Objective o;
   o.weights[Objective::RX_VALID] = 5;   // sqrt
-  EvalWindow::Result r = win(100, 10000);
-  r.rx_valid = 16;   // 96 per hour
-  EXPECT_NEAR(100.0 * 1.0 * sqrt(96.0), o.trialValue(r), 1e-3);
+  EvalWindow::Result a = win(100, 10000), b = win(100, 10000);
+  a.rx_valid = 10; b.rx_valid = 40;     // x4 -> +0.5 * ln 4
+  EXPECT_NEAR(0.5 * log(4.0), o.trialLog(b) - o.trialLog(a), 1e-4);
 }
 
 TEST(Objective, ZeroWeightIgnoresTheIndicator) {
@@ -38,29 +41,29 @@ TEST(Objective, ZeroWeightIgnoresTheIndicator) {
 
 TEST(Objective, ZeroLevelIsFlooredNotInfinite) {
   Objective o;
-  double dead = o.trialLog(win(0));   // routed == 0, either sign of weight
+  double dead = o.trialLog(win(0));   // routed == 0
   EXPECT_TRUE(std::isfinite(dead));
-  EXPECT_NEAR(log(Objective::FLOOR) + log(0.9), dead, 1e-4);
+  EXPECT_NEAR(log(Objective::FLOOR) + log(90.0), dead, 1e-4);
   o.weights[Objective::RX_ERRORS] = -10;
   EXPECT_TRUE(std::isfinite(o.trialLog(win(100))));   // rx_errors == 0, negative weight
   o.weights[Objective::RX_VALID] = 10;
   EXPECT_TRUE(std::isfinite(o.trialLog(win(100))));   // rx_valid == 0, positive weight
 }
 
-TEST(Objective, CostPercentagesPenalizeWithoutBlowingUp) {
+TEST(Objective, CostPercentagesPenalizeAndUseTheSameFloor) {
   Objective o;
   o.weights[Objective::CAD_BUSY] = -10;
   EvalWindow::Result idle = win(100, 10000), busy = win(100, 10000);
-  busy.cad_busy_pct = 50;   // level 1.5
-  EXPECT_NEAR(100.0, o.trialValue(idle), 1e-6);
-  EXPECT_NEAR(100.0 / 1.5, o.trialValue(busy), 1e-6);
+  busy.cad_busy_pct = 50;
+  // 0% floors at 0.01: going 0% -> 50% is a 5000x change in the level
+  EXPECT_NEAR(-log(50.0 / Objective::FLOOR), o.trialLog(busy) - o.trialLog(idle), 1e-4);
 }
 
 TEST(Objective, BanditRewardDefaultsToGoodputScale) {
   Objective o;
   EvalWindow::Result r = win(100, 8000);
   r.ros_norm = 1500;   // 1.5x baseline
-  EXPECT_NEAR(1500.0 * 8000.0 / 1000.0, o.banditReward(r), 1.0);
+  EXPECT_NEAR(1500.0 * 8000.0 / 1000.0, o.banditReward(r), 1.0);   // 150 x 80 = ros_norm x ratio
 }
 
 TEST(Objective, BanditRewardScoresExtraIndicatorsAgainstTheirOwnAverage) {
