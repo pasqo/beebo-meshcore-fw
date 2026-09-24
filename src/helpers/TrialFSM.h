@@ -18,26 +18,33 @@
 // Blocks are fixed duration (the caller runs an EvalWindow with min_s == max_s
 // == block_s), so blocks match the time of day. Order is ABBA cyclic
 // (A = the original value, B = its alternative, the opposite for a binary
-// switch), which cancels drift within a few
-// blocks; each adjacent block pair is one A/B pair. Decision, deliberately
-// conservative: adopt B only with >= MIN_PAIRS valid pairs, a mean relative
-// goodput gain above ADOPT_Z standard errors, and a confirm ratio not worse
-// than RATIO_TOLERANCE; otherwise keep A. A B block whose ratio collapses
-// below A's running mean, or any block with the utilization guardrail
-// tripped, aborts and reverts. Unmeasured blocks discard their pair only.
-// Reach (neighbors heard / marginal) is averaged per value (A, B) for
-// diagnostics; it does not enter the decision. All constants are first picks.
+// switch), which cancels drift within a few blocks; each adjacent block pair
+// is one A/B pair.
 //
-// Pragmatic early stop: checked after every new pair once
-// EARLY_STOP_MIN_PAIRS are in, in EITHER direction (B clearly better ->
-// ADOPT_B, B clearly worse -> KEEP_A -- no reason to keep running degraded
-// service once that's obvious either). EARLY_STOP_Z is deliberately much
-// stricter than ADOPT_Z: checking every pair, instead of once at the end,
-// inflates the false-positive rate a single ADOPT_Z=2 check controls for,
-// so the bar has to be high enough to absorb that. This is not a real
-// group-sequential/alpha-spending design (no per-checkpoint schedule,
-// no formal error-rate guarantee) -- a deliberately simple stopgap; revisit
-// if it turns out to fire on noise early in a trial's span of hours.
+// Decision: a sequential test on the paired relative goodput difference d
+// (B - A, relative to the pair mean), checked after every new pair once
+// MIN_LOOK_PAIRS are in, so the trial stops as soon as the evidence settles
+// instead of at a fixed pair count. With n pairs, mean m and standard error
+// se, the confidence bound half-width is b*se where
+//   b = tCrit(n - 1, alpha) * sqrt(N / n)
+// (N = pairs in the full schedule). tCrit is the two-sided Student-t critical
+// value at the configured error rate, so few pairs get an honest wide interval;
+// the sqrt(N / n) factor is an O'Brien-Fleming-style tightening that keeps
+// checking after every pair from inflating the false-positive rate (it is 1
+// at the last pair of the schedule, so the final look is the plain t-test).
+//   keep A   when the upper bound m + b*se is below the worthwhile-gain band
+//            (B cannot beat A by band_pct), i.e. no meaningful difference or B
+//            worse (checked first)
+//   adopt B  when the lower bound m - b*se > 0 and the confirm ratio is no
+//            worse than RATIO_TOLERANCE
+//   else keep measuring; the schedule's end is a final look (b without the
+//   sqrt term) and anything undecided keeps A.
+// A B block whose ratio collapses below A's running mean, or any block with the
+// utilization guardrail tripped, aborts and reverts. Unmeasured blocks discard
+// their pair only. Reach (neighbors heard / marginal) is averaged per value
+// (A, B) for diagnostics; it does not enter the decision. Everything runs on
+// the device: no host input, running sums only (no per-pair history).
+//
 class TrialFSM {
 public:
   enum State : uint8_t { IDLE, RUN, DONE };
@@ -45,17 +52,39 @@ public:
   // switch it declined to run (see emitTrialSkip()) in the same trial_result event.
   enum Outcome : uint8_t { NONE, KEEP_A, ADOPT_B, ABORTED, SKIPPED_SAME, SKIPPED_NO_CONTROL };
 
-  static constexpr uint8_t  MIN_PAIRS = 20;
-  static constexpr float    ADOPT_Z = 2.0f;
+  static constexpr uint32_t MIN_LOOK_PAIRS = 3;       // fewest pairs a decision may rest on
   static constexpr int16_t  RATIO_TOLERANCE = 200;    // confirm ratio, 0-10000
   static constexpr int16_t  COLLAPSE_THRESHOLD = 1500;
-  static constexpr uint32_t EARLY_STOP_MIN_PAIRS = 5;
-  static constexpr float    EARLY_STOP_Z = 4.0f;
 
   struct Config {
     uint16_t block_s = 1800;
     uint16_t blocks = 96;
+    uint8_t alpha_pct = 5;   // overall error rate: 1, 5 or 10 (other values use 5)
+    uint8_t band_pct = 5;    // smallest worthwhile relative gain, percent
   };
+
+  // Two-sided Student-t critical value for `df` degrees of freedom at
+  // alpha_pct 1 / 5 / 10 (else 5). df above 30 uses the last tabulated value at
+  // or below it (slightly conservative), df > 120 the normal quantile.
+  static float tCrit(uint32_t df, uint8_t alpha_pct) {
+    static const float t10[] = {6.314f, 2.920f, 2.353f, 2.132f, 2.015f, 1.943f, 1.895f, 1.860f, 1.833f, 1.812f,
+                                1.796f, 1.782f, 1.771f, 1.761f, 1.753f, 1.746f, 1.740f, 1.734f, 1.729f, 1.725f,
+                                1.721f, 1.717f, 1.714f, 1.711f, 1.708f, 1.706f, 1.703f, 1.701f, 1.699f, 1.697f};
+    static const float t05[] = {12.706f, 4.303f, 3.182f, 2.776f, 2.571f, 2.447f, 2.365f, 2.306f, 2.262f, 2.228f,
+                                2.201f, 2.179f, 2.160f, 2.145f, 2.131f, 2.120f, 2.110f, 2.101f, 2.093f, 2.086f,
+                                2.080f, 2.074f, 2.069f, 2.064f, 2.060f, 2.056f, 2.052f, 2.048f, 2.045f, 2.042f};
+    static const float t01[] = {63.657f, 9.925f, 5.841f, 4.604f, 4.032f, 3.707f, 3.499f, 3.355f, 3.250f, 3.169f,
+                                3.106f, 3.055f, 3.012f, 2.977f, 2.947f, 2.921f, 2.898f, 2.878f, 2.861f, 2.845f,
+                                2.831f, 2.819f, 2.807f, 2.797f, 2.787f, 2.779f, 2.771f, 2.763f, 2.756f, 2.750f};
+    const float *t = alpha_pct == 10 ? t10 : alpha_pct == 1 ? t01 : t05;
+    if (df < 1) df = 1;
+    if (df <= 30) return t[df - 1];
+    float t40 = alpha_pct == 10 ? 1.684f : alpha_pct == 1 ? 2.704f : 2.021f;
+    float t60 = alpha_pct == 10 ? 1.671f : alpha_pct == 1 ? 2.660f : 2.000f;
+    float t120 = alpha_pct == 10 ? 1.658f : alpha_pct == 1 ? 2.617f : 1.980f;
+    float tz = alpha_pct == 10 ? 1.645f : alpha_pct == 1 ? 2.576f : 1.960f;
+    return df < 40 ? t[29] : df < 60 ? t40 : df < 120 ? t60 : df == 120 ? t120 : tz;
+  }
 
   struct Step {
     bool set_value;     // apply `value` to the switch (live only) before the next block
@@ -153,14 +182,10 @@ public:
     }
 
     _idx++;
-    if (pair_added && _n >= EARLY_STOP_MIN_PAIRS) {
-      double mean = _sum_d / _n;
-      double se = stdErr();
-      bool ratio_ok = (_sum_rd / _n) >= -(double)RATIO_TOLERANCE;
-      bool winning = mean > 0.0 && (se > 0.0 ? mean / se >= EARLY_STOP_Z : true);
-      bool losing  = mean < 0.0 && (se > 0.0 ? mean / se <= -EARLY_STOP_Z : true);
-      if (winning && ratio_ok) return finish(ADOPT_B);
-      if (losing) return finish(KEEP_A);
+    if (pair_added && _n >= MIN_LOOK_PAIRS) {
+      int v = look(false);
+      if (v > 0) return finish(ADOPT_B);
+      if (v < 0) return finish(KEEP_A);
     }
     if (_idx >= _total) return decide();
     s.set_value = true;
@@ -216,13 +241,24 @@ private:
     return s;
   }
 
-  Step decide() {
-    if (_n < MIN_PAIRS) return finish(KEEP_A);
-    double mean = _sum_d / _n;
+  // +1: B wins, -1: keep A (no worthwhile gain), 0: keep measuring. `final`
+  // is the last look of the schedule, where the plain t bound applies.
+  int look(bool final) const {
+    double n = (double)_n;
+    double mean = _sum_d / n;
     double se = stdErr();
-    bool significant = mean > 0.0 && (se > 0.0 ? mean / se >= ADOPT_Z : true);
-    bool ratio_ok = (_sum_rd / _n) >= -(double)RATIO_TOLERANCE;
-    return finish(significant && ratio_ok ? ADOPT_B : KEEP_A);
+    double b = tCrit(_n - 1, _cfg.alpha_pct);
+    if (!final) b *= sqrt((double)(_total / 2) / n);
+    double lower = mean - b * se, upper = mean + b * se;
+    bool ratio_ok = (_sum_rd / n) >= -(double)RATIO_TOLERANCE;
+    if (upper < _cfg.band_pct / 100.0) return -1;   // even the best case is below the band
+    if (lower > 0.0 && ratio_ok) return 1;
+    return 0;
+  }
+
+  Step decide() {
+    if (_n < MIN_LOOK_PAIRS) return finish(KEEP_A);
+    return finish(look(true) > 0 ? ADOPT_B : KEEP_A);
   }
 
   Config _cfg;
