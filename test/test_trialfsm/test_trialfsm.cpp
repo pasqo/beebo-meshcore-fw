@@ -296,8 +296,9 @@ TEST(TrialFSM, DeadBlockOnOneSideIsALargeFiniteDifference) {
   t.onBlock(blk(200, 9000), 0, 0);   // A
   t.onBlock(blk(0, 8000), 0, 0);     // B: no deliveries (the ratio guard tolerates 1500)
   EXPECT_EQ(1u, t.stats().n_pairs);
-  EXPECT_LT(t.stats().mean_rel_x1000, -5000);   // ~ ln(0.01 * 0.8 / (200 * 0.9)) = -10 in x1000
-  EXPECT_GT(t.stats().mean_rel_x1000, -30000);
+  // routed 200/h -> 0: ln(1 + 0) - ln(1 + 9.1/0.1) plus the ratio's small step, ~ -4.6
+  EXPECT_LT(t.stats().mean_rel_x1000, -3000);
+  EXPECT_GT(t.stats().mean_rel_x1000, -8000);
 }
 
 TEST(TrialFSM, BlocksAreRoundedDownToWholePairsWithAMinimumOfTwo) {

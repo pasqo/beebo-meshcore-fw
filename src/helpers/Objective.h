@@ -18,16 +18,17 @@
 // exactly the goodput the tuners always used (routed rate x confirm ratio).
 //
 // Every level is on one 0-100 scale (percent): the confirm ratio and the two
-// cost percentages already are; per-hour volumes are a percent of a fixed
-// reference of VOLUME_REFERENCE_PER_HOUR events (100 = one per second), the
-// neighbors heard a percent of the neighbor table. One floor then means the
-// same thing everywhere: every level is floored at FLOOR (0.01 percent) before
-// the log, so a zero level is a finite, ordinary (very large) relative change
-// instead of ln(0). The reference is fixed on purpose: a constant scale cancels
-// in the trial's B - A difference, while a capacity that followed the radio
-// settings would bias a coding-rate trial. Runs on the device, once per closed
-// window: a handful of log calls, all in the log domain so extreme weights
-// cannot overflow.
+// cost percentages already are; per-hour volumes are a percent of the channel's
+// usable capacity (volumeReference events per hour, see setVolumeReference()),
+// the neighbors heard a percent of the neighbor table. One transform then
+// serves every indicator, f(x) = ln(1 + x / C) with C = 0.1 (percent): it is 0
+// at x = 0 and continuous, behaves like ln(x / C) once x is well above C (so a
+// weight is the weighted relative change) and is linear below it (so a tiny
+// count is not blown up). No floors, no special cases. The reference is fixed
+// while a trial runs: a constant scale cancels in the trial's B - A difference,
+// while one that followed the radio settings would bias a coding-rate trial.
+// Runs on the device, once per closed window: a handful of log1p calls, all in
+// the log domain so extreme weights cannot overflow.
 class Objective {
 public:
   enum Indicator : uint8_t {
@@ -43,17 +44,34 @@ public:
   };
 
   static constexpr int8_t WEIGHT_MIN = -50, WEIGHT_MAX = 50;
-  static constexpr double FLOOR = 0.01;                    // percent
-  static constexpr float VOLUME_REFERENCE_PER_HOUR = 3600.0f;   // = 100 on the scale
-  static constexpr float NEIGHBOR_SLOTS = 16.0f;                // Beebo.h MAX_NEIGHBOURS
+  static constexpr double C = 0.1;                          // percent, the transform's scale
+  static constexpr float DEFAULT_VOLUME_REFERENCE = 2800.0f;   // events/h, see below
+  static constexpr float NEIGHBOR_SLOTS = 16.0f;               // Beebo.h MAX_NEIGHBOURS
+
+  // Events per hour that read as 100 for the volume indicators: the channel's
+  // usable capacity, 1 / (2e) = 18.4% of raw airtime (the pure-ALOHA maximum
+  // for uncoordinated senders, what a CAD-and-jitter mesh approaches) divided
+  // by the airtime of a nominal 64-byte packet at the node's radio settings:
+  // 0.184 * 3600 s / airtime_s. About 2800 at SF7, 62.5 kHz, CR 4/5 (0.24 s per 64 bytes).
+  float volumeReference = DEFAULT_VOLUME_REFERENCE;
+  void setVolumeReference(float per_hour) {
+    if (per_hour > 1.0f && fabsf(per_hour - volumeReference) > 0.01f * volumeReference) {
+      volumeReference = per_hour;
+      resetBaselines();
+    }
+  }
+  static float referenceFor(uint32_t nominal_packet_airtime_ms) {
+    return nominal_packet_airtime_ms ? 0.184f * 3600.0f * 1000.0f / (float)nominal_packet_airtime_ms
+                                     : DEFAULT_VOLUME_REFERENCE;
+  }
 
   int8_t weights[NUM_INDICATORS] = {10, 10, 0, 0, 0, 0, 0, 0};
 
   // Levels for a window in absolute units (the trial compares two blocks of
   // the same length, so no baseline is needed).
-  static void levels(const EvalWindow::Result &r, float x[NUM_INDICATORS]) {
+  void levels(const EvalWindow::Result &r, float x[NUM_INDICATORS]) const {
     float per_hour = r.window_ms ? 3600000.0f / (float)r.window_ms : 0.0f;
-    const float vol = 100.0f / VOLUME_REFERENCE_PER_HOUR;
+    const float vol = 100.0f / volumeReference;
     x[ROUTED] = (float)r.ros_rate * vol;
     x[CONFIRM] = (float)r.confirm_ratio / 100.0f;
     x[RX_VALID] = (float)r.rx_valid * per_hour * vol;
@@ -96,7 +114,8 @@ public:
       _ema[i] = _ema[i] > 0.0f ? _ema[i] + (raw[i] - _ema[i]) * EMA_ALPHA : raw[i];
     }
     double j = logProduct(x);
-    for (int i = 0; i < NUM_INDICATORS; i++) j -= (weights[i] / 10.0) * log(100.0);
+    const double neutral = log1p(100.0 / C);
+    for (int i = 0; i < NUM_INDICATORS; i++) j -= (weights[i] / 10.0) * neutral;
     double ln_cap = log((double)cap / 10000.0);
     if (j >= ln_cap) return cap;
     return (float)(10000.0 * exp(j));
@@ -106,15 +125,14 @@ public:
     for (int i = 0; i < NUM_INDICATORS; i++) _ema[i] = 0.0f;
   }
 
-  // ln of the product of level_i^(w_i/10) over the non-zero weights, every
-  // level floored at FLOOR.
+  // J = sum (w_i/10) * ln(1 + level_i / C) over the non-zero weights.
   double logProduct(const float x[NUM_INDICATORS]) const {
     double j = 0.0;
     for (int i = 0; i < NUM_INDICATORS; i++) {
       int w = weights[i];
       if (w == 0) continue;
-      double level = x[i] < FLOOR ? FLOOR : x[i];
-      j += (w / 10.0) * log(level);
+      double level = x[i] > 0.0f ? x[i] : 0.0;
+      j += (w / 10.0) * log1p(level / C);
     }
     return j;
   }

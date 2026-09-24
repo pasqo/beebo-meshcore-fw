@@ -1874,6 +1874,10 @@ private:
   // this experimental feature.
   TuneController tune_controller;
   Objective objective;   // scores windows for both tuners; weights are RAM-only settings
+  // Re-derive the objective's volume reference (channel capacity per hour) from
+  // the radio's current settings; called when a trial starts and once per
+  // adaptive window, never mid-trial (a coding-rate trial changes the live CR).
+  void refreshObjectiveReference();
   bool _tune_enabled = false;
   // beebo: decision-window evaluator feeding tune_controller (one closed
   // window = one tick). RAM-only rule, like _tune_enabled: at least one RX

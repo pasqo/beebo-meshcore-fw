@@ -2109,6 +2109,7 @@ void Beebo::loopTune() {
     (int16_t)(_role_state->prefs.airtime_factor * 100.0f + 0.5f),
   };
   NeighborReach::scan(neighbors, MAX_NEIGHBOURS, window.reach_heard, window.reach_marginal);
+  refreshObjectiveReference();
   TuneController::Decision decision = tune_controller.tick(
     monring, getRTCClock()->nowMillis(), current_values, window, _tune_applied_mask,
     // a pending trial needs the controller idle: judge this window's
@@ -2200,6 +2201,10 @@ void Beebo::emitTrialSkip(int sw, TrialFSM::Outcome outcome) {
   monring.appendEvent(ev, getRTCClock()->nowMillis());
 }
 
+void Beebo::refreshObjectiveReference() {
+  objective.setVolumeReference(Objective::referenceFor(_radio->getEstAirtimeFor(64)));
+}
+
 bool Beebo::startTrial(int sw) {
   if (sw == 0 && !board.canControlLoRaFemLna()) {   // no controllable FEM LNA on this board
     _trial_done_mask |= 1;
@@ -2211,6 +2216,7 @@ bool Beebo::startTrial(int sw) {
     emitTrialSkip(sw, TrialFSM::SKIPPED_SAME);
     return false;
   }
+  refreshObjectiveReference();
   TrialFSM::Config tc;
   tc.block_s = _trial_block_s;
   tc.blocks = _trial_blocks;
