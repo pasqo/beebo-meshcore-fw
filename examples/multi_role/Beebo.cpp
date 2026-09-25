@@ -2230,7 +2230,10 @@ bool Beebo::startTrial(int sw) {
   wc.min_ms = wc.max_ms = (uint32_t)_trial_block_s * 1000u;
   wc.use_baseline = false;
   trial_window.begin(wc);
-  emitTrialTune(sw, trial.currentValue(), trial.currentValue(), 0);
+  // the start record's reward_before (unused at a start) carries the objective's
+  // volume reference, events per hour, so the offline mirror scores with the same number
+  emitTrialTune(sw, trial.currentValue(), trial.currentValue(),
+                (uint16_t)(objective.volumeReference > 65535.0f ? 65535.0f : objective.volumeReference + 0.5f));
 #ifdef BEEBO_CPU_ACCOUNTING
   uint32_t cad_ms = getTxWaitCadMs();
 #else
