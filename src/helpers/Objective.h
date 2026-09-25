@@ -5,7 +5,7 @@
 #include "EvalWindow.h"
 
 // beebo: the objective both tuners score a closed window with (TrialFSM for
-// its paired A/B blocks, TuneController for its step rewards). A weighted
+// its paired A/B blocks, AdaptiveController for its step rewards). A weighted
 // product of per-window indicators,
 //
 //   P = prod_i level_i ^ (w_i / 10)          (ln P = sum w_i/10 * ln level_i)

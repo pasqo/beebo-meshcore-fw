@@ -10,7 +10,7 @@
 // Runs one small multi-armed bandit (UCB1) per tunable repeater parameter,
 // over a fixed 3-step neighborhood {-step, 0 (stay), +step} around whatever
 // the parameter's live value currently is. Only one parameter's bandit
-// advances per tick (round-robin across TUNE_* -- see MonRing.h), so a
+// advances per tick (round-robin across TUNING_* -- see MonRing.h), so a
 // reward is never confounded by two knobs moving at once; that's Phase B
 // (SPSA joint perturbation)'s job, not this one's.
 //
@@ -32,23 +32,23 @@
 //  3. Emit the MON_EVAL record (accepted/rollback), then either revert (the
 //     rollback tick proposes nothing new) or propose the next param.
 //
-// Every proposal is a MON_TUNE record carrying `iteration`, the id of the
+// Every proposal is a MON_ADAPTIVE record carrying `iteration`, the id of the
 // window that will evaluate it. This class never touches NodePrefs/ComPrefs
 // itself -- it only returns a Decision for the caller (Beebo.cpp) to act on.
 // A param only gets should_apply=true when its bit is set in `applied_mask`
-// (all off by default, see Beebo::_tune_applied_mask); every current param
+// (all off by default, see Beebo::_adaptive_applied_mask); every current param
 // is applicable (isApplicable()).
 //
 // The bandit's steps are UCB1 over goodput in the 0-20000 range, so the
 // exploration bonus (order 1) is negligible next to reward differences: the
 // selection is effectively greedy after each step's first pull.
-class TuneController {
+class AdaptiveController {
 public:
   static const int NUM_PARAMS = 6;
   static const int NUM_STEPS = 3;   // step 0 = -step, 1 = stay, 2 = +step
 
   struct ParamSpec {
-    uint8_t param_id;    // TUNE_* (MonRing.h)
+    uint8_t param_id;    // TUNING_* (MonRing.h)
     int16_t step;        // spacing between adjacent steps, in the param's own fixed-point scale
     int16_t min_value;
     int16_t max_value;
@@ -56,7 +56,7 @@ public:
 
   // Fixed-point scales: rx_delay_base/tx_delay_factor/direct_tx_delay_factor/
   // airtime_factor are float NodePrefs fields, encoded here as value*100
-  // (matches TuneRecord's int16_t fields); agc_reset_interval/
+  // (matches AdaptiveRecord's int16_t fields); agc_reset_interval/
   // interference_threshold are already raw bytes on the wire (ComPrefs), no
   // scaling. Ranges mirror CommonCLI.cpp's own constrain()/CLI-enforced
   // bounds where one exists; agc_reset_interval/interference_threshold have
@@ -68,11 +68,11 @@ public:
   // per tick.
   static ParamSpec specFor(int p) {
     static const ParamSpec table[NUM_PARAMS] = {
-      { TUNE_RX_DELAY_BASE,           100, 0, 2000 },  // 0.00 .. 20.00, step 1.00
-      { TUNE_TX_DELAY_FACTOR,          20, 0,  200 },  // 0.00 ..  2.00, step 0.20
-      { TUNE_DIRECT_TX_DELAY_FACTOR,   20, 0,  200 },  // 0.00 ..  2.00, step 0.20
-      { TUNE_AGC_RESET_INTERVAL,        1, 0,  255 },  // raw byte (*4 = seconds)
-      { TUNE_INTERFERENCE_THRESHOLD,    1, 0,    9 },  // raw byte -- range is 0-9,
+      { TUNING_RX_DELAY_BASE,           100, 0, 2000 },  // 0.00 .. 20.00, step 1.00
+      { TUNING_TX_DELAY_FACTOR,          20, 0,  200 },  // 0.00 ..  2.00, step 0.20
+      { TUNING_DIRECT_TX_DELAY_FACTOR,   20, 0,  200 },  // 0.00 ..  2.00, step 0.20
+      { TUNING_AGC_RESET_INTERVAL,        1, 0,  255 },  // raw byte (*4 = seconds)
+      { TUNING_INTERFERENCE_THRESHOLD,    1, 0,    9 },  // raw byte -- range is 0-9,
                                                         // not the full uint8_t range:
                                                         // Beebo::tlvSetInterferenceThreshold
                                                         // (BeeboRepeater.cpp) silently
@@ -82,7 +82,7 @@ public:
                                                         // permanently hardcoded to 0; fixed
                                                         // upstream, meshcore-dev/MeshCore@
                                                         // 5d82ed35, applied directly here).
-      { TUNE_AIRTIME_FACTOR,           50, 0,  900 },  // 0.00 ..  9.00, step 0.50
+      { TUNING_AIRTIME_FACTOR,           50, 0,  900 },  // 0.00 ..  9.00, step 0.50
     };
     return table[p];
   }
@@ -138,11 +138,11 @@ public:
   float stepRewardSum(int p, int s) const { return _state[p].steps[s].reward_sum; }
 
   // Called once per closed EvalWindow, repeater role only. `current_values[i]`
-  // must hold TUNE_* (specFor(i).param_id)'s live value, in that param's
+  // must hold TUNING_* (specFor(i).param_id)'s live value, in that param's
   // fixed-point scale -- the caller reads it from wherever that param actually
   // lives (companion NodePrefs, RAM-cached ComPrefs fields, or
   // readComPrefsField()) since that varies per parameter and this class has no
-  // board/prefs access. `applied_mask` bit i promotes TUNE_* i to live
+  // board/prefs access. `applied_mask` bit i promotes TUNING_* i to live
   // actuation; 0 reproduces fully observe-only behavior exactly. Returns the
   // decision so the caller can perform the actual write when should_apply is
   // true and open the next window with `window_id`.
@@ -188,7 +188,7 @@ public:
       d.param_id = spec.param_id;
       d.value = _state[q].last_good_value;
       d.should_apply = true;
-      appendTuneRecord(ring, now, spec.param_id, true, current_values[q], d.value,
+      appendAdaptiveRecord(ring, now, spec.param_id, true, current_values[q], d.value,
                        window.confirm_ratio);
       return d;
     }
@@ -227,7 +227,7 @@ public:
       ps.has_pending_live_change = true;
     }
     _pending_param = (int8_t)p;
-    appendTuneRecord(ring, now, spec.param_id, should_apply, current, proposed,
+    appendAdaptiveRecord(ring, now, spec.param_id, should_apply, current, proposed,
                      window.confirm_ratio);
 
     _next_param = (uint8_t)((p + 1) % NUM_PARAMS);
@@ -281,9 +281,9 @@ private:
     ring.appendEval(a, b, c, now);
   }
 
-  void appendTuneRecord(MonRing &ring, uint64_t now, uint8_t param_id, bool applied,
+  void appendAdaptiveRecord(MonRing &ring, uint64_t now, uint8_t param_id, bool applied,
                         int16_t old_value, int16_t proposed, uint16_t ratio) const {
-    TuneRecord rec;
+    AdaptiveRecord rec;
     memset(&rec, 0, sizeof(rec));
     rec.param_id = param_id;
     rec.applied = applied ? 1 : 0;
@@ -291,7 +291,7 @@ private:
     rec.proposed_value = proposed;
     rec.reward_before = ratio;
     rec.iteration = _window_id;   // already advanced: the window that will evaluate this
-    ring.appendTune(rec, now);
+    ring.appendAdaptive(rec, now);
   }
 
   // UCB1: try every never-pulled step first, then argmax(mean + sqrt(2 ln(N)/n)).

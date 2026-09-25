@@ -61,9 +61,9 @@ EnvRecord makeEnv(int8_t noise_floor = -90) {
   return env;
 }
 
-TuneRecord makeTune(uint8_t param_id = TUNE_RX_DELAY_BASE, int16_t old_value = 4,
+AdaptiveRecord makeAdaptive(uint8_t param_id = TUNING_RX_DELAY_BASE, int16_t old_value = 4,
                      int16_t proposed_value = 6) {
-  TuneRecord tune; memset(&tune, 0, sizeof(tune));
+  AdaptiveRecord tune; memset(&tune, 0, sizeof(tune));
   tune.param_id = param_id;
   tune.old_value = old_value;
   tune.proposed_value = proposed_value;
@@ -771,62 +771,62 @@ TEST(MonRing, TxCountDecrementsOnEviction) {
   EXPECT_EQ(0u, f.ring.txCount());
 }
 
-TEST(MonRing, AppendTuneAssignsSeqAndRoundTripsFields) {
+TEST(MonRing, AppendAdaptiveAssignsSeqAndRoundTripsFields) {
   RingFixture<8> f;
-  TuneRecord tune = makeTune(TUNE_TX_DELAY_FACTOR, /*old_value=*/10, /*proposed_value=*/14);
+  AdaptiveRecord tune = makeAdaptive(TUNING_TX_DELAY_FACTOR, /*old_value=*/10, /*proposed_value=*/14);
   tune.applied = 0;
   tune.reward_before = 8000;
-  f.ring.appendTune(tune, f.ms(1000));
+  f.ring.appendAdaptive(tune, f.ms(1000));
 
   MonRecord out[8];
   uint32_t returned = 0;
   int bytes = f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
   ASSERT_EQ(1u, returned);
   EXPECT_EQ((int)sizeof(MonRecord), bytes);
-  EXPECT_EQ(MON_TUNE, out[0].kind);
-  EXPECT_EQ(TUNE_TX_DELAY_FACTOR, out[0].tune.param_id);
-  EXPECT_EQ(0, out[0].tune.applied);
-  EXPECT_EQ(10, out[0].tune.old_value);
-  EXPECT_EQ(14, out[0].tune.proposed_value);
-  EXPECT_EQ(8000u, out[0].tune.reward_before);
-  EXPECT_EQ(1u, f.ring.tuneCount());
+  EXPECT_EQ(MON_ADAPTIVE, out[0].kind);
+  EXPECT_EQ(TUNING_TX_DELAY_FACTOR, out[0].adaptive.param_id);
+  EXPECT_EQ(0, out[0].adaptive.applied);
+  EXPECT_EQ(10, out[0].adaptive.old_value);
+  EXPECT_EQ(14, out[0].adaptive.proposed_value);
+  EXPECT_EQ(8000u, out[0].adaptive.reward_before);
+  EXPECT_EQ(1u, f.ring.tuningCount());
 }
 
-TEST(MonRing, AppendTuneNoOpWhenMasked) {
+TEST(MonRing, AppendAdaptiveNoOpWhenMasked) {
   RingFixture<8> f;
   f.ring.setConfig(MON_CAP_ENABLED | MON_CAP_TX);  // TUNE masked out
-  f.ring.appendTune(makeTune(), f.ms(1000));
+  f.ring.appendAdaptive(makeAdaptive(), f.ms(1000));
   EXPECT_EQ(0u, f.ring.count());
-  EXPECT_EQ(0u, f.ring.tuneCount());
+  EXPECT_EQ(0u, f.ring.tuningCount());
 }
 
-TEST(MonRing, TuneCapExcludedFromDefaultConfig) {
-  // Mirrors MON_CAP_ENV's default-off treatment: MON_TUNE has no
+TEST(MonRing, TuningCapExcludedFromDefaultConfig) {
+  // Mirrors MON_CAP_ENV's default-off treatment: MON_ADAPTIVE has no
   // controller wired up yet, so it should not be captured unless
   // explicitly opted in via setConfig(), the same way tests must opt ENV in.
   MonRing ring;
   MonRecord buf[8];
   ring.init(reinterpret_cast<uint8_t *>(buf), sizeof(buf), 1000, 1000, RadioRecord{}, EnvRecord{});
-  EXPECT_EQ(0u, ring.config() & MON_CAP_TUNE);
+  EXPECT_EQ(0u, ring.config() & MON_CAP_TUNING);
 }
 
-TEST(MonRing, TuneCountDecrementsOnEviction) {
+TEST(MonRing, TuningCountDecrementsOnEviction) {
   RingFixture<2> f;
-  f.ring.appendTune(makeTune(), f.ms(1000));  // seq0=TUNE
-  EXPECT_EQ(1u, f.ring.tuneCount());
+  f.ring.appendAdaptive(makeAdaptive(), f.ms(1000));  // seq0=TUNE
+  EXPECT_EQ(1u, f.ring.tuningCount());
 
   f.ring.appendTx(makeTx(), f.ms(1001));  // seq1=TX (ring full: [TUNE0, TX1])
-  EXPECT_EQ(1u, f.ring.tuneCount());
+  EXPECT_EQ(1u, f.ring.tuningCount());
 
   f.ring.appendTx(makeTx(), f.ms(1002));  // evicts seq0 -- the TUNE record itself
-  EXPECT_EQ(0u, f.ring.tuneCount());
+  EXPECT_EQ(0u, f.ring.tuningCount());
 }
 
 TEST(MonRing, AppendTrialRoundTripsAllThreePhases) {
   RingFixture<8> f;
   MonRecord start{};
   start.trial_start.phase = TRIAL_PHASE_START;
-  start.trial_start.param = TUNE_FEM_LNA;
+  start.trial_start.param = TUNING_FEM_LNA;
   start.trial_start.a = 0;
   start.trial_start.b = 1;
   start.trial_start.block_s = 600;
@@ -847,7 +847,7 @@ TEST(MonRing, AppendTrialRoundTripsAllThreePhases) {
   f.ring.appendTrial(block, f.ms(1001));
   MonRecord end{};
   end.trial_end.phase = TRIAL_PHASE_END;
-  end.trial_end.param = TUNE_FEM_LNA;
+  end.trial_end.param = TUNING_FEM_LNA;
   end.trial_end.outcome = 2;
   end.trial_end.a = 0;
   end.trial_end.b = 1;
@@ -874,7 +874,7 @@ TEST(MonRing, AppendTrialRoundTripsAllThreePhases) {
   EXPECT_EQ(TRIAL_PHASE_END, out[2].trial_end.phase);
   EXPECT_EQ(6700, out[2].trial_end.mean);
   EXPECT_EQ(-40, out[2].trial_end.ratio_diff);
-  EXPECT_EQ(3u, f.ring.tuneCount());
+  EXPECT_EQ(3u, f.ring.tuningCount());
 }
 
 TEST(MonRing, AppendTrialNoOpWhenMaskedAndCountDecrementsOnEviction) {
@@ -882,12 +882,12 @@ TEST(MonRing, AppendTrialNoOpWhenMaskedAndCountDecrementsOnEviction) {
   f.ring.setConfig(MON_CAP_ENABLED | MON_CAP_TX);   // TUNE masked out
   f.ring.appendTrial(MonRecord{}, f.ms(1000));
   EXPECT_EQ(0u, f.ring.count());
-  f.ring.setConfig(MON_CAP_ENABLED | MON_CAP_TX | MON_CAP_TUNE);
+  f.ring.setConfig(MON_CAP_ENABLED | MON_CAP_TX | MON_CAP_TUNING);
   f.ring.appendTrial(MonRecord{}, f.ms(1001));
-  EXPECT_EQ(1u, f.ring.tuneCount());
+  EXPECT_EQ(1u, f.ring.tuningCount());
   f.ring.appendTx(makeTx(), f.ms(1002));
   f.ring.appendTx(makeTx(), f.ms(1003));   // evicts the trial record
-  EXPECT_EQ(0u, f.ring.tuneCount());
+  EXPECT_EQ(0u, f.ring.tuningCount());
 }
 
 TEST(MonRing, AppendEventAssignsSeqAndRoundTripsFaultPayload) {
@@ -921,14 +921,14 @@ TEST(MonRing, AppendSettingRoundTripsPayload) {
   // this record has a fixed shape every instance shares, unlike the
   // genuinely one-off fault/overflow/wrap events MON_EVENT still carries.
   RingFixture<8> f;
-  f.ring.appendSetting(makeSettingRecord(SETTING_TUNE_ENABLED, 0, 1, EVENT_SOURCE_BINARY), f.ms(1000));
+  f.ring.appendSetting(makeSettingRecord(SETTING_ADAPTIVE_ENABLED, 0, 1, EVENT_SOURCE_BINARY), f.ms(1000));
 
   MonRecord out[8];
   uint32_t returned = 0;
   f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
   ASSERT_EQ(1u, returned);
   EXPECT_EQ(MON_SETTING, out[0].kind);
-  EXPECT_EQ(SETTING_TUNE_ENABLED, out[0].setting.setting);
+  EXPECT_EQ(SETTING_ADAPTIVE_ENABLED, out[0].setting.setting);
   EXPECT_EQ(EVENT_SOURCE_BINARY, out[0].setting.source);
   EXPECT_EQ(0u, out[0].setting.old_value);
   EXPECT_EQ(1u, out[0].setting.new_value);
@@ -939,7 +939,7 @@ TEST(MonRing, AppendCommandRoundTripsPayload) {
   // beebo: EVENT_COMMAND_RUN moved to its own MON_COMMAND kind/struct, same
   // reasoning as MON_SETTING above.
   RingFixture<8> f;
-  uint16_t command_id = (222 << 8) | 215;  // CMD_BEEBO<<8 | BEEBO_CMD_SET_TUNE_ENABLED
+  uint16_t command_id = (222 << 8) | 215;  // CMD_BEEBO<<8 | BEEBO_CMD_SET_ADAPTIVE_ENABLED
   f.ring.appendCommand(makeCommandRecord(command_id), f.ms(1000));
 
   MonRecord out[8];
@@ -1141,7 +1141,7 @@ TEST(MonRing, AppendEventNoOpWhenEventTypeMasked) {
 }
 
 TEST(MonRing, EventCapIncludedInDefaultConfig) {
-  // Unlike MON_CAP_ENV/MON_CAP_TUNE (opt-in), EVENT capture is on by
+  // Unlike MON_CAP_ENV/MON_CAP_TUNING (opt-in), EVENT capture is on by
   // default -- fault history matters out of the box, not just for an
   // experimental feature someone has to remember to enable.
   MonRing ring;
@@ -1667,7 +1667,7 @@ TEST(MonRingEval, AppendStoresThreeContiguousSlotsContinuationOnFirstTwo) {
   EXPECT_EQ(a.eval_a.offset, c.eval_c.offset);
   EXPECT_EQ(7, c.eval_c.window_id);
   EXPECT_EQ(55, c.eval_c.rx_valid);
-  EXPECT_EQ(3u, f.ring.tuneCount());
+  EXPECT_EQ(3u, f.ring.tuningCount());
 }
 
 TEST(MonRingEval, AppendStoresTwoContiguousSlotsContinuationOnFirst) {
@@ -1683,12 +1683,12 @@ TEST(MonRingEval, AppendStoresTwoContiguousSlotsContinuationOnFirst) {
   EXPECT_EQ(a.eval_a.offset, b.eval_b.offset);
   EXPECT_EQ(7, a.eval_a.window_id);
   EXPECT_EQ(7, b.eval_b.window_id);
-  EXPECT_EQ(2u, f.ring.tuneCount());
+  EXPECT_EQ(2u, f.ring.tuningCount());
 }
 
-TEST(MonRingEval, GatedByTuneCapture) {
+TEST(MonRingEval, GatedByTuningCapture) {
   RingFixture<8> f;
-  f.ring.setConfig((MON_CAP_ALL & ~MON_CAP_TUNE) | MON_CAP_ENABLED);
+  f.ring.setConfig((MON_CAP_ALL & ~MON_CAP_TUNING) | MON_CAP_ENABLED);
   f.ring.appendEval(makeEvalA(), makeEvalB(), f.ms(1000));
   EXPECT_EQ(0u, f.ring.count());
 }
@@ -1720,7 +1720,7 @@ TEST(MonRingEval, EvictionDropsWholeRunNotJustItsHead) {
 
   EXPECT_EQ(3u, f.ring.count());
   EXPECT_EQ(2u, f.ring.oldestSeq());
-  EXPECT_EQ(0u, f.ring.tuneCount());
+  EXPECT_EQ(0u, f.ring.tuningCount());
   MonRecord oldest;
   ASSERT_TRUE(f.ring.peek(f.ring.oldestSeq(), &oldest));
   EXPECT_EQ(MON_TX, oldest.kind);

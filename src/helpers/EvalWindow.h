@@ -33,7 +33,7 @@ public:
   static constexpr uint8_t BASELINE_WINDOWS = 8;
   static constexpr uint8_t MIN_BASELINE = 4;
   // First-pick constant, same "revisit once real data exists" posture as
-  // TuneController::ROLLBACK_THRESHOLD.
+  // AdaptiveController::ROLLBACK_THRESHOLD.
   static constexpr uint8_t GUARDRAIL_UTIL_PCT = 80;
   // Bumped 1 -> 2 when RX Valid/Invalid/Errors and TX Dispatched were added
   // as a third MON_EVAL slot (EvalRecordC, MonRing.h) -- a version-1 run

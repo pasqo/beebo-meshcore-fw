@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <Mesh.h>
 #include <helpers/MonRing.h>
-#include <helpers/TuneController.h>
+#include <helpers/AdaptiveController.h>
 #include <helpers/TrialFSM.h>
 #include <helpers/NeighborReach.h>
 #include <esp_ota_ops.h>
@@ -1869,58 +1869,58 @@ private:
   MonRing monring;   // beebo: continuous monitoring capture ring (PSRAM, ESP only)
   // beebo: Phase A dynamic-tuning optimizer  --
   // repeater role only, off by default (must be turned on explicitly via
-  // "set tune.enabled on"). RAM-only, like _monring_config's simple_repeater
+  // "set tuning.adaptive.enabled on"). RAM-only, like _monring_config's simple_repeater
   // counterpart: resets to off/all-observe-only on reboot, acceptable for
   // this experimental feature.
-  TuneController tune_controller;
+  AdaptiveController adaptive_controller;
   Objective objective;   // scores windows for both tuners; weights are RAM-only settings
   // Re-derive the objective's volume reference (channel capacity per hour) from
   // the radio's current settings; called when a trial starts and once per
   // adaptive window, never mid-trial (a coding-rate trial changes the live CR).
   void refreshObjectiveReference();
-  bool _tune_enabled = false;
-  // beebo: decision-window evaluator feeding tune_controller (one closed
-  // window = one tick). RAM-only rule, like _tune_enabled: at least one RX
+  bool _adaptive_enabled = false;
+  // beebo: decision-window evaluator feeding adaptive_controller (one closed
+  // window = one tick). RAM-only rule, like _adaptive_enabled: at least one RX
   // packet and min_s elapsed close a window, max_s with no RX activity at
   // all makes it insufficient_data -- see EvalWindow.h.
   EvalWindow eval_window;
-  uint16_t _tune_win_min_s = 300;
-  uint16_t _tune_win_max_s = 3600;
+  uint16_t _adaptive_win_min_s = 300;
+  uint16_t _adaptive_win_max_s = 3600;
   unsigned long _next_util_sample_ms = 0;
   EvalWindow::Config evalWindowConfig() const {
     EvalWindow::Config c;
-    c.min_ms = (uint32_t)_tune_win_min_s * 1000u;
-    c.max_ms = (uint32_t)_tune_win_max_s * 1000u;
+    c.min_ms = (uint32_t)_adaptive_win_min_s * 1000u;
+    c.max_ms = (uint32_t)_adaptive_win_max_s * 1000u;
     return c;
   }
   // beebo: window-rule setters. Return false (nothing changed) when the new
   // value would leave min_s > max_s or is 0; the caller replies ILLEGAL_ARG.
-  bool setTuneWindowMinS(uint16_t v, uint8_t source) {
-    if (v == 0 || v > _tune_win_max_s) return false;
-    if (v != _tune_win_min_s) {
-      appendSettingChangedEvent(SETTING_TUNE_WINDOW_MIN_S, _tune_win_min_s, v, source);
+  bool setAdaptiveWindowMinS(uint16_t v, uint8_t source) {
+    if (v == 0 || v > _adaptive_win_max_s) return false;
+    if (v != _adaptive_win_min_s) {
+      appendSettingChangedEvent(SETTING_ADAPTIVE_WINDOW_MIN_S, _adaptive_win_min_s, v, source);
     }
-    _tune_win_min_s = v;
+    _adaptive_win_min_s = v;
     eval_window.setConfig(evalWindowConfig());
     return true;
   }
-  bool setTuneWindowMaxS(uint16_t v, uint8_t source) {
-    if (v == 0 || v < _tune_win_min_s) return false;
-    if (v != _tune_win_max_s) {
-      appendSettingChangedEvent(SETTING_TUNE_WINDOW_MAX_S, _tune_win_max_s, v, source);
+  bool setAdaptiveWindowMaxS(uint16_t v, uint8_t source) {
+    if (v == 0 || v < _adaptive_win_min_s) return false;
+    if (v != _adaptive_win_max_s) {
+      appendSettingChangedEvent(SETTING_ADAPTIVE_WINDOW_MAX_S, _adaptive_win_max_s, v, source);
     }
-    _tune_win_max_s = v;
+    _adaptive_win_max_s = v;
     eval_window.setConfig(evalWindowConfig());
     return true;
   }
   // beebo: on-device A/B trial of the RX front-end switches (stage 1 of the
-  // tuner, see TrialFSM.h). RAM-only settings like everything under tune.*:
+  // tuner, see TrialFSM.h). RAM-only settings like everything under tuning.*:
   // `switches` bit0 = FEM LNA, bit1 = RX boosted gain (0 = off); one switch
   // runs at a time, LNA first. A trial toggles the switch LIVE ONLY, so a
   // reboot mid-trial returns to the stored value; only a winner is persisted.
   TrialFSM trial;
   EvalWindow trial_window;
-  bool _trial_enabled = false;    // trial master switch, independent of _tune_enabled (the adaptive tuner)
+  bool _trial_enabled = false;    // trial master switch, independent of _adaptive_enabled (the adaptive tuner)
   uint8_t _trial_confidence_pct = 95;   // TrialFSM confidence level: 90, 95 or 99
   uint8_t _trial_min_gain_pct = 5;    // TrialFSM worthwhile relative gain, percent
   uint8_t _trial_switches = 0;
@@ -1934,7 +1934,7 @@ private:
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
   void setTrialEnabled(bool on, uint8_t source) {
     if (on != _trial_enabled) {
-      appendSettingChangedEvent(SETTING_TUNE_TRIAL_ENABLED, _trial_enabled ? 1 : 0, on ? 1 : 0, source);
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_ENABLED, _trial_enabled ? 1 : 0, on ? 1 : 0, source);
       abortTrial(false);
       _trial_done_mask = 0;
     }
@@ -1943,7 +1943,7 @@ private:
   bool setTrialSwitches(uint8_t mask, uint8_t source) {
     if (mask > 7) return false;
     if (mask != _trial_switches) {
-      appendSettingChangedEvent(SETTING_TUNE_TRIAL_SWITCHES, _trial_switches, mask, source);
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_SWITCHES, _trial_switches, mask, source);
       abortTrial(false);
       _trial_done_mask = 0;
     }
@@ -1953,7 +1953,7 @@ private:
   bool setTrialValue(uint8_t sw, uint8_t v, uint8_t source) {
     if (sw > 2 || (sw < 2 ? v > 1 : (v < 5 || v > 8))) return false;
     if (v != _trial_alt[sw]) {
-      appendSettingChangedEvent(SETTING_TUNE_TRIAL_VALUE_LNA + sw, _trial_alt[sw], v, source);
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_VALUE_LNA + sw, _trial_alt[sw], v, source);
       abortTrial(false);
       _trial_done_mask = 0;
     }
@@ -1963,7 +1963,7 @@ private:
   bool setTrialConfidence(uint8_t v, uint8_t source) {
     if (v != 90 && v != 95 && v != 99) return false;
     if (v != _trial_confidence_pct) {
-      appendSettingChangedEvent(SETTING_TUNE_TRIAL_CONFIDENCE, _trial_confidence_pct, v, source);
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_CONFIDENCE, _trial_confidence_pct, v, source);
       abortTrial(false);
       _trial_done_mask = 0;
     }
@@ -1973,7 +1973,7 @@ private:
   bool setTrialMinGain(uint8_t v, uint8_t source) {
     if (v > 50) return false;
     if (v != _trial_min_gain_pct) {
-      appendSettingChangedEvent(SETTING_TUNE_TRIAL_MIN_GAIN, _trial_min_gain_pct, v, source);
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_MIN_GAIN, _trial_min_gain_pct, v, source);
       abortTrial(false);
       _trial_done_mask = 0;
     }
@@ -1986,11 +1986,11 @@ private:
   bool setRewardWeight(uint8_t idx, int8_t v, uint8_t source) {
     if (idx >= Objective::NUM_INDICATORS || v < Objective::WEIGHT_MIN || v > Objective::WEIGHT_MAX) return false;
     if (v != objective.weights[idx]) {
-      appendSettingChangedEvent(SETTING_TUNE_REWARD_WEIGHT_BASE + idx, (uint32_t)(int32_t)objective.weights[idx],
+      appendSettingChangedEvent(SETTING_TUNING_REWARD_WEIGHT_BASE + idx, (uint32_t)(int32_t)objective.weights[idx],
                                 (uint32_t)(int32_t)v, source);
       abortTrial(false);
       _trial_done_mask = 0;
-      tune_controller.begin();
+      adaptive_controller.begin();
       objective.resetBaselines();
       eval_window.begin(evalWindowConfig());
     }
@@ -2000,7 +2000,7 @@ private:
   bool setTrialBlockS(uint16_t v, uint8_t source) {
     if (v == 0) return false;
     if (v != _trial_block_s) {
-      appendSettingChangedEvent(SETTING_TUNE_TRIAL_BLOCK_S, _trial_block_s, v, source);
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCK_S, _trial_block_s, v, source);
       abortTrial(false);
       _trial_done_mask = 0;
     }
@@ -2010,7 +2010,7 @@ private:
   bool setTrialBlocks(uint16_t v, uint8_t source) {
     if (v < 2) return false;
     if (v != _trial_blocks) {
-      appendSettingChangedEvent(SETTING_TUNE_TRIAL_BLOCKS, _trial_blocks, v, source);
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCKS, _trial_blocks, v, source);
       abortTrial(false);
       _trial_done_mask = 0;
     }
@@ -2033,44 +2033,44 @@ private:
   void emitTrialEnd(int sw, const TrialFSM::Step& step);
   void emitTrialSkip(int sw, TrialFSM::Outcome outcome);
   uint16_t trialWindowId() const { return 0x8000 | trial.blockIndex(); }
-  MonRing::QosStats tuneQosStats();
+  MonRing::QosStats tuningQosStats();
   // Open a fresh evaluation window from the current counters.
   void openEvalWindow(uint16_t window_id);
   // One-per-loop tuning step: samples utilization, closes the window by rule
-  // and, when it closes, runs one TuneController tick and opens the next.
-  void loopTune();
-  // beebo: per-param live-actuation promotion, bit i = TuneController::
+  // and, when it closes, runs one AdaptiveController tick and opens the next.
+  void loopTuning();
+  // beebo: per-param live-actuation promotion, bit i = AdaptiveController::
   // specFor(i)'s param_id. 0 (default) = every param stays observe-only
-  // (TuneController::tick()'s should_apply is only ever true for a param
-  // whose bit is set here) -- see applyTuneDecision() for what "apply"
+  // (AdaptiveController::tick()'s should_apply is only ever true for a param
+  // whose bit is set here) -- see applyAdaptiveDecision() for what "apply"
   // means per param.
-  uint8_t _tune_applied_mask = 0;
+  uint8_t _adaptive_applied_mask = 0;
   // beebo: setters (not plain field writes) so every call site -- binary
   // CMD_BEEBO opcode and USB/mesh-admin text CLI alike -- logs an
   // SettingRecord (MON_SETTING) through the same path, same reasoning as
   // requestNodeRoleSwitch() above.
-  void setTuneEnabled(bool on, uint8_t source) {
-    if (on != _tune_enabled) {
-      appendSettingChangedEvent(SETTING_TUNE_ENABLED, _tune_enabled ? 1 : 0, on ? 1 : 0, source);
+  void setAdaptiveEnabled(bool on, uint8_t source) {
+    if (on != _adaptive_enabled) {
+      appendSettingChangedEvent(SETTING_ADAPTIVE_ENABLED, _adaptive_enabled ? 1 : 0, on ? 1 : 0, source);
       // A fresh start either way: no window, baseline or bandit state carries
       // across an off/on toggle.
-      tune_controller.begin();
+      adaptive_controller.begin();
       eval_window.begin(evalWindowConfig());
     }
-    _tune_enabled = on;
+    _adaptive_enabled = on;
   }
-  void setTuneAppliedMask(uint8_t mask, uint8_t source) {
-    if (mask != _tune_applied_mask) {
-      appendSettingChangedEvent(SETTING_TUNE_APPLIED_MASK, _tune_applied_mask, mask, source);
+  void setAdaptiveAppliedMask(uint8_t mask, uint8_t source) {
+    if (mask != _adaptive_applied_mask) {
+      appendSettingChangedEvent(SETTING_ADAPTIVE_APPLIED_MASK, _adaptive_applied_mask, mask, source);
       eval_window.invalidate(EVALF_CONFIG);
     }
-    _tune_applied_mask = mask;
+    _adaptive_applied_mask = mask;
   }
-  // beebo: perform one TuneController::Decision -- writes the given TUNE_*
+  // beebo: perform one AdaptiveController::Decision -- writes the given TUNING_*
   // param's live value via the same tlvSet*/direct-NodePrefs path its own
   // individual GET/SET_* command uses, so a live-applied change can't drift
   // from what a human explicitly setting that same value would produce.
-  void applyTuneDecision(uint8_t param_id, int16_t value);
+  void applyAdaptiveDecision(uint8_t param_id, int16_t value);
   // beebo: Dispatcher::_err_flags (ERR_EVENT_*) is sticky -- once a bit sets
   // it never clears until reboot, and by itself carries no timestamp, so a
   // `status`/CMD_GET_STATS query long after the fact gives no idea when or
@@ -2100,7 +2100,7 @@ private:
   uint32_t _last_link_rx_queue_full = 0;
   void appendLinkQueueDropEvents();
   // beebo: log one MON_SETTING record. Called from requestNodeRoleSwitch()/
-  // setTuneEnabled()/setTuneAppliedMask() below so every path that mutates
+  // setAdaptiveEnabled()/setAdaptiveAppliedMask() below so every path that mutates
   // one of these (binary CMD_BEEBO opcode, USB/mesh-admin text CLI) logs
   // consistently through one place, rather than instrumenting each call
   // site separately. `source` is EVENT_SOURCE_* (MonRing.h) -- the caller
@@ -2178,7 +2178,7 @@ private:
   // time" figure would be, and not yet split into base (fixed per-
   // iteration poll cost) vs. work (traffic-proportional) -- that split is
   // "live" set is a fast (~1s) window, always the freshest value, read
-  // directly by any in-RAM consumer (TuneController) -- it can be skewed
+  // directly by any in-RAM consumer (AdaptiveController) -- it can be skewed
   // by whatever happened in that specific second (e.g. a `beebo status`
   // round trip landing entirely inside one 1s window), same as any
   // single-sample instantaneous reading. The "reported" set is a genuine
@@ -2358,7 +2358,7 @@ private:
 
 public:
   // beebo: always declared -- queried by role-agnostic SoH/QoS stats
-  // reporting (Beebo.cpp's buildSohStats()-equivalent, TuneController
+  // reporting (Beebo.cpp's buildSohStats()-equivalent, AdaptiveController
   // feed, and BEEBO_CMD_GET_ACK_STATS) regardless of role. 0 when
   // companion is compiled out, since none of ack_overflow_count/
   // BaseChatMesh's own _ack_success_count/_ack_timeout_count/

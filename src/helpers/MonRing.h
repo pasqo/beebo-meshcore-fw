@@ -54,7 +54,7 @@
 // ---- record kinds (byte 0 of every record) --------------------------------
 enum : uint8_t {
   MON_SYNC = 0, MON_RX = 1, MON_TX = 2, MON_RADIO = 3, MON_ENV = 4, MON_BATT = 5,
-  MON_TUNE = 6, MON_EVENT = 7,
+  MON_ADAPTIVE = 6, MON_EVENT = 7,
   // beebo: split out of MON_EVENT -- EVENT_SETTING_CHANGED/EVENT_COMMAND_RUN
   // had their own fixed column shapes (setting/old_value/new_value/source;
   // command/source) that no other event type shares, unlike the genuinely
@@ -74,13 +74,13 @@ enum : uint8_t {
   MON_DEBUG = 11,
   // Dynamic-optimizer per-window evaluation result (EvalRecordA/B): always a
   // 2-slot continuation run (RLOG_CONT_BIT on the first slot). Gated by
-  // MON_CAP_TUNE; each slot counts toward tuneCount() so the wire header is
+  // MON_CAP_TUNING; each slot counts toward tuningCount() so the wire header is
   // unchanged.
   MON_EVAL = 12,
   // On-device A/B trial (TrialFSM): one start record, one record per closed
   // block and one end record (TrialStartRecord/TrialBlockRecord/
-  // TrialEndRecord, told apart by their byte 3 phase). Gated by MON_CAP_TUNE
-  // and counted in tuneCount(), like MON_EVAL.
+  // TrialEndRecord, told apart by their byte 3 phase). Gated by MON_CAP_TUNING
+  // and counted in tuningCount(), like MON_EVAL.
   MON_TRIAL = 13,
 };
 
@@ -95,14 +95,14 @@ enum : uint8_t {
 #define RLOG_KIND_MASK  0x7F
 #define RLOG_CONT_BIT   0x80
 
-// ---- TUNE param IDs: which NodePrefs knob a TuneRecord proposal concerns ---
+// ---- TUNE param IDs: which NodePrefs knob a AdaptiveRecord proposal concerns ---
 enum {
-  TUNE_RX_DELAY_BASE = 0, TUNE_TX_DELAY_FACTOR, TUNE_DIRECT_TX_DELAY_FACTOR,
-  TUNE_AGC_RESET_INTERVAL, TUNE_INTERFERENCE_THRESHOLD, TUNE_AIRTIME_FACTOR,
+  TUNING_RX_DELAY_BASE = 0, TUNING_TX_DELAY_FACTOR, TUNING_DIRECT_TX_DELAY_FACTOR,
+  TUNING_AGC_RESET_INTERVAL, TUNING_INTERFERENCE_THRESHOLD, TUNING_AIRTIME_FACTOR,
   // beebo: RX front-end switches decided by TrialFSM (0/1, or a CR 5-8), not by the
-  // bandit -- they only appear in TuneRecords, never in
-  // TuneController::specFor().
-  TUNE_FEM_LNA, TUNE_RX_BOOST, TUNE_CR,
+  // bandit -- they only appear in AdaptiveRecords, never in
+  // AdaptiveController::specFor().
+  TUNING_FEM_LNA, TUNING_RX_BOOST, TUNING_CR,
 };
 
 // ---- EVENT types: what kind of thing an EventRecord reports, plus its own
@@ -337,7 +337,7 @@ enum : uint8_t {
 // them, so neither does this).
 enum : uint8_t {
   EVENT_SOURCE_BINARY = 0, EVENT_SOURCE_TEXT_CLI = 1,
-  EVENT_SOURCE_TUNER = 2,   // the on-device tuner itself (e.g. a trial winner being persisted)
+  EVENT_SOURCE_TUNING = 2,   // the on-device tuner itself (e.g. a trial winner being persisted)
 };
 
 // ---- SETTING_* keys (SettingRecord.setting): reuses Beebo.h's PrefsTlvKey
@@ -349,7 +349,7 @@ enum : uint8_t {
 // get their own IDs starting at 100, well clear of PrefsTlvKey's current or
 // likely future range, so the two numberings can never collide.
 enum : uint8_t {
-  SETTING_NODE_ROLE = 100, SETTING_TUNE_ENABLED = 101, SETTING_TUNE_APPLIED_MASK = 102,
+  SETTING_NODE_ROLE = 100, SETTING_ADAPTIVE_ENABLED = 101, SETTING_ADAPTIVE_APPLIED_MASK = 102,
   // beebo: companion.routing.dedup_window (NodePrefs.dedup_window_ms) -- no
   // PrefsTlvKey/ComPrefs equivalent (same shape as idle_margin_ms/
   // batt_sample_*, none of which are TLV-registered either), so its own ID
@@ -358,16 +358,16 @@ enum : uint8_t {
   // comment -- it IS TLV-registered.
   SETTING_DEDUP_WINDOW = 103,
   // beebo: tuning evaluation-window rule (EvalWindow::Config), RAM-only.
-  SETTING_TUNE_WINDOW_MIN_S = 105,
-  SETTING_TUNE_WINDOW_MAX_S = 106,
+  SETTING_ADAPTIVE_WINDOW_MIN_S = 105,
+  SETTING_ADAPTIVE_WINDOW_MAX_S = 106,
   // beebo: RX front-end trial settings (TrialFSM), RAM-only.
-  SETTING_TUNE_TRIAL_SWITCHES = 107, SETTING_TUNE_TRIAL_BLOCK_S = 108,
-  SETTING_TUNE_TRIAL_BLOCKS = 109,
-  SETTING_TUNE_TRIAL_VALUE_LNA = 110, SETTING_TUNE_TRIAL_VALUE_RXBOOST = 111,
-  SETTING_TUNE_TRIAL_VALUE_CR = 112, SETTING_TUNE_TRIAL_ENABLED = 113,
-  SETTING_TUNE_TRIAL_CONFIDENCE = 114, SETTING_TUNE_TRIAL_MIN_GAIN = 115,
+  SETTING_TUNING_TRIAL_SWITCHES = 107, SETTING_TUNING_TRIAL_BLOCK_S = 108,
+  SETTING_TUNING_TRIAL_BLOCKS = 109,
+  SETTING_TUNING_TRIAL_VALUE_LNA = 110, SETTING_TUNING_TRIAL_VALUE_RXBOOST = 111,
+  SETTING_TUNING_TRIAL_VALUE_CR = 112, SETTING_TUNING_TRIAL_ENABLED = 113,
+  SETTING_TUNING_TRIAL_CONFIDENCE = 114, SETTING_TUNING_TRIAL_MIN_GAIN = 115,
   // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
-  SETTING_TUNE_REWARD_WEIGHT_BASE = 116,
+  SETTING_TUNING_REWARD_WEIGHT_BASE = 116,
 };
 
 // ---- persisted capture config: per-kind mask + global enable (bit7) -------
@@ -378,9 +378,9 @@ enum : uint8_t {
 #define MON_CAP_RADIO   0x04
 #define MON_CAP_ENV     0x08
 #define MON_CAP_BATT    0x10
-#define MON_CAP_TUNE    0x20
+#define MON_CAP_TUNING    0x20
 #define MON_CAP_EVENT   0x40
-#define MON_CAP_ALL     (MON_CAP_RX | MON_CAP_TX | MON_CAP_RADIO | MON_CAP_ENV | MON_CAP_BATT | MON_CAP_TUNE | MON_CAP_EVENT)
+#define MON_CAP_ALL     (MON_CAP_RX | MON_CAP_TX | MON_CAP_RADIO | MON_CAP_ENV | MON_CAP_BATT | MON_CAP_TUNING | MON_CAP_EVENT)
 #define MON_CAP_ENABLED 0x80
 
 // ---- RX flags byte: nbr_len + hop count (rx-gain moved to the RADIO record)
@@ -460,7 +460,7 @@ enum { TXR_OK = 0, TXR_TIMEOUT = 1 };
 // which version governs everything that follows it -- bump this whenever a
 // record struct's field layout changes in a way that would misparse under
 // the old FMT_* struct formats (beebo/src/beebo/monitor.py). Adding a new
-// record KIND, or a new EVENT_*/SETTING_*/TUNE_* enum value, does not need a
+// record KIND, or a new EVENT_*/SETTING_*/TUNING_* enum value, does not need a
 // bump (old decoders already handle "unknown enum value" gracefully); only
 // changing the byte layout of an existing struct does.
 //
@@ -550,14 +550,14 @@ struct __attribute__((packed)) BattRecord {
 // beebo: one proposal/decision emitted by the dynamic tuning optimizer per
 // re-tune tick. `applied` distinguishes observe-only logging (the controller
 // computes what it would set but never calls the NodePrefs setter) from live
-// actuation. `reward_after` is deliberately not a field: the NEXT TuneRecord
+// actuation. `reward_after` is deliberately not a field: the NEXT AdaptiveRecord
 // for the same param_id carries the post-change indicator as its own
 // reward_before, so a before/after pair is reconstructed from two consecutive
 // records instead of a duplicated field.
-struct __attribute__((packed)) TuneRecord {
-  uint8_t  kind;            // MON_TUNE
+struct __attribute__((packed)) AdaptiveRecord {
+  uint8_t  kind;            // MON_ADAPTIVE
   uint16_t offset;
-  uint8_t  param_id;        // TUNE_* -- which knob this proposal concerns
+  uint8_t  param_id;        // TUNING_* -- which knob this proposal concerns
   uint8_t  applied;         // 0 = observe-only, 1 = applied
   int16_t  old_value;       // current param value, native fixed-point scale
   int16_t  proposed_value;  // what the controller would set / did set
@@ -574,8 +574,8 @@ struct __attribute__((packed)) TuneRecord {
 #define TRIALF_PAIRED    0x02   // this block completed a pair
 #define TRIALF_GUARDRAIL 0x04   // the pool guardrail tripped in this block
 #define TRIALF_BOUNDS    0x08   // lower/upper hold the sequential rule's bounds (3+ pairs)
-// beebo: a trial begins. `param` is a TUNE_* id (TUNE_FEM_LNA, TUNE_RX_BOOST,
-// TUNE_CR); a and b are the two arms' values (a = the stored value).
+// beebo: a trial begins. `param` is a TUNING_* id (TUNING_FEM_LNA, TUNING_RX_BOOST,
+// TUNING_CR); a and b are the two arms' values (a = the stored value).
 struct __attribute__((packed)) TrialStartRecord {
   uint8_t  kind;            // MON_TRIAL
   uint16_t offset;
@@ -641,7 +641,7 @@ struct __attribute__((packed)) TrialEndRecord {
 struct __attribute__((packed)) EvalRecordA {
   uint8_t  kind;            // MON_EVAL | RLOG_CONT_BIT
   uint16_t offset;
-  uint16_t window_id;       // == TuneRecord.iteration of the decision it evaluates
+  uint16_t window_id;       // == AdaptiveRecord.iteration of the decision it evaluates
   uint8_t  outcome;         // EVAL_*
   uint8_t  flags;           // EVALF_*
   uint16_t exposure;        // confirmable attempts in the window
@@ -802,7 +802,7 @@ union MonRecord {
   RadioRecord radio;
   EnvRecord   env;
   BattRecord  batt;
-  TuneRecord  tune;
+  AdaptiveRecord  adaptive;
   TrialStartRecord trial_start;
   TrialBlockRecord trial_block;
   TrialEndRecord   trial_end;
@@ -823,7 +823,7 @@ static_assert(sizeof(TxRecord)    == 16, "TxRecord must be 16 bytes");
 static_assert(sizeof(RadioRecord) == 16, "RadioRecord must be 16 bytes");
 static_assert(sizeof(EnvRecord)   == 16, "EnvRecord must be 16 bytes");
 static_assert(sizeof(BattRecord)  == 16, "BattRecord must be 16 bytes");
-static_assert(sizeof(TuneRecord)  == 16, "TuneRecord must be 16 bytes");
+static_assert(sizeof(AdaptiveRecord)  == 16, "AdaptiveRecord must be 16 bytes");
 static_assert(sizeof(TrialStartRecord) == 16, "TrialStartRecord must be 16 bytes");
 static_assert(sizeof(TrialBlockRecord) == 16, "TrialBlockRecord must be 16 bytes");
 static_assert(sizeof(TrialEndRecord)   == 16, "TrialEndRecord must be 16 bytes");
@@ -913,7 +913,7 @@ private:
   // sync with this one). Both exclude ENV and TUNE (opt-in: ENV is
   // relatively high-volume, TUNE is the still-experimental dynamic-tuning
   // optimizer's own record kind, off until a user deliberately turns
-  // repeater.routing.tune.enabled on) but include EVENT (fault transitions/
+  // repeater.routing.tuning.adaptive.enabled on) but include EVENT (fault transitions/
   // setting changes/command-run trace -- low-volume, always useful). Kept
   // in sync with Beebo.cpp's value anyway so a native unit test constructing
   // a bare MonRing (no Beebo/_prefs involved) sees the same default.
@@ -923,7 +923,7 @@ private:
   // whatever byte it already had persisted; new bits are never retroactively
   // ORed in for existing devices (`beebo settings monitor.<kind>` must be
   // turned on explicitly after such an upgrade).
-  uint8_t   _config = (MON_CAP_ALL & ~MON_CAP_ENV & ~MON_CAP_TUNE) | MON_CAP_ENABLED;  // persisted enable + per-kind capture mask
+  uint8_t   _config = (MON_CAP_ALL & ~MON_CAP_ENV & ~MON_CAP_TUNING) | MON_CAP_ENABLED;  // persisted enable + per-kind capture mask
   // beebo: per-EVENT_TYPE capture mask, bit N = EVENT_* id N, 1=captured --
   // a second, finer filter UNDER MON_CAP_EVENT (that bit still gates MON_EVENT
   // capture at all; this only decides which types within it are kept).
@@ -1040,7 +1040,7 @@ private:
 
   // Count of TUNE records currently resident in the ring, same
   // incremented-on-append/decremented-on-eviction pattern as _rx_count.
-  uint32_t  _tune_count = 0;
+  uint32_t  _tuning_count = 0;
 
   // Count of EVENT records currently resident in the ring, same
   // incremented-on-append/decremented-on-eviction pattern as _rx_count.
@@ -1189,10 +1189,10 @@ private:
           case MON_BATT:
             if (_batt_count) _batt_count--;
             break;
-          case MON_TUNE:
+          case MON_ADAPTIVE:
           case MON_EVAL:
           case MON_TRIAL:
-            if (_tune_count) _tune_count--;
+            if (_tuning_count) _tuning_count--;
             break;
           case MON_EVENT:
             if (_event_count) _event_count--;
@@ -1375,7 +1375,7 @@ public:
   }
   uint32_t rxCount() const { return _rx_count; }
   uint32_t battCount() const { return _batt_count; }
-  uint32_t tuneCount() const { return _tune_count; }
+  uint32_t tuningCount() const { return _tuning_count; }
   uint32_t eventCount() const { return _event_count; }
   uint32_t settingCount() const { return _setting_count; }
   uint32_t commandCount() const { return _command_count; }
@@ -1430,7 +1430,7 @@ public:
   // storing a fresh record after the clear.
   void clear(uint32_t anchor_epoch_sec, uint32_t anchor_now_ms, const RadioRecord &radio, const EnvRecord &env, uint16_t anchor_ms_frac = 0) {
     _head = _count = 0; _next_seq = 0;
-    _rx_count = _tx_count = _sync_count = _radio_count = _env_count = _batt_count = _tune_count = _event_count = _setting_count = _command_count = _route_count = _debug_count = _end_time = 0;
+    _rx_count = _tx_count = _sync_count = _radio_count = _env_count = _batt_count = _tuning_count = _event_count = _setting_count = _command_count = _route_count = _debug_count = _end_time = 0;
     // beebo: _rx_pool_exhausted_count/_rx_parse_error_count are deliberately
     // NOT reset here -- they're lifetime-since-boot counters (see their
     // declaration above), and clearing the ring shouldn't erase evidence that
@@ -1491,31 +1491,31 @@ public:
   // runs is charted (observe-only or applied), not just changes, since the
   // point is to see the full decision history for offline review before any
   // param is promoted to live actuation.
-  void appendTune(TuneRecord tune, uint64_t now_ms) {
-    if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
+  void appendAdaptive(AdaptiveRecord tune, uint64_t now_ms) {
+    if (!enabled() || !(_config & MON_CAP_TUNING) || _buf == nullptr) return;
     MonRecord r{};
-    r.tune = tune;
-    r.tune.kind = MON_TUNE;
-    r.tune.offset = _ensureSync(now_ms);
+    r.adaptive = tune;
+    r.adaptive.kind = MON_ADAPTIVE;
+    r.adaptive.offset = _ensureSync(now_ms);
     _end_time = (uint32_t)(now_ms / 1000);
-    _tune_count++;
+    _tuning_count++;
     _store(r);
   }
 
   // Append one MON_TRIAL record (start, block or end; kind/offset stamped
-  // here, the phase byte is the caller's). Gated by MON_CAP_TUNE.
+  // here, the phase byte is the caller's). Gated by MON_CAP_TUNING.
   void appendTrial(const MonRecord &rec, uint64_t now_ms) {
-    if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
+    if (!enabled() || !(_config & MON_CAP_TUNING) || _buf == nullptr) return;
     MonRecord r = rec;
     r.trial_start.kind = MON_TRIAL;
     r.trial_start.offset = _ensureSync(now_ms);
     _end_time = (uint32_t)(now_ms / 1000);
-    _tune_count++;
+    _tuning_count++;
     _store(r);
   }
 
   // Append one evaluation window result as a 2-slot MON_EVAL continuation
-  // run. Gated by MON_CAP_TUNE. The offset is resolved once, before either
+  // run. Gated by MON_CAP_TUNING. The offset is resolved once, before either
   // slot is stored, so a SYNC relatch (the only thing _ensureSync() ever
   // appends) lands ahead of the run, never between its slots. Version-1
   // form, still used directly by callers that only ever fill A/B (kept so
@@ -1523,20 +1523,20 @@ public:
   // exercise generic continuation-run behavior); EvalWindow::RECORD_VERSION
   // is 2 now, so real callers use the 3-slot overload below instead.
   void appendEval(EvalRecordA a, EvalRecordB b, uint64_t now_ms) {
-    if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
+    if (!enabled() || !(_config & MON_CAP_TUNING) || _buf == nullptr) return;
     uint16_t offset = _ensureSync(now_ms);
     _end_time = (uint32_t)(now_ms / 1000);
     MonRecord r{};
     r.eval_a = a;
     r.eval_a.kind = MON_EVAL | RLOG_CONT_BIT;
     r.eval_a.offset = offset;
-    _tune_count++;
+    _tuning_count++;
     _store(r);
     MonRecord r2{};
     r2.eval_b = b;
     r2.eval_b.kind = MON_EVAL;
     r2.eval_b.offset = offset;
-    _tune_count++;
+    _tuning_count++;
     _store(r2);
   }
 
@@ -1544,27 +1544,27 @@ public:
   // the 2-slot overload above -- slot 2 now carries RLOG_CONT_BIT too (a
   // slot 3 follows it), only slot 3 is the run's terminator.
   void appendEval(EvalRecordA a, EvalRecordB b, EvalRecordC c, uint64_t now_ms) {
-    if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
+    if (!enabled() || !(_config & MON_CAP_TUNING) || _buf == nullptr) return;
     uint16_t offset = _ensureSync(now_ms);
     _end_time = (uint32_t)(now_ms / 1000);
     MonRecord r{};
     r.eval_a = a;
     r.eval_a.kind = MON_EVAL | RLOG_CONT_BIT;
     r.eval_a.offset = offset;
-    _tune_count++;
+    _tuning_count++;
     _store(r);
     MonRecord r2{};
     r2.eval_b = b;
     r2.eval_b.kind = MON_EVAL | RLOG_CONT_BIT;
     r2.eval_b.offset = offset;
-    _tune_count++;
+    _tuning_count++;
     _store(r2);
     MonRecord r3{};
     r3.eval_c = c;
     r3.eval_c.kind = MON_EVAL;
     r3.eval_c.offset = offset;
     r3.eval_c.window_id = a.window_id;
-    _tune_count++;
+    _tuning_count++;
     _store(r3);
   }
 
@@ -1836,7 +1836,7 @@ public:
   // node." Both are computed fresh on every call from the same lifetime
   // counters the event catalog (see beebo-cli docs) already tracks --
   // nothing new is captured, this is pure arithmetic over existing
-  // diagnostics, same spirit as TuneController::txConfirmReward() (which
+  // diagnostics, same spirit as AdaptiveController::txConfirmReward() (which
   // QoS *is* -- see below).
 
   // QoS inputs -- the four lifetime counters; EvalWindow takes their deltas

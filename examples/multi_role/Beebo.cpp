@@ -50,7 +50,7 @@
 // duration isn't empirically measured, so this stays conservative until
 // real trigger data says otherwise.
 #define MAX_LOOP_LATENCY_THRESHOLD_MS  500u
-#define TUNE_UTIL_SAMPLE_MS 1000u             // beebo: packet-pool occupancy sample period for the tuning window guardrail
+#define TUNING_UTIL_SAMPLE_MS 1000u             // beebo: packet-pool occupancy sample period for the tuning window guardrail
 #define BEEBO_PACKET_POOL_SIZE 16             // beebo: StaticPoolPacketManager size (Beebo ctor)
 
 // beebo: MonRing's LiveSink hook target -- a
@@ -1135,12 +1135,12 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   _role_state->prefs.usb_enabled = 1;      // USB companion transport on by default (lets a fresh node be configured over USB before BLE/WiFi are set up)
   // beebo: ENV and TUNE are opt-in (ENV is comparatively high-volume; TUNE is
   // the still-experimental dynamic-tuning optimizer's own record kind, off
-  // until repeater.routing.tune.enabled is turned on) -- everything else,
+  // until repeater.routing.tuning.adaptive.enabled is turned on) -- everything else,
   // including EVENT, captures by default. Kept in sync with MonRing.h's own
   // in-class _config default (test/test_monring's own EXPECT_EQ on this
   // exact bit combination is what caught this previously disagreeing with
   // that header).
-  _role_state->prefs.monring_config = (MON_CAP_ALL & ~MON_CAP_ENV & ~MON_CAP_TUNE) | MON_CAP_ENABLED;
+  _role_state->prefs.monring_config = (MON_CAP_ALL & ~MON_CAP_ENV & ~MON_CAP_TUNING) | MON_CAP_ENABLED;
   // beebo: the memset above wipes out BeeboBasePrefs.h's in-class default
   // (0xFFFFFFFFu, capture every event type) same as it wipes monring_config's
   // -- re-assert it explicitly here too, or a device whose persisted file
@@ -2042,14 +2042,14 @@ void Beebo::initMonRing() {
   _next_route_ms = futureMillis(ROUTE_WINDOW_MS);
 #endif
 
-  tune_controller.begin();
-  tune_controller.setObjective(&objective);
+  adaptive_controller.begin();
+  adaptive_controller.setObjective(&objective);
   eval_window.begin(evalWindowConfig());
 }
 
 #if BEEBO_ENABLE_REPEATER_ROLE
 // beebo: lifetime reward counters, the same four every QoS/RoS computation uses.
-MonRing::QosStats Beebo::tuneQosStats() {
+MonRing::QosStats Beebo::tuningQosStats() {
   SimpleMeshTables* tables = (SimpleMeshTables*)getTables();
   MonRing::QosStats q;
   q.ack_success_count = getAckSuccessCount();
@@ -2065,27 +2065,27 @@ void Beebo::openEvalWindow(uint16_t window_id) {
 #else
   uint32_t cad_ms = 0;
 #endif
-  eval_window.open(millis(), tuneQosStats(), window_id, cad_ms, radio_driver.getPacketsRecv(),
+  eval_window.open(millis(), tuningQosStats(), window_id, cad_ms, radio_driver.getPacketsRecv(),
                    monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                    radio_driver.getPacketsSent());
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
 }
 
 // beebo: dynamic-tuning step, repeater role only, run every loop() while
-// tune.enabled. Off by default; per-param live actuation (_tune_applied_mask)
+// tuning.adaptive.enabled. Off by default; per-param live actuation (_adaptive_applied_mask)
 // is a separate opt-in on top. The window closes by rule (EvalWindow.h), and
-// each closed window is exactly one TuneController tick.
-void Beebo::loopTune() {
+// each closed window is exactly one AdaptiveController tick.
+void Beebo::loopTuning() {
   if (trialRunning()) { loopTrial(); return; }
   uint8_t pending = _trial_enabled ? (_trial_switches & ~_trial_done_mask) : 0;
-  if (pending && tune_controller.idle() && startTrial((pending & 1) ? 0 : (pending & 2) ? 1 : 2)) {
+  if (pending && adaptive_controller.idle() && startTrial((pending & 1) ? 0 : (pending & 2) ? 1 : 2)) {
     loopTrial();
     return;
   }
-  if (!_tune_enabled) return;   // trial-only: no adaptive windows
-  if (!eval_window.isOpen()) openEvalWindow(tune_controller.windowId());
+  if (!_adaptive_enabled) return;   // trial-only: no adaptive windows
+  if (!eval_window.isOpen()) openEvalWindow(adaptive_controller.windowId());
   if (millisHasNowPassed(_next_util_sample_ms)) {
-    _next_util_sample_ms = futureMillis(TUNE_UTIL_SAMPLE_MS);
+    _next_util_sample_ms = futureMillis(TUNING_UTIL_SAMPLE_MS);
     int used = BEEBO_PACKET_POOL_SIZE - _mgr->getFreeCount();
     eval_window.sampleUtil((uint8_t)(used <= 0 ? 0 : used * 100 / BEEBO_PACKET_POOL_SIZE));
   }
@@ -2095,12 +2095,12 @@ void Beebo::loopTune() {
   uint32_t cad_ms = 0;
 #endif
   EvalWindow::Result window;
-  if (!eval_window.poll(millis(), tuneQosStats(), cad_ms, window, radio_driver.getPacketsRecv(),
+  if (!eval_window.poll(millis(), tuningQosStats(), cad_ms, window, radio_driver.getPacketsRecv(),
                         monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                         radio_driver.getPacketsSent())) {
     return;
   }
-  int16_t current_values[TuneController::NUM_PARAMS] = {
+  int16_t current_values[AdaptiveController::NUM_PARAMS] = {
     (int16_t)(_role_state->prefs.rx_delay_base * 100.0f + 0.5f),
     (int16_t)(_role_state->prefs.tx_delay_factor * 100.0f + 0.5f),
     (int16_t)(_role_state->prefs.direct_tx_delay_factor * 100.0f + 0.5f),
@@ -2110,13 +2110,13 @@ void Beebo::loopTune() {
   };
   NeighborReach::scan(neighbors, MAX_NEIGHBOURS, window.reach_heard, window.reach_marginal);
   refreshObjectiveReference();
-  TuneController::Decision decision = tune_controller.tick(
-    monring, getRTCClock()->nowMillis(), current_values, window, _tune_applied_mask,
+  AdaptiveController::Decision decision = adaptive_controller.tick(
+    monring, getRTCClock()->nowMillis(), current_values, window, _adaptive_applied_mask,
     // a pending trial needs the controller idle: judge this window's
     // decision but propose nothing new, so the next loop() can start it
     (_trial_enabled ? (_trial_switches & ~_trial_done_mask) : 0) == 0);
   if (decision.should_apply) {
-    applyTuneDecision(decision.param_id, decision.value);
+    applyAdaptiveDecision(decision.param_id, decision.value);
   }
   openEvalWindow(decision.window_id);
 }
@@ -2136,7 +2136,7 @@ int Beebo::rewardIndex(const char* name, int len) {
 }
 
 uint8_t Beebo::trialParamId(int sw) {
-  return sw == 0 ? TUNE_FEM_LNA : sw == 1 ? TUNE_RX_BOOST : TUNE_CR;
+  return sw == 0 ? TUNING_FEM_LNA : sw == 1 ? TUNING_RX_BOOST : TUNING_CR;
 }
 
 uint8_t Beebo::trialSwitchStoredValue(int sw) const {
@@ -2260,7 +2260,7 @@ bool Beebo::startTrial(int sw) {
 #else
   uint32_t cad_ms = 0;
 #endif
-  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
+  trial_window.open(millis(), tuningQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
                     monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                     radio_driver.getPacketsSent());
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
@@ -2269,7 +2269,7 @@ bool Beebo::startTrial(int sw) {
 
 void Beebo::loopTrial() {
   if (millisHasNowPassed(_next_util_sample_ms)) {
-    _next_util_sample_ms = futureMillis(TUNE_UTIL_SAMPLE_MS);
+    _next_util_sample_ms = futureMillis(TUNING_UTIL_SAMPLE_MS);
     int used = BEEBO_PACKET_POOL_SIZE - _mgr->getFreeCount();
     trial_window.sampleUtil((uint8_t)(used <= 0 ? 0 : used * 100 / BEEBO_PACKET_POOL_SIZE));
   }
@@ -2279,7 +2279,7 @@ void Beebo::loopTrial() {
   uint32_t cad_ms = 0;
 #endif
   EvalWindow::Result r;
-  if (!trial_window.poll(millis(), tuneQosStats(), cad_ms, r, radio_driver.getPacketsRecv(),
+  if (!trial_window.poll(millis(), tuningQosStats(), cad_ms, r, radio_driver.getPacketsRecv(),
                          monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                          radio_driver.getPacketsSent())) return;
   NeighborReach::scan(neighbors, MAX_NEIGHBOURS, r.reach_heard, r.reach_marginal);
@@ -2300,7 +2300,7 @@ void Beebo::loopTrial() {
   }
   if (step.set_value && step.value != live) applyTrialSwitchLive(sw, step.value);
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
-  trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
+  trial_window.open(millis(), tuningQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
                     monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                     radio_driver.getPacketsSent());
 }
@@ -2317,14 +2317,14 @@ void Beebo::finishTrial(const TrialFSM::Step& step) {
     else tlvSetRadioCr(this, _board.role, step.final_value);
     appendSettingChangedEvent(sw == 0 ? PREFS_TLV_RADIO_FEM_RXGAIN
                               : sw == 1 ? PREFS_TLV_RADIO_RXGAIN : PREFS_TLV_RADIO_CR,
-                              stored, step.final_value, EVENT_SOURCE_TUNER);
+                              stored, step.final_value, EVENT_SOURCE_TUNING);
     eval_window.resetBaseline();   // the radio changed under the rolling baseline
   } else {
     applyTrialSwitchLive(sw, step.value);   // back to the original
   }
   _trial_done_mask |= (1 << sw);
   _trial_switch = -1;
-  if (_tune_enabled) openEvalWindow(tune_controller.windowId());   // resume the adaptive tuner's windows
+  if (_adaptive_enabled) openEvalWindow(adaptive_controller.windowId());   // resume the adaptive tuner's windows
 }
 
 void Beebo::abortTrial(bool mark_done) {
@@ -2337,9 +2337,9 @@ void Beebo::abortTrial(bool mark_done) {
   _trial_switch = -1;
 }
 #else
-MonRing::QosStats Beebo::tuneQosStats() { return MonRing::QosStats{}; }
+MonRing::QosStats Beebo::tuningQosStats() { return MonRing::QosStats{}; }
 void Beebo::openEvalWindow(uint16_t) {}
-void Beebo::loopTune() {}
+void Beebo::loopTuning() {}
 void Beebo::abortTrial(bool) {}
 #endif
 
@@ -2362,7 +2362,7 @@ void Beebo::applyMonRingCaptureConfig() {
 // sample from landing mid RX/TX (or too soon after, while an IR-drop sag is
 // still recovering) and skewing the trend classifier. Also worth capturing
 // into the Vbat history trace itself so we can chart Vbat against idle/busy
-// state and tune IDLE_MARGIN from real recovery data instead of guessing --
+// state and tuning IDLE_MARGIN from real recovery data instead of guessing --
 // starting point of 100ms, to be re-tuned once real recovery traces are in.
 // Always IDLE_MARGIN_MS (BattTrend.h) -- not runtime-overridable.
 bool Beebo::radioIsIdle() const {
@@ -2463,53 +2463,53 @@ void Beebo::computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
 // }
 #endif
 
-// beebo: writes one TuneController::Decision -- reuses the exact same
+// beebo: writes one AdaptiveController::Decision -- reuses the exact same
 // tlvSet*/direct-NodePrefs path each param's own individual GET/SET_*
 // command already uses (see BeeboRepeater.cpp's tlvSet* functions and this
 // file's CMD_SET_TUNING_PARAMS handler), rather than a third
 // implementation, so a live-applied tuning change can't drift from what a
-// human explicitly setting that same value would produce. TUNE_RX_DELAY_BASE/
-// TUNE_AIRTIME_FACTOR now write the repeater's own independent copy
+// human explicitly setting that same value would produce. TUNING_RX_DELAY_BASE/
+// TUNING_AIRTIME_FACTOR now write the repeater's own independent copy
 // via tlvSetRxDelayBase/
 // tlvSetAirtimeFactor instead of the shared companion _role_state->prefs fields
 // -- the tuning optimizer only ever runs on a repeater (see loop()'s
-// `isRepeater() && _tune_enabled` gate), so this is never reached for a
+// `isRepeater() && _adaptive_enabled` gate), so this is never reached for a
 // companion.
-void Beebo::applyTuneDecision(uint8_t param_id, int16_t value) {
+void Beebo::applyAdaptiveDecision(uint8_t param_id, int16_t value) {
   switch (param_id) {
-    case TUNE_RX_DELAY_BASE: {
+    case TUNING_RX_DELAY_BASE: {
       float vf = value / 100.0f;
       uint32_t bits; memcpy(&bits, &vf, 4);
       tlvSetRxDelayBase(this, NODE_ROLE_REPEATER, bits);
       flushDirtyPrefs();
       break;
     }
-    case TUNE_TX_DELAY_FACTOR: {
+    case TUNING_TX_DELAY_FACTOR: {
       float vf = value / 100.0f;
       uint32_t bits; memcpy(&bits, &vf, 4);
       tlvSetTxDelayFactor(this, NODE_ROLE_REPEATER, bits);
       flushDirtyPrefs();
       break;
     }
-    case TUNE_DIRECT_TX_DELAY_FACTOR: {
+    case TUNING_DIRECT_TX_DELAY_FACTOR: {
       float vf = value / 100.0f;
       uint32_t bits; memcpy(&bits, &vf, 4);
       tlvSetDirectTxDelayFactor(this, NODE_ROLE_REPEATER, bits);
       flushDirtyPrefs();
       break;
     }
-    case TUNE_AGC_RESET_INTERVAL:
+    case TUNING_AGC_RESET_INTERVAL:
       tlvSetAgcResetInterval(this, NODE_ROLE_REPEATER, ((uint32_t)value) * 4);
       flushDirtyPrefs();
       break;
-    case TUNE_AIRTIME_FACTOR: {
+    case TUNING_AIRTIME_FACTOR: {
       float vf = value / 100.0f;
       uint32_t bits; memcpy(&bits, &vf, 4);
       tlvSetAirtimeFactor(this, NODE_ROLE_REPEATER, bits);
       flushDirtyPrefs();
       break;
     }
-    case TUNE_INTERFERENCE_THRESHOLD:
+    case TUNING_INTERFERENCE_THRESHOLD:
       tlvSetInterferenceThreshold(this, NODE_ROLE_REPEATER, (uint32_t)value);
       flushDirtyPrefs();
       break;
@@ -2772,13 +2772,13 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   // records are excluded): start/end = epoch of the oldest/newest resident
   // capture (0 until the first), so the client renders an absolute window +
   // elapsed; both are capture-time so a paused ring does not drift.
-  // rx/tx/sync/radio/env/batt/tune/event/setting/command = resident per-kind
+  // rx/tx/sync/radio/env/batt/tuning/event/setting/command = resident per-kind
   // record counts. Sent in every header, once per request/page.
   uint32_t start = monring.startTime(), end = monring.endTime();
   uint32_t rx_count = monring.rxCount(), tx_count = monring.txCount();
   uint32_t sync_count = monring.syncCount(), radio_count = monring.radioCount();
   uint32_t env_count = monring.envCount(), batt_count = monring.battCount();
-  uint32_t tune_count = monring.tuneCount(), event_count = monring.eventCount();
+  uint32_t tuning_count = monring.tuningCount(), event_count = monring.eventCount();
   uint32_t setting_count = monring.settingCount(), command_count = monring.commandCount();
   // beebo: route_count was never wired into this header (a real gap, not
   // intentional); fixed here alongside adding debug_count for the new
@@ -2792,7 +2792,7 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   memcpy(&out[i], &radio_count, 4); i += 4;
   memcpy(&out[i], &env_count, 4); i += 4;
   memcpy(&out[i], &batt_count, 4); i += 4;
-  memcpy(&out[i], &tune_count, 4); i += 4;
+  memcpy(&out[i], &tuning_count, 4); i += 4;
   memcpy(&out[i], &event_count, 4); i += 4;
   memcpy(&out[i], &setting_count, 4); i += 4;
   memcpy(&out[i], &command_count, 4); i += 4;
@@ -2827,7 +2827,7 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   // header request -- not gated by tuning being enabled or role, unlike
   // the repeater-only tuning tick's own reward computation (which now
   // delegates to the same MonRing::computeQos() this uses, see
-  // TuneController.h). 0-10000 scaled, same convention as TuneRecord.
+  // AdaptiveController.h). 0-10000 scaled, same convention as AdaptiveRecord.
   // reward_before. ros_count is the companion raw-volume half of the
   // goodput reward redesign (DYNAMIC_OPTIMIZER_PLAN.md, 2026-08-24) -- QoS
   // alone can't tell a node routing 1 packet/hour at 100% from one routing
@@ -5554,81 +5554,81 @@ void Beebo::handleCmdFrame(size_t len) {
     size_t ver_len = strlen(FIRMWARE_VERSION);
     memcpy(&out_frame[2], FIRMWARE_VERSION, ver_len);
     _serial->writeFrame(out_frame, 2 + ver_len);
-  } else if (sub[0] == BEEBO_CMD_GET_TUNE_ENABLED) {
+  } else if (sub[0] == BEEBO_CMD_GET_ADAPTIVE_ENABLED) {
     // beebo: RAM-only, like BEEBO_CMD_GET/SET_QUIET below -- no tlvGet*/
     // tlvSet* wrapper (nothing to persist) and no flushDirtyPrefs() on SET.
     // Dynamic-tuning optimizer on/off ; always
     // reads back 0 after a reboot. Mirrors handleCommand()'s "get"/"set
-    // tune.enabled" text-CLI keys (same _tune_enabled field), so both paths
+    // tuning.adaptive.enabled" text-CLI keys (same _adaptive_enabled field), so both paths
     // read the exact same live state -- USB text CLI and this binary path
     // (reachable over BLE/TCP/USB) can't drift apart.
     out_frame[0] = RESP_CODE_OK;
     memset(&out_frame[1], 0, 4);
-    out_frame[1] = _tune_enabled ? 1 : 0;
+    out_frame[1] = _adaptive_enabled ? 1 : 0;
     _serial->writeFrame(out_frame, 5);  // 5B: app lib only parses "value" out of a 5B OK frame
-  } else if (sub[0] == BEEBO_CMD_SET_TUNE_ENABLED && sub_len >= 2) {
-    setTuneEnabled(sub[1] != 0, EVENT_SOURCE_BINARY);
+  } else if (sub[0] == BEEBO_CMD_SET_ADAPTIVE_ENABLED && sub_len >= 2) {
+    setAdaptiveEnabled(sub[1] != 0, EVENT_SOURCE_BINARY);
     writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_TUNE_APPLIED_MASK) {
+  } else if (sub[0] == BEEBO_CMD_GET_ADAPTIVE_APPLIED_MASK) {
     // beebo: per-param live-actuation promotion (RAM-only, default 0 =
-    // every param observe-only -- see _tune_applied_mask's declaration and
-    // TuneController::Decision/isApplicable()).
+    // every param observe-only -- see _adaptive_applied_mask's declaration and
+    // AdaptiveController::Decision/isApplicable()).
     out_frame[0] = RESP_CODE_OK;
     memset(&out_frame[1], 0, 4);
-    out_frame[1] = _tune_applied_mask;
+    out_frame[1] = _adaptive_applied_mask;
     _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_TUNE_APPLIED_MASK && sub_len >= 2) {
-    setTuneAppliedMask(sub[1], EVENT_SOURCE_BINARY);
+  } else if (sub[0] == BEEBO_CMD_SET_ADAPTIVE_APPLIED_MASK && sub_len >= 2) {
+    setAdaptiveAppliedMask(sub[1], EVENT_SOURCE_BINARY);
     writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_TUNE_WINDOW_MIN_S ||
-             sub[0] == BEEBO_CMD_GET_TUNE_WINDOW_MAX_S) {
+  } else if (sub[0] == BEEBO_CMD_GET_ADAPTIVE_WINDOW_MIN_S ||
+             sub[0] == BEEBO_CMD_GET_ADAPTIVE_WINDOW_MAX_S) {
     // beebo: evaluation-window rule (EvalWindow::Config), RAM-only like
-    // tune.enabled/tune.applied. OK + u32 LE value.
-    uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNE_WINDOW_MIN_S) ? _tune_win_min_s : _tune_win_max_s;
+    // tuning.adaptive.enabled/tuning.adaptive.applied. OK + u32 LE value.
+    uint32_t v = (sub[0] == BEEBO_CMD_GET_ADAPTIVE_WINDOW_MIN_S) ? _adaptive_win_min_s : _adaptive_win_max_s;
     out_frame[0] = RESP_CODE_OK;
     memcpy(&out_frame[1], &v, 4);
     _serial->writeFrame(out_frame, 5);
-  } else if ((sub[0] == BEEBO_CMD_SET_TUNE_WINDOW_MIN_S ||
-              sub[0] == BEEBO_CMD_SET_TUNE_WINDOW_MAX_S) && sub_len >= 3) {
+  } else if ((sub[0] == BEEBO_CMD_SET_ADAPTIVE_WINDOW_MIN_S ||
+              sub[0] == BEEBO_CMD_SET_ADAPTIVE_WINDOW_MAX_S) && sub_len >= 3) {
     uint16_t v = sub[1] | ((uint16_t)sub[2] << 8);
-    bool ok = (sub[0] == BEEBO_CMD_SET_TUNE_WINDOW_MIN_S) ? setTuneWindowMinS(v, EVENT_SOURCE_BINARY)
-            : setTuneWindowMaxS(v, EVENT_SOURCE_BINARY);
+    bool ok = (sub[0] == BEEBO_CMD_SET_ADAPTIVE_WINDOW_MIN_S) ? setAdaptiveWindowMinS(v, EVENT_SOURCE_BINARY)
+            : setAdaptiveWindowMaxS(v, EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-  } else if (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_SWITCHES ||
-             sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_BLOCK_S ||
-             sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_BLOCKS) {
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_SWITCHES ||
+             sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCK_S ||
+             sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCKS) {
     // beebo: on-device RX front-end trial settings (RAM-only), see TrialFSM.h.
-    uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_SWITCHES) ? _trial_switches
-               : (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_BLOCK_S) ? _trial_block_s : _trial_blocks;
+    uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_SWITCHES) ? _trial_switches
+               : (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCK_S) ? _trial_block_s : _trial_blocks;
     out_frame[0] = RESP_CODE_OK;
     memcpy(&out_frame[1], &v, 4);
     _serial->writeFrame(out_frame, 5);
-  } else if ((sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_SWITCHES && sub_len >= 2) ||
-             ((sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_BLOCK_S ||
-               sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_BLOCKS) && sub_len >= 3)) {
+  } else if ((sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_SWITCHES && sub_len >= 2) ||
+             ((sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_S ||
+               sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCKS) && sub_len >= 3)) {
     uint16_t v = sub[1] | ((sub_len >= 3) ? ((uint16_t)sub[2] << 8) : 0);
-    bool ok = (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_SWITCHES) ? setTrialSwitches((uint8_t)v, EVENT_SOURCE_BINARY)
-            : (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_BLOCK_S) ? setTrialBlockS(v, EVENT_SOURCE_BINARY)
+    bool ok = (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_SWITCHES) ? setTrialSwitches((uint8_t)v, EVENT_SOURCE_BINARY)
+            : (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_S) ? setTrialBlockS(v, EVENT_SOURCE_BINARY)
             : setTrialBlocks(v, EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-  } else if (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_ENABLED) {
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_ENABLED) {
     out_frame[0] = RESP_CODE_OK;
     memset(&out_frame[1], 0, 4);
     out_frame[1] = _trial_enabled ? 1 : 0;
     _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_ENABLED && sub_len >= 2) {
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_ENABLED && sub_len >= 2) {
     setTrialEnabled(sub[1] != 0, EVENT_SOURCE_BINARY);
     writeOKFrame();
-  } else if (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_CONFIDENCE || sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_MIN_GAIN) {
-    uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_CONFIDENCE) ? _trial_confidence_pct : _trial_min_gain_pct;
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_CONFIDENCE || sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_MIN_GAIN) {
+    uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_CONFIDENCE) ? _trial_confidence_pct : _trial_min_gain_pct;
     out_frame[0] = RESP_CODE_OK;
     memcpy(&out_frame[1], &v, 4);
     _serial->writeFrame(out_frame, 5);
-  } else if ((sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_CONFIDENCE || sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_MIN_GAIN) && sub_len >= 2) {
-    bool ok = (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_CONFIDENCE) ? setTrialConfidence(sub[1], EVENT_SOURCE_BINARY)
+  } else if ((sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_CONFIDENCE || sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_MIN_GAIN) && sub_len >= 2) {
+    bool ok = (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_CONFIDENCE) ? setTrialConfidence(sub[1], EVENT_SOURCE_BINARY)
                                                          : setTrialMinGain(sub[1], EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-  } else if (sub[0] == BEEBO_CMD_GET_TUNE_REWARD_WEIGHT && sub_len >= 2) {
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_REWARD_WEIGHT && sub_len >= 2) {
     if (sub[1] < Objective::NUM_INDICATORS) {
       int32_t v = objective.weights[sub[1]];
       out_frame[0] = RESP_CODE_OK;
@@ -5637,10 +5637,10 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
-  } else if (sub[0] == BEEBO_CMD_SET_TUNE_REWARD_WEIGHT && sub_len >= 3) {
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_REWARD_WEIGHT && sub_len >= 3) {
     if (setRewardWeight(sub[1], (int8_t)sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
     else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-  } else if (sub[0] == BEEBO_CMD_GET_TUNE_TRIAL_VALUE && sub_len >= 2) {
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_VALUE && sub_len >= 2) {
     if (sub[1] < 3) {
       uint32_t v = _trial_alt[sub[1]];
       out_frame[0] = RESP_CODE_OK;
@@ -5649,7 +5649,7 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
-  } else if (sub[0] == BEEBO_CMD_SET_TUNE_TRIAL_VALUE && sub_len >= 3) {
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_VALUE && sub_len >= 3) {
     if (setTrialValue(sub[1], sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
     else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_QUIET) {
@@ -7017,15 +7017,15 @@ void Beebo::loop() {
   appendLinkQueueDropEvents();
 
 #if BEEBO_ENABLE_REPEATER_ROLE
-  // beebo: Phase A dynamic-tuning optimizer tick (see TuneController.h /
+  // beebo: Phase A dynamic-tuning optimizer tick (see AdaptiveController.h /
   // Repeater role only (these knobs only affect
   // live behavior for the repeater path -- see getAirtimeBudgetFactor()/
   // calcRxDelay()/getRetransmitDelay()/getDirectRetransmitDelay()/
   // getAGCResetInterval() above), off by default until explicitly enabled
-  // ("set tune.enabled on"). Per-param live actuation (_tune_applied_mask,
+  // ("set tuning.adaptive.enabled on"). Per-param live actuation (_adaptive_applied_mask,
   // default 0) is a separate, narrower opt-in on top of that -- every param
   // stays observe-only until its own bit is set.
-  if (isRepeater() && (_tune_enabled || _trial_enabled) && monring.allocated()) loopTune();
+  if (isRepeater() && (_adaptive_enabled || _trial_enabled) && monring.allocated()) loopTuning();
 #endif
 
   // is there are pending dirty contacts/ACL write needed?
@@ -8261,55 +8261,55 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
 #else
       strcpy(reply, "ERR: not supported");
 #endif
-    } else if (memcmp(key, "tune.enabled", 12) == 0) {
+    } else if (strcmp(key, "tuning.adaptive.enabled") == 0) {
       // beebo: Phase A dynamic-tuning optimizer on/off switch -- RAM-only
-      // (see _tune_enabled's declaration), so this always reads back "off"
+      // (see _adaptive_enabled's declaration), so this always reads back "off"
       // after a reboot regardless of what was last set. Observe-only: even
-      // "on" never calls a NodePrefs/ComPrefs setter (see TuneController.h).
+      // "on" never calls a NodePrefs/ComPrefs setter (see AdaptiveController.h).
       // This text-CLI path is USB-only (handleCommand() is only ever reached
       // via DualModeSerialInterface's local text CLI or a remote mesh admin
       // session -- never over this device's own BLE/TCP companion session);
-      // BEEBO_CMD_GET/SET_TUNE_ENABLED (handleCmdFrame(), above) is the
+      // BEEBO_CMD_GET/SET_ADAPTIVE_ENABLED (handleCmdFrame(), above) is the
       // binary-protocol equivalent reachable over BLE/TCP/USB, reading/
-      // writing the exact same _tune_enabled field so neither path can see a
+      // writing the exact same _adaptive_enabled field so neither path can see a
       // different value than the other.
-      sprintf(reply, "> %s", _tune_enabled ? "on" : "off");
-    } else if (memcmp(key, "tune.applied", 12) == 0) {
+      sprintf(reply, "> %s", _adaptive_enabled ? "on" : "off");
+    } else if (strcmp(key, "tuning.adaptive.applied") == 0) {
       // beebo: per-param live-actuation bitmask, same RAM-only/dual-path
-      // (USB text CLI + BEEBO_CMD_GET/SET_TUNE_APPLIED_MASK) shape as
-      // tune.enabled above. Plain decimal, one bit per TuneController::
+      // (USB text CLI + BEEBO_CMD_GET/SET_ADAPTIVE_APPLIED_MASK) shape as
+      // tuning.adaptive.enabled above. Plain decimal, one bit per AdaptiveController::
       // specFor(i) -- matches every other byte-valued key in this file
       // (flood.max, int.thresh, ...), unlike monring.config's own hex
       // convention (a different key, different history).
-      sprintf(reply, "> %u", (unsigned)_tune_applied_mask);
-    } else if (strcmp(key, "tune.window.min_s") == 0) {
-      sprintf(reply, "> %u", (unsigned)_tune_win_min_s);
-    } else if (strcmp(key, "tune.window.max_s") == 0) {
-      sprintf(reply, "> %u", (unsigned)_tune_win_max_s);
-    } else if (strcmp(key, "tune.trial.switches") == 0) {
+      sprintf(reply, "> %u", (unsigned)_adaptive_applied_mask);
+    } else if (strcmp(key, "tuning.adaptive.window.min_s") == 0) {
+      sprintf(reply, "> %u", (unsigned)_adaptive_win_min_s);
+    } else if (strcmp(key, "tuning.adaptive.window.max_s") == 0) {
+      sprintf(reply, "> %u", (unsigned)_adaptive_win_max_s);
+    } else if (strcmp(key, "tuning.trial.switches") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_switches);
-    } else if (strncmp(key, "tune.reward.", 12) == 0) {
-      int idx = rewardIndex(&key[12]);
+    } else if (strncmp(key, "tuning.reward.", 14) == 0) {
+      int idx = rewardIndex(&key[14]);
       if (idx < 0) sprintf(reply, "??: %s", key);
       else sprintf(reply, "> %d", (int)objective.weights[idx]);
-    } else if (strcmp(key, "tune.trial.confidence_pct") == 0) {
+    } else if (strcmp(key, "tuning.trial.confidence_pct") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_confidence_pct);
-    } else if (strcmp(key, "tune.trial.min_gain_pct") == 0) {
+    } else if (strcmp(key, "tuning.trial.min_gain_pct") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_min_gain_pct);
-    } else if (strcmp(key, "tune.trial.enabled") == 0) {
+    } else if (strcmp(key, "tuning.trial.enabled") == 0) {
       sprintf(reply, "> %s", _trial_enabled ? "on" : "off");
-    } else if (strncmp(key, "tune.trial.switches.", 20) == 0) {
-      // tune.trial.switches.<lna|rxboost|cr>.<enable|value>
-      const char* k = &key[20];
+    } else if (strncmp(key, "tuning.trial.switches.", 22) == 0) {
+      // tuning.trial.switches.<lna|rxboost|cr>.<enable|value>
+      const char* k = &key[22];
       int sw = strncmp(k, "lna.", 4) == 0 ? 0 : strncmp(k, "rxboost.", 8) == 0 ? 1
              : strncmp(k, "cr.", 3) == 0 ? 2 : -1;
       const char* leaf = sw == 0 ? &k[4] : sw == 1 ? &k[8] : sw == 2 ? &k[3] : "";
       if (sw >= 0 && strcmp(leaf, "enable") == 0) sprintf(reply, "> %u", (unsigned)((_trial_switches >> sw) & 1));
       else if (sw >= 0 && strcmp(leaf, "value") == 0) sprintf(reply, "> %u", (unsigned)_trial_alt[sw]);
       else sprintf(reply, "??: %s", key);
-    } else if (strcmp(key, "tune.trial.block_s") == 0) {
+    } else if (strcmp(key, "tuning.trial.block_s") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_block_s);
-    } else if (strcmp(key, "tune.trial.blocks") == 0) {
+    } else if (strcmp(key, "tuning.trial.blocks") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_blocks);
     } else {
 #if BEEBO_ENABLE_REPEATER_ROLE
@@ -8693,29 +8693,29 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
 #else
       strcpy(reply, "ERR: not supported");
 #endif
-    } else if (memcmp(key, "tune.enabled ", 13) == 0) {
-      const char* v = &key[13];
+    } else if (memcmp(key, "tuning.adaptive.enabled ", 24) == 0) {
+      const char* v = &key[24];
       if (memcmp(v, "on", 2) == 0) {
-        setTuneEnabled(true, EVENT_SOURCE_TEXT_CLI);
+        setAdaptiveEnabled(true, EVENT_SOURCE_TEXT_CLI);
       } else if (memcmp(v, "off", 3) == 0) {
-        setTuneEnabled(false, EVENT_SOURCE_TEXT_CLI);
+        setAdaptiveEnabled(false, EVENT_SOURCE_TEXT_CLI);
       } else {
         strcpy(reply, "ERR: expected on/off");
         return;
       }
-      sprintf(reply, "> %s", _tune_enabled ? "on" : "off");
-    } else if (memcmp(key, "tune.applied ", 13) == 0) {
-      setTuneAppliedMask((uint8_t)atoi(&key[13]), EVENT_SOURCE_TEXT_CLI);
-      sprintf(reply, "> %u", (unsigned)_tune_applied_mask);
-    } else if (memcmp(key, "tune.window.", 12) == 0) {
-      // beebo: evaluation-window rule, see BEEBO_CMD_SET_TUNE_WINDOW_*.
-      const char* k = &key[12];
+      sprintf(reply, "> %s", _adaptive_enabled ? "on" : "off");
+    } else if (memcmp(key, "tuning.adaptive.applied ", 24) == 0) {
+      setAdaptiveAppliedMask((uint8_t)atoi(&key[24]), EVENT_SOURCE_TEXT_CLI);
+      sprintf(reply, "> %u", (unsigned)_adaptive_applied_mask);
+    } else if (memcmp(key, "tuning.adaptive.window.", 23) == 0) {
+      // beebo: evaluation-window rule, see BEEBO_CMD_SET_ADAPTIVE_WINDOW_*.
+      const char* k = &key[23];
       const char* sp = strchr(k, ' ');
       long v = sp ? atol(sp + 1) : -1;
       bool ok = false;
       if (v >= 1 && v <= 65535) {
-        if (strncmp(k, "min_s ", 6) == 0) ok = setTuneWindowMinS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
-        else if (strncmp(k, "max_s ", 6) == 0) ok = setTuneWindowMaxS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+        if (strncmp(k, "min_s ", 6) == 0) ok = setAdaptiveWindowMinS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+        else if (strncmp(k, "max_s ", 6) == 0) ok = setAdaptiveWindowMaxS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
         else { sprintf(reply, "ERR: unknown key: %s", key); return; }
       } else if (!(strncmp(k, "min_s ", 6) == 0 || strncmp(k, "max_s ", 6) == 0)) {
         sprintf(reply, "ERR: unknown key: %s", key);
@@ -8723,10 +8723,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       }
       if (!ok) { strcpy(reply, "ERR: expected 1-65535, min_s <= max_s"); return; }
       sprintf(reply, "> %ld", v);
-    } else if (memcmp(key, "tune.reward.", 12) == 0) {
-      // beebo: objective weight in tenths, "set tune.reward.<indicator> <-50..50>"
-      const char* sp = strchr(&key[12], ' ');
-      int idx = sp ? rewardIndex(&key[12], (int)(sp - &key[12])) : -1;
+    } else if (memcmp(key, "tuning.reward.", 14) == 0) {
+      // beebo: objective weight in tenths, "set tuning.reward.<indicator> <-50..50>"
+      const char* sp = strchr(&key[14], ' ');
+      int idx = sp ? rewardIndex(&key[14], (int)(sp - &key[14])) : -1;
       long v = sp ? atol(sp + 1) : 0;
       if (idx < 0) { sprintf(reply, "ERR: unknown key: %s", key); return; }
       if (v < Objective::WEIGHT_MIN || v > Objective::WEIGHT_MAX ||
@@ -8734,9 +8734,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         strcpy(reply, "ERR: expected -50 to 50"); return;
       }
       sprintf(reply, "> %ld", v);
-    } else if (memcmp(key, "tune.trial.", 11) == 0) {
-      // beebo: on-device RX front-end trial settings, see BEEBO_CMD_SET_TUNE_TRIAL_*.
-      const char* k = &key[11];
+    } else if (memcmp(key, "tuning.trial.", 13) == 0) {
+      // beebo: on-device RX front-end trial settings, see BEEBO_CMD_SET_TUNING_TRIAL_*.
+      const char* k = &key[13];
       const char* sp = strchr(k, ' ');
       long v = sp ? atol(sp + 1) : -1;
       bool ok;
