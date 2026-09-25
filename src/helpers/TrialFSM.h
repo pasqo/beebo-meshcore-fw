@@ -41,8 +41,8 @@
 //            worse than RATIO_TOLERANCE
 //   else keep measuring; the schedule's end is a final look (b without the
 //   sqrt term) and anything undecided keeps A.
-// A B block whose ratio collapses below A's running mean, or any block with the
-// utilization guardrail tripped, aborts and reverts. Unmeasured blocks discard
+// A block with the utilization guardrail tripped aborts and reverts. An undecided trial whose bounds have stopped moving (stable())
+// ends as INCONCLUSIVE and keeps A. Unmeasured blocks discard
 // their pair only. Reach (neighbors heard / marginal) is averaged per value
 // (A, B) for diagnostics; it does not enter the decision. Everything runs on
 // the device: no host input, running sums only (no per-pair history).
@@ -53,11 +53,11 @@ public:
   // SKIPPED_* are never produced by the FSM: Beebo::startTrial() reports a
   // switch it declined to run (see emitTrialSkip()) in the same trial_result event.
   enum Outcome : uint8_t { NONE, KEEP_A, ADOPT_B, ABORTED, SKIPPED_SAME, SKIPPED_NO_CONTROL,
-                   ABORTED_GUARDRAIL, ABORTED_COLLAPSE };   // ABORTED: setting changed / tuner disabled
+                   ABORTED_GUARDRAIL, INCONCLUSIVE };   // ABORTED: setting changed / tuner disabled
 
   static constexpr uint32_t MIN_LOOK_PAIRS = 3;       // fewest pairs a decision may rest on
   static constexpr int16_t  RATIO_TOLERANCE = 200;    // confirm ratio, 0-10000
-  static constexpr int16_t  COLLAPSE_THRESHOLD = 1500;
+  static constexpr uint32_t STABLE_PAIRS = 4;         // looks the bounds must stay put over to end an undecided trial
 
   struct Config {
     uint16_t block_s = 1800;
@@ -156,11 +156,6 @@ public:
 
     if (valid) {
       if (r.flags & EVALF_GUARDRAIL) return finish(ABORTED_GUARDRAIL);
-      if (is_b && _a_ratio_n > 0 &&
-          (int32_t)r.confirm_ratio + COLLAPSE_THRESHOLD < (int32_t)(_a_ratio_sum / _a_ratio_n)) {
-        return finish(ABORTED_COLLAPSE);
-      }
-      if (!is_b) { _a_ratio_sum += r.confirm_ratio; _a_ratio_n++; }
       if (is_b) { _heard_b += reach_heard; _marg_b += reach_marginal; _reach_b_n++; }
       else      { _heard_a += reach_heard; _marg_a += reach_marginal; _reach_a_n++; }
     }
@@ -190,6 +185,7 @@ public:
       int v = look(false);
       if (v > 0) return finish(ADOPT_B);
       if (v < 0) return finish(KEEP_A);
+      if (stable()) return finish(INCONCLUSIVE);
     }
     if (_idx >= _total) return decide();
     s.set_value = true;
@@ -221,7 +217,7 @@ private:
     _alt = 1;
     _prev_valid = false; _prev_is_b = false; _prev_g = 0; _prev_ratio = 0;
     _n = 0; _sum_d = _sum_d2 = _sum_rd = 0.0;
-    _a_ratio_sum = 0; _a_ratio_n = 0;
+    for (uint32_t i = 0; i < HIST; i++) _lo[i] = _hi[i] = 0.0;
     _heard_a = _heard_b = _marg_a = _marg_b = 0;
     _reach_a_n = _reach_b_n = 0;
   }
@@ -252,17 +248,34 @@ private:
 
   // +1: B wins, -1: keep A (no worthwhile gain), 0: keep measuring. `final`
   // is the last look of the schedule, where the plain t bound applies.
-  int look(bool final) const {
+  int look(bool final) {
     double n = (double)_n;
     double mean = _sum_d / n;
     double se = stdErr();
     double b = tCrit(_n - 1, _cfg.alpha_pct);
     if (!final) b *= sqrt((double)(_total / 2) / n);
     double lower = mean - b * se, upper = mean + b * se;
+    if (!final) { _lo[_n % HIST] = lower; _hi[_n % HIST] = upper; }
     bool ratio_ok = (_sum_rd / n) >= -(double)RATIO_TOLERANCE;
     if (upper < log(1.0 + _cfg.min_gain_pct / 100.0)) return -1;   // even the best case is below the minimum gain
     if (lower > 0.0 && ratio_ok) return 1;
     return 0;
+  }
+
+  // Undecided and stable: over the last STABLE_PAIRS looks (one more than that many
+  // values) neither bound moved by more than a quarter of the minimum worthwhile
+  // gain, so more pairs would not change the outcome. Ends the trial keeping A.
+  bool stable() const {
+    if (_n < MIN_LOOK_PAIRS + STABLE_PAIRS) return false;
+    double eps = log(1.0 + _cfg.min_gain_pct / 100.0) / 4.0;
+    double lo_min = _lo[0], lo_max = _lo[0], hi_min = _hi[0], hi_max = _hi[0];
+    for (uint32_t i = 1; i < HIST; i++) {
+      if (_lo[i] < lo_min) lo_min = _lo[i];
+      if (_lo[i] > lo_max) lo_max = _lo[i];
+      if (_hi[i] < hi_min) hi_min = _hi[i];
+      if (_hi[i] > hi_max) hi_max = _hi[i];
+    }
+    return lo_max - lo_min < eps && hi_max - hi_min < eps;
   }
 
   Step decide() {
@@ -270,6 +283,8 @@ private:
     return finish(look(true) > 0 ? ADOPT_B : KEEP_A);
   }
 
+  static constexpr uint32_t HIST = STABLE_PAIRS + 1;
+  double _lo[HIST] = {}, _hi[HIST] = {};   // bounds at the last looks, by pair count modulo HIST
   Config _cfg;
   State _state = IDLE;
   uint16_t _total = 96;
@@ -281,7 +296,6 @@ private:
   int32_t _prev_ratio = 0;
   uint32_t _n = 0;
   double _sum_d = 0, _sum_d2 = 0, _sum_rd = 0;
-  uint32_t _a_ratio_sum = 0, _a_ratio_n = 0;
   uint32_t _heard_a = 0, _heard_b = 0, _marg_a = 0, _marg_b = 0;
   uint32_t _reach_a_n = 0, _reach_b_n = 0;
 };

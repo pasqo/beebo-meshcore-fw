@@ -310,7 +310,7 @@ enum : uint8_t {
   // the summary of one on-device RX front-end A/B trial (see TrialFSM.h).
   //   data[0]    = TUNE_FEM_LNA / TUNE_RX_BOOST / TUNE_CR
   //   data[1]    = TrialFSM::Outcome | TRIAL_RESULT_LOG_UNITS (1 keep A, 2 adopt B, 3 aborted: setting changed or tuner disabled,
-  //                6 aborted: pool guardrail, 7 aborted: confirm-ratio collapse,
+  //                6 aborted: pool guardrail, 7 inconclusive (bounds stopped moving, kept A),
   //                4 skipped: alternative equals the stored value, 5 skipped: switch not
   //                controllable on this board; a skip has n/rel/se/ratio 0,
   //                data[10] = stored value, data[11] = the alternative)

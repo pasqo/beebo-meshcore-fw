@@ -164,17 +164,20 @@ TEST(TrialFSM, StopsEarlyWhenTheGainIsBelowTheWorthwhileBand) {
   EXPECT_LT(t.stats().n_pairs, 48u);
 }
 
-TEST(TrialFSM, RatioBelowToleranceBlocksAdoptionUntilTheScheduleEnds) {
+TEST(TrialFSM, RatioBelowToleranceBlocksAdoptionAndTheStableTrialEndsInconclusive) {
   TrialFSM t;
   t.begin(cfg(96));
   t.start(1);
   // The goodput gain alone would adopt at once, but a confirm ratio far worse
   // than RATIO_TOLERANCE blocks it, and the gain is above the minimum so the
-  // trial does not stop for "no gain" either.
+  // trial does not stop for "no gain" either. Undecided, but the bounds stop
+  // moving, so it ends inconclusive (A kept) long before the schedule does.
   TrialFSM::Step s = runPairs(t, 1, 48, clearlyBetter, /*a_ratio=*/9000, /*b_ratio=*/8500);
   ASSERT_TRUE(s.finished);
-  EXPECT_EQ(TrialFSM::KEEP_A, s.outcome);
-  EXPECT_EQ(48u, t.stats().n_pairs);   // ran the full schedule
+  EXPECT_EQ(TrialFSM::INCONCLUSIVE, s.outcome);
+  EXPECT_EQ(1, s.final_value);
+  EXPECT_LT(t.stats().n_pairs, 48u);
+  EXPECT_GE(t.stats().n_pairs, TrialFSM::MIN_LOOK_PAIRS + TrialFSM::STABLE_PAIRS);
 }
 
 TEST(TrialFSM, NoiseDoesNotDecideWithinAFewPairs) {
@@ -217,7 +220,17 @@ TEST(TrialFSM, KeepsAWhenBGainsVolumeButConfirmRatioIsWorse) {
   t.start(1);
   TrialFSM::Step s = runPairs(t, 1, 24, clearlyBetter, /*a_ratio=*/9000, /*b_ratio=*/8500);
   ASSERT_TRUE(s.finished);
-  EXPECT_EQ(TrialFSM::KEEP_A, s.outcome);
+  EXPECT_NE(TrialFSM::ADOPT_B, s.outcome);
+  EXPECT_EQ(1, s.final_value);
+}
+
+TEST(TrialFSM, NoStableStopWithoutEnoughLooks) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  TrialFSM::Step s = runPairs(t, 1, (int)(TrialFSM::MIN_LOOK_PAIRS + TrialFSM::STABLE_PAIRS) - 1,
+                              clearlyBetter, 9000, 8500);
+  EXPECT_FALSE(s.finished);
 }
 
 TEST(TrialFSM, GuardrailTripAbortsAndRevertsToTheOriginal) {
@@ -234,14 +247,14 @@ TEST(TrialFSM, GuardrailTripAbortsAndRevertsToTheOriginal) {
   EXPECT_EQ(TrialFSM::DONE, t.state());
 }
 
-TEST(TrialFSM, BBlockRatioCollapseVsATheAbortsTheTrial) {
+TEST(TrialFSM, BBlockRatioDropDoesNotAbort) {
   TrialFSM t;
   t.begin(cfg(96));
   t.start(1);
   t.onBlock(blk(100, 9000), 0, 0);           // A
-  TrialFSM::Step s = t.onBlock(blk(100, 9000 - TrialFSM::COLLAPSE_THRESHOLD - 1), 0, 0);  // B
-  ASSERT_TRUE(s.finished);
-  EXPECT_EQ(TrialFSM::ABORTED_COLLAPSE, s.outcome);
+  TrialFSM::Step s = t.onBlock(blk(100, 1000), 0, 0);  // B: the score and the adopt veto judge it
+  EXPECT_FALSE(s.finished);
+  EXPECT_EQ(TrialFSM::RUN, t.state());
 }
 
 TEST(TrialFSM, ABlockRatioDropDoesNotAbort) {
