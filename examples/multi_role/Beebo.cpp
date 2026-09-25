@@ -2158,47 +2158,71 @@ void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
   }
 }
 
-void Beebo::emitTrialTune(int sw, uint8_t old_value, uint8_t value, uint16_t ratio) {
-  TuneRecord rec;
-  memset(&rec, 0, sizeof(rec));
-  rec.param_id = trialParamId(sw);
-  rec.applied = 1;
-  rec.old_value = old_value;
-  rec.proposed_value = value;
-  rec.reward_before = ratio;
-  rec.iteration = trialWindowId();
-  monring.appendTune(rec, getRTCClock()->nowMillis());
+static int16_t trialX1000(double v) {
+  double x = v * 1000.0;
+  return (int16_t)lround(x > 32767.0 ? 32767.0 : x < -32768.0 ? -32768.0 : x);
 }
 
-void Beebo::emitTrialResult(int sw, const TrialFSM::Step& step) {
+void Beebo::emitTrialStart(int sw, const TrialFSM::Config& tc) {
+  MonRecord r{};
+  r.trial_start.phase = TRIAL_PHASE_START;
+  r.trial_start.param = trialParamId(sw);
+  r.trial_start.a = trial.original();
+  r.trial_start.b = trial.alternative();
+  r.trial_start.block_s = tc.block_s;
+  r.trial_start.blocks = trial.totalBlocks();
+  r.trial_start.confidence_pct = 100 - tc.alpha_pct;
+  r.trial_start.min_gain_pct = tc.min_gain_pct;
+  float ref = objective.volumeReference;
+  r.trial_start.volume_ref = (uint16_t)(ref > 65535.0f ? 65535.0f : ref + 0.5f);
+  monring.appendTrial(r, getRTCClock()->nowMillis());
+}
+
+// `index` is the block that closed, `value` what the switch held during it;
+// `pairs_before` the pair count
+// before this block was scored (a block that added one completed a pair).
+void Beebo::emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Result& r, uint32_t pairs_before) {
+  TrialFSM::Progress p = trial.progress();
+  MonRecord rec{};
+  rec.trial_block.phase = TRIAL_PHASE_BLOCK;
+  rec.trial_block.index = index;
+  rec.trial_block.value = value;
+  rec.trial_block.flags = (r.measured ? TRIALF_MEASURED : 0) |
+                          (p.n_pairs > pairs_before ? TRIALF_PAIRED : 0) |
+                          ((r.measured && (r.flags & EVALF_GUARDRAIL)) ? TRIALF_GUARDRAIL : 0) |
+                          (p.bounds ? TRIALF_BOUNDS : 0);
+  rec.trial_block.n_pairs = (uint16_t)(p.n_pairs > 0xFFFF ? 0xFFFF : p.n_pairs);
+  rec.trial_block.mean = trialX1000(p.mean);
+  rec.trial_block.lower = trialX1000(p.lower);
+  rec.trial_block.upper = trialX1000(p.upper);
+  monring.appendTrial(rec, getRTCClock()->nowMillis());
+}
+
+void Beebo::emitTrialEnd(int sw, const TrialFSM::Step& step) {
   TrialFSM::Stats st = trial.stats();
-  EventRecord ev;
-  memset(&ev, 0, sizeof(ev));
-  ev.event_type = EVENT_TRIAL_RESULT;
-  ev.data[0] = trialParamId(sw);
-  ev.data[1] = (uint8_t)step.outcome | TRIAL_RESULT_LOG_UNITS;
-  uint16_t n = (uint16_t)(st.n_pairs > 0xFFFF ? 0xFFFF : st.n_pairs);
-  int16_t rel = (int16_t)st.mean_rel_x1000, se = (int16_t)st.se_x1000, rd = (int16_t)st.mean_ratio_diff;
-  memcpy(&ev.data[2], &n, 2);
-  memcpy(&ev.data[4], &rel, 2);
-  memcpy(&ev.data[6], &se, 2);
-  memcpy(&ev.data[8], &rd, 2);
-  ev.data[10] = step.final_value;
-  ev.data[11] = trial.alternative();
-  monring.appendEvent(ev, getRTCClock()->nowMillis());
+  MonRecord rec{};
+  rec.trial_end.phase = TRIAL_PHASE_END;
+  rec.trial_end.param = trialParamId(sw);
+  rec.trial_end.outcome = step.outcome;
+  rec.trial_end.a = trial.original();
+  rec.trial_end.b = trial.alternative();
+  rec.trial_end.n_pairs = (uint16_t)(st.n_pairs > 0xFFFF ? 0xFFFF : st.n_pairs);
+  rec.trial_end.mean = (int16_t)st.mean_rel_x1000;
+  rec.trial_end.se = (int16_t)st.se_x1000;
+  rec.trial_end.ratio_diff = (int16_t)st.mean_ratio_diff;
+  monring.appendTrial(rec, getRTCClock()->nowMillis());
 }
 
-// A switch startTrial() declined to run leaves a trial_result event (outcome
+// A switch startTrial() declined to run leaves an end record (outcome
 // SKIPPED_*) so the decision is visible in the ring, not just a silent no-op.
 void Beebo::emitTrialSkip(int sw, TrialFSM::Outcome outcome) {
-  EventRecord ev;
-  memset(&ev, 0, sizeof(ev));
-  ev.event_type = EVENT_TRIAL_RESULT;
-  ev.data[0] = trialParamId(sw);
-  ev.data[1] = (uint8_t)outcome;
-  ev.data[10] = trialSwitchStoredValue(sw);
-  ev.data[11] = _trial_alt[sw];
-  monring.appendEvent(ev, getRTCClock()->nowMillis());
+  MonRecord rec{};
+  rec.trial_end.phase = TRIAL_PHASE_END;
+  rec.trial_end.param = trialParamId(sw);
+  rec.trial_end.outcome = outcome;
+  rec.trial_end.a = trialSwitchStoredValue(sw);
+  rec.trial_end.b = _trial_alt[sw];
+  monring.appendTrial(rec, getRTCClock()->nowMillis());
 }
 
 void Beebo::refreshObjectiveReference() {
@@ -2230,10 +2254,7 @@ bool Beebo::startTrial(int sw) {
   wc.min_ms = wc.max_ms = (uint32_t)_trial_block_s * 1000u;
   wc.use_baseline = false;
   trial_window.begin(wc);
-  // the start record's reward_before (unused at a start) carries the objective's
-  // volume reference, events per hour, so the offline mirror scores with the same number
-  emitTrialTune(sw, trial.currentValue(), trial.currentValue(),
-                (uint16_t)(objective.volumeReference > 65535.0f ? 65535.0f : objective.volumeReference + 0.5f));
+  emitTrialStart(sw, tc);
 #ifdef BEEBO_CPU_ACCOUNTING
   uint32_t cad_ms = getTxWaitCadMs();
 #else
@@ -2269,13 +2290,15 @@ void Beebo::loopTrial() {
   monring.appendEval(a, b, c, getRTCClock()->nowMillis());
   int sw = _trial_switch;
   uint8_t live = trial.currentValue();
+  uint16_t index = trial.blockIndex();
+  uint32_t pairs_before = trial.progress().n_pairs;
   TrialFSM::Step step = trial.onBlock(r, r.reach_heard, r.reach_marginal);
+  emitTrialBlock(index, live, r, pairs_before);
   if (step.finished) {
     finishTrial(step);
     return;
   }
   if (step.set_value && step.value != live) applyTrialSwitchLive(sw, step.value);
-  emitTrialTune(sw, live, step.value, r.confirm_ratio);
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
   trial_window.open(millis(), tuneQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
                     monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
@@ -2284,7 +2307,7 @@ void Beebo::loopTrial() {
 
 void Beebo::finishTrial(const TrialFSM::Step& step) {
   int sw = _trial_switch;
-  emitTrialResult(sw, step);
+  emitTrialEnd(sw, step);
   if (step.outcome == TrialFSM::ADOPT_B) {
     // Persist the winner (also applies it live) through the normal setter path.
     uint8_t stored = trialSwitchStoredValue(sw);
@@ -2309,7 +2332,7 @@ void Beebo::abortTrial(bool mark_done) {
   int sw = _trial_switch;
   TrialFSM::Step step = trial.abort();
   applyTrialSwitchLive(sw, step.value);
-  emitTrialResult(sw, step);
+  emitTrialEnd(sw, step);
   if (mark_done) _trial_done_mask |= (1 << sw);
   _trial_switch = -1;
 }

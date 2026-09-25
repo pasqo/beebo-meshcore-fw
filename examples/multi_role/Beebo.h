@@ -2028,8 +2028,9 @@ private:
   static int rewardIndex(const char* name, int len = -1);
   uint8_t trialSwitchStoredValue(int sw) const;
   void applyTrialSwitchLive(int sw, uint8_t value);
-  void emitTrialTune(int sw, uint8_t old_value, uint8_t value, uint16_t ratio);
-  void emitTrialResult(int sw, const TrialFSM::Step& step);
+  void emitTrialStart(int sw, const TrialFSM::Config& tc);
+  void emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Result& r, uint32_t pairs_before);
+  void emitTrialEnd(int sw, const TrialFSM::Step& step);
   void emitTrialSkip(int sw, TrialFSM::Outcome outcome);
   uint16_t trialWindowId() const { return 0x8000 | trial.blockIndex(); }
   MonRing::QosStats tuneQosStats();

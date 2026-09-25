@@ -77,6 +77,11 @@ enum : uint8_t {
   // MON_CAP_TUNE; each slot counts toward tuneCount() so the wire header is
   // unchanged.
   MON_EVAL = 12,
+  // On-device A/B trial (TrialFSM): one start record, one record per closed
+  // block and one end record (TrialStartRecord/TrialBlockRecord/
+  // TrialEndRecord, told apart by their byte 3 phase). Gated by MON_CAP_TUNE
+  // and counted in tuneCount(), like MON_EVAL.
+  MON_TRIAL = 13,
 };
 
 // ---- multi-record continuation: bit 7 (MSB) of a stored record's `kind`
@@ -306,26 +311,8 @@ enum : uint8_t {
   //               EVENT_RX_POOL_FULL/EVENT_TX_POOL_FULL etc. above
   //   data[6:12] = reserved
   EVENT_MAX_LOOP_LATENCY = 24,
-  // beebo: TrialFSM finished (decided, kept the original, or aborted) --
-  // the summary of one on-device RX front-end A/B trial (see TrialFSM.h).
-  //   data[0]    = TUNE_FEM_LNA / TUNE_RX_BOOST / TUNE_CR
-  //   data[1]    = TrialFSM::Outcome | TRIAL_RESULT_LOG_UNITS (1 keep A, 2 adopt B, 3 aborted: setting changed or tuner disabled,
-  //                6 aborted: pool guardrail, 7 inconclusive (bounds stopped moving, kept A),
-  //                4 skipped: alternative equals the stored value, 5 skipped: switch not
-  //                controllable on this board; a skip has n/rel/se/ratio 0,
-  //                data[10] = stored value, data[11] = the alternative)
-  //   data[2:4]  = valid pairs (u16 LE)
-  //   data[4:6]  = mean paired ln(objective) difference B-A, x1000 (i16 LE)
-  //   data[6:8]  = its standard error, x1000 (i16 LE)
-  //   data[8:10] = mean confirm-ratio difference B-A, 0-10000 scale (i16 LE)
-  //   data[10]   = final value left on the switch
-  //   data[11]   = arm B's value (the alternative the original was compared with)
-  EVENT_TRIAL_RESULT = 25,
+  // 25 retired: the trial's result is the MON_TRIAL end record.
 };
-// beebo: set on EVENT_TRIAL_RESULT's data[1] when data[4:6]/[6:8] are in ln units
-// (mean/SE of the paired ln(objective) difference); clear on results from
-// firmware that reported the plain relative goodput difference.
-static constexpr uint8_t TRIAL_RESULT_LOG_UNITS = 0x80;
 
 // ---- TXCONFIRM_*: verdict enum used ONLY for internal bookkeeping now
 // (SimpleMeshTables/AckTableEntry track which verdict, if any, a slot has
@@ -578,6 +565,64 @@ struct __attribute__((packed)) TuneRecord {
   uint16_t iteration;       // decision/window id this proposal is evaluated by (== EvalRecordA.window_id)
   uint8_t  _rsvd[3];
 };
+// beebo: MON_TRIAL record phase (byte 3 of every MON_TRIAL record)
+#define TRIAL_PHASE_START 0
+#define TRIAL_PHASE_BLOCK 1
+#define TRIAL_PHASE_END   2
+// beebo: MON_TRIAL block flags (TrialBlockRecord.flags)
+#define TRIALF_MEASURED  0x01   // the block had enough data to count
+#define TRIALF_PAIRED    0x02   // this block completed a pair
+#define TRIALF_GUARDRAIL 0x04   // the pool guardrail tripped in this block
+#define TRIALF_BOUNDS    0x08   // lower/upper hold the sequential rule's bounds (3+ pairs)
+// beebo: a trial begins. `param` is a TUNE_* id (TUNE_FEM_LNA, TUNE_RX_BOOST,
+// TUNE_CR); a and b are the two arms' values (a = the stored value).
+struct __attribute__((packed)) TrialStartRecord {
+  uint8_t  kind;            // MON_TRIAL
+  uint16_t offset;
+  uint8_t  phase;           // TRIAL_PHASE_START
+  uint8_t  param;
+  uint8_t  a;
+  uint8_t  b;
+  uint16_t block_s;         // block length, seconds
+  uint16_t blocks;          // scheduled blocks
+  uint8_t  confidence_pct;
+  uint8_t  min_gain_pct;
+  uint16_t volume_ref;      // objective volume reference, events per hour (saturated)
+  uint8_t  _rsvd[1];
+};
+// beebo: one closed block, scored. mean/lower/upper describe the paired ln score
+// difference B - A over the pairs so far, x1000 (saturated): the mean and the
+// confidence bounds the sequential rule compares with 0 and the minimum gain
+// (0 until TRIALF_BOUNDS).
+struct __attribute__((packed)) TrialBlockRecord {
+  uint8_t  kind;            // MON_TRIAL
+  uint16_t offset;
+  uint8_t  phase;           // TRIAL_PHASE_BLOCK
+  uint16_t index;           // block index, 0-based (== the MON_EVAL window id's low 15 bits)
+  uint8_t  value;           // value the switch held during the block
+  uint8_t  flags;           // TRIALF_*
+  uint16_t n_pairs;
+  int16_t  mean;
+  int16_t  lower;
+  int16_t  upper;
+};
+// beebo: a trial ends. `outcome` is a TrialFSM::Outcome (keep A, adopt B, an
+// abort cause, inconclusive, or a skipped switch -- a skip has no start record
+// and zero statistics). mean/se are the paired ln score difference B - A, x1000;
+// ratio_diff the mean confirm-ratio difference B - A, 0-10000 scale.
+struct __attribute__((packed)) TrialEndRecord {
+  uint8_t  kind;            // MON_TRIAL
+  uint16_t offset;
+  uint8_t  phase;           // TRIAL_PHASE_END
+  uint8_t  param;
+  uint8_t  outcome;
+  uint8_t  a;
+  uint8_t  b;
+  uint16_t n_pairs;
+  int16_t  mean;
+  int16_t  se;
+  int16_t  ratio_diff;
+};
 // beebo: MON_EVAL outcome (EvalRecordA.outcome)
 #define EVAL_ACCEPTED           0
 #define EVAL_ROLLBACK           1
@@ -758,6 +803,9 @@ union MonRecord {
   EnvRecord   env;
   BattRecord  batt;
   TuneRecord  tune;
+  TrialStartRecord trial_start;
+  TrialBlockRecord trial_block;
+  TrialEndRecord   trial_end;
   EvalRecordA eval_a;
   EvalRecordB eval_b;
   EvalRecordC eval_c;
@@ -776,6 +824,9 @@ static_assert(sizeof(RadioRecord) == 16, "RadioRecord must be 16 bytes");
 static_assert(sizeof(EnvRecord)   == 16, "EnvRecord must be 16 bytes");
 static_assert(sizeof(BattRecord)  == 16, "BattRecord must be 16 bytes");
 static_assert(sizeof(TuneRecord)  == 16, "TuneRecord must be 16 bytes");
+static_assert(sizeof(TrialStartRecord) == 16, "TrialStartRecord must be 16 bytes");
+static_assert(sizeof(TrialBlockRecord) == 16, "TrialBlockRecord must be 16 bytes");
+static_assert(sizeof(TrialEndRecord)   == 16, "TrialEndRecord must be 16 bytes");
 static_assert(sizeof(EvalRecordA) == 16, "EvalRecordA must be 16 bytes");
 static_assert(sizeof(EvalRecordB) == 16, "EvalRecordB must be 16 bytes");
 static_assert(sizeof(EvalRecordC) == 16, "EvalRecordC must be 16 bytes");
@@ -1140,6 +1191,7 @@ private:
             break;
           case MON_TUNE:
           case MON_EVAL:
+          case MON_TRIAL:
             if (_tune_count) _tune_count--;
             break;
           case MON_EVENT:
@@ -1445,6 +1497,18 @@ public:
     r.tune = tune;
     r.tune.kind = MON_TUNE;
     r.tune.offset = _ensureSync(now_ms);
+    _end_time = (uint32_t)(now_ms / 1000);
+    _tune_count++;
+    _store(r);
+  }
+
+  // Append one MON_TRIAL record (start, block or end; kind/offset stamped
+  // here, the phase byte is the caller's). Gated by MON_CAP_TUNE.
+  void appendTrial(const MonRecord &rec, uint64_t now_ms) {
+    if (!enabled() || !(_config & MON_CAP_TUNE) || _buf == nullptr) return;
+    MonRecord r = rec;
+    r.trial_start.kind = MON_TRIAL;
+    r.trial_start.offset = _ensureSync(now_ms);
     _end_time = (uint32_t)(now_ms / 1000);
     _tune_count++;
     _store(r);

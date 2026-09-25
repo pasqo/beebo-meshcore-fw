@@ -233,6 +233,24 @@ TEST(TrialFSM, NoStableStopWithoutEnoughLooks) {
   EXPECT_FALSE(s.finished);
 }
 
+TEST(TrialFSM, ProgressReportsPairsMeanAndBoundsFromTheThirdPair) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  EXPECT_EQ(0u, t.progress().n_pairs);
+  EXPECT_FALSE(t.progress().bounds);
+  runPairs(t, 1, 2, noise);
+  TrialFSM::Progress p = t.progress();
+  EXPECT_EQ(2u, p.n_pairs);
+  EXPECT_FALSE(p.bounds);
+  runPairs(t, 1, 1, noise);
+  p = t.progress();
+  EXPECT_EQ(3u, p.n_pairs);
+  EXPECT_TRUE(p.bounds);
+  EXPECT_LT(p.lower, p.mean);
+  EXPECT_GT(p.upper, p.mean);
+}
+
 TEST(TrialFSM, GuardrailTripAbortsAndRevertsToTheOriginal) {
   TrialFSM t;
   t.begin(cfg(96));

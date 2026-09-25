@@ -51,7 +51,7 @@ class TrialFSM {
 public:
   enum State : uint8_t { IDLE, RUN, DONE };
   // SKIPPED_* are never produced by the FSM: Beebo::startTrial() reports a
-  // switch it declined to run (see emitTrialSkip()) in the same trial_result event.
+  // switch it declined to run (see emitTrialSkip()) in a MON_TRIAL end record.
   enum Outcome : uint8_t { NONE, KEEP_A, ADOPT_B, ABORTED, SKIPPED_SAME, SKIPPED_NO_CONTROL,
                    ABORTED_GUARDRAIL, INCONCLUSIVE };   // ABORTED: setting changed / tuner disabled
 
@@ -106,6 +106,26 @@ public:
     uint32_t reach_heard_a_x10, reach_heard_b_x10;
     uint32_t reach_marginal_a_x10, reach_marginal_b_x10;
   };
+
+  // The pairs so far and, from MIN_LOOK_PAIRS pairs on, the bounds the last look
+  // used (ln units) -- what a per-block trace records.
+  struct Progress {
+    uint32_t n_pairs;
+    double mean;
+    bool bounds;
+    double lower, upper;
+  };
+  Progress progress() const {
+    Progress p = {};
+    p.n_pairs = _n;
+    if (_n > 0) p.mean = _sum_d / _n;
+    if (_n >= MIN_LOOK_PAIRS) {
+      p.bounds = true;
+      p.lower = _lo[_n % HIST];
+      p.upper = _hi[_n % HIST];
+    }
+    return p;
+  }
 
   void begin(const Config &cfg) {
     _cfg = cfg;

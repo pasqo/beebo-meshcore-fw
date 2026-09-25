@@ -822,6 +822,74 @@ TEST(MonRing, TuneCountDecrementsOnEviction) {
   EXPECT_EQ(0u, f.ring.tuneCount());
 }
 
+TEST(MonRing, AppendTrialRoundTripsAllThreePhases) {
+  RingFixture<8> f;
+  MonRecord start{};
+  start.trial_start.phase = TRIAL_PHASE_START;
+  start.trial_start.param = TUNE_FEM_LNA;
+  start.trial_start.a = 0;
+  start.trial_start.b = 1;
+  start.trial_start.block_s = 600;
+  start.trial_start.blocks = 12;
+  start.trial_start.confidence_pct = 95;
+  start.trial_start.min_gain_pct = 5;
+  start.trial_start.volume_ref = 2324;
+  f.ring.appendTrial(start, f.ms(1000));
+  MonRecord block{};
+  block.trial_block.phase = TRIAL_PHASE_BLOCK;
+  block.trial_block.index = 5;
+  block.trial_block.value = 1;
+  block.trial_block.flags = TRIALF_MEASURED | TRIALF_PAIRED | TRIALF_BOUNDS;
+  block.trial_block.n_pairs = 3;
+  block.trial_block.mean = -1200;
+  block.trial_block.lower = -2500;
+  block.trial_block.upper = 150;
+  f.ring.appendTrial(block, f.ms(1001));
+  MonRecord end{};
+  end.trial_end.phase = TRIAL_PHASE_END;
+  end.trial_end.param = TUNE_FEM_LNA;
+  end.trial_end.outcome = 2;
+  end.trial_end.a = 0;
+  end.trial_end.b = 1;
+  end.trial_end.n_pairs = 6;
+  end.trial_end.mean = 6700;
+  end.trial_end.se = 1100;
+  end.trial_end.ratio_diff = -40;
+  f.ring.appendTrial(end, f.ms(1002));
+
+  MonRecord out[8];
+  uint32_t returned = 0;
+  f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
+  ASSERT_EQ(3u, returned);
+  EXPECT_EQ(MON_TRIAL, out[0].kind);
+  EXPECT_EQ(TRIAL_PHASE_START, out[0].trial_start.phase);
+  EXPECT_EQ(600u, out[0].trial_start.block_s);
+  EXPECT_EQ(2324u, out[0].trial_start.volume_ref);
+  EXPECT_EQ(MON_TRIAL, out[1].kind);
+  EXPECT_EQ(TRIAL_PHASE_BLOCK, out[1].trial_block.phase);
+  EXPECT_EQ(5u, out[1].trial_block.index);
+  EXPECT_EQ(-2500, out[1].trial_block.lower);
+  EXPECT_EQ(150, out[1].trial_block.upper);
+  EXPECT_EQ(MON_TRIAL, out[2].kind);
+  EXPECT_EQ(TRIAL_PHASE_END, out[2].trial_end.phase);
+  EXPECT_EQ(6700, out[2].trial_end.mean);
+  EXPECT_EQ(-40, out[2].trial_end.ratio_diff);
+  EXPECT_EQ(3u, f.ring.tuneCount());
+}
+
+TEST(MonRing, AppendTrialNoOpWhenMaskedAndCountDecrementsOnEviction) {
+  RingFixture<2> f;
+  f.ring.setConfig(MON_CAP_ENABLED | MON_CAP_TX);   // TUNE masked out
+  f.ring.appendTrial(MonRecord{}, f.ms(1000));
+  EXPECT_EQ(0u, f.ring.count());
+  f.ring.setConfig(MON_CAP_ENABLED | MON_CAP_TX | MON_CAP_TUNE);
+  f.ring.appendTrial(MonRecord{}, f.ms(1001));
+  EXPECT_EQ(1u, f.ring.tuneCount());
+  f.ring.appendTx(makeTx(), f.ms(1002));
+  f.ring.appendTx(makeTx(), f.ms(1003));   // evicts the trial record
+  EXPECT_EQ(0u, f.ring.tuneCount());
+}
+
 TEST(MonRing, AppendEventAssignsSeqAndRoundTripsFaultPayload) {
   RingFixture<8> f;
   f.ring.appendEvent(makeFaultEvent(EVENT_RX_START_TIMEOUT, /*cumulative=*/1), f.ms(1000));
