@@ -52,7 +52,8 @@ public:
   enum State : uint8_t { IDLE, RUN, DONE };
   // SKIPPED_* are never produced by the FSM: Beebo::startTrial() reports a
   // switch it declined to run (see emitTrialSkip()) in the same trial_result event.
-  enum Outcome : uint8_t { NONE, KEEP_A, ADOPT_B, ABORTED, SKIPPED_SAME, SKIPPED_NO_CONTROL };
+  enum Outcome : uint8_t { NONE, KEEP_A, ADOPT_B, ABORTED, SKIPPED_SAME, SKIPPED_NO_CONTROL,
+                   ABORTED_GUARDRAIL, ABORTED_COLLAPSE };   // ABORTED: setting changed / tuner disabled
 
   static constexpr uint32_t MIN_LOOK_PAIRS = 3;       // fewest pairs a decision may rest on
   static constexpr int16_t  RATIO_TOLERANCE = 200;    // confirm ratio, 0-10000
@@ -154,10 +155,10 @@ public:
     bool valid = r.measured;
 
     if (valid) {
-      if (r.flags & EVALF_GUARDRAIL) return finish(ABORTED);
+      if (r.flags & EVALF_GUARDRAIL) return finish(ABORTED_GUARDRAIL);
       if (is_b && _a_ratio_n > 0 &&
           (int32_t)r.confirm_ratio + COLLAPSE_THRESHOLD < (int32_t)(_a_ratio_sum / _a_ratio_n)) {
-        return finish(ABORTED);
+        return finish(ABORTED_COLLAPSE);
       }
       if (!is_b) { _a_ratio_sum += r.confirm_ratio; _a_ratio_n++; }
       if (is_b) { _heard_b += reach_heard; _marg_b += reach_marginal; _reach_b_n++; }

@@ -228,7 +228,7 @@ TEST(TrialFSM, GuardrailTripAbortsAndRevertsToTheOriginal) {
   ASSERT_EQ(0, t.currentValue());            // B running
   TrialFSM::Step s = t.onBlock(blk(100, 9000, EVALF_GUARDRAIL), 0, 0);
   ASSERT_TRUE(s.finished);
-  EXPECT_EQ(TrialFSM::ABORTED, s.outcome);
+  EXPECT_EQ(TrialFSM::ABORTED_GUARDRAIL, s.outcome);
   EXPECT_EQ(1, s.final_value);
   EXPECT_EQ(1, s.value);
   EXPECT_EQ(TrialFSM::DONE, t.state());
@@ -241,7 +241,7 @@ TEST(TrialFSM, BBlockRatioCollapseVsATheAbortsTheTrial) {
   t.onBlock(blk(100, 9000), 0, 0);           // A
   TrialFSM::Step s = t.onBlock(blk(100, 9000 - TrialFSM::COLLAPSE_THRESHOLD - 1), 0, 0);  // B
   ASSERT_TRUE(s.finished);
-  EXPECT_EQ(TrialFSM::ABORTED, s.outcome);
+  EXPECT_EQ(TrialFSM::ABORTED_COLLAPSE, s.outcome);
 }
 
 TEST(TrialFSM, ABlockRatioDropDoesNotAbort) {
