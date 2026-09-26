@@ -2078,6 +2078,10 @@ void Beebo::openEvalWindow(uint16_t window_id) {
 void Beebo::loopTuning() {
   if (trialRunning()) { loopTrial(); return; }
   uint8_t pending = _trial_enabled ? (_trial_switches & ~_trial_done_mask) : 0;
+  if (_trial_enabled && _trial_done_mask && !pending) {   // every selected switch decided: disarm
+    setTrialEnabled(false, EVENT_SOURCE_TUNING);
+    if (!_adaptive_enabled) return;
+  }
   if (pending && adaptive_controller.idle() && startTrial((pending & 1) ? 0 : (pending & 2) ? 1 : 2)) {
     loopTrial();
     return;
@@ -2231,12 +2235,12 @@ void Beebo::refreshObjectiveReference() {
 
 bool Beebo::startTrial(int sw) {
   if (sw == 0 && !board.canControlLoRaFemLna()) {   // no controllable FEM LNA on this board
-    _trial_done_mask |= 1;
+    trialSwitchDone(0);
     emitTrialSkip(sw, TrialFSM::SKIPPED_NO_CONTROL);
     return false;
   }
   if (_trial_alt[sw] == trialSwitchStoredValue(sw)) {   // arm B equals arm A: nothing to compare
-    _trial_done_mask |= (1 << sw);
+    trialSwitchDone(sw);
     emitTrialSkip(sw, TrialFSM::SKIPPED_SAME);
     return false;
   }
@@ -2322,7 +2326,7 @@ void Beebo::finishTrial(const TrialFSM::Step& step) {
   } else {
     applyTrialSwitchLive(sw, step.value);   // back to the original
   }
-  _trial_done_mask |= (1 << sw);
+  trialSwitchDone(sw);
   _trial_switch = -1;
   if (_adaptive_enabled) openEvalWindow(adaptive_controller.windowId());   // resume the adaptive tuner's windows
 }
@@ -2333,7 +2337,7 @@ void Beebo::abortTrial(bool mark_done) {
   TrialFSM::Step step = trial.abort();
   applyTrialSwitchLive(sw, step.value);
   emitTrialEnd(sw, step);
-  if (mark_done) _trial_done_mask |= (1 << sw);
+  if (mark_done) trialSwitchDone(sw);
   _trial_switch = -1;
 }
 #else

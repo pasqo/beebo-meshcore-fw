@@ -1931,6 +1931,16 @@ private:
   // Arm B per switch: what the stored value is compared against. A trial whose
   // alt equals the stored value has nothing to compare and is skipped.
   uint8_t _trial_alt[3] = {0, 0, 8};
+  // A switch is decided (finished, skipped or aborted): mark it done and clear
+  // its enable bit so the setting reads off, with a setting event.
+  void trialSwitchDone(int sw) {
+    _trial_done_mask |= (1 << sw);
+    uint8_t mask = _trial_switches & ~(1 << sw);
+    if (mask != _trial_switches) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_SWITCHES, _trial_switches, mask, EVENT_SOURCE_TUNING);
+      _trial_switches = mask;
+    }
+  }
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
   void setTrialEnabled(bool on, uint8_t source) {
     if (on != _trial_enabled) {
