@@ -42,10 +42,28 @@
 //   else keep measuring; the schedule's end is a final look (b without the
 //   sqrt term) and anything undecided keeps A.
 // A block with the utilization guardrail tripped aborts and reverts. An undecided trial whose bounds have stopped moving (stable())
-// ends as INCONCLUSIVE and keeps A. Unmeasured blocks discard
-// their pair only. Reach (neighbors heard / marginal) is averaged per value
-// (A, B) for diagnostics; it does not enter the decision. Everything runs on
-// the device: no host input, running sums only (no per-pair history).
+// ends as INCONCLUSIVE and keeps A; a schedule that ends with fewer than
+// MIN_LOOK_PAIRS pairs ends UNDECIDED and keeps A. Unmeasured blocks discard
+// their pair from the paired test only.
+//
+// Before the paired test, after every pair: a dead arm. A block that heard
+// nothing is unmeasured, so a setting that deafens the radio never forms a
+// pair and the paired test alone would keep A by default. Each arm's RX Valid
+// count (capped at ALIVE_CAP per block, against bursts) is summed over the
+// pairs with no invalidated block; ABBA gives both arms equal time, so with
+// no effect the split is 50/50. When the weaker arm has at most 1/ALIVE_RATIO
+// of the stronger's count, the stronger heard something in at least
+// ALIVE_MIN_BLOCKS blocks, and the two-sided binomial tail is below alpha /
+// (pairs in the schedule), the stronger arm wins: ALIVE_A keeps A, ALIVE_B
+// adopts B.
+//
+// After every A B B A cycle: idle. Fewer than Config.idle_min_rx packets in the whole
+// cycle (both arms, no invalidated block) ends the trial ABORTED_IDLE: the
+// channel is too quiet to decide anything. The caller retries the switch later.
+//
+// Reach (neighbors heard / marginal) is averaged per value (A, B) for
+// diagnostics; it does not enter the decision. Everything runs on the device:
+// no host input, running sums only (no per-pair history).
 //
 class TrialFSM {
 public:
@@ -53,17 +71,23 @@ public:
   // SKIPPED_* are never produced by the FSM: Beebo::startTrial() reports a
   // switch it declined to run (see emitTrialSkip()) in a MON_TRIAL end record.
   enum Outcome : uint8_t { NONE, KEEP_A, ADOPT_B, ABORTED, SKIPPED_SAME, SKIPPED_NO_CONTROL,
-                   ABORTED_GUARDRAIL, INCONCLUSIVE };   // ABORTED: setting changed / tuner disabled
+                   ABORTED_GUARDRAIL, INCONCLUSIVE, ALIVE_A, ALIVE_B, ABORTED_IDLE, UNDECIDED };
+                   // ABORTED: setting changed / tuner disabled
 
   static constexpr uint32_t MIN_LOOK_PAIRS = 3;       // fewest pairs a decision may rest on
   static constexpr int16_t  RATIO_TOLERANCE = 200;    // confirm ratio, 0-10000
   static constexpr uint32_t STABLE_PAIRS = 4;         // looks the bounds must stay put over to end an undecided trial
+  static constexpr uint32_t ALIVE_CAP = 8;            // RX Valid counted per block by the dead-arm test
+  static constexpr uint32_t ALIVE_RATIO = 4;          // the weaker arm at most 1/ALIVE_RATIO of the stronger
+  static constexpr uint32_t ALIVE_MIN_BLOCKS = 2;     // blocks the stronger arm heard something in
+  static constexpr uint8_t  IDLE_MIN_RX = 4;          // default Config.idle_min_rx
 
   struct Config {
     uint16_t block_s = 1800;
     uint16_t blocks = 96;
     uint8_t alpha_pct = 5;   // overall error rate: 1, 5 or 10 (other values use 5)
     uint8_t min_gain_pct = 5;    // smallest worthwhile relative gain, percent
+    uint8_t idle_min_rx = IDLE_MIN_RX;   // packets per A B B A cycle below which the trial ends idle; 0 = never
     const Objective *objective = nullptr;   // per-block value; null = the default goodput weights
   };
 
@@ -88,6 +112,20 @@ public:
     float t120 = alpha_pct == 10 ? 1.658f : alpha_pct == 1 ? 2.617f : 1.980f;
     float tz = alpha_pct == 10 ? 1.645f : alpha_pct == 1 ? 2.576f : 1.960f;
     return df < 40 ? t[29] : df < 60 ? t40 : df < 120 ? t60 : df == 120 ? t120 : tz;
+  }
+
+  // Two-sided binomial tail P(X <= k) * 2 for n fair coin flips, capped at 1:
+  // how likely a split this uneven (k of n on the weaker side) is with no effect.
+  static double binomialTwoSided(uint32_t n, uint32_t k) {
+    if (n == 0) return 1.0;
+    double lt = -(double)n * log(2.0);   // ln C(n, 0) / 2^n
+    double sum = 0.0;
+    for (uint32_t i = 0; i <= k && i <= n; i++) {
+      sum += exp(lt);
+      lt += log((double)(n - i) / (double)(i + 1));
+    }
+    double p = 2.0 * sum;
+    return p > 1.0 ? 1.0 : p;
   }
 
   struct Step {
@@ -181,13 +219,32 @@ public:
     }
 
     double g = valid ? objective().trialLog(r) : 0.0;   // ln of the objective
+    // heard or silent, but not invalidated: counts toward the dead-arm and idle tests
+    bool usable = valid || r.outcome == EVAL_INSUFFICIENT_DATA;
+    uint32_t rx = usable ? r.rx_valid : 0;
+    if ((_idx & 3) == 0) { _cycle_rx = 0; _cycle_usable = true; }
+    _cycle_rx += rx;
+    _cycle_usable = _cycle_usable && usable;
     bool pair_added = false;
+    bool pair_done = false;
     if (!(_idx & 1)) {
       _prev_valid = valid;
       _prev_is_b = is_b;
       _prev_g = g;
       _prev_ratio = valid ? r.confirm_ratio : 0;
-    } else if (valid && _prev_valid) {
+      _prev_usable = usable;
+      _prev_rx = rx;
+    } else {
+      pair_done = true;
+      if (usable && _prev_usable) {
+        uint32_t rb = is_b ? rx : _prev_rx, ra = is_b ? _prev_rx : rx;
+        _live_a += ra < ALIVE_CAP ? ra : ALIVE_CAP;
+        _live_b += rb < ALIVE_CAP ? rb : ALIVE_CAP;
+        if (ra) _live_a_blocks++;
+        if (rb) _live_b_blocks++;
+      }
+    }
+    if (pair_done && valid && _prev_valid) {
       double gb = is_b ? g : _prev_g, ga = is_b ? _prev_g : g;
       int32_t rb = is_b ? r.confirm_ratio : _prev_ratio, ra = is_b ? _prev_ratio : r.confirm_ratio;
       {
@@ -201,12 +258,18 @@ public:
     }
 
     _idx++;
+    if (pair_done) {
+      int alive = aliveArm();
+      if (alive > 0) return finish(ALIVE_B);
+      if (alive < 0) return finish(ALIVE_A);
+    }
     if (pair_added && _n >= MIN_LOOK_PAIRS) {
       int v = look(false);
       if (v > 0) return finish(ADOPT_B);
       if (v < 0) return finish(KEEP_A);
       if (stable()) return finish(INCONCLUSIVE);
     }
+    if ((_idx & 3) == 0 && _cycle_usable && _cycle_rx < _cfg.idle_min_rx) return finish(ABORTED_IDLE);
     if (_idx >= _total) return decide();
     s.set_value = true;
     s.value = valueFor(_idx);
@@ -236,6 +299,9 @@ private:
     _orig = 0;
     _alt = 1;
     _prev_valid = false; _prev_is_b = false; _prev_g = 0; _prev_ratio = 0;
+    _prev_usable = false; _prev_rx = 0;
+    _live_a = _live_b = _live_a_blocks = _live_b_blocks = 0;
+    _cycle_rx = 0; _cycle_usable = true;
     _n = 0; _sum_d = _sum_d2 = _sum_rd = 0.0;
     for (uint32_t i = 0; i < HIST; i++) _lo[i] = _hi[i] = 0.0;
     _heard_a = _heard_b = _marg_a = _marg_b = 0;
@@ -255,7 +321,7 @@ private:
     _state = DONE;
     s.finished = true;
     s.outcome = o;
-    s.final_value = (o == ADOPT_B) ? _alt : _orig;
+    s.final_value = (o == ADOPT_B || o == ALIVE_B) ? _alt : _orig;
     s.set_value = true;
     s.value = s.final_value;
     return s;
@@ -282,6 +348,17 @@ private:
     return 0;
   }
 
+  // +1: B alive against a dead A, -1: the reverse, 0: neither arm dead.
+  int aliveArm() const {
+    uint32_t hi = _live_b > _live_a ? _live_b : _live_a;
+    uint32_t lo = _live_b > _live_a ? _live_a : _live_b;
+    uint32_t hi_blocks = _live_b > _live_a ? _live_b_blocks : _live_a_blocks;
+    if (hi_blocks < ALIVE_MIN_BLOCKS || lo * ALIVE_RATIO > hi) return 0;
+    double alpha = _cfg.alpha_pct == 10 ? 0.10 : _cfg.alpha_pct == 1 ? 0.01 : 0.05;
+    if (binomialTwoSided(hi + lo, lo) >= alpha / (double)(_total / 2)) return 0;
+    return _live_b > _live_a ? 1 : -1;
+  }
+
   // Undecided and stable: over the last STABLE_PAIRS looks (one more than that many
   // values) neither bound moved by more than a quarter of the minimum worthwhile
   // gain, so more pairs would not change the outcome. Ends the trial keeping A.
@@ -299,7 +376,7 @@ private:
   }
 
   Step decide() {
-    if (_n < MIN_LOOK_PAIRS) return finish(KEEP_A);
+    if (_n < MIN_LOOK_PAIRS) return finish(UNDECIDED);
     return finish(look(true) > 0 ? ADOPT_B : KEEP_A);
   }
 
@@ -314,6 +391,11 @@ private:
   bool _prev_valid = false, _prev_is_b = false;
   double _prev_g = 0;
   int32_t _prev_ratio = 0;
+  bool _prev_usable = false;
+  uint32_t _prev_rx = 0;
+  uint32_t _live_a = 0, _live_b = 0, _live_a_blocks = 0, _live_b_blocks = 0;   // dead-arm test sums
+  uint32_t _cycle_rx = 0;       // RX Valid in the current A B B A cycle
+  bool _cycle_usable = true;    // no invalidated block in it so far
   uint32_t _n = 0;
   double _sum_d = 0, _sum_d2 = 0, _sum_rd = 0;
   uint32_t _heard_a = 0, _heard_b = 0, _marg_a = 0, _marg_b = 0;

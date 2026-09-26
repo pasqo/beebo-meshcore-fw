@@ -22,9 +22,10 @@ TEST(TrialSequence, RunOrderCoversEverySwitchOnce) {
     EXPECT_FALSE(seen[TrialSequence::orderAt(i)]);
     seen[TrialSequence::orderAt(i)] = true;
   }
-  // receive path first, then channel-busy behavior, coding rate, timing knobs
-  EXPECT_EQ(TrialSequence::RX_BOOST, TrialSequence::orderAt(0));
-  EXPECT_EQ(TrialSequence::LNA, TrialSequence::orderAt(1));
+  // receive path first (the FEM LNA, the bigger lever, before RX boost), then
+  // channel-busy behavior, coding rate, timing knobs
+  EXPECT_EQ(TrialSequence::LNA, TrialSequence::orderAt(0));
+  EXPECT_EQ(TrialSequence::RX_BOOST, TrialSequence::orderAt(1));
   EXPECT_EQ(TrialSequence::AGC, TrialSequence::orderAt(2));
   EXPECT_EQ(TrialSequence::CR, TrialSequence::orderAt(4));
   EXPECT_EQ(TrialSequence::AIRTIME, TrialSequence::orderAt(8));
@@ -86,6 +87,8 @@ TEST(TrialSequence, EveryDefaultListIsValidAndDistinctNeighbors) {
 TEST(TrialSequence, DefaultListsStartAtTheUpstreamDefaults) {
   TrialSequence::List l;
   l.reset(TrialSequence::LNA);          EXPECT_EQ(0, l.first());
+  l.reset(TrialSequence::RX_BOOST);     EXPECT_EQ(1, l.first());   // boosted, the Heltec V4 default
+  EXPECT_EQ(0, l.v[1]);
   l.reset(TrialSequence::CR);           EXPECT_EQ(5, l.first());
   l.reset(TrialSequence::AGC);          EXPECT_EQ(0, l.first());   // off
   EXPECT_EQ(4, l.n);

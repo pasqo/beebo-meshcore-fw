@@ -31,12 +31,12 @@ public:
     return names[sw];
   }
 
-  // The switch index run i-th: the receive path (RX boost, LNA, AGC), then
+  // The switch index run i-th: the receive path (LNA, RX boost, AGC), then
   // channel-busy behavior, the link setting that costs airtime (coding rate),
   // then the timing knobs.
   static int orderAt(int i) {
     static const uint8_t order[NUM_SWITCHES] = {
-      RX_BOOST, LNA, AGC, INTERFERENCE, CR, RX_DELAY, TX_DELAY, DIRECT_TX_DELAY, AIRTIME };
+      LNA, RX_BOOST, AGC, INTERFERENCE, CR, RX_DELAY, TX_DELAY, DIRECT_TX_DELAY, AIRTIME };
     return order[i];
   }
 
@@ -114,7 +114,7 @@ public:
     void reset(int sw) {
       static const uint8_t table[NUM_SWITCHES][MAX_VALUES] = {
         {0, 1, 0, 0},            // LNA: off, on
-        {0, 1, 0, 0},            // RX boost: off, on
+        {1, 0, 0, 0},            // RX boost: on (the Heltec V4 default), off
         {5, 8, 0, 0},            // coding rate
         {0, 2, 4, 8},            // AGC reset interval: 0, 8, 16, 32 s
         {0, 3, 6, 9},            // interference threshold

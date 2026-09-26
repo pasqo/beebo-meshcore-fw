@@ -1917,13 +1917,14 @@ private:
   // beebo: on-device A/B trial of the RX front-end switches (stage 1 of the
   // tuner, see TrialFSM.h). RAM-only settings like everything under tuning.*:
   // `switches` bit0 = FEM LNA, bit1 = RX boosted gain (0 = off); one switch
-  // runs at a time, RX boost first. A trial toggles the switch LIVE ONLY, so a
+  // runs at a time, LNA first. A trial toggles the switch LIVE ONLY, so a
   // reboot mid-trial returns to the stored value; only a winner is persisted.
   TrialFSM trial;
   EvalWindow trial_window;
   bool _trial_enabled = false;    // trial master switch, independent of _adaptive_enabled (the adaptive tuner)
   uint8_t _trial_confidence_pct = 95;   // TrialFSM confidence level: 90, 95 or 99
   uint8_t _trial_min_gain_pct = 5;    // TrialFSM worthwhile relative gain, percent
+  uint8_t _trial_idle_min_rx = TrialFSM::IDLE_MIN_RX;   // TrialFSM idle stop, packets per cycle; 0 = off
   uint16_t _trial_switches = (1u << TrialSequence::NUM_SWITCHES) - 1;   // bit i = switch i (TrialSequence.h); all on, so enabling the trial runs the whole sequence
   uint16_t _trial_block_s = 600;
   uint16_t _trial_blocks = 16;
@@ -1936,6 +1937,14 @@ private:
   // held as whole numbers in the trial), restored when its trial ends.
   float _trial_orig_f = 0;
   uint8_t _trial_orig_u8 = 0;
+  // A trial that ends idle (TrialFSM::ABORTED_IDLE) leaves its switch pending:
+  // the sequence waits TRIAL_IDLE_HOLDOFF_MS and retries it, and disarms after
+  // TRIAL_IDLE_MAX idle ends in a row.
+  static constexpr int TRIAL_IDLE_HOLDOFF_MS = 3600000;
+  static constexpr uint8_t TRIAL_IDLE_MAX = 3;
+  uint8_t _trial_idle_count = 0;
+  bool _trial_idle_hold = false;
+  unsigned long _trial_idle_until = 0;
   // A switch is decided (finished, skipped or aborted): mark it done and clear
   // its enable bit so the setting reads off, with a setting event.
   void trialSwitchDone(int sw) {
@@ -1958,6 +1967,8 @@ private:
   void rearmTrials() {
     _trial_done_mask = 0;
     _trial_seq_started = false;
+    _trial_idle_count = 0;
+    _trial_idle_hold = false;
     for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_lists.v[i].restart();
   }
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
@@ -1999,6 +2010,15 @@ private:
       rearmTrials();
     }
     _trial_confidence_pct = v;
+    return true;
+  }
+  bool setTrialIdleMinRx(uint8_t v, uint8_t source) {
+    if (v != _trial_idle_min_rx) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_IDLE_MIN_RX, _trial_idle_min_rx, v, source);
+      abortTrial(false);
+      rearmTrials();
+    }
+    _trial_idle_min_rx = v;
     return true;
   }
   bool setTrialMinGain(uint8_t v, uint8_t source) {

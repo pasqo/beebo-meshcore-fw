@@ -5,7 +5,8 @@
 namespace {
 
 // A closed block as TrialFSM::onBlock() receives it. `ros_rate` is confirmed
-// deliveries per hour, `ratio` the confirm ratio (0-10000).
+// deliveries per hour, `ratio` the confirm ratio (0-10000); every measured block
+// heard 10 packets unless a test says otherwise.
 EvalWindow::Result blk(uint32_t ros_rate, uint16_t ratio = 9000, uint8_t flags = 0) {
   EvalWindow::Result r = {};
   r.measured = true;
@@ -14,7 +15,32 @@ EvalWindow::Result blk(uint32_t ros_rate, uint16_t ratio = 9000, uint8_t flags =
   r.confirm_ratio = ratio;
   r.flags = flags;
   r.exposure = 200;
+  r.rx_valid = 10;
   return r;
+}
+
+// A block that heard `rx` packets: measured when rx > 0, else insufficient data
+// (EvalWindow's rule for trial blocks).
+EvalWindow::Result heard(uint32_t rx) {
+  if (rx == 0) {
+    EvalWindow::Result r = {};
+    r.measured = false;
+    r.outcome = EVAL_INSUFFICIENT_DATA;
+    return r;
+  }
+  EvalWindow::Result r = blk(100);
+  r.rx_valid = rx;
+  return r;
+}
+
+// Feed blocks whose RX count depends on the arm, until the trial finishes or
+// `blocks` have run.
+TrialFSM::Step runHeard(TrialFSM &t, uint8_t original, int blocks, uint32_t a_rx, uint32_t b_rx) {
+  TrialFSM::Step s = {};
+  for (int i = 0; i < blocks && !s.finished; i++) {
+    s = t.onBlock(heard(t.currentValue() == original ? a_rx : b_rx), 0, 0);
+  }
+  return s;
 }
 
 EvalWindow::Result unmeasured(uint8_t outcome, uint8_t flags = 0) {
@@ -142,14 +168,137 @@ TEST(TrialFSM, KeepsAWhenTheDifferenceIsWithinNoise) {
   EXPECT_EQ(1, s.final_value);
 }
 
-TEST(TrialFSM, KeepsAWithFewerThanMinLookPairsEvenIfBLooksBetter) {
+TEST(TrialFSM, EndsUndecidedWithFewerThanMinLookPairsEvenIfBLooksBetter) {
   TrialFSM t;
   t.begin(cfg(4));   // only 2 pairs < MIN_LOOK_PAIRS
   t.start(1);
   TrialFSM::Step s = runPairs(t, 1, 2, clearlyBetter);
   ASSERT_TRUE(s.finished);   // the schedule ends
-  EXPECT_EQ(TrialFSM::KEEP_A, s.outcome);
+  EXPECT_EQ(TrialFSM::UNDECIDED, s.outcome);
+  EXPECT_EQ(1, s.final_value);   // A kept
   EXPECT_EQ(2u, t.stats().n_pairs);
+}
+
+TEST(TrialFSM, AliveBAgainstADeadAAdoptsBWithoutWaitingForPairs) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(0);
+  // A hears nothing, B about 12 a block: no measured pair ever forms, but the
+  // arms' RX counts alone settle it after two pairs (B alive in two blocks).
+  TrialFSM::Step s = runHeard(t, 0, 96, 0, 12);
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::ALIVE_B, s.outcome);
+  EXPECT_EQ(1, s.final_value);
+  EXPECT_EQ(1, s.value);
+  EXPECT_EQ(4, t.blockIndex());
+  EXPECT_EQ(0u, t.stats().n_pairs);
+}
+
+TEST(TrialFSM, DeadBAgainstAnAliveAKeepsA) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(0);
+  TrialFSM::Step s = runHeard(t, 0, 96, 12, 0);
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::ALIVE_A, s.outcome);
+  EXPECT_EQ(0, s.final_value);
+}
+
+TEST(TrialFSM, NearlyDeadArmStillLosesToAnAliveOne) {
+  TrialFSM t;
+  t.begin(cfg(16));   // 8 pairs: a stricter per-look threshold than 96 blocks
+  t.start(0);
+  // the fem.rxgain night: A hears a packet now and then, B tens a block
+  TrialFSM::Step s = runHeard(t, 0, 16, 1, 12);
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::ALIVE_B, s.outcome);
+}
+
+TEST(TrialFSM, OneBurstyBlockIsNotEnoughToCallAnArmAlive) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(0);
+  t.onBlock(heard(0), 0, 0);    // A
+  t.onBlock(heard(60), 0, 0);   // B: one burst, capped
+  // then both arms hear the same: no dead arm
+  TrialFSM::Step s = runHeard(t, 0, 8, 10, 10);
+  EXPECT_NE(TrialFSM::ALIVE_B, s.outcome);
+  EXPECT_NE(TrialFSM::ALIVE_A, s.outcome);
+}
+
+TEST(TrialFSM, TwiceTheTrafficIsNotADeadArm) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(0);
+  TrialFSM::Step s = runHeard(t, 0, 96, 4, 8);
+  EXPECT_NE(TrialFSM::ALIVE_B, s.outcome);
+  EXPECT_NE(TrialFSM::ALIVE_A, s.outcome);
+}
+
+TEST(TrialFSM, InvalidatedBlocksDoNotCountAsDead) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(0);
+  // every A block invalidated (a config change, ...), not silent: no verdict on A
+  TrialFSM::Step s = {};
+  for (int i = 0; i < 12 && !s.finished; i++) {
+    s = t.onBlock(t.currentValue() == 0 ? unmeasured(EVAL_INVALIDATED, EVALF_CONFIG) : heard(12), 0, 0);
+  }
+  EXPECT_NE(TrialFSM::ALIVE_B, s.outcome);
+}
+
+TEST(TrialFSM, AQuietCycleEndsTheTrialIdle) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  // one packet in a whole A B B A cycle: nothing to decide on, stop
+  t.onBlock(heard(0), 0, 0);
+  t.onBlock(heard(1), 0, 0);
+  t.onBlock(heard(0), 0, 0);
+  TrialFSM::Step s = t.onBlock(heard(0), 0, 0);
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::ABORTED_IDLE, s.outcome);
+  EXPECT_EQ(1, s.final_value);
+  EXPECT_EQ(1, s.value);
+}
+
+TEST(TrialFSM, EnoughTrafficInACycleKeepsRunning) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  TrialFSM::Step s = runHeard(t, 1, 4, 1, 1);   // one packet a block: the floor
+  EXPECT_FALSE(s.finished);
+}
+
+TEST(TrialFSM, IdleMinRxZeroTurnsTheIdleStopOff) {
+  TrialFSM t;
+  TrialFSM::Config c = cfg(8);
+  c.idle_min_rx = 0;
+  t.begin(c);
+  t.start(1);
+  TrialFSM::Step s = runHeard(t, 1, 8, 0, 0);   // silent to the end of the schedule
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::UNDECIDED, s.outcome);
+  EXPECT_EQ(8, t.blockIndex());
+}
+
+TEST(TrialFSM, ACycleWithAnInvalidatedBlockIsNotJudgedIdle) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  t.onBlock(heard(0), 0, 0);
+  t.onBlock(unmeasured(EVAL_INVALIDATED, EVALF_CONFIG), 0, 0);
+  t.onBlock(heard(0), 0, 0);
+  TrialFSM::Step s = t.onBlock(heard(0), 0, 0);
+  EXPECT_FALSE(s.finished);
+}
+
+TEST(TrialFSM, BinomialTailIsTwoSidedAndCapped) {
+  EXPECT_NEAR(1.0, TrialFSM::binomialTwoSided(0, 0), 1e-12);
+  EXPECT_NEAR(2.0 / 65536.0, TrialFSM::binomialTwoSided(16, 0), 1e-12);
+  EXPECT_NEAR(2.0 * 18.0 / 131072.0, TrialFSM::binomialTwoSided(17, 1), 1e-12);
+  EXPECT_NEAR(1.0, TrialFSM::binomialTwoSided(10, 5), 1e-12);
+  EXPECT_GT(TrialFSM::binomialTwoSided(768, 0), 0.0);   // no underflow to a NaN
 }
 
 TEST(TrialFSM, StopsEarlyWhenTheGainIsBelowTheWorthwhileBand) {

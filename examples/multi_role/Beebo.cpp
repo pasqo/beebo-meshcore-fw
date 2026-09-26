@@ -2077,10 +2077,14 @@ void Beebo::openEvalWindow(uint16_t window_id) {
 // each closed window is exactly one AdaptiveController tick.
 void Beebo::loopTuning() {
   if (trialRunning()) { loopTrial(); return; }
-  uint8_t pending = _trial_enabled ? (_trial_switches & ~_trial_done_mask) : 0;
+  uint16_t pending = _trial_enabled ? (_trial_switches & ~_trial_done_mask) : 0;
   if (_trial_enabled && _trial_done_mask && !pending) {   // every selected switch decided: disarm
     setTrialEnabled(false, EVENT_SOURCE_TUNING);
     if (!_adaptive_enabled) return;
+  }
+  if (_trial_idle_hold) {   // the last trial ended idle: wait before retrying its switch
+    if (millisHasNowPassed(_trial_idle_until)) _trial_idle_hold = false;
+    else pending = 0;
   }
   if (pending && adaptive_controller.idle()) {
     if (!_trial_seq_started) trialSetAllToA();
@@ -2238,6 +2242,7 @@ void Beebo::emitTrialStart(int sw, const TrialFSM::Config& tc) {
   r.trial_start.blocks = trial.totalBlocks();
   r.trial_start.confidence_pct = 100 - tc.alpha_pct;
   r.trial_start.min_gain_pct = tc.min_gain_pct;
+  r.trial_start.idle_min_rx = tc.idle_min_rx;
   float ref = objective.volumeReference;
   r.trial_start.volume_ref = (uint16_t)(ref > 65535.0f ? 65535.0f : ref + 0.5f);
   monring.appendTrial(r, getRTCClock()->nowMillis());
@@ -2310,6 +2315,7 @@ bool Beebo::startTrial(int sw) {
   tc.blocks = _trial_blocks;
   tc.alpha_pct = 100 - _trial_confidence_pct;   // TrialFSM works in error rate
   tc.min_gain_pct = _trial_min_gain_pct;
+  tc.idle_min_rx = _trial_idle_min_rx;
   tc.objective = &objective;
   trial.begin(tc);
   trialSaveOriginal(sw);
@@ -2412,6 +2418,18 @@ void Beebo::finishTrial(const TrialFSM::Step& step) {
   int sw = _trial_switch;
   emitTrialEnd(sw, step);
   trialRevert(sw);   // back to what was stored; a winner is stored below
+  if (step.outcome == TrialFSM::ABORTED_IDLE) {   // the switch stays pending
+    _trial_switch = -1;
+    if (++_trial_idle_count >= TRIAL_IDLE_MAX) {
+      setTrialEnabled(false, EVENT_SOURCE_TUNING);
+    } else {
+      _trial_idle_hold = true;
+      _trial_idle_until = futureMillis(TRIAL_IDLE_HOLDOFF_MS);
+    }
+    if (_adaptive_enabled) openEvalWindow(adaptive_controller.windowId());
+    return;
+  }
+  _trial_idle_count = 0;
   if (step.final_value != trialSwitchStoredValue(sw)) {
     trialPersistValue(sw, step.final_value);   // the winner is B: stored, and live
   }
@@ -5722,6 +5740,14 @@ void Beebo::handleCmdFrame(size_t len) {
     bool ok = (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_CONFIDENCE) ? setTrialConfidence(sub[1], EVENT_SOURCE_BINARY)
                                                          : setTrialMinGain(sub[1], EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_IDLE_MIN_RX) {
+    uint32_t v = _trial_idle_min_rx;
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &v, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_IDLE_MIN_RX && sub_len >= 2) {
+    setTrialIdleMinRx(sub[1], EVENT_SOURCE_BINARY);
+    writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_REWARD_WEIGHT && sub_len >= 2) {
     if (sub[1] < Objective::NUM_INDICATORS) {
       int32_t v = objective.weights[sub[1]];
@@ -8391,6 +8417,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_trial_confidence_pct);
     } else if (strcmp(key, "tuning.trial.min_gain_pct") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_min_gain_pct);
+    } else if (strcmp(key, "tuning.trial.idle_min_rx") == 0) {
+      sprintf(reply, "> %u", (unsigned)_trial_idle_min_rx);
     } else if (strcmp(key, "tuning.trial.enabled") == 0) {
       sprintf(reply, "> %s", _trial_enabled ? "on" : "off");
     } else if (strncmp(key, "tuning.trial.switches.", 22) == 0) {
@@ -8866,6 +8894,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       else if (strncmp(k, "switches ", 9) == 0) ok = v >= 0 && v <= 0xFFFF && setTrialSwitches((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "confidence_pct ", 15) == 0) ok = v >= 0 && v <= 255 && setTrialConfidence((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "min_gain_pct ", 9) == 0) ok = v >= 0 && v <= 255 && setTrialMinGain((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "idle_min_rx ", 12) == 0) ok = v >= 0 && v <= 255 && setTrialIdleMinRx((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_s ", 8) == 0) ok = v >= 1 && v <= 65535 && setTrialBlockS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "blocks ", 7) == 0) ok = v >= 2 && v <= 65535 && setTrialBlocks((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else { sprintf(reply, "ERR: unknown key: %s", key); return; }
