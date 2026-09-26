@@ -1925,8 +1925,8 @@ private:
   uint8_t _trial_confidence_pct = 95;   // TrialFSM confidence level: 90, 95 or 99
   uint8_t _trial_min_gain_pct = 5;    // TrialFSM worthwhile relative gain, percent
   uint16_t _trial_switches = 0;   // bit i = switch i (TrialSequence.h)
-  uint16_t _trial_block_s = 1800;
-  uint16_t _trial_blocks = 96;
+  uint16_t _trial_block_s = 600;
+  uint16_t _trial_blocks = 12;
   bool _trial_seq_started = false;   // every selected switch has been set to its A
   uint16_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
   int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, 2 = coding rate, -1 = none running
