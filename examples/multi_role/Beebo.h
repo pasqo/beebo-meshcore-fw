@@ -1917,7 +1917,7 @@ private:
   // beebo: on-device A/B trial of the RX front-end switches (stage 1 of the
   // tuner, see TrialFSM.h). RAM-only settings like everything under tuning.*:
   // `switches` bit0 = FEM LNA, bit1 = RX boosted gain (0 = off); one switch
-  // runs at a time, LNA first. A trial toggles the switch LIVE ONLY, so a
+  // runs at a time, RX boost first. A trial toggles the switch LIVE ONLY, so a
   // reboot mid-trial returns to the stored value; only a winner is persisted.
   TrialFSM trial;
   EvalWindow trial_window;

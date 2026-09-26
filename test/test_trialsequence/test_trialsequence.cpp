@@ -23,7 +23,8 @@ TEST(TrialSequence, RunOrderCoversEverySwitchOnce) {
     seen[TrialSequence::orderAt(i)] = true;
   }
   // receive path first, then channel-busy behavior, coding rate, timing knobs
-  EXPECT_EQ(TrialSequence::LNA, TrialSequence::orderAt(0));
+  EXPECT_EQ(TrialSequence::RX_BOOST, TrialSequence::orderAt(0));
+  EXPECT_EQ(TrialSequence::LNA, TrialSequence::orderAt(1));
   EXPECT_EQ(TrialSequence::AGC, TrialSequence::orderAt(2));
   EXPECT_EQ(TrialSequence::CR, TrialSequence::orderAt(4));
   EXPECT_EQ(TrialSequence::AIRTIME, TrialSequence::orderAt(8));
