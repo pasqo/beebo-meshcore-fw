@@ -2082,7 +2082,7 @@ void Beebo::loopTuning() {
     setTrialEnabled(false, EVENT_SOURCE_TUNING);
     if (!_adaptive_enabled) return;
   }
-  if (pending && adaptive_controller.idle() && startTrial((pending & 1) ? 0 : (pending & 2) ? 1 : 2)) {
+  if (pending && adaptive_controller.idle() && startTrial(TrialSequence::nextSwitch(pending))) {
     loopTrial();
     return;
   }
@@ -2225,7 +2225,7 @@ void Beebo::emitTrialSkip(int sw, TrialFSM::Outcome outcome) {
   rec.trial_end.param = trialParamId(sw);
   rec.trial_end.outcome = outcome;
   rec.trial_end.a = trialSwitchStoredValue(sw);
-  rec.trial_end.b = _trial_alt[sw];
+  rec.trial_end.b = _trial_alt[sw].current();
   monring.appendTrial(rec, getRTCClock()->nowMillis());
 }
 
@@ -2239,10 +2239,9 @@ bool Beebo::startTrial(int sw) {
     emitTrialSkip(sw, TrialFSM::SKIPPED_NO_CONTROL);
     return false;
   }
-  if (_trial_alt[sw] == trialSwitchStoredValue(sw)) {   // arm B equals arm A: nothing to compare
-    trialSwitchDone(sw);
+  while (_trial_alt[sw].current() == trialSwitchStoredValue(sw)) {   // arm B equals arm A: nothing to compare
     emitTrialSkip(sw, TrialFSM::SKIPPED_SAME);
-    return false;
+    if (!trialNextValue(sw)) return false;
   }
   refreshObjectiveReference();
   TrialFSM::Config tc;
@@ -2252,7 +2251,7 @@ bool Beebo::startTrial(int sw) {
   tc.min_gain_pct = _trial_min_gain_pct;
   tc.objective = &objective;
   trial.begin(tc);
-  trial.start(trialSwitchStoredValue(sw), _trial_alt[sw]);
+  trial.start(trialSwitchStoredValue(sw), _trial_alt[sw].current());
   _trial_switch = (int8_t)sw;
   EvalWindow::Config wc;
   wc.min_ms = wc.max_ms = (uint32_t)_trial_block_s * 1000u;
@@ -2326,7 +2325,7 @@ void Beebo::finishTrial(const TrialFSM::Step& step) {
   } else {
     applyTrialSwitchLive(sw, step.value);   // back to the original
   }
-  trialSwitchDone(sw);
+  trialNextValue(sw);   // the next challenger of this switch, or the switch is done
   _trial_switch = -1;
   if (_adaptive_enabled) openEvalWindow(adaptive_controller.windowId());   // resume the adaptive tuner's windows
 }
@@ -2337,7 +2336,7 @@ void Beebo::abortTrial(bool mark_done) {
   TrialFSM::Step step = trial.abort();
   applyTrialSwitchLive(sw, step.value);
   emitTrialEnd(sw, step);
-  if (mark_done) trialSwitchDone(sw);
+  if (mark_done) { trialSwitchDone(sw); _trial_alt[sw].restart(); }
   _trial_switch = -1;
 }
 #else
@@ -5646,13 +5645,26 @@ void Beebo::handleCmdFrame(size_t len) {
     else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_VALUE && sub_len >= 2) {
     if (sub[1] < 3) {
-      uint32_t v = _trial_alt[sub[1]];
+      uint32_t v = _trial_alt[sub[1]].v[0];
       out_frame[0] = RESP_CODE_OK;
       memcpy(&out_frame[1], &v, 4);
       _serial->writeFrame(out_frame, 5);
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_VALUES && sub_len >= 2) {
+    if (sub[1] < TrialSequence::NUM_SWITCHES) {
+      const TrialSequence::List& l = _trial_alt[sub[1]];
+      uint32_t w = l.packed();
+      out_frame[0] = RESP_CODE_OK;
+      memcpy(&out_frame[1], &w, 4);
+      _serial->writeFrame(out_frame, 5);
+    } else {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    }
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_VALUES && sub_len >= 3 && sub_len >= 3 + sub[2]) {
+    if (setTrialValues(sub[1], &sub[3], sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
+    else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_VALUE && sub_len >= 3) {
     if (setTrialValue(sub[1], sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
     else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
@@ -8309,7 +8321,11 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
              : strncmp(k, "cr.", 3) == 0 ? 2 : -1;
       const char* leaf = sw == 0 ? &k[4] : sw == 1 ? &k[8] : sw == 2 ? &k[3] : "";
       if (sw >= 0 && strcmp(leaf, "enable") == 0) sprintf(reply, "> %u", (unsigned)((_trial_switches >> sw) & 1));
-      else if (sw >= 0 && strcmp(leaf, "value") == 0) sprintf(reply, "> %u", (unsigned)_trial_alt[sw]);
+      else if (sw >= 0 && strcmp(leaf, "value") == 0) {
+        char list[4 * TrialSequence::MAX_VALUES];
+        _trial_alt[sw].format(list);
+        sprintf(reply, "> %s", list);
+      }
       else sprintf(reply, "??: %s", key);
     } else if (strcmp(key, "tuning.trial.block_s") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_block_s);
@@ -8760,8 +8776,16 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         const char* leaf = sw == 0 ? &n[4] : sw == 1 ? &n[8] : sw == 2 ? &n[3] : "";
         if (sw >= 0 && strncmp(leaf, "enable ", 7) == 0 && (v == 0 || v == 1)) {
           ok = setTrialSwitches((uint8_t)((_trial_switches & ~(1 << sw)) | (v << sw)), EVENT_SOURCE_TEXT_CLI);
-        } else if (sw >= 0 && strncmp(leaf, "value ", 6) == 0 && v >= 0 && v <= 255) {
-          ok = setTrialValue((uint8_t)sw, (uint8_t)v, EVENT_SOURCE_TEXT_CLI);
+        } else if (sw >= 0 && strncmp(leaf, "value ", 6) == 0) {
+          uint8_t values[TrialSequence::MAX_VALUES];
+          int count = TrialSequence::parse(&leaf[6], values);
+          ok = count > 0 && setTrialValues((uint8_t)sw, values, count, EVENT_SOURCE_TEXT_CLI);
+          if (ok) {
+            char list[4 * TrialSequence::MAX_VALUES];
+            _trial_alt[sw].format(list);
+            sprintf(reply, "> %s", list);
+            return;
+          }
         } else { sprintf(reply, "ERR: unknown key: %s", key); return; }
       }
       else if (strncmp(k, "switches ", 9) == 0) ok = v >= 0 && setTrialSwitches((uint8_t)v, EVENT_SOURCE_TEXT_CLI);

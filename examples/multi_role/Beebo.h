@@ -5,6 +5,7 @@
 #include <helpers/MonRing.h>
 #include <helpers/AdaptiveController.h>
 #include <helpers/TrialFSM.h>
+#include <helpers/TrialSequence.h>
 #include <helpers/NeighborReach.h>
 #include <esp_ota_ops.h>
 
@@ -1930,7 +1931,8 @@ private:
   int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, 2 = coding rate, -1 = none running
   // Arm B per switch: what the stored value is compared against. A trial whose
   // alt equals the stored value has nothing to compare and is skipped.
-  uint8_t _trial_alt[3] = {0, 0, 8};
+  TrialSequence::List _trial_alt[TrialSequence::NUM_SWITCHES] = {
+    {{0}, 1, 0}, {{0}, 1, 0}, {{8}, 1, 0}};
   // A switch is decided (finished, skipped or aborted): mark it done and clear
   // its enable bit so the setting reads off, with a setting event.
   void trialSwitchDone(int sw) {
@@ -1941,12 +1943,25 @@ private:
       _trial_switches = mask;
     }
   }
+  // A challenger of switch sw is decided or skipped: false once its list is
+  // exhausted, which also marks the switch done.
+  bool trialNextValue(int sw) {
+    if (_trial_alt[sw].advance()) return true;
+    trialSwitchDone(sw);
+    _trial_alt[sw].restart();
+    return false;
+  }
+  // Every selected switch eligible again, each list back at its first value.
+  void rearmTrials() {
+    _trial_done_mask = 0;
+    for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_alt[i].restart();
+  }
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
   void setTrialEnabled(bool on, uint8_t source) {
     if (on != _trial_enabled) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_ENABLED, _trial_enabled ? 1 : 0, on ? 1 : 0, source);
       abortTrial(false);
-      _trial_done_mask = 0;
+      rearmTrials();
     }
     _trial_enabled = on;
   }
@@ -1955,27 +1970,30 @@ private:
     if (mask != _trial_switches) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_SWITCHES, _trial_switches, mask, source);
       abortTrial(false);
-      _trial_done_mask = 0;
+      rearmTrials();
     }
     _trial_switches = mask;
     return true;
   }
-  bool setTrialValue(uint8_t sw, uint8_t v, uint8_t source) {
-    if (sw > 2 || (sw < 2 ? v > 1 : (v < 5 || v > 8))) return false;
-    if (v != _trial_alt[sw]) {
-      appendSettingChangedEvent(SETTING_TUNING_TRIAL_VALUE_LNA + sw, _trial_alt[sw], v, source);
+  bool setTrialValues(uint8_t sw, const uint8_t* values, int count, uint8_t source) {
+    if (sw >= TrialSequence::NUM_SWITCHES) return false;
+    TrialSequence::List next = _trial_alt[sw];
+    if (!next.set(sw, values, count)) return false;
+    if (next.packed() != _trial_alt[sw].packed() || next.n != _trial_alt[sw].n) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_VALUE_LNA + sw, _trial_alt[sw].packed(), next.packed(), source);
       abortTrial(false);
-      _trial_done_mask = 0;
+      rearmTrials();
     }
-    _trial_alt[sw] = v;
+    _trial_alt[sw] = next;
     return true;
   }
+  bool setTrialValue(uint8_t sw, uint8_t v, uint8_t source) { return setTrialValues(sw, &v, 1, source); }
   bool setTrialConfidence(uint8_t v, uint8_t source) {
     if (v != 90 && v != 95 && v != 99) return false;
     if (v != _trial_confidence_pct) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_CONFIDENCE, _trial_confidence_pct, v, source);
       abortTrial(false);
-      _trial_done_mask = 0;
+      rearmTrials();
     }
     _trial_confidence_pct = v;
     return true;
@@ -1985,7 +2003,7 @@ private:
     if (v != _trial_min_gain_pct) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_MIN_GAIN, _trial_min_gain_pct, v, source);
       abortTrial(false);
-      _trial_done_mask = 0;
+      rearmTrials();
     }
     _trial_min_gain_pct = v;
     return true;
@@ -1999,7 +2017,7 @@ private:
       appendSettingChangedEvent(SETTING_TUNING_REWARD_WEIGHT_BASE + idx, (uint32_t)(int32_t)objective.weights[idx],
                                 (uint32_t)(int32_t)v, source);
       abortTrial(false);
-      _trial_done_mask = 0;
+      rearmTrials();
       adaptive_controller.begin();
       objective.resetBaselines();
       eval_window.begin(evalWindowConfig());
@@ -2012,7 +2030,7 @@ private:
     if (v != _trial_block_s) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCK_S, _trial_block_s, v, source);
       abortTrial(false);
-      _trial_done_mask = 0;
+      rearmTrials();
     }
     _trial_block_s = v;
     return true;
@@ -2022,7 +2040,7 @@ private:
     if (v != _trial_blocks) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCKS, _trial_blocks, v, source);
       abortTrial(false);
-      _trial_done_mask = 0;
+      rearmTrials();
     }
     _trial_blocks = v;
     return true;
