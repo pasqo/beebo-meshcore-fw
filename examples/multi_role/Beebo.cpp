@@ -3533,6 +3533,7 @@ uint32_t Beebo::tlvGetRadioCr(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetRadioCr(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw < 5 || raw > 8) return false;
+  if (self->_trial_switch == TrialSequence::CR) self->abortTrial(false);   // a manual change ends the trial first
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.cr = (uint8_t)raw;
   persistRoleSlot(self, role, slot);
