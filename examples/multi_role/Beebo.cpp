@@ -2082,6 +2082,10 @@ void Beebo::loopTuning() {
     setTrialEnabled(false, EVENT_SOURCE_TUNING);
     if (!_adaptive_enabled) return;
   }
+  if (pending && adaptive_controller.idle()) {
+    if (!_trial_seq_started) trialSetAllToA();
+    pending = _trial_switches & ~_trial_done_mask;
+  }
   if (pending && adaptive_controller.idle() && startTrial(TrialSequence::nextSwitch(pending))) {
     loopTrial();
     return;
@@ -2308,22 +2312,39 @@ void Beebo::loopTrial() {
                     radio_driver.getPacketsSent());
 }
 
+void Beebo::trialPersistValue(int sw, uint8_t value) {
+  uint8_t stored = trialSwitchStoredValue(sw);
+  if (value == stored) return;
+  int8_t running = _trial_switch;
+  _trial_switch = -1;   // so the setter's own manual-change hook does not abort
+  if (sw == 0) tlvSetRadioFemRxgain(this, _board.role, value);
+  else if (sw == 1) tlvSetRadioRxgain(this, _board.role, value);
+  else tlvSetRadioCr(this, _board.role, value);
+  _trial_switch = running;
+  appendSettingChangedEvent(sw == 0 ? PREFS_TLV_RADIO_FEM_RXGAIN
+                            : sw == 1 ? PREFS_TLV_RADIO_RXGAIN : PREFS_TLV_RADIO_CR,
+                            stored, value, EVENT_SOURCE_TUNING);
+  eval_window.resetBaseline();   // the radio changed under the rolling baseline
+}
+
+// Known start state for the whole sequence: every selected switch that can run
+// is stored at its A before the first trial of the first switch starts.
+void Beebo::trialSetAllToA() {
+  for (int sw = 0; sw < TrialSequence::NUM_SWITCHES; sw++) {
+    if (!(_trial_switches & ~_trial_done_mask & (1 << sw))) continue;
+    if (sw == 0 && !board.canControlLoRaFemLna()) continue;   // startTrial() skips it
+    trialPersistValue(sw, _trial_alt[sw].first());
+  }
+  _trial_seq_started = true;
+}
+
 void Beebo::finishTrial(const TrialFSM::Step& step) {
   int sw = _trial_switch;
   emitTrialEnd(sw, step);
-  if (step.outcome == TrialFSM::ADOPT_B) {
-    // Persist the winner (also applies it live) through the normal setter path.
-    uint8_t stored = trialSwitchStoredValue(sw);
-    _trial_switch = -1;   // so the setter's own manual-change hook does not abort
-    if (sw == 0) tlvSetRadioFemRxgain(this, _board.role, step.final_value);
-    else if (sw == 1) tlvSetRadioRxgain(this, _board.role, step.final_value);
-    else tlvSetRadioCr(this, _board.role, step.final_value);
-    appendSettingChangedEvent(sw == 0 ? PREFS_TLV_RADIO_FEM_RXGAIN
-                              : sw == 1 ? PREFS_TLV_RADIO_RXGAIN : PREFS_TLV_RADIO_CR,
-                              stored, step.final_value, EVENT_SOURCE_TUNING);
-    eval_window.resetBaseline();   // the radio changed under the rolling baseline
+  if (step.final_value != trialSwitchStoredValue(sw)) {
+    trialPersistValue(sw, step.final_value);   // the winner is B: stored, and live
   } else {
-    applyTrialSwitchLive(sw, step.value);   // back to the original
+    applyTrialSwitchLive(sw, step.final_value);   // back to what is stored
   }
   trialNextValue(sw);   // the next challenger of this switch, or the switch is done
   _trial_switch = -1;
@@ -2334,7 +2355,7 @@ void Beebo::abortTrial(bool mark_done) {
   if (!trialRunning()) return;
   int sw = _trial_switch;
   TrialFSM::Step step = trial.abort();
-  applyTrialSwitchLive(sw, step.value);
+  applyTrialSwitchLive(sw, trialSwitchStoredValue(sw));   // back to what is stored
   emitTrialEnd(sw, step);
   if (mark_done) { trialSwitchDone(sw); _trial_alt[sw].restart(); }
   _trial_switch = -1;
@@ -5643,15 +5664,6 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_SET_TUNING_REWARD_WEIGHT && sub_len >= 3) {
     if (setRewardWeight(sub[1], (int8_t)sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
     else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_VALUE && sub_len >= 2) {
-    if (sub[1] < 3) {
-      uint32_t v = _trial_alt[sub[1]].v[0];
-      out_frame[0] = RESP_CODE_OK;
-      memcpy(&out_frame[1], &v, 4);
-      _serial->writeFrame(out_frame, 5);
-    } else {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    }
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_VALUES && sub_len >= 2) {
     if (sub[1] < TrialSequence::NUM_SWITCHES) {
       const TrialSequence::List& l = _trial_alt[sub[1]];
@@ -5664,9 +5676,6 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_VALUES && sub_len >= 3 && sub_len >= 3 + sub[2]) {
     if (setTrialValues(sub[1], &sub[3], sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
-    else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_VALUE && sub_len >= 3) {
-    if (setTrialValue(sub[1], sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
     else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_QUIET) {
     out_frame[0] = RESP_CODE_OK;
@@ -8321,7 +8330,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
              : strncmp(k, "cr.", 3) == 0 ? 2 : -1;
       const char* leaf = sw == 0 ? &k[4] : sw == 1 ? &k[8] : sw == 2 ? &k[3] : "";
       if (sw >= 0 && strcmp(leaf, "enable") == 0) sprintf(reply, "> %u", (unsigned)((_trial_switches >> sw) & 1));
-      else if (sw >= 0 && strcmp(leaf, "value") == 0) {
+      else if (sw >= 0 && strcmp(leaf, "values") == 0) {
         char list[4 * TrialSequence::MAX_VALUES];
         _trial_alt[sw].format(list);
         sprintf(reply, "> %s", list);
@@ -8776,9 +8785,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         const char* leaf = sw == 0 ? &n[4] : sw == 1 ? &n[8] : sw == 2 ? &n[3] : "";
         if (sw >= 0 && strncmp(leaf, "enable ", 7) == 0 && (v == 0 || v == 1)) {
           ok = setTrialSwitches((uint8_t)((_trial_switches & ~(1 << sw)) | (v << sw)), EVENT_SOURCE_TEXT_CLI);
-        } else if (sw >= 0 && strncmp(leaf, "value ", 6) == 0) {
+        } else if (sw >= 0 && strncmp(leaf, "values ", 7) == 0) {
           uint8_t values[TrialSequence::MAX_VALUES];
-          int count = TrialSequence::parse(&leaf[6], values);
+          int count = TrialSequence::parse(&leaf[7], values);
           ok = count > 0 && setTrialValues((uint8_t)sw, values, count, EVENT_SOURCE_TEXT_CLI);
           if (ok) {
             char list[4 * TrialSequence::MAX_VALUES];

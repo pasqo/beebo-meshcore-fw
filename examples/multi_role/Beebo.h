@@ -1927,12 +1927,12 @@ private:
   uint8_t _trial_switches = 0;
   uint16_t _trial_block_s = 1800;
   uint16_t _trial_blocks = 96;
+  bool _trial_seq_started = false;   // every selected switch has been set to its A
   uint8_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
   int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, 2 = coding rate, -1 = none running
-  // Arm B per switch: what the stored value is compared against. A trial whose
-  // alt equals the stored value has nothing to compare and is skipped.
+  // Per switch: A, then the challengers (TrialSequence.h).
   TrialSequence::List _trial_alt[TrialSequence::NUM_SWITCHES] = {
-    {{0}, 1, 0}, {{0}, 1, 0}, {{8}, 1, 0}};
+    {{0, 1}, 2, 1}, {{0, 1}, 2, 1}, {{5, 8}, 2, 1}};
   // A switch is decided (finished, skipped or aborted): mark it done and clear
   // its enable bit so the setting reads off, with a setting event.
   void trialSwitchDone(int sw) {
@@ -1954,6 +1954,7 @@ private:
   // Every selected switch eligible again, each list back at its first value.
   void rearmTrials() {
     _trial_done_mask = 0;
+    _trial_seq_started = false;
     for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_alt[i].restart();
   }
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
@@ -1980,14 +1981,13 @@ private:
     TrialSequence::List next = _trial_alt[sw];
     if (!next.set(sw, values, count)) return false;
     if (next.packed() != _trial_alt[sw].packed() || next.n != _trial_alt[sw].n) {
-      appendSettingChangedEvent(SETTING_TUNING_TRIAL_VALUE_LNA + sw, _trial_alt[sw].packed(), next.packed(), source);
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_VALUES_LNA + sw, _trial_alt[sw].packed(), next.packed(), source);
       abortTrial(false);
       rearmTrials();
     }
     _trial_alt[sw] = next;
     return true;
   }
-  bool setTrialValue(uint8_t sw, uint8_t v, uint8_t source) { return setTrialValues(sw, &v, 1, source); }
   bool setTrialConfidence(uint8_t v, uint8_t source) {
     if (v != 90 && v != 95 && v != 99) return false;
     if (v != _trial_confidence_pct) {
@@ -2055,6 +2055,10 @@ private:
   static uint8_t trialParamId(int sw);
   static int rewardIndex(const char* name, int len = -1);
   uint8_t trialSwitchStoredValue(int sw) const;
+  // Store value on switch sw through its normal setter (and apply it live).
+  void trialPersistValue(int sw, uint8_t value);
+  // Start of a sequence: every selected switch set to its A (list first value).
+  void trialSetAllToA();
   void applyTrialSwitchLive(int sw, uint8_t value);
   void emitTrialStart(int sw, const TrialFSM::Config& tc);
   void emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Result& r, uint32_t pairs_before);

@@ -1,14 +1,16 @@
 #pragma once
 #include <stdint.h>
 
-// beebo: run order and per-switch challenger lists of the on-device trial
-// sequence (Beebo::loopTuning). Header-only, no Arduino dependency.
+// beebo: run order and per-switch value lists of the on-device trial sequence
+// (Beebo::loopTuning). Header-only, no Arduino dependency.
 //
-// A switch is one trialable setting. Its list holds up to MAX_VALUES
-// challenger values; each is tried in listed order against whatever the
-// stored value is at that point, so an adopted winner is the next challenger's
-// arm A. Switch indexes are wire-stable (bit i of the switches mask); the run
-// order is ORDER, independent of them.
+// A switch is one trialable setting. Its list is A first, then up to
+// MAX_VALUES - 1 challengers. The sequence starts by storing every selected
+// switch's v[0], so each first trial compares v[0] with v[1]; each later trial
+// compares the winner (the value stored by then) with the next challenger. So a
+// list of n values is n - 1 trials.
+// Switch indexes are wire-stable (bit i of the switches mask); the run order is
+// ORDER, independent of them.
 class TrialSequence {
 public:
   enum Switch { LNA = 0, RX_BOOST = 1, CR = 2, NUM_SWITCHES = 3 };
@@ -33,7 +35,11 @@ public:
     }
   }
 
-  static uint8_t defaultValue(int sw) { return sw == CR ? 8 : 0; }
+  // Default list of a switch: A then one challenger.
+  static void defaultList(int sw, uint8_t out[2]) {
+    out[0] = sw == CR ? 5 : 0;
+    out[1] = sw == CR ? 8 : 1;
+  }
 
   // Parse "8,16,32" (spaces around numbers allowed) into `out` (room for
   // MAX_VALUES); the count, or -1 on anything else, an empty list, too many
@@ -61,21 +67,27 @@ public:
 
   struct List {
     uint8_t v[MAX_VALUES];
-    uint8_t n;
-    uint8_t pos;
+    uint8_t n;     // at least 2
+    uint8_t pos;   // index of the current challenger, from 1
 
-    void reset(int sw) { v[0] = defaultValue(sw); n = 1; pos = 0; }
-    uint8_t current() const { return v[pos]; }
-    // Replace the list; a rejected call leaves it unchanged.
+    void reset(int sw) { defaultList(sw, v); n = 2; pos = 1; }
+    uint8_t first() const { return v[0]; }        // A: the value the sequence starts from
+    uint8_t current() const { return v[pos]; }    // the current challenger (B)
+    // Replace the list (A then challengers, 2 to MAX_VALUES values after
+    // consecutive repeats collapse); a rejected call leaves it unchanged.
     bool set(int sw, const uint8_t* values, int count) {
       if (count < 1 || count > MAX_VALUES) return false;
       for (int i = 0; i < count; i++) if (!validValue(sw, values[i])) return false;
       // consecutive repeats collapse, which lets packed() pad with the last value
-      n = 0;
+      uint8_t w[MAX_VALUES];
+      int m = 0;
       for (int i = 0; i < count; i++) {
-        if (n == 0 || values[i] != v[n - 1]) v[n++] = values[i];
+        if (m == 0 || values[i] != w[m - 1]) w[m++] = values[i];
       }
-      pos = 0;
+      if (m < 2) return false;
+      for (int i = 0; i < m; i++) v[i] = w[i];
+      n = (uint8_t)m;
+      pos = 1;
       return true;
     }
     // Move to the next challenger; false when the last one was just decided.
@@ -84,7 +96,7 @@ public:
       pos++;
       return true;
     }
-    void restart() { pos = 0; }
+    void restart() { pos = 1; }
     // "8,16,32" into buf (size at least 4 * MAX_VALUES); the length.
     int format(char* buf) const {
       int len = 0;

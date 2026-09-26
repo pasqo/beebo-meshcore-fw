@@ -27,16 +27,18 @@ TEST(TrialSequence, ValueRangesPerSwitch) {
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::NUM_SWITCHES, 0));
 }
 
-TEST(TrialSequence, DefaultListsHoldOneChallenger) {
+TEST(TrialSequence, DefaultListIsAThenOneChallenger) {
   TrialSequence::List l;
   l.reset(TrialSequence::LNA);
-  EXPECT_EQ(1, l.n);
-  EXPECT_EQ(0, l.current());
+  EXPECT_EQ(2, l.n);
+  EXPECT_EQ(0, l.first());
+  EXPECT_EQ(1, l.current());
   l.reset(TrialSequence::CR);
+  EXPECT_EQ(5, l.first());
   EXPECT_EQ(8, l.current());
 }
 
-TEST(TrialSequence, SetRejectsEmptyTooLongAndOutOfRange) {
+TEST(TrialSequence, SetRejectsTooShortTooLongAndOutOfRange) {
   TrialSequence::List l;
   l.reset(TrialSequence::CR);
   const uint8_t ok[] = {5, 6, 7, 8};
@@ -47,21 +49,24 @@ TEST(TrialSequence, SetRejectsEmptyTooLongAndOutOfRange) {
   const uint8_t bad[] = {5, 9};
   EXPECT_FALSE(l.set(TrialSequence::CR, bad, 2));
   EXPECT_FALSE(l.set(TrialSequence::CR, ok, 0));
+  const uint8_t single[] = {6};
+  EXPECT_FALSE(l.set(TrialSequence::CR, single, 1));   // A alone has nothing to compare
+  const uint8_t same[] = {6, 6};
+  EXPECT_FALSE(l.set(TrialSequence::CR, same, 2));     // collapses to one value
   EXPECT_EQ(4, l.n);   // a rejected set leaves the list as it was
 }
 
-TEST(TrialSequence, AdvanceWalksTheListThenReportsDone) {
+TEST(TrialSequence, ListOfNValuesIsNMinusOneTrials) {
   TrialSequence::List l;
   const uint8_t v[] = {5, 6, 7};
   ASSERT_TRUE(l.set(TrialSequence::CR, v, 3));
-  EXPECT_EQ(5, l.current());
+  EXPECT_EQ(5, l.first());
+  EXPECT_EQ(6, l.current());     // trial 1: 5 against 6
   EXPECT_TRUE(l.advance());
-  EXPECT_EQ(6, l.current());
-  EXPECT_TRUE(l.advance());
-  EXPECT_EQ(7, l.current());
-  EXPECT_FALSE(l.advance());   // last challenger decided
+  EXPECT_EQ(7, l.current());     // trial 2: the winner against 7
+  EXPECT_FALSE(l.advance());     // last challenger decided
   l.restart();
-  EXPECT_EQ(5, l.current());
+  EXPECT_EQ(6, l.current());
 }
 
 TEST(TrialSequence, ConsecutiveRepeatsCollapse) {
@@ -72,22 +77,22 @@ TEST(TrialSequence, ConsecutiveRepeatsCollapse) {
   EXPECT_EQ(5u | (6u << 8) | (5u << 16) | (5u << 24), l.packed());
 }
 
-TEST(TrialSequence, SetRestartsAtTheFirstValue) {
+TEST(TrialSequence, SetRestartsAtTheFirstTrial) {
   TrialSequence::List l;
-  const uint8_t v[] = {5, 6};
-  ASSERT_TRUE(l.set(TrialSequence::CR, v, 2));
+  const uint8_t v[] = {5, 6, 7};
+  ASSERT_TRUE(l.set(TrialSequence::CR, v, 3));
   l.advance();
-  ASSERT_TRUE(l.set(TrialSequence::CR, v, 2));
-  EXPECT_EQ(5, l.current());
+  ASSERT_TRUE(l.set(TrialSequence::CR, v, 3));
+  EXPECT_EQ(6, l.current());
 }
 
-TEST(TrialSequence, PackedValuesForTheSettingEvent) {
+TEST(TrialSequence, PackedValuesForTheWireAndTheSettingEvent) {
   TrialSequence::List l;
   const uint8_t v[] = {5, 6, 7};
   ASSERT_TRUE(l.set(TrialSequence::CR, v, 3));
   EXPECT_EQ(5u | (6u << 8) | (7u << 16) | (7u << 24), l.packed());   // padded with the last value
   l.reset(TrialSequence::CR);
-  EXPECT_EQ(0x08080808u, l.packed());
+  EXPECT_EQ(0x08080805u, l.packed());
 }
 
 TEST(TrialSequence, ParseAndFormatRoundTrip) {
@@ -108,9 +113,9 @@ TEST(TrialSequence, ParseAndFormatRoundTrip) {
   char buf[4 * TrialSequence::MAX_VALUES];
   EXPECT_EQ(7, l.format(buf));
   EXPECT_STREQ("5,6,7,8", buf);
-  l.n = 1; l.v[0] = 255;
+  l.n = 2; l.v[0] = 255; l.v[1] = 0;
   l.format(buf);
-  EXPECT_STREQ("255", buf);
+  EXPECT_STREQ("255,0", buf);
 }
 
 }  // namespace
