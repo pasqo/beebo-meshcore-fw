@@ -58,7 +58,7 @@
 #define BEEBO_CMD_SET_TUNING_TRIAL_SWITCHES    60  // payload: bitmask 0-511 (else ILLEGAL_ARG), 1B or 2B LE; RAM-only. Aborts a running trial (switch back to its stored value) and makes every selected switch eligible again; multi_role only
 #define BEEBO_CMD_GET_TUNING_TRIAL_BLOCK_S     61  // reply OK + value (4B LE) = trial block length in seconds (default 600); RAM-only; multi_role only
 #define BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_S     62  // payload: u16 LE, 1-65535; RAM-only. Aborts a running trial; multi_role only
-#define BEEBO_CMD_GET_TUNING_TRIAL_BLOCKS      63  // reply OK + value (4B LE) = blocks per trial (rounded down to whole A/B pairs; default 12, 2 hours at 600 s); RAM-only; multi_role only
+#define BEEBO_CMD_GET_TUNING_TRIAL_BLOCKS      63  // reply OK + value (4B LE) = blocks per trial (rounded down to whole A/B pairs; default 16, about 2.7 hours at 600 s); RAM-only; multi_role only
 #define BEEBO_CMD_SET_TUNING_TRIAL_BLOCKS      64  // payload: u16 LE, 2-65535 (else ILLEGAL_ARG); RAM-only. Aborts a running trial; multi_role only
 #define BEEBO_CMD_GET_TUNING_TRIAL_ENABLED     67  // reply OK + value (1B) = on-device RX front-end/coding-rate trial master on/off (RAM-only, always 0 after reboot); a trial runs only when this and that switch's enable are on; independent of the adaptive tuner (GET_ADAPTIVE_ENABLED); multi_role only
 #define BEEBO_CMD_SET_TUNING_TRIAL_ENABLED     68  // payload: 1B value (0/1); RAM-only. Turning it off aborts a running trial (switch back to its stored value); a change makes every selected switch eligible again; multi_role only
