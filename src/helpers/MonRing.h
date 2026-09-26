@@ -365,6 +365,9 @@ enum : uint8_t {
   SETTING_TUNING_TRIAL_BLOCKS = 109,
   SETTING_TUNING_TRIAL_VALUES_LNA = 110, SETTING_TUNING_TRIAL_VALUES_RXBOOST = 111,
   SETTING_TUNING_TRIAL_VALUES_CR = 112, SETTING_TUNING_TRIAL_ENABLED = 113,
+  // the value lists of the six later switches (agc, interference, rxdelay,
+  // txdelay, directtxdelay, airtime): 124 + switch index - 3
+  SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE = 124,
   SETTING_TUNING_TRIAL_CONFIDENCE = 114, SETTING_TUNING_TRIAL_MIN_GAIN = 115,
   // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
   SETTING_TUNING_REWARD_WEIGHT_BASE = 116,

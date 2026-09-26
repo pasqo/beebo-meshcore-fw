@@ -2144,25 +2144,82 @@ int Beebo::rewardIndex(const char* name, int len) {
 }
 
 uint8_t Beebo::trialParamId(int sw) {
-  return sw == 0 ? TUNING_FEM_LNA : sw == 1 ? TUNING_RX_BOOST : TUNING_CR;
+  static const uint8_t ids[TrialSequence::NUM_SWITCHES] = {
+    TUNING_FEM_LNA, TUNING_RX_BOOST, TUNING_CR, TUNING_AGC_RESET_INTERVAL,
+    TUNING_INTERFERENCE_THRESHOLD, TUNING_RX_DELAY_BASE, TUNING_TX_DELAY_FACTOR,
+    TUNING_DIRECT_TX_DELAY_FACTOR, TUNING_AIRTIME_FACTOR };
+  return ids[sw];
+}
+
+// Whole-number units per 1.0 of the float settings: rx delay base 0.1 steps,
+// tx and direct tx delay factors 0.01, airtime factor 0.05.
+static float trialUnitsPerOne(int sw) {
+  return sw == TrialSequence::RX_DELAY ? 10.0f
+       : sw == TrialSequence::AIRTIME ? 20.0f : 100.0f;
 }
 
 uint8_t Beebo::trialSwitchStoredValue(int sw) const {
-  return sw == 0 ? _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain
-       : sw == 1 ? _role_state->prefs.rx_boosted_gain
-                 : _role_state->prefs.cr;
+  const auto& p = _role_state->prefs;
+  switch (sw) {
+    case TrialSequence::LNA: return p.BeeboBasePrefs::radio_fem_rxgain;
+    case TrialSequence::RX_BOOST: return p.rx_boosted_gain;
+    case TrialSequence::CR: return p.cr;
+    case TrialSequence::AGC: return p.agc_reset_interval;
+    case TrialSequence::INTERFERENCE: return p.interference_threshold;
+    case TrialSequence::RX_DELAY: return (uint8_t)lroundf(p.rx_delay_base * trialUnitsPerOne(sw));
+    case TrialSequence::TX_DELAY: return (uint8_t)lroundf(p.tx_delay_factor * trialUnitsPerOne(sw));
+    case TrialSequence::DIRECT_TX_DELAY: return (uint8_t)lroundf(p.direct_tx_delay_factor * trialUnitsPerOne(sw));
+    default: return (uint8_t)lroundf(p.airtime_factor * trialUnitsPerOne(sw));
+  }
 }
 
 // Live only -- never persistRoleSlot(): a reboot mid-trial reverts to the
-// stored value on its own.
+// stored value on its own. The first three act on the hardware. The rest are
+// read from the RAM prefs by the mesh, so the trial writes the value there
+// (not flagged dirty); trialRevert() puts the exact original back.
 void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
-  if (sw == 0) {
-    if (board.canControlLoRaFemLna() && board.setLoRaFemLnaEnabled(value != 0)) radio_driver.resetAGC();
-  } else if (sw == 1) {
-    radio_driver.setRxBoostedGainMode(value);
-    radio_driver.resetAGC();
-  } else {
-    radio_driver.setParams(_role_state->prefs.freq, _role_state->prefs.bw, _role_state->prefs.sf, value);
+  auto& p = _role_state->prefs;
+  switch (sw) {
+    case TrialSequence::LNA:
+      if (board.canControlLoRaFemLna() && board.setLoRaFemLnaEnabled(value != 0)) radio_driver.resetAGC();
+      break;
+    case TrialSequence::RX_BOOST:
+      radio_driver.setRxBoostedGainMode(value);
+      radio_driver.resetAGC();
+      break;
+    case TrialSequence::CR:
+      radio_driver.setParams(p.freq, p.bw, p.sf, value);
+      break;
+    case TrialSequence::AGC: p.agc_reset_interval = value; break;
+    case TrialSequence::INTERFERENCE: p.interference_threshold = value; break;
+    case TrialSequence::RX_DELAY: p.rx_delay_base = value / trialUnitsPerOne(sw); break;
+    case TrialSequence::TX_DELAY: p.tx_delay_factor = value / trialUnitsPerOne(sw); break;
+    case TrialSequence::DIRECT_TX_DELAY: p.direct_tx_delay_factor = value / trialUnitsPerOne(sw); break;
+    default: p.airtime_factor = value / trialUnitsPerOne(sw); break;
+  }
+}
+
+void Beebo::trialSaveOriginal(int sw) {
+  const auto& p = _role_state->prefs;
+  _trial_orig_u8 = trialSwitchStoredValue(sw);
+  _trial_orig_f = sw == TrialSequence::RX_DELAY ? p.rx_delay_base
+                : sw == TrialSequence::TX_DELAY ? p.tx_delay_factor
+                : sw == TrialSequence::DIRECT_TX_DELAY ? p.direct_tx_delay_factor
+                : sw == TrialSequence::AIRTIME ? p.airtime_factor : 0.0f;
+}
+
+// Back to what was stored before the trial: the hardware switches re-apply it,
+// the prefs-backed ones get their exact original value (not a rounded copy).
+void Beebo::trialRevert(int sw) {
+  auto& p = _role_state->prefs;
+  switch (sw) {
+    case TrialSequence::AGC: p.agc_reset_interval = _trial_orig_u8; break;
+    case TrialSequence::INTERFERENCE: p.interference_threshold = _trial_orig_u8; break;
+    case TrialSequence::RX_DELAY: p.rx_delay_base = _trial_orig_f; break;
+    case TrialSequence::TX_DELAY: p.tx_delay_factor = _trial_orig_f; break;
+    case TrialSequence::DIRECT_TX_DELAY: p.direct_tx_delay_factor = _trial_orig_f; break;
+    case TrialSequence::AIRTIME: p.airtime_factor = _trial_orig_f; break;
+    default: applyTrialSwitchLive(sw, trialSwitchStoredValue(sw)); break;
   }
 }
 
@@ -2229,7 +2286,7 @@ void Beebo::emitTrialSkip(int sw, TrialFSM::Outcome outcome) {
   rec.trial_end.param = trialParamId(sw);
   rec.trial_end.outcome = outcome;
   rec.trial_end.a = trialSwitchStoredValue(sw);
-  rec.trial_end.b = _trial_alt[sw].current();
+  rec.trial_end.b = _trial_lists.v[sw].current();
   monring.appendTrial(rec, getRTCClock()->nowMillis());
 }
 
@@ -2243,7 +2300,7 @@ bool Beebo::startTrial(int sw) {
     emitTrialSkip(sw, TrialFSM::SKIPPED_NO_CONTROL);
     return false;
   }
-  while (_trial_alt[sw].current() == trialSwitchStoredValue(sw)) {   // arm B equals arm A: nothing to compare
+  while (_trial_lists.v[sw].current() == trialSwitchStoredValue(sw)) {   // arm B equals arm A: nothing to compare
     emitTrialSkip(sw, TrialFSM::SKIPPED_SAME);
     if (!trialNextValue(sw)) return false;
   }
@@ -2255,7 +2312,8 @@ bool Beebo::startTrial(int sw) {
   tc.min_gain_pct = _trial_min_gain_pct;
   tc.objective = &objective;
   trial.begin(tc);
-  trial.start(trialSwitchStoredValue(sw), _trial_alt[sw].current());
+  trialSaveOriginal(sw);
+  trial.start(trialSwitchStoredValue(sw), _trial_lists.v[sw].current());
   _trial_switch = (int8_t)sw;
   EvalWindow::Config wc;
   wc.min_ms = wc.max_ms = (uint32_t)_trial_block_s * 1000u;
@@ -2317,13 +2375,25 @@ void Beebo::trialPersistValue(int sw, uint8_t value) {
   if (value == stored) return;
   int8_t running = _trial_switch;
   _trial_switch = -1;   // so the setter's own manual-change hook does not abort
-  if (sw == 0) tlvSetRadioFemRxgain(this, _board.role, value);
-  else if (sw == 1) tlvSetRadioRxgain(this, _board.role, value);
-  else tlvSetRadioCr(this, _board.role, value);
+  auto floatBits = [&](float f) { uint32_t bits; memcpy(&bits, &f, 4); return bits; };
+  static const uint8_t keys[TrialSequence::NUM_SWITCHES] = {
+    PREFS_TLV_RADIO_FEM_RXGAIN, PREFS_TLV_RADIO_RXGAIN, PREFS_TLV_RADIO_CR,
+    PREFS_TLV_AGC_RESET_INTERVAL, PREFS_TLV_INTERFERENCE_THRESHOLD, PREFS_TLV_RXDELAY,
+    PREFS_TLV_TXDELAY_FACTOR, PREFS_TLV_DIRECT_TXDELAY_FACTOR, PREFS_TLV_AIRTIME };
+  switch (sw) {
+    case TrialSequence::LNA: tlvSetRadioFemRxgain(this, _board.role, value); break;
+    case TrialSequence::RX_BOOST: tlvSetRadioRxgain(this, _board.role, value); break;
+    case TrialSequence::CR: tlvSetRadioCr(this, _board.role, value); break;
+    case TrialSequence::AGC: tlvSetAgcResetInterval(this, NODE_ROLE_REPEATER, (uint32_t)value * 4); break;
+    case TrialSequence::INTERFERENCE: tlvSetInterferenceThreshold(this, NODE_ROLE_REPEATER, value); break;
+    case TrialSequence::RX_DELAY: tlvSetRxDelayBase(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
+    case TrialSequence::TX_DELAY: tlvSetTxDelayFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
+    case TrialSequence::DIRECT_TX_DELAY: tlvSetDirectTxDelayFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
+    default: tlvSetAirtimeFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
+  }
+  if (sw >= TrialSequence::AGC) flushDirtyPrefs();
   _trial_switch = running;
-  appendSettingChangedEvent(sw == 0 ? PREFS_TLV_RADIO_FEM_RXGAIN
-                            : sw == 1 ? PREFS_TLV_RADIO_RXGAIN : PREFS_TLV_RADIO_CR,
-                            stored, value, EVENT_SOURCE_TUNING);
+  appendSettingChangedEvent(keys[sw], stored, value, EVENT_SOURCE_TUNING);
   eval_window.resetBaseline();   // the radio changed under the rolling baseline
 }
 
@@ -2331,9 +2401,9 @@ void Beebo::trialPersistValue(int sw, uint8_t value) {
 // is stored at its A before the first trial of the first switch starts.
 void Beebo::trialSetAllToA() {
   for (int sw = 0; sw < TrialSequence::NUM_SWITCHES; sw++) {
-    if (!(_trial_switches & ~_trial_done_mask & (1 << sw))) continue;
-    if (sw == 0 && !board.canControlLoRaFemLna()) continue;   // startTrial() skips it
-    trialPersistValue(sw, _trial_alt[sw].first());
+    if (!(_trial_switches & ~_trial_done_mask & (1u << sw))) continue;
+    if (sw == TrialSequence::LNA && !board.canControlLoRaFemLna()) continue;   // startTrial() skips it
+    trialPersistValue(sw, _trial_lists.v[sw].first());
   }
   _trial_seq_started = true;
 }
@@ -2341,10 +2411,9 @@ void Beebo::trialSetAllToA() {
 void Beebo::finishTrial(const TrialFSM::Step& step) {
   int sw = _trial_switch;
   emitTrialEnd(sw, step);
+  trialRevert(sw);   // back to what was stored; a winner is stored below
   if (step.final_value != trialSwitchStoredValue(sw)) {
     trialPersistValue(sw, step.final_value);   // the winner is B: stored, and live
-  } else {
-    applyTrialSwitchLive(sw, step.final_value);   // back to what is stored
   }
   trialNextValue(sw);   // the next challenger of this switch, or the switch is done
   _trial_switch = -1;
@@ -2355,9 +2424,9 @@ void Beebo::abortTrial(bool mark_done) {
   if (!trialRunning()) return;
   int sw = _trial_switch;
   TrialFSM::Step step = trial.abort();
-  applyTrialSwitchLive(sw, trialSwitchStoredValue(sw));   // back to what is stored
+  trialRevert(sw);   // back to what is stored
   emitTrialEnd(sw, step);
-  if (mark_done) { trialSwitchDone(sw); _trial_alt[sw].restart(); }
+  if (mark_done) { trialSwitchDone(sw); _trial_lists.v[sw].restart(); }
   _trial_switch = -1;
 }
 #else
@@ -5631,7 +5700,7 @@ void Beebo::handleCmdFrame(size_t len) {
              ((sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_S ||
                sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCKS) && sub_len >= 3)) {
     uint16_t v = sub[1] | ((sub_len >= 3) ? ((uint16_t)sub[2] << 8) : 0);
-    bool ok = (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_SWITCHES) ? setTrialSwitches((uint8_t)v, EVENT_SOURCE_BINARY)
+    bool ok = (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_SWITCHES) ? setTrialSwitches(v, EVENT_SOURCE_BINARY)
             : (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_S) ? setTrialBlockS(v, EVENT_SOURCE_BINARY)
             : setTrialBlocks(v, EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
@@ -5666,7 +5735,7 @@ void Beebo::handleCmdFrame(size_t len) {
     else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_VALUES && sub_len >= 2) {
     if (sub[1] < TrialSequence::NUM_SWITCHES) {
-      const TrialSequence::List& l = _trial_alt[sub[1]];
+      const TrialSequence::List& l = _trial_lists.v[sub[1]];
       uint32_t w = l.packed();
       out_frame[0] = RESP_CODE_OK;
       memcpy(&out_frame[1], &w, 4);
@@ -8324,15 +8393,13 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (strcmp(key, "tuning.trial.enabled") == 0) {
       sprintf(reply, "> %s", _trial_enabled ? "on" : "off");
     } else if (strncmp(key, "tuning.trial.switches.", 22) == 0) {
-      // tuning.trial.switches.<lna|rxboost|cr>.<enable|value>
-      const char* k = &key[22];
-      int sw = strncmp(k, "lna.", 4) == 0 ? 0 : strncmp(k, "rxboost.", 8) == 0 ? 1
-             : strncmp(k, "cr.", 3) == 0 ? 2 : -1;
-      const char* leaf = sw == 0 ? &k[4] : sw == 1 ? &k[8] : sw == 2 ? &k[3] : "";
-      if (sw >= 0 && strcmp(leaf, "enable") == 0) sprintf(reply, "> %u", (unsigned)((_trial_switches >> sw) & 1));
+      // tuning.trial.switches.<name>.<enable|values>, names in TrialSequence.h
+      const char* leaf = "";
+      int sw = TrialSequence::byName(&key[22], &leaf);
+      if (sw >= 0 && strcmp(leaf, "enable") == 0) sprintf(reply, "> %u", (unsigned)((_trial_switches >> sw) & 1u));
       else if (sw >= 0 && strcmp(leaf, "values") == 0) {
         char list[4 * TrialSequence::MAX_VALUES];
-        _trial_alt[sw].format(list);
+        _trial_lists.v[sw].format(list);
         sprintf(reply, "> %s", list);
       }
       else sprintf(reply, "??: %s", key);
@@ -8778,26 +8845,24 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         return;
       }
       if (strncmp(k, "switches.", 9) == 0) {
-        // switches.<lna|rxboost|cr>.<enable|value>
-        const char* n = &k[9];
-        int sw = strncmp(n, "lna.", 4) == 0 ? 0 : strncmp(n, "rxboost.", 8) == 0 ? 1
-               : strncmp(n, "cr.", 3) == 0 ? 2 : -1;
-        const char* leaf = sw == 0 ? &n[4] : sw == 1 ? &n[8] : sw == 2 ? &n[3] : "";
+        // switches.<name>.<enable|values>, names in TrialSequence.h
+        const char* leaf = "";
+        int sw = TrialSequence::byName(&k[9], &leaf);
         if (sw >= 0 && strncmp(leaf, "enable ", 7) == 0 && (v == 0 || v == 1)) {
-          ok = setTrialSwitches((uint8_t)((_trial_switches & ~(1 << sw)) | (v << sw)), EVENT_SOURCE_TEXT_CLI);
+          ok = setTrialSwitches((uint16_t)((_trial_switches & ~(1u << sw)) | (v << sw)), EVENT_SOURCE_TEXT_CLI);
         } else if (sw >= 0 && strncmp(leaf, "values ", 7) == 0) {
           uint8_t values[TrialSequence::MAX_VALUES];
           int count = TrialSequence::parse(&leaf[7], values);
           ok = count > 0 && setTrialValues((uint8_t)sw, values, count, EVENT_SOURCE_TEXT_CLI);
           if (ok) {
             char list[4 * TrialSequence::MAX_VALUES];
-            _trial_alt[sw].format(list);
+            _trial_lists.v[sw].format(list);
             sprintf(reply, "> %s", list);
             return;
           }
         } else { sprintf(reply, "ERR: unknown key: %s", key); return; }
       }
-      else if (strncmp(k, "switches ", 9) == 0) ok = v >= 0 && setTrialSwitches((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "switches ", 9) == 0) ok = v >= 0 && v <= 0xFFFF && setTrialSwitches((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "confidence_pct ", 15) == 0) ok = v >= 0 && v <= 255 && setTrialConfidence((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "min_gain_pct ", 9) == 0) ok = v >= 0 && v <= 255 && setTrialMinGain((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_s ", 8) == 0) ok = v >= 1 && v <= 65535 && setTrialBlockS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);

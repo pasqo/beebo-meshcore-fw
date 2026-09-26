@@ -1924,20 +1924,23 @@ private:
   bool _trial_enabled = false;    // trial master switch, independent of _adaptive_enabled (the adaptive tuner)
   uint8_t _trial_confidence_pct = 95;   // TrialFSM confidence level: 90, 95 or 99
   uint8_t _trial_min_gain_pct = 5;    // TrialFSM worthwhile relative gain, percent
-  uint8_t _trial_switches = 0;
+  uint16_t _trial_switches = 0;   // bit i = switch i (TrialSequence.h)
   uint16_t _trial_block_s = 1800;
   uint16_t _trial_blocks = 96;
   bool _trial_seq_started = false;   // every selected switch has been set to its A
-  uint8_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
+  uint16_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
   int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, 2 = coding rate, -1 = none running
   // Per switch: A, then the challengers (TrialSequence.h).
-  TrialSequence::List _trial_alt[TrialSequence::NUM_SWITCHES] = {
-    {{0, 1}, 2, 1}, {{0, 1}, 2, 1}, {{5, 8}, 2, 1}};
+  TrialSequence::Lists _trial_lists;
+  // Exact pre-trial value of a prefs-backed switch (the float settings are
+  // held as whole numbers in the trial), restored when its trial ends.
+  float _trial_orig_f = 0;
+  uint8_t _trial_orig_u8 = 0;
   // A switch is decided (finished, skipped or aborted): mark it done and clear
   // its enable bit so the setting reads off, with a setting event.
   void trialSwitchDone(int sw) {
-    _trial_done_mask |= (1 << sw);
-    uint8_t mask = _trial_switches & ~(1 << sw);
+    _trial_done_mask |= (1u << sw);
+    uint16_t mask = _trial_switches & ~(1u << sw);
     if (mask != _trial_switches) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_SWITCHES, _trial_switches, mask, EVENT_SOURCE_TUNING);
       _trial_switches = mask;
@@ -1946,16 +1949,16 @@ private:
   // A challenger of switch sw is decided or skipped: false once its list is
   // exhausted, which also marks the switch done.
   bool trialNextValue(int sw) {
-    if (_trial_alt[sw].advance()) return true;
+    if (_trial_lists.v[sw].advance()) return true;
     trialSwitchDone(sw);
-    _trial_alt[sw].restart();
+    _trial_lists.v[sw].restart();
     return false;
   }
   // Every selected switch eligible again, each list back at its first value.
   void rearmTrials() {
     _trial_done_mask = 0;
     _trial_seq_started = false;
-    for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_alt[i].restart();
+    for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_lists.v[i].restart();
   }
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
   void setTrialEnabled(bool on, uint8_t source) {
@@ -1966,8 +1969,8 @@ private:
     }
     _trial_enabled = on;
   }
-  bool setTrialSwitches(uint8_t mask, uint8_t source) {
-    if (mask > 7) return false;
+  bool setTrialSwitches(uint16_t mask, uint8_t source) {
+    if (mask >= (1u << TrialSequence::NUM_SWITCHES)) return false;
     if (mask != _trial_switches) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_SWITCHES, _trial_switches, mask, source);
       abortTrial(false);
@@ -1978,14 +1981,14 @@ private:
   }
   bool setTrialValues(uint8_t sw, const uint8_t* values, int count, uint8_t source) {
     if (sw >= TrialSequence::NUM_SWITCHES) return false;
-    TrialSequence::List next = _trial_alt[sw];
+    TrialSequence::List next = _trial_lists.v[sw];
     if (!next.set(sw, values, count)) return false;
-    if (next.packed() != _trial_alt[sw].packed() || next.n != _trial_alt[sw].n) {
-      appendSettingChangedEvent(SETTING_TUNING_TRIAL_VALUES_LNA + sw, _trial_alt[sw].packed(), next.packed(), source);
+    if (next.packed() != _trial_lists.v[sw].packed() || next.n != _trial_lists.v[sw].n) {
+      appendSettingChangedEvent(sw < 3 ? SETTING_TUNING_TRIAL_VALUES_LNA + sw : SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE + sw - 3, _trial_lists.v[sw].packed(), next.packed(), source);
       abortTrial(false);
       rearmTrials();
     }
-    _trial_alt[sw] = next;
+    _trial_lists.v[sw] = next;
     return true;
   }
   bool setTrialConfidence(uint8_t v, uint8_t source) {
@@ -2057,6 +2060,9 @@ private:
   uint8_t trialSwitchStoredValue(int sw) const;
   // Store value on switch sw through its normal setter (and apply it live).
   void trialPersistValue(int sw, uint8_t value);
+  // Prefs-backed switches (3..8): remember the exact pre-trial value, and put it back.
+  void trialSaveOriginal(int sw);
+  void trialRevert(int sw);
   // Start of a sequence: every selected switch set to its A (list first value).
   void trialSetAllToA();
   void applyTrialSwitchLive(int sw, uint8_t value);
