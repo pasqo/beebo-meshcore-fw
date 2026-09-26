@@ -1924,7 +1924,7 @@ private:
   bool _trial_enabled = false;    // trial master switch, independent of _adaptive_enabled (the adaptive tuner)
   uint8_t _trial_confidence_pct = 95;   // TrialFSM confidence level: 90, 95 or 99
   uint8_t _trial_min_gain_pct = 5;    // TrialFSM worthwhile relative gain, percent
-  uint16_t _trial_switches = 0;   // bit i = switch i (TrialSequence.h)
+  uint16_t _trial_switches = (1u << TrialSequence::NUM_SWITCHES) - 1;   // bit i = switch i (TrialSequence.h); all on, so enabling the trial runs the whole sequence
   uint16_t _trial_block_s = 600;
   uint16_t _trial_blocks = 16;
   bool _trial_seq_started = false;   // every selected switch has been set to its A
