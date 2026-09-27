@@ -7,6 +7,10 @@
 // then re-applies RX settings that calibration may reset.
 inline void sx126xResetAGC(SX126x* radio, bool rx_boost_gain) {
   radio->sleep(true);
+  // The chip ignores SPI for ~500 us after SetSleep (datasheet 13.1.1); sleep()'s
+  // delay(1) can end almost at once on ESP32 (next 1 ms tick), and a wake-up
+  // sent too early leaves it asleep: every command below then times out (1 s each).
+  radio->mod->hal->delayMicroseconds(500);
   radio->standby(RADIOLIB_SX126X_STANDBY_RC, true);
 
   uint8_t calData = RADIOLIB_SX126X_CALIBRATE_ALL;
