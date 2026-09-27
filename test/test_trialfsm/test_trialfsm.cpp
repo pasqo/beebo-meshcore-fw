@@ -158,14 +158,17 @@ TEST(TrialFSM, KeepsAWhenBIsWorse) {
   EXPECT_LT(t.stats().mean_rel_x1000, 0);
 }
 
-TEST(TrialFSM, KeepsAWhenTheDifferenceIsWithinNoise) {
+TEST(TrialFSM, NoiseRunsTheScheduleOutUndecidedKeepingA) {
   TrialFSM t;
   t.begin(cfg(48));
   t.start(1);
+  // no gain either way, but the spread never puts B's best case under the
+  // minimum worthwhile gain: nothing is proven, A stays
   TrialFSM::Step s = runPairs(t, 1, 24, noise);
   ASSERT_TRUE(s.finished);
-  EXPECT_EQ(TrialFSM::KEEP_A, s.outcome);
+  EXPECT_EQ(TrialFSM::UNDECIDED, s.outcome);
   EXPECT_EQ(1, s.final_value);
+  EXPECT_EQ(24u, t.stats().n_pairs);
 }
 
 TEST(TrialFSM, EndsUndecidedWithFewerThanMinLookPairsEvenIfBLooksBetter) {
@@ -313,15 +316,34 @@ TEST(TrialFSM, StopsEarlyWhenTheGainIsBelowTheWorthwhileBand) {
   EXPECT_LT(t.stats().n_pairs, 48u);
 }
 
+// B hears twice the packets (weighted into the score) with the same confirmed
+// deliveries and a confirm ratio 5 points worse: the ratio veto applies.
+TrialFSM::Step runRxGainRatioDrop(TrialFSM &t, const Objective &obj, int blocks) {
+  TrialFSM::Step s = {};
+  for (int i = 0; i < blocks && !s.finished; i++) {
+    bool is_b = t.currentValue() != 1;
+    EvalWindow::Result r = blk(aRate(i / 2), is_b ? 8500 : 9000);
+    r.window_ms = 1800000;
+    r.rx_valid = is_b ? 200 : 100;
+    s = t.onBlock(r, 0, 0);
+  }
+  return s;
+}
+
 TEST(TrialFSM, RatioBelowToleranceBlocksAdoptionAndTheStableTrialEndsInconclusive) {
+  Objective rx;
+  rx.weights[Objective::RX_VALID] = 10;
   TrialFSM t;
-  t.begin(cfg(96));
+  TrialFSM::Config c = cfg(96);
+  c.objective = &rx;
+  t.begin(c);
   t.start(1);
-  // The goodput gain alone would adopt at once, but a confirm ratio far worse
-  // than RATIO_TOLERANCE blocks it, and the gain is above the minimum so the
-  // trial does not stop for "no gain" either. Undecided, but the bounds stop
-  // moving, so it ends inconclusive (A kept) long before the schedule does.
-  TrialFSM::Step s = runPairs(t, 1, 48, clearlyBetter, /*a_ratio=*/9000, /*b_ratio=*/8500);
+  // The score gain alone would adopt at once, but a confirm ratio far worse
+  // than RATIO_TOLERANCE with no more confirmed deliveries blocks it, and the
+  // gain is above the minimum so the trial does not stop for "no gain" either.
+  // Undecided, but the bounds stop moving, so it ends inconclusive (A kept)
+  // long before the schedule does.
+  TrialFSM::Step s = runRxGainRatioDrop(t, rx, 96);
   ASSERT_TRUE(s.finished);
   EXPECT_EQ(TrialFSM::INCONCLUSIVE, s.outcome);
   EXPECT_EQ(1, s.final_value);
@@ -363,23 +385,46 @@ TEST(TrialFSM, TCritTablesAndClamping) {
   EXPECT_FLOAT_EQ(1.960f, TrialFSM::tCrit(500, 5));  // normal quantile
 }
 
-TEST(TrialFSM, KeepsAWhenBGainsVolumeButConfirmRatioIsWorse) {
+TEST(TrialFSM, AdoptsBWhenConfirmedDeliveriesGrowDespiteALowerConfirmRatio) {
   TrialFSM t;
   t.begin(cfg(48));
   t.start(1);
+  // more forwarding, a few more of them unconfirmed: the ratio veto does not
+  // apply while the confirmed deliveries themselves grow
   TrialFSM::Step s = runPairs(t, 1, 24, clearlyBetter, /*a_ratio=*/9000, /*b_ratio=*/8500);
   ASSERT_TRUE(s.finished);
-  EXPECT_NE(TrialFSM::ADOPT_B, s.outcome);
-  EXPECT_EQ(1, s.final_value);
+  EXPECT_EQ(TrialFSM::ADOPT_B, s.outcome);
+  EXPECT_EQ(0, s.final_value);
 }
 
 TEST(TrialFSM, NoStableStopWithoutEnoughLooks) {
+  Objective rx;
+  rx.weights[Objective::RX_VALID] = 10;
   TrialFSM t;
-  t.begin(cfg(96));
+  TrialFSM::Config c = cfg(96);
+  c.objective = &rx;
+  t.begin(c);
   t.start(1);
-  TrialFSM::Step s = runPairs(t, 1, (int)(TrialFSM::MIN_LOOK_PAIRS + TrialFSM::STABLE_PAIRS) - 1,
-                              clearlyBetter, 9000, 8500);
+  TrialFSM::Step s = runRxGainRatioDrop(
+      t, rx, 2 * (int)(TrialFSM::MIN_LOOK_PAIRS + TrialFSM::STABLE_PAIRS - 1));
   EXPECT_FALSE(s.finished);
+}
+
+TEST(TrialFSM, UndecidedAtTheFinalLookEndsUndecided) {
+  TrialFSM t;
+  t.begin(cfg(8));   // 4 pairs: the last look is the plain t-test
+  t.start(1);
+  // B ahead on average but the pairs disagree: no bound settles it
+  const uint32_t b_rates[4] = {200, 60, 220, 90};
+  TrialFSM::Step s = {};
+  for (int i = 0; i < 8 && !s.finished; i++) {
+    bool is_b = t.currentValue() != 1;
+    s = t.onBlock(blk(is_b ? b_rates[i / 2] : 100), 0, 0);
+  }
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::UNDECIDED, s.outcome);
+  EXPECT_EQ(1, s.final_value);
+  EXPECT_EQ(4u, t.stats().n_pairs);
 }
 
 TEST(TrialFSM, ProgressReportsPairsMeanAndBoundsFromTheThirdPair) {

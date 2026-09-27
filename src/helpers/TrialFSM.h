@@ -38,9 +38,10 @@
 //            (B cannot beat A by min_gain_pct), i.e. no meaningful difference or B
 //            worse (checked first)
 //   adopt B  when the lower bound m - b*se > 0 and the confirm ratio is no
-//            worse than RATIO_TOLERANCE
+//            worse than RATIO_TOLERANCE, unless B's confirmed deliveries grew
+//            (more forwarding lowers the ratio without losing anything)
 //   else keep measuring; the schedule's end is a final look (b without the
-//   sqrt term) and anything undecided keeps A.
+//   sqrt term) and anything undecided there ends UNDECIDED, keeping A.
 // A block with the utilization guardrail tripped aborts and reverts. An undecided trial whose bounds have stopped moving (stable())
 // ends as INCONCLUSIVE and keeps A; a schedule that ends with fewer than
 // MIN_LOOK_PAIRS pairs ends UNDECIDED and keeps A. Unmeasured blocks discard
@@ -232,6 +233,7 @@ public:
       _prev_is_b = is_b;
       _prev_g = g;
       _prev_ratio = valid ? r.confirm_ratio : 0;
+      _prev_ros = valid ? r.ros_rate : 0;
       _prev_usable = usable;
       _prev_rx = rx;
     } else {
@@ -253,6 +255,7 @@ public:
         _sum_d += d;
         _sum_d2 += d * d;
         _sum_rd += (double)(rb - ra);
+        _sum_ros_d += (double)(is_b ? r.ros_rate : _prev_ros) - (double)(is_b ? _prev_ros : r.ros_rate);
         pair_added = true;
       }
     }
@@ -299,7 +302,7 @@ private:
     _orig = 0;
     _alt = 1;
     _prev_valid = false; _prev_is_b = false; _prev_g = 0; _prev_ratio = 0;
-    _prev_usable = false; _prev_rx = 0;
+    _prev_usable = false; _prev_rx = 0; _prev_ros = 0; _sum_ros_d = 0.0;
     _live_a = _live_b = _live_a_blocks = _live_b_blocks = 0;
     _cycle_rx = 0; _cycle_usable = true;
     _n = 0; _sum_d = _sum_d2 = _sum_rd = 0.0;
@@ -342,7 +345,7 @@ private:
     if (!final) b *= sqrt((double)(_total / 2) / n);
     double lower = mean - b * se, upper = mean + b * se;
     if (!final) { _lo[_n % HIST] = lower; _hi[_n % HIST] = upper; }
-    bool ratio_ok = (_sum_rd / n) >= -(double)RATIO_TOLERANCE;
+    bool ratio_ok = (_sum_rd / n) >= -(double)RATIO_TOLERANCE || _sum_ros_d > 0.0;
     if (upper < log(1.0 + _cfg.min_gain_pct / 100.0)) return -1;   // even the best case is below the minimum gain
     if (lower > 0.0 && ratio_ok) return 1;
     return 0;
@@ -377,7 +380,8 @@ private:
 
   Step decide() {
     if (_n < MIN_LOOK_PAIRS) return finish(UNDECIDED);
-    return finish(look(true) > 0 ? ADOPT_B : KEEP_A);
+    int v = look(true);
+    return finish(v > 0 ? ADOPT_B : v < 0 ? KEEP_A : UNDECIDED);
   }
 
   static constexpr uint32_t HIST = STABLE_PAIRS + 1;
@@ -393,6 +397,8 @@ private:
   int32_t _prev_ratio = 0;
   bool _prev_usable = false;
   uint32_t _prev_rx = 0;
+  uint32_t _prev_ros = 0;
+  double _sum_ros_d = 0;   // confirmed deliveries per hour, B - A, summed over pairs
   uint32_t _live_a = 0, _live_b = 0, _live_a_blocks = 0, _live_b_blocks = 0;   // dead-arm test sums
   uint32_t _cycle_rx = 0;       // RX Valid in the current A B B A cycle
   bool _cycle_usable = true;    // no invalidated block in it so far
