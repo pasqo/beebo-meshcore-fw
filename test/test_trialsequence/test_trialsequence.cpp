@@ -131,6 +131,18 @@ TEST(TrialSequence, ListOfNValuesIsNMinusOneTrials) {
   EXPECT_EQ(6, l.current());
 }
 
+TEST(TrialSequence, FromStoredEveryValueIsAChallenger) {
+  TrialSequence::List l;
+  l.reset(TrialSequence::AGC);   // 0, 2, 4, 8
+  l.fromStored();
+  EXPECT_EQ(0, l.current());     // the first value too: A is what is stored, not v[0]
+  int challengers = 1;
+  while (l.advance()) challengers++;
+  EXPECT_EQ(4, challengers);
+  l.restart();
+  EXPECT_EQ(2, l.current());
+}
+
 TEST(TrialSequence, ConsecutiveRepeatsCollapse) {
   TrialSequence::List l;
   const uint8_t v[] = {5, 5, 6, 5};

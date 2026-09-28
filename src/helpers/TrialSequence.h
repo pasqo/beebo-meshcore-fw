@@ -154,6 +154,9 @@ public:
       return true;
     }
     void restart() { pos = 1; }
+    // A is whatever is stored (tuning.trial.start stored): every value is a
+    // challenger, the first one too.
+    void fromStored() { pos = 0; }
     // "8,16,32" into buf (size at least 4 * MAX_VALUES); the length.
     int format(char* buf) const {
       int len = 0;

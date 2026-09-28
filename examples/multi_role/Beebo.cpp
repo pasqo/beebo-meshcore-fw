@@ -2087,7 +2087,7 @@ void Beebo::loopTuning() {
     else pending = 0;
   }
   if (pending && adaptive_controller.idle()) {
-    if (!_trial_seq_started) trialSetAllToA();
+    if (!_trial_seq_started) _trial_start_stored ? trialStartFromStored() : trialSetAllToA();
     pending = _trial_switches & ~_trial_done_mask;
   }
   if (pending && adaptive_controller.idle() && startTrial(TrialSequence::nextSwitch(pending))) {
@@ -2410,6 +2410,16 @@ void Beebo::trialSetAllToA() {
     if (!(_trial_switches & ~_trial_done_mask & (1u << sw))) continue;
     if (sw == TrialSequence::LNA && !board.canControlLoRaFemLna()) continue;   // startTrial() skips it
     trialPersistValue(sw, _trial_lists.v[sw].first());
+  }
+  _trial_seq_started = true;
+}
+
+// tuning.trial.start stored: nothing is stored up front; each selected switch
+// starts from its stored value (the last winner) and every list value is a
+// challenger (startTrial() skips one equal to it).
+void Beebo::trialStartFromStored() {
+  for (int sw = 0; sw < TrialSequence::NUM_SWITCHES; sw++) {
+    if (_trial_switches & ~_trial_done_mask & (1u << sw)) _trial_lists.v[sw].fromStored();
   }
   _trial_seq_started = true;
 }
@@ -5751,6 +5761,18 @@ void Beebo::handleCmdFrame(size_t len) {
     bool ok = (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_CONFIDENCE) ? setTrialConfidence(sub[1], EVENT_SOURCE_BINARY)
                                                          : setTrialMinGain(sub[1], EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_START) {
+    uint32_t v = _trial_start_stored ? 1 : 0;
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &v, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_START && sub_len >= 2) {
+    if (sub[1] > 1) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      setTrialStartStored(sub[1] == 1, EVENT_SOURCE_BINARY);
+      writeOKFrame();
+    }
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_IDLE_MIN_RX) {
     uint32_t v = _trial_idle_min_rx;
     out_frame[0] = RESP_CODE_OK;
@@ -8431,6 +8453,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_trial_min_gain_pct);
     } else if (strcmp(key, "tuning.trial.idle_min_rx") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_idle_min_rx);
+    } else if (strcmp(key, "tuning.trial.start") == 0) {
+      sprintf(reply, "> %s", _trial_start_stored ? "stored" : "list");
     } else if (strcmp(key, "tuning.trial.enabled") == 0) {
       sprintf(reply, "> %s", _trial_enabled ? "on" : "off");
     } else if (strncmp(key, "tuning.trial.switches.", 22) == 0) {
@@ -8883,6 +8907,14 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         else if (memcmp(on, "off", 3) == 0) setTrialEnabled(false, EVENT_SOURCE_TEXT_CLI);
         else { strcpy(reply, "ERR: expected on/off"); return; }
         sprintf(reply, "> %s", _trial_enabled ? "on" : "off");
+        return;
+      }
+      if (strncmp(k, "start ", 6) == 0) {
+        const char* mode = &k[6];
+        if (strcmp(mode, "stored") == 0) setTrialStartStored(true, EVENT_SOURCE_TEXT_CLI);
+        else if (strcmp(mode, "list") == 0) setTrialStartStored(false, EVENT_SOURCE_TEXT_CLI);
+        else { strcpy(reply, "ERR: expected stored/list"); return; }
+        sprintf(reply, "> %s", _trial_start_stored ? "stored" : "list");
         return;
       }
       if (strncmp(k, "switches.", 9) == 0) {

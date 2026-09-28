@@ -1931,6 +1931,10 @@ private:
   uint8_t _trial_confidence_pct = 95;   // TrialFSM confidence level: 90, 95 or 99
   uint8_t _trial_min_gain_pct = 5;    // TrialFSM worthwhile relative gain, percent
   uint8_t _trial_idle_min_rx = TrialFSM::IDLE_MIN_RX;   // TrialFSM idle stop, packets per cycle; 0 = off
+  // tuning.trial.start: true (stored, default) = each switch's A is its stored
+  // value, the last winner; false (list) = the sequence first stores each
+  // list's first value (trialSetAllToA()).
+  bool _trial_start_stored = true;
   uint16_t _trial_switches = (1u << TrialSequence::NUM_SWITCHES) - 1;   // bit i = switch i (TrialSequence.h); all on, so enabling the trial runs the whole sequence
   uint16_t _trial_block_s = 600;
   uint16_t _trial_blocks = 16;
@@ -2018,6 +2022,15 @@ private:
     _trial_confidence_pct = v;
     return true;
   }
+  bool setTrialStartStored(bool stored, uint8_t source) {
+    if (stored != _trial_start_stored) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_START, _trial_start_stored ? 1 : 0, stored ? 1 : 0, source);
+      abortTrial(false);
+      rearmTrials();
+    }
+    _trial_start_stored = stored;
+    return true;
+  }
   bool setTrialIdleMinRx(uint8_t v, uint8_t source) {
     if (v != _trial_idle_min_rx) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_IDLE_MIN_RX, _trial_idle_min_rx, v, source);
@@ -2091,6 +2104,7 @@ private:
   void trialRevert(int sw);
   // Start of a sequence: every selected switch set to its A (list first value).
   void trialSetAllToA();
+  void trialStartFromStored();
   void applyTrialSwitchLive(int sw, uint8_t value);
   void emitTrialStart(int sw, const TrialFSM::Config& tc);
   void emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Result& r, uint32_t pairs_before);
