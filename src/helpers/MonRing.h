@@ -1419,7 +1419,7 @@ public:
   // are no-ops while paused, per the enabled() gating below); resumeAfterRead()
   // restores the previous state, so a manually-paused ring stays paused.
   void pauseForRead() {
-    _paused_for_read = enabled();
+    if (!_paused_for_read) _paused_for_read = enabled();   // a re-armed read pauses again
     _config &= ~MON_CAP_ENABLED;
   }
   void resumeAfterRead() {
@@ -1996,6 +1996,17 @@ public:
   }
 
 public:
+  // CRC-32 (ISO-HDLC: reflected 0xEDB88320, init and final xor 0xFFFFFFFF),
+  // the same value as Python's zlib.crc32 -- checks a GET_MONRING page.
+  static uint32_t crc32(const uint8_t *data, size_t len) {
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; i++) {
+      crc ^= data[i];
+      for (int b = 0; b < 8; b++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+    }
+    return ~crc;
+  }
+
   // Serialize records with seq >= after_seq, OLDEST first (walking forward
   // from the tail), up to max_len bytes (whole records only). Returns the
   // byte count and writes the number of records emitted to *out_count.

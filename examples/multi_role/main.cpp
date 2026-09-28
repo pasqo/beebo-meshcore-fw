@@ -89,10 +89,16 @@ void setup() {
   // burst of chunk data has somewhere to land between loop() iterations.
   // Confirmed by measurement: widening RX alone took USB OTA from ~14kB/s to
   // ~45kB/s. 2x headroom in case loop() jitter still occasionally exceeds
-  // one frame's worth of slack. No setTxBufferSize on this core's USBCDC
-  // class (ARDUINO_USB_MODE=1's Serial is USBCDC, not HWCDC) -- OK/ERR
-  // replies are tiny (a few bytes) anyway, unlikely to be TX-bound.
+  // one frame's worth of slack.
+  //
+  // TX: the HWCDC driver's default 256-byte TX buffer is far smaller than a
+  // 2 KB BULK_XFER page, so writing one always waited on the host, and a
+  // write that makes no progress for 100 ms switches the driver into
+  // discarding its oldest queued bytes while reporting writes as complete.
+  // A buffer that holds whole frames lets usb_interface.isWriteBusy() hold a
+  // frame back until it fits (see DualModeSerialInterface::isWriteBusy()).
   Serial.setRxBufferSize(OTA_FRAME_SIZE * 2);
+  Serial.setTxBufferSize(USB_TX_BUFFER_SIZE);
   Serial.begin(921600);
   // beebo: a soft reboot (esp_restart(), e.g. from the `reboot`/`ota`
   // commands) doesn't produce an OS-level USB hangup on the native

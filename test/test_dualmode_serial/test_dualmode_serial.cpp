@@ -37,6 +37,22 @@ TEST_F(DualModeSerial, BinaryFrameRoundTrips) {
   EXPECT_EQ(0xBB, dest[1]);
 }
 
+TEST_F(DualModeSerial, WriteBusyUntilTheUsbTxBufferHoldsAWholeFrame) {
+  int whole = (int)iface.getMaxSendFrameSize() + 3;   // '>' + 2-byte length + frame
+  iface.setTxCapacity(2 * whole);
+  stream.setAvailableForWrite(whole - 1);
+  EXPECT_TRUE(iface.isWriteBusy());
+  stream.setAvailableForWrite(whole);
+  EXPECT_FALSE(iface.isWriteBusy());
+}
+
+TEST_F(DualModeSerial, WithoutAKnownTxCapacityAnyRoomIsEnough) {
+  stream.setAvailableForWrite(1);
+  EXPECT_FALSE(iface.isWriteBusy());
+  stream.setAvailableForWrite(0);
+  EXPECT_TRUE(iface.isWriteBusy());
+}
+
 TEST_F(DualModeSerial, TextLineRoundTrips) {
   const char* line = "help\r";
   stream.feed((const uint8_t*)line, strlen(line));

@@ -90,7 +90,7 @@
 #define BEEBO_RESP_NEIGHBORS_START       2  // first reply to GET_NEIGHBORS: count + node time
 #define BEEBO_RESP_NEIGHBOR              3  // one per direct neighbor
 #define BEEBO_RESP_END_OF_NEIGHBORS      4  // last reply to GET_NEIGHBORS
-#define BEEBO_RESP_MONRING               5  // reply to GET_MONRING: status header + records. Header's trailing reset:1 byte is 1 if the request's after_seq was overridden (after_ts predated the ring's current oldest resident record) and the reply starts from the oldest record instead, 0 if honored as given
+#define BEEBO_RESP_MONRING               5  // reply to GET_MONRING: status header + records + page check. Header's trailing reset:1 byte is 1 if the request's after_seq was overridden (after_ts predated the ring's current oldest resident record) and the reply starts from the oldest record instead, 0 if honored as given. Page check (rc68+): first_seq:u32 (ring seq of the page's first real record) then crc32:u32 over every byte before it
 #define BEEBO_RESP_XFER_CAPS             6  // (BULK_XFER): reply to SET_XFER_CAPS: granted [max_tx:2 LE][stream:1]
 #define BEEBO_RESP_FULL_VERSION          7  // reply to GET_FULL_VERSION: untruncated FIRMWARE_VERSION bytes (no NUL)
 #define BEEBO_RESP_PREFS_TLV             8  // reply to GET_PREFS_TLV: TLV triplets, see that command's desc

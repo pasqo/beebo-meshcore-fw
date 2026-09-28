@@ -161,6 +161,22 @@ TEST(MonRing, AppendRxAssignsSequentialSeq) {
   EXPECT_EQ(2u, f.ring.count());
 }
 
+TEST(MonRing, Crc32MatchesTheStandardCheckValue) {
+  const uint8_t msg[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+  EXPECT_EQ(0xCBF43926u, MonRing::crc32(msg, sizeof(msg)));   // CRC-32/ISO-HDLC, as zlib.crc32
+  EXPECT_EQ(0u, MonRing::crc32(msg, 0));
+}
+
+TEST(MonRing, PausingTwiceForReadStillResumesCapture) {
+  RingFixture<8> f;
+  ASSERT_TRUE(f.ring.enabled());
+  f.ring.pauseForRead();
+  f.ring.pauseForRead();   // a stream re-armed mid-read pauses again
+  EXPECT_FALSE(f.ring.enabled());
+  f.ring.resumeAfterRead();
+  EXPECT_TRUE(f.ring.enabled());
+}
+
 TEST(MonRing, AppendNoOpWhenDisabledOrKindMasked) {
   RingFixture<8> f;
   f.ring.setConfig(MON_CAP_ALL);  // clear MON_CAP_ENABLED bit

@@ -186,23 +186,18 @@ bool DualModeSerialInterface::isConnected() const {
 }
 
 bool DualModeSerialInterface::isWriteBusy() const {
-  // beebo: was a hardcoded `return false;` stub -- unlike SerialBLEInterface/
-  // SerialWifiInterface, which check their own explicit software send_queue
-  // depth, this class has no queue of its own; it writes straight into the
-  // Stream API, so the only real backpressure signal available is the
-  // hardware USB-CDC TX ring's free space. Deliberately checked against 0,
-  // not some worst-case frame size (e.g. MAX_SEND_FRAME_SIZE, up to 2048 for
-  // BULK_XFER) -- the ring is only CONFIG_TINYUSB_CDC_TX_BUFSIZE=64 bytes on
-  // this core (no Arduino-level API to raise it, see writeFrameBestEffort()'s
-  // own comment), so comparing against a large frame size would read "busy"
-  // almost permanently and stall every caller gated on this (Beebo.cpp's
-  // checkSerialInterface() pacing chain: contacts/neighbors/advert-path/
-  // stats/monring streaming, MLOG replay, pending-disconnect). Every one of
-  // those calls still goes through writeFrame()'s own internal short-write
-  // retry loop once entered, so this is purely a same-tick skip-and-retry-
-  // next-tick optimization, not a correctness dependency -- "any room at
-  // all" is enough to let that retry loop make progress.
-  return _serial->availableForWrite() <= 0;
+  // beebo: this class has no queue of its own, so the backpressure signal is
+  // the USB driver's TX buffer. With a buffer that holds a whole frame
+  // (setTxCapacity()), wait for room for one: the ESP32 HWCDC driver treats a
+  // write that makes no progress for 100 ms as "host gone" and from then on
+  // discards its oldest queued bytes while reporting every write as complete,
+  // so a frame started while the host isn't reading can lose bytes silently.
+  // A caller gated on this (checkSerialInterface()'s pacing chain: monring
+  // streaming, contacts, neighbors, stats, MLOG replay) then only writes a
+  // frame that fits without waiting on the host.
+  size_t whole = MAX_SEND_FRAME_SIZE + 3;
+  int need = _tx_capacity >= whole ? (int)whole : 1;
+  return _serial->availableForWrite() < need;
 }
 
 bool DualModeSerialInterface::feedTextByte(int c, uint8_t dest[], size_t max_len, size_t& outLen) {
@@ -226,20 +221,14 @@ bool DualModeSerialInterface::feedTextByte(int c, uint8_t dest[], size_t max_len
 }
 
 // Stream::write(buf, size) is allowed to short-write (return less than
-// requested) rather than block -- e.g. the USB CDC peripheral's own TX
-// buffer being momentarily full under rapid back-to-back replies, with no
-// setTxBufferSize call on this core's USBCDC class (see main.cpp's own
-// comment on why). A short write here silently truncates the frame with no
-// way for the host to recover: its own byte-parser just waits forever for
-// bytes that were never sent, stalling the command for its full timeout.
-// Retry the remainder until the whole buffer is out.
-//
-// beebo: CONFIG_TINYUSB_CDC_TX_BUFSIZE is only 64 bytes on this core (no
-// Arduino-level setTxBufferSize to raise it, per the comment above) -- any
-// reply bigger than that (every beebo reply past a trivial OK/ERR: a
-// 176-byte GET_STATS page, up to a 2048-byte BULK_XFER page) needs many
-// retry iterations here, each one only able to push whatever room has
-// opened up in that 64-byte ring since the last try.
+// requested) rather than block -- e.g. the USB TX buffer being momentarily
+// full under rapid back-to-back replies. A short write here silently
+// truncates the frame with no way for the host to recover: its own
+// byte-parser just waits forever for bytes that were never sent, stalling
+// the command for its full timeout. Retry the remainder until the whole
+// buffer is out. (On ESP32 HWCDC a write that makes no progress for 100 ms
+// instead discards queued bytes and reports success -- callers gated on
+// isWriteBusy() avoid writing into a full buffer; see its comment.)
 //
 // Two distinct failure modes were found here, both via a live wire capture
 // (host-side TX/RX byte trace) of a real `no_event_received` repro:

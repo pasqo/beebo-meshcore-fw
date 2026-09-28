@@ -48,6 +48,12 @@
 #include <helpers/esp32/SerialWifiInterface.h>
 #include <helpers/MultiSerialInterface.h>
 #include <helpers/DualModeSerialInterface.h> // beebo: dual-mode, not plain ArduinoSerialInterface (see usb_interface's own comment)
+
+// beebo: HWCDC TX buffer (main.cpp's Serial.setTxBufferSize()): room for two
+// whole frames, so usb_interface can wait for one to fit instead of writing
+// into a full buffer (see DualModeSerialInterface::isWriteBusy()).
+#define USB_TX_BUFFER_SIZE 6144
+static_assert(USB_TX_BUFFER_SIZE >= 2 * (MAX_SEND_FRAME_SIZE + 3), "USB TX buffer must hold two whole frames");
 #include <helpers/ClientACL.h> // beebo: repeater-role admin login table
 #include <helpers/IdentityStore.h>
 #include <helpers/RegionMap.h> // beebo: repeater-role named-region registry, queried by handleAnonRegionsReq

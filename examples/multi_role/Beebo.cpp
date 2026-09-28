@@ -3010,7 +3010,9 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   // written immediately rather than reserved-and-backfilled.
   out[i++] = reset ? 1 : 0;
   *returned = 0;
-  size_t room = (max_len > (size_t)i) ? (max_len - (size_t)i) : 0;  // never underflow
+  // Page check trailer (first ring seq + CRC-32), appended after the records.
+  const size_t trailer = 8;
+  size_t room = (max_len > (size_t)i + trailer) ? (max_len - (size_t)i - trailer) : 0;  // never underflow
   // First page of a read: walk the fixed sync/radio/env prefix that must
   // precede any RX/TX, one slot at a time, against the real record stream
   // starting at `from`. A slot whose real record is already there (matched
@@ -3050,6 +3052,15 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   out[rec_hdr + 0] = total & 0xFF;
   out[rec_hdr + 1] = (total >> 8) & 0xFF;
   out[injected_hdr] = (uint8_t)injected;
+  // beebo: page check -- the ring seq of this page's first real record, then a
+  // CRC-32 of every byte before the CRC. Lets the client catch a lost, merged
+  // or out-of-order page (USB serial frames carry no checksum of their own)
+  // and re-request from the last good record. A client that predates it reads
+  // `total` records from the header and ignores the trailing 8 bytes.
+  uint32_t first_seq = (after_seq > monring.oldestSeq()) ? after_seq : monring.oldestSeq();
+  memcpy(&out[i], &first_seq, 4); i += 4;
+  uint32_t crc = MonRing::crc32(out, (size_t)i);
+  memcpy(&out[i], &crc, 4); i += 4;
   return i;
 }
 
@@ -7669,6 +7680,7 @@ void Beebo::driveUsb(bool usb_on) {
       if (usb_on) {
         if (!_usb_added) {
           usb_interface.begin(Serial);
+          usb_interface.setTxCapacity(USB_TX_BUFFER_SIZE);   // sized in main.cpp's setup()
           // beebo: see the other addInterface(&usb_interface, ...) call
           // site's own comment for why this ANDs in
           // usb_interface.isConnected().

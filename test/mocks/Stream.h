@@ -107,7 +107,8 @@ public:
         for (size_t i = 0; i < len; i++) _tx.push_back(buf[i]);
         return len;
     }
-    int availableForWrite() override { return 64; }
+    int availableForWrite() override { return _tx_free; }
+    void setAvailableForWrite(int n) { _tx_free = n; }
 
     const std::vector<uint8_t>& tx() const { return _tx; }
     void clearTx() { _tx.clear(); }
@@ -116,4 +117,5 @@ private:
     std::vector<uint8_t> _rx;
     size_t _rx_pos = 0;
     std::vector<uint8_t> _tx;
+    int _tx_free = 64;
 };

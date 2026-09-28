@@ -77,6 +77,7 @@ class DualModeSerialInterface : public BaseSerialInterface {
   // (MultiSerialInterface's own concept, layered on top).
   bool _seen_traffic;
   Stream* _serial;
+  size_t _tx_capacity = 0;
   // beebo: sized for raw-binary OTA frames (OTA_FRAME_SIZE = OTA_CHUNK_SIZE +
   // 2-byte header), same as SerialWifiInterface's getMaxRecvFrameSize()
   // override below -- USB is at least as fast as WiFi, no reason
@@ -148,6 +149,10 @@ public:
   bool isConnected() const override;
 
   bool isWriteBusy() const override;
+  // Size of the USB driver's TX buffer, set once the board has sized it.
+  // When it can hold a whole frame, isWriteBusy() waits for room for one;
+  // 0 (unknown) keeps "any room" as the rule.
+  void setTxCapacity(size_t n) { _tx_capacity = n; }
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t writeFrameBestEffort(const uint8_t src[], size_t len) override;
   // beebo: also recognizes and consumes the session-less raw control frame
