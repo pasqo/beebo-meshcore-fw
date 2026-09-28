@@ -312,6 +312,14 @@ enum : uint8_t {
   //   data[6:12] = reserved
   EVENT_MAX_LOOP_LATENCY = 24,
   // 25 retired: the trial's result is the MON_TRIAL end record.
+  // The trial sequence starts waiting for traffic (tuning.trial.min_rx_rate)
+  // or resumes: logged on each change, checked once a minute while waiting.
+  //   data[0] = 1 waiting (RX rate below the minimum), 0 resumed
+  //   data[1:3] = RX packets per minute then (u16 LE, the moving 60 s sum
+  //               BEEBO_CMD_GET_COUNTER_RATES reports as rx_packets)
+  //   data[3] = the minimum, packets per minute
+  //   data[4:12] = reserved
+  EVENT_TRIAL_RX_RATE = 26,
 };
 
 // ---- TXCONFIRM_*: verdict enum used ONLY for internal bookkeeping now
@@ -371,6 +379,7 @@ enum : uint8_t {
   SETTING_TUNING_TRIAL_CONFIDENCE = 114, SETTING_TUNING_TRIAL_MIN_GAIN = 115,
   SETTING_TUNING_TRIAL_IDLE_MIN_RX = 130,
   SETTING_TUNING_TRIAL_START = 131,
+  SETTING_TUNING_TRIAL_MIN_RX_RATE = 132,
   // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
   SETTING_TUNING_REWARD_WEIGHT_BASE = 116,
 };

@@ -2086,6 +2086,7 @@ void Beebo::loopTuning() {
     if (millisHasNowPassed(_trial_idle_until)) _trial_idle_hold = false;
     else pending = 0;
   }
+  if (pending && !trialRateAllows()) pending = 0;   // too little traffic to start a trial
   if (pending && adaptive_controller.idle()) {
     if (!_trial_seq_started) _trial_start_stored ? trialStartFromStored() : trialSetAllToA();
     pending = _trial_switches & ~_trial_done_mask;
@@ -2422,6 +2423,41 @@ void Beebo::trialStartFromStored() {
     if (_trial_switches & ~_trial_done_mask & (1u << sw)) _trial_lists.v[sw].fromStored();
   }
   _trial_seq_started = true;
+}
+
+// RX packets per minute: the moving 60 s sum GET_COUNTER_RATES reports as
+// rx_packets (scaled to a minute until 60 s of history exist).
+uint32_t Beebo::rxRatePerMin() {
+#ifdef BEEBO_CPU_ACCOUNTING
+  return _rate_sum[0] * RATE_SLOTS / (_rate_filled ? _rate_filled : 1);
+#else
+  return UINT32_MAX;   // no rate on this build: never wait
+#endif
+}
+
+// tuning.trial.min_rx_rate: whether the next trial may start. While the rate
+// is below the minimum the sequence waits, re-checking once a minute; each
+// change between waiting and running is logged (EVENT_TRIAL_RX_RATE).
+bool Beebo::trialRateAllows() {
+  if (_trial_min_rx_rate == 0) {
+    _trial_rate_wait = false;
+    return true;
+  }
+  if (_trial_rate_wait && !millisHasNowPassed(_trial_rate_check_at)) return false;
+  uint32_t rate = rxRatePerMin();
+  bool wait = rate < _trial_min_rx_rate;
+  if (wait != _trial_rate_wait && monring.enabled() && monring.allocated()) {
+    EventRecord rec{};
+    rec.event_type = EVENT_TRIAL_RX_RATE;
+    rec.data[0] = wait ? 1 : 0;
+    uint16_t r16 = (uint16_t)(rate > 0xFFFF ? 0xFFFF : rate);
+    memcpy(&rec.data[1], &r16, 2);
+    rec.data[3] = _trial_min_rx_rate;
+    monring.appendEvent(rec, getRTCClock()->nowMillis());
+  }
+  _trial_rate_wait = wait;
+  if (wait) _trial_rate_check_at = futureMillis(60000);
+  return !wait;
 }
 
 void Beebo::finishTrial(const TrialFSM::Step& step) {
@@ -5761,6 +5797,14 @@ void Beebo::handleCmdFrame(size_t len) {
     bool ok = (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_CONFIDENCE) ? setTrialConfidence(sub[1], EVENT_SOURCE_BINARY)
                                                          : setTrialMinGain(sub[1], EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_MIN_RX_RATE) {
+    uint32_t v = _trial_min_rx_rate;
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &v, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_MIN_RX_RATE && sub_len >= 2) {
+    setTrialMinRxRate(sub[1], EVENT_SOURCE_BINARY);
+    writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_START) {
     uint32_t v = _trial_start_stored ? 1 : 0;
     out_frame[0] = RESP_CODE_OK;
@@ -8453,6 +8497,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_trial_min_gain_pct);
     } else if (strcmp(key, "tuning.trial.idle_min_rx") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_idle_min_rx);
+    } else if (strcmp(key, "tuning.trial.min_rx_rate") == 0) {
+      sprintf(reply, "> %u", (unsigned)_trial_min_rx_rate);
     } else if (strcmp(key, "tuning.trial.start") == 0) {
       sprintf(reply, "> %s", _trial_start_stored ? "stored" : "list");
     } else if (strcmp(key, "tuning.trial.enabled") == 0) {
@@ -8939,6 +8985,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       else if (strncmp(k, "confidence_pct ", 15) == 0) ok = v >= 0 && v <= 255 && setTrialConfidence((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "min_gain_pct ", 9) == 0) ok = v >= 0 && v <= 255 && setTrialMinGain((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "idle_min_rx ", 12) == 0) ok = v >= 0 && v <= 255 && setTrialIdleMinRx((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "min_rx_rate ", 12) == 0) ok = v >= 0 && v <= 255 && setTrialMinRxRate((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_s ", 8) == 0) ok = v >= 1 && v <= 65535 && setTrialBlockS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "blocks ", 7) == 0) ok = v >= 2 && v <= 65535 && setTrialBlocks((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else { sprintf(reply, "ERR: unknown key: %s", key); return; }

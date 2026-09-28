@@ -1935,6 +1935,12 @@ private:
   // value, the last winner; false (list) = the sequence first stores each
   // list's first value (trialSetAllToA()).
   bool _trial_start_stored = true;
+  // tuning.trial.min_rx_rate: the next trial starts only while the node hears
+  // at least this many RX packets a minute (0 = no minimum).
+  static constexpr uint8_t TRIAL_MIN_RX_RATE = 10;
+  uint8_t _trial_min_rx_rate = TRIAL_MIN_RX_RATE;
+  bool _trial_rate_wait = false;        // waiting for traffic, EVENT_TRIAL_RX_RATE logged
+  uint32_t _trial_rate_check_at = 0;    // next check while waiting (once a minute)
   uint16_t _trial_switches = (1u << TrialSequence::NUM_SWITCHES) - 1;   // bit i = switch i (TrialSequence.h); all on, so enabling the trial runs the whole sequence
   uint16_t _trial_block_s = 600;
   uint16_t _trial_blocks = 16;
@@ -1979,6 +1985,7 @@ private:
     _trial_seq_started = false;
     _trial_idle_count = 0;
     _trial_idle_hold = false;
+    _trial_rate_wait = false;
     for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_lists.v[i].restart();
   }
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
@@ -2020,6 +2027,14 @@ private:
       rearmTrials();
     }
     _trial_confidence_pct = v;
+    return true;
+  }
+  bool setTrialMinRxRate(uint8_t v, uint8_t source) {
+    if (v != _trial_min_rx_rate) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_MIN_RX_RATE, _trial_min_rx_rate, v, source);
+      _trial_rate_check_at = millis();   // re-check now, not a minute later
+    }
+    _trial_min_rx_rate = v;
     return true;
   }
   bool setTrialStartStored(bool stored, uint8_t source) {
@@ -2105,6 +2120,8 @@ private:
   // Start of a sequence: every selected switch set to its A (list first value).
   void trialSetAllToA();
   void trialStartFromStored();
+  uint32_t rxRatePerMin();
+  bool trialRateAllows();
   void applyTrialSwitchLive(int sw, uint8_t value);
   void emitTrialStart(int sw, const TrialFSM::Config& tc);
   void emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Result& r, uint32_t pairs_before);
