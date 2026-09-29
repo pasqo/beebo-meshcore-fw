@@ -35,6 +35,8 @@
 #define CPU_WINDOW_MS         1000u           // beebo: CPU accounting live-window compute cadence
 #define CPU_REPORT_MS         10000u          // beebo: CPU accounting reported-snapshot cadence (MonRing/STATS_TYPE_SYSTEM)
 #define ROUTE_WINDOW_MS       60000u          // beebo: RouteRecord (MON_ROUTE) report window, 1 minute
+#define ROUTE_STATS_MS        60000u          // beebo: EVENT_ROUTE_STATS interval (the event carries it, so it may change)
+#define ROUTE_STATS_SAMPLE_MS 1000u           // beebo: packet pool occupancy sample period inside that interval
 // beebo: debounce for the (bool)Serial physical-attach signal's
 // USB-Serial-JTAG-enumeration flicker (see _checkTransportStateChanges()'s
 // own comment) -- several times the confirmed ~150ms flicker duration,
@@ -7169,6 +7171,46 @@ void Beebo::loop() {
     _loop_count_at_report = _loop_count;
     _max_loop_latency_ms_reported = (uint16_t)min(_max_loop_latency_us_peak / 1000, (uint32_t)0xFFFF);
     _max_loop_latency_us_peak = 0;
+  }
+  // beebo: EVENT_ROUTE_STATS -- RX errors, CAD-busy and pool occupancy per
+  // ROUTE_STATS_MS, logged whether or not tuning or a trial is running (the
+  // eval windows only see them while one is open). Snapshot-diffs the radio and
+  // Dispatcher counters; a CAD accumulator that went backwards was reset by the
+  // RouteRecord window in between, so its current value alone is the delta.
+  if (monring.enabled() && monring.allocated()) {
+    if (millisHasNowPassed(_rs_next_sample_ms)) {
+      _rs_next_sample_ms = futureMillis(ROUTE_STATS_SAMPLE_MS);
+      int used = BEEBO_PACKET_POOL_SIZE - _mgr->getFreeCount();
+      _rs_util_sum += (uint32_t)(used <= 0 ? 0 : used * 100 / BEEBO_PACKET_POOL_SIZE);
+      _rs_util_n++;
+    }
+#ifdef BEEBO_CPU_ACCOUNTING
+    uint32_t rs_cad_ms = getTxWaitCadMs();
+#else
+    uint32_t rs_cad_ms = 0;
+#endif
+    uint32_t rs_errs = radio_driver.getPacketsRecvErrors();
+    if (_rs_t0_ms == 0) {        // first pass: start the interval
+      _rs_t0_ms = millis() ? millis() : 1;
+      _rs_errs0 = rs_errs;
+      _rs_cad0_ms = rs_cad_ms;
+      _rs_next_ms = futureMillis(ROUTE_STATS_MS);
+    } else if (millisHasNowPassed(_rs_next_ms)) {
+      uint32_t elapsed_ms = millis() - _rs_t0_ms;
+      uint32_t d_cad = rs_cad_ms >= _rs_cad0_ms ? rs_cad_ms - _rs_cad0_ms : rs_cad_ms;
+      uint16_t cad_scale = MonRing::computeRoutePct(d_cad * 1000, elapsed_ms * 1000);
+      uint8_t pool = _rs_util_n ? (uint8_t)(_rs_util_sum / _rs_util_n) : 0;
+      monring.appendEvent(
+          MonRing::packRouteStats(rs_errs - _rs_errs0, cad_scale, pool,
+                                  (uint16_t)((elapsed_ms + 500) / 1000)),
+          getRTCClock()->nowMillis());
+      _rs_t0_ms = millis() ? millis() : 1;
+      _rs_errs0 = rs_errs;
+      _rs_cad0_ms = rs_cad_ms;
+      _rs_util_sum = 0;
+      _rs_util_n = 0;
+      _rs_next_ms = futureMillis(ROUTE_STATS_MS);
+    }
   }
   // beebo: RouteRecord's 1-minute snapshot -- exec from the accumulators
   // above (same rx_us/tx_us source as the time pct report tier, just summed

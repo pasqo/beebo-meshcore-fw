@@ -320,6 +320,16 @@ enum : uint8_t {
   //   data[3] = the minimum, packets per minute
   //   data[4:12] = reserved
   EVENT_TRIAL_RX_RATE = 26,
+  // Periodic route statistics, logged whether or not tuning or a trial runs:
+  // the things RX-side monitoring cannot see from RX/TX records. One event per
+  // interval (ROUTE_STATS_MS, 60 s; interval_s says what it was).
+  //   data[0:2] = RX frames the radio never demodulated in the interval
+  //               (RadioLibWrapper::getPacketsRecvErrors() delta, u16 LE, saturating)
+  //   data[2]   = TX blocked by CAD-busy or backoff, percent of the interval
+  //   data[3]   = packet pool occupancy, mean of the 1 s samples, percent
+  //   data[4:6] = interval_s (u16 LE)
+  //   data[6:12] = reserved
+  EVENT_ROUTE_STATS = 27,
 };
 
 // ---- TXCONFIRM_*: verdict enum used ONLY for internal bookkeeping now
@@ -1923,6 +1933,20 @@ public:
     if (window_us == 0) return 0;
     uint32_t pct = (uint32_t)((uint64_t)busy_us * 10000 / window_us);
     return (uint16_t)(pct > 10000 ? 10000 : pct);
+  }
+
+  // beebo: EVENT_ROUTE_STATS payload. CAD_SCALE is computeRoutePct()'s 0-10000
+  // (clamped, rounded down to whole percent); POOL_PCT is clamped at 100.
+  static EventRecord packRouteStats(uint32_t rx_errors, uint16_t cad_scale,
+                                    uint8_t pool_pct, uint16_t interval_s) {
+    EventRecord e{};
+    e.event_type = EVENT_ROUTE_STATS;
+    uint16_t errs = (uint16_t)(rx_errors > 0xFFFF ? 0xFFFF : rx_errors);
+    memcpy(&e.data[0], &errs, 2);
+    e.data[2] = (uint8_t)((cad_scale > 10000 ? 10000 : cad_scale) / 100);
+    e.data[3] = pool_pct > 100 ? 100 : pool_pct;
+    memcpy(&e.data[4], &interval_s, 2);
+    return e;
   }
 
   static uint16_t computeQos(const QosStats &s) {

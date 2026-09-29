@@ -1767,6 +1767,34 @@ TEST(MonRingEval, SerializeStartingAtRunHeadWithRoomForOneReturnsNothing) {
   EXPECT_EQ(0u, n);
 }
 
+// EVENT_ROUTE_STATS: RX errors, CAD-busy and packet-pool busy over one interval.
+TEST(MonRingRouteStats, PacksFieldsIntoTheEventPayload) {
+  EventRecord e = MonRing::packRouteStats(1234, 2500, 63, 60);
+  EXPECT_EQ(EVENT_ROUTE_STATS, e.event_type);
+  uint16_t errs, secs;
+  memcpy(&errs, &e.data[0], 2);
+  memcpy(&secs, &e.data[4], 2);
+  EXPECT_EQ(1234, errs);
+  EXPECT_EQ(25, e.data[2]);      // 2500 of 10000 -> 25 %
+  EXPECT_EQ(63, e.data[3]);
+  EXPECT_EQ(60, secs);
+  for (int i = 6; i < 12; i++) EXPECT_EQ(0, e.data[i]);
+}
+
+TEST(MonRingRouteStats, SaturatesAndClamps) {
+  EventRecord e = MonRing::packRouteStats(70000, 12000, 250, 65);
+  uint16_t errs;
+  memcpy(&errs, &e.data[0], 2);
+  EXPECT_EQ(0xFFFF, errs);       // u16 saturates
+  EXPECT_EQ(100, e.data[2]);     // scale above 10000 clamps to 100 %
+  EXPECT_EQ(100, e.data[3]);     // pool occupancy clamps to 100 %
+}
+
+TEST(MonRingRouteStats, RoundsCadBusyDown) {
+  EXPECT_EQ(0, MonRing::packRouteStats(0, 99, 0, 60).data[2]);
+  EXPECT_EQ(1, MonRing::packRouteStats(0, 100, 0, 60).data[2]);
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
