@@ -1930,19 +1930,18 @@ private:
   bool _trial_enabled = false;    // trial master switch, independent of _adaptive_enabled (the adaptive tuner)
   uint8_t _trial_confidence_pct = 95;   // TrialFSM confidence level: 90, 95 or 99
   uint8_t _trial_min_gain_pct = 5;    // TrialFSM worthwhile relative gain, percent
-  uint8_t _trial_idle_min_rx = TrialFSM::IDLE_MIN_RX;   // TrialFSM idle stop, packets per cycle; 0 = off
   // tuning.trial.start: true (stored, default) = each switch's A is its stored
   // value, the last winner; false (list) = the sequence first stores each
   // list's first value (trialSetAllToA()).
   bool _trial_start_stored = true;
   // tuning.trial.min_rx_rate: the next trial starts only while the node hears
-  // at least this many RX packets a minute (0 = no minimum).
-  static constexpr uint8_t TRIAL_MIN_RX_RATE = 10;
-  uint8_t _trial_min_rx_rate = TRIAL_MIN_RX_RATE;
+  // at least this many RX packets a minute, and a running trial ends idle when
+  // an A B B A cycle averages less (0 = no minimum, no idle stop).
+  uint8_t _trial_min_rx_rate = TrialFSM::MIN_RX_RATE;
   bool _trial_rate_wait = false;        // waiting for traffic, EVENT_TRIAL_RX_RATE logged
   uint32_t _trial_rate_check_at = 0;    // next check while waiting (once a minute)
   uint16_t _trial_switches = (1u << TrialSequence::NUM_SWITCHES) - 1;   // bit i = switch i (TrialSequence.h); all on, so enabling the trial runs the whole sequence
-  uint16_t _trial_block_s = 600;
+  uint16_t _trial_block_s = 900;
   uint16_t _trial_blocks = 16;
   bool _trial_seq_started = false;   // every selected switch has been set to its A
   uint16_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
@@ -2044,15 +2043,6 @@ private:
       rearmTrials();
     }
     _trial_start_stored = stored;
-    return true;
-  }
-  bool setTrialIdleMinRx(uint8_t v, uint8_t source) {
-    if (v != _trial_idle_min_rx) {
-      appendSettingChangedEvent(SETTING_TUNING_TRIAL_IDLE_MIN_RX, _trial_idle_min_rx, v, source);
-      abortTrial(false);
-      rearmTrials();
-    }
-    _trial_idle_min_rx = v;
     return true;
   }
   bool setTrialMinGain(uint8_t v, uint8_t source) {

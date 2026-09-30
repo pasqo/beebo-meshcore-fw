@@ -58,9 +58,10 @@
 // (pairs in the schedule), the stronger arm wins: ALIVE_A keeps A, ALIVE_B
 // adopts B.
 //
-// After every A B B A cycle: idle. Fewer than Config.idle_min_rx packets in the whole
-// cycle (both arms, no invalidated block) ends the trial ABORTED_IDLE: the
-// channel is too quiet to decide anything. The caller retries the switch later.
+// After every A B B A cycle: idle. An average below Config.min_rx_rate packets a
+// minute over the whole cycle (both arms, no invalidated block) ends the trial
+// ABORTED_IDLE: the channel is too quiet to decide anything. The caller
+// retries the switch later.
 //
 // Reach (neighbors heard / marginal) is averaged per value (A, B) for
 // diagnostics; it does not enter the decision. Everything runs on the device:
@@ -81,14 +82,14 @@ public:
   static constexpr uint32_t ALIVE_CAP = 8;            // RX Valid counted per block by the dead-arm test
   static constexpr uint32_t ALIVE_RATIO = 4;          // the weaker arm at most 1/ALIVE_RATIO of the stronger
   static constexpr uint32_t ALIVE_MIN_BLOCKS = 2;     // blocks the stronger arm heard something in
-  static constexpr uint8_t  IDLE_MIN_RX = 4;          // default Config.idle_min_rx
+  static constexpr uint8_t  MIN_RX_RATE = 5;          // default Config.min_rx_rate
 
   struct Config {
     uint16_t block_s = 1800;
     uint16_t blocks = 96;
     uint8_t alpha_pct = 5;   // overall error rate: 1, 5 or 10 (other values use 5)
     uint8_t min_gain_pct = 5;    // smallest worthwhile relative gain, percent
-    uint8_t idle_min_rx = IDLE_MIN_RX;   // packets per A B B A cycle below which the trial ends idle; 0 = never
+    uint8_t min_rx_rate = MIN_RX_RATE;   // RX packets a minute an A B B A cycle must average, else the trial ends idle; 0 = never
     const Objective *objective = nullptr;   // per-block value; null = the default goodput weights
   };
 
@@ -178,6 +179,10 @@ public:
   uint16_t blockIndex() const { return _idx; }
   uint16_t totalBlocks() const { return _total; }
   uint16_t blockSeconds() const { return _cfg.block_s; }
+  // The cycle just closed heard fewer than min_rx_rate packets a minute (4 blocks).
+  bool idleCycle() const {
+    return (uint64_t)_cycle_rx * 60 < (uint64_t)_cfg.min_rx_rate * 4 * _cfg.block_s;
+  }
   uint8_t original() const { return _orig; }
   uint8_t alternative() const { return _alt; }
   uint8_t currentValue() const { return valueFor(_idx); }
@@ -272,7 +277,7 @@ public:
       if (v < 0) return finish(KEEP_A);
       if (stable()) return finish(INCONCLUSIVE);
     }
-    if ((_idx & 3) == 0 && _cycle_usable && _cycle_rx < _cfg.idle_min_rx) return finish(ABORTED_IDLE);
+    if ((_idx & 3) == 0 && _cycle_usable && idleCycle()) return finish(ABORTED_IDLE);
     if (_idx >= _total) return decide();
     s.set_value = true;
     s.value = valueFor(_idx);

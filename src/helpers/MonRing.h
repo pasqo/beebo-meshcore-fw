@@ -387,7 +387,6 @@ enum : uint8_t {
   // txdelay, directtxdelay, airtime): 124 + switch index - 3
   SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE = 124,
   SETTING_TUNING_TRIAL_CONFIDENCE = 114, SETTING_TUNING_TRIAL_MIN_GAIN = 115,
-  SETTING_TUNING_TRIAL_IDLE_MIN_RX = 130,
   SETTING_TUNING_TRIAL_START = 131,
   SETTING_TUNING_TRIAL_MIN_RX_RATE = 132,
   // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
@@ -612,7 +611,7 @@ struct __attribute__((packed)) TrialStartRecord {
   uint8_t  confidence_pct;
   uint8_t  min_gain_pct;
   uint16_t volume_ref;      // objective volume reference, events per hour (saturated)
-  uint8_t  idle_min_rx;     // idle stop threshold, packets per A B B A cycle (0 = off)
+  uint8_t  min_rx_rate;     // RX packets a minute an A B B A cycle must average, else the trial ends idle (0 = off)
 };
 // beebo: one closed block, scored. mean/lower/upper describe the paired ln score
 // difference B - A over the pairs so far, x1000 (saturated): the mean and the

@@ -115,7 +115,7 @@ public:
       static const uint8_t table[NUM_SWITCHES][MAX_VALUES] = {
         {0, 1, 0, 0},            // LNA: off, on
         {1, 0, 0, 0},            // RX boost: on (the Heltec V4 default), off
-        {5, 8, 0, 0},            // coding rate
+        {5, 6, 7, 8},            // coding rate
         {0, 2, 4, 8},            // AGC reset interval: 0, 8, 16, 32 s
         {0, 3, 6, 9},            // interference threshold
         {0, 70, 130, 200},       // rx delay base: 0, 7, 13, 20
@@ -123,7 +123,7 @@ public:
         {30, 0, 100, 200},       // direct tx delay factor: 0.3, 0, 1, 2
         {20, 10, 60, 180},       // airtime factor: 1.0, 0.5, 3, 9
       };
-      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 2, 4, 4, 4, 4, 4, 4};
+      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4};
       for (int i = 0; i < MAX_VALUES; i++) v[i] = table[sw][i];
       n = counts[sw];
       pos = 1;

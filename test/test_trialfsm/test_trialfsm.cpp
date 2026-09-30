@@ -51,10 +51,21 @@ EvalWindow::Result unmeasured(uint8_t outcome, uint8_t flags = 0) {
   return r;
 }
 
+// min_rx_rate 0: the idle stop is off unless a test turns it on.
 TrialFSM::Config cfg(uint16_t blocks) {
   TrialFSM::Config c;
   c.block_s = 1800;
   c.blocks = blocks;
+  c.min_rx_rate = 0;
+  return c;
+}
+
+// The idle stop on: an A B B A cycle of `block_s` blocks must average at least
+// `rate` packets a minute.
+TrialFSM::Config cfgRate(uint16_t blocks, uint16_t block_s, uint8_t rate) {
+  TrialFSM::Config c = cfg(blocks);
+  c.block_s = block_s;
+  c.min_rx_rate = rate;
   return c;
 }
 
@@ -252,9 +263,8 @@ TEST(TrialFSM, InvalidatedBlocksDoNotCountAsDead) {
 
 TEST(TrialFSM, AQuietCycleEndsTheTrialIdle) {
   TrialFSM t;
-  t.begin(cfg(96));
+  t.begin(cfgRate(96, 60, 1));   // a cycle is 4 minutes: it must hear 4 packets
   t.start(1);
-  // one packet in a whole A B B A cycle: nothing to decide on, stop
   t.onBlock(heard(0), 0, 0);
   t.onBlock(heard(1), 0, 0);
   t.onBlock(heard(0), 0, 0);
@@ -267,17 +277,37 @@ TEST(TrialFSM, AQuietCycleEndsTheTrialIdle) {
 
 TEST(TrialFSM, EnoughTrafficInACycleKeepsRunning) {
   TrialFSM t;
-  t.begin(cfg(96));
+  t.begin(cfgRate(96, 60, 1));
   t.start(1);
-  TrialFSM::Step s = runHeard(t, 1, 4, 1, 1);   // one packet a block: the floor
+  TrialFSM::Step s = runHeard(t, 1, 4, 1, 1);   // one packet a block: exactly 1 a minute
   EXPECT_FALSE(s.finished);
 }
 
-TEST(TrialFSM, IdleMinRxZeroTurnsTheIdleStopOff) {
+TEST(TrialFSM, TheIdleThresholdScalesWithTheBlockLength) {
+  // 10 packets a minute over a 40 minute cycle (4 blocks of 600 s): 400 packets
+  {
+    TrialFSM t;
+    t.begin(cfgRate(96, 600, 10));
+    t.start(1);
+    TrialFSM::Step s = runHeard(t, 1, 4, 100, 100);
+    EXPECT_FALSE(s.finished);
+  }
+  {
+    TrialFSM t;
+    t.begin(cfgRate(96, 600, 10));
+    t.start(1);
+    t.onBlock(heard(100), 0, 0);
+    t.onBlock(heard(100), 0, 0);
+    t.onBlock(heard(100), 0, 0);
+    TrialFSM::Step s = t.onBlock(heard(99), 0, 0);   // 399
+    ASSERT_TRUE(s.finished);
+    EXPECT_EQ(TrialFSM::ABORTED_IDLE, s.outcome);
+  }
+}
+
+TEST(TrialFSM, MinRxRateZeroTurnsTheIdleStopOff) {
   TrialFSM t;
-  TrialFSM::Config c = cfg(8);
-  c.idle_min_rx = 0;
-  t.begin(c);
+  t.begin(cfg(8));
   t.start(1);
   TrialFSM::Step s = runHeard(t, 1, 8, 0, 0);   // silent to the end of the schedule
   ASSERT_TRUE(s.finished);
@@ -287,7 +317,7 @@ TEST(TrialFSM, IdleMinRxZeroTurnsTheIdleStopOff) {
 
 TEST(TrialFSM, ACycleWithAnInvalidatedBlockIsNotJudgedIdle) {
   TrialFSM t;
-  t.begin(cfg(96));
+  t.begin(cfgRate(96, 60, 1));
   t.start(1);
   t.onBlock(heard(0), 0, 0);
   t.onBlock(unmeasured(EVAL_INVALIDATED, EVALF_CONFIG), 0, 0);

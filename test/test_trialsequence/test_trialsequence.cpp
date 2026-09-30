@@ -89,7 +89,9 @@ TEST(TrialSequence, DefaultListsStartAtTheUpstreamDefaults) {
   l.reset(TrialSequence::LNA);          EXPECT_EQ(0, l.first());
   l.reset(TrialSequence::RX_BOOST);     EXPECT_EQ(1, l.first());   // boosted, the Heltec V4 default
   EXPECT_EQ(0, l.v[1]);
-  l.reset(TrialSequence::CR);           EXPECT_EQ(5, l.first());
+  l.reset(TrialSequence::CR);           EXPECT_EQ(5, l.first());   // then 6, 7, 8
+  EXPECT_EQ(4, l.n);
+  EXPECT_EQ(6, l.v[1]); EXPECT_EQ(7, l.v[2]); EXPECT_EQ(8, l.v[3]);
   l.reset(TrialSequence::AGC);          EXPECT_EQ(0, l.first());   // off
   EXPECT_EQ(4, l.n);
   l.reset(TrialSequence::INTERFERENCE); EXPECT_EQ(0, l.first());   // disabled
@@ -166,7 +168,7 @@ TEST(TrialSequence, PackedValuesForTheWireAndTheSettingEvent) {
   ASSERT_TRUE(l.set(TrialSequence::CR, v, 3));
   EXPECT_EQ(5u | (6u << 8) | (7u << 16) | (7u << 24), l.packed());   // padded with the last value
   l.reset(TrialSequence::CR);
-  EXPECT_EQ(0x08080805u, l.packed());
+  EXPECT_EQ(0x08070605u, l.packed());   // 5, 6, 7, 8
 }
 
 TEST(TrialSequence, ParseAndFormatRoundTrip) {
