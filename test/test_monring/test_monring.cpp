@@ -1795,6 +1795,33 @@ TEST(MonRingRouteStats, RoundsCadBusyDown) {
   EXPECT_EQ(1, MonRing::packRouteStats(0, 100, 0, 60).data[2]);
 }
 
+// EVENT_ROUTE_STATS is logged for the first interval and whenever a value
+// changed since the last one logged; the interval does not count as a change.
+TEST(MonRingRouteStats, FirstIntervalIsAlwaysLogged) {
+  EventRecord e = MonRing::packRouteStats(0, 0, 0, 60);
+  EXPECT_TRUE(MonRing::routeStatsDue(e, e, false));
+}
+
+TEST(MonRingRouteStats, UnchangedValuesAreNeverLogged) {
+  EventRecord last = MonRing::packRouteStats(3, 2500, 40, 60);
+  EventRecord same = MonRing::packRouteStats(3, 2500, 40, 60);
+  EXPECT_FALSE(MonRing::routeStatsDue(same, last, true));
+}
+
+TEST(MonRingRouteStats, AnyChangedValueIsLogged) {
+  EventRecord last = MonRing::packRouteStats(3, 2500, 40, 60);
+  EXPECT_TRUE(MonRing::routeStatsDue(MonRing::packRouteStats(4, 2500, 40, 60), last, true));
+  EXPECT_TRUE(MonRing::routeStatsDue(MonRing::packRouteStats(3, 2600, 40, 60), last, true));
+  EXPECT_TRUE(MonRing::routeStatsDue(MonRing::packRouteStats(3, 2500, 41, 60), last, true));
+}
+
+TEST(MonRingRouteStats, TheIntervalAloneIsNotAChange) {
+  EventRecord last = MonRing::packRouteStats(0, 0, 0, 60);
+  EXPECT_FALSE(MonRing::routeStatsDue(MonRing::packRouteStats(0, 0, 0, 61), last, true));
+  // values equal after the whole-percent rounding of CAD busy
+  EXPECT_FALSE(MonRing::routeStatsDue(MonRing::packRouteStats(0, 99, 0, 60), last, true));
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

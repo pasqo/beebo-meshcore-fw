@@ -6020,6 +6020,7 @@ void Beebo::handleCmdFrame(size_t len) {
         uint32_t now_epoch; uint16_t now_ms;
         getRTCClock()->getTime(now_epoch, now_ms);
         monring.clear(now_epoch, (uint32_t)millis(), buildRadioRecord(), buildEnvRecord(), now_ms);
+        _rs_have_last = false;   // the ring lost the last EVENT_ROUTE_STATS: log the next interval
         break;
       }
       default: writeErrFrame(ERR_CODE_ILLEGAL_ARG); return;
@@ -7167,8 +7168,9 @@ void Beebo::loop() {
   }
   // beebo: EVENT_ROUTE_STATS -- RX errors, CAD-busy and pool occupancy per
   // ROUTE_STATS_MS, logged whether or not tuning or a trial is running (the
-  // eval windows only see them while one is open). Snapshot-diffs the radio and
-  // Dispatcher counters; a CAD accumulator that went backwards was reset by the
+  // eval windows only see them while one is open). An interval whose values
+  // equal the last logged ones is not logged (routeStatsDue()). Snapshot-diffs
+  // the radio and Dispatcher counters; a CAD accumulator that went backwards was reset by the
   // RouteRecord window in between, so its current value alone is the delta.
   if (monring.enabled() && monring.allocated()) {
     if (millisHasNowPassed(_rs_next_sample_ms)) {
@@ -7193,10 +7195,13 @@ void Beebo::loop() {
       uint32_t d_cad = rs_cad_ms >= _rs_cad0_ms ? rs_cad_ms - _rs_cad0_ms : rs_cad_ms;
       uint16_t cad_scale = MonRing::computeRoutePct(d_cad * 1000, elapsed_ms * 1000);
       uint8_t pool = _rs_util_n ? (uint8_t)(_rs_util_sum / _rs_util_n) : 0;
-      monring.appendEvent(
-          MonRing::packRouteStats(rs_errs - _rs_errs0, cad_scale, pool,
-                                  (uint16_t)((elapsed_ms + 500) / 1000)),
-          getRTCClock()->nowMillis());
+      EventRecord rs = MonRing::packRouteStats(rs_errs - _rs_errs0, cad_scale, pool,
+                                               (uint16_t)((elapsed_ms + 500) / 1000));
+      if (MonRing::routeStatsDue(rs, _rs_last, _rs_have_last)) {
+        monring.appendEvent(rs, getRTCClock()->nowMillis());
+        _rs_last = rs;
+        _rs_have_last = true;
+      }
       _rs_t0_ms = millis() ? millis() : 1;
       _rs_errs0 = rs_errs;
       _rs_cad0_ms = rs_cad_ms;
@@ -7204,6 +7209,9 @@ void Beebo::loop() {
       _rs_util_n = 0;
       _rs_next_ms = futureMillis(ROUTE_STATS_MS);
     }
+  } else {   // capture off: the next interval starts fresh and is logged
+    _rs_t0_ms = 0;
+    _rs_have_last = false;
   }
   // beebo: RouteRecord's 1-minute snapshot -- exec from the accumulators
   // above (same rx_us/tx_us source as the time pct report tier, just summed

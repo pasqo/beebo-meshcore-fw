@@ -2329,6 +2329,8 @@ private:
   // and the pool occupancy samples accumulated over it.
   unsigned long _rs_t0_ms = 0, _rs_next_ms = 0, _rs_next_sample_ms = 0;
   uint32_t _rs_errs0 = 0, _rs_cad0_ms = 0, _rs_util_sum = 0, _rs_util_n = 0;
+  EventRecord _rs_last{};             // the last EVENT_ROUTE_STATS logged
+  bool _rs_have_last = false;
   uint32_t _rx_route_us = 0, _tx_route_us = 0;  // accumulated across the current 1-minute route window
 
   // Headroom metrics -- cause-agnostic, unlike the RX/TX/CLI/IDLE % breakdown above: a

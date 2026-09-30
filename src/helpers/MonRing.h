@@ -1948,6 +1948,15 @@ public:
     return e;
   }
 
+  // beebo: an EVENT_ROUTE_STATS interval is logged only when one of its values
+  // (RX errors, CAD-busy %, pool busy %; not the interval length) differs from
+  // the last one logged: a skipped interval repeated the last logged values.
+  // HAVE_LAST is false before the first, and again after a capture restart or
+  // a ring clear, so the ring always starts with a value.
+  static bool routeStatsDue(const EventRecord &next, const EventRecord &last, bool have_last) {
+    return !have_last || memcmp(next.data, last.data, 4) != 0;
+  }
+
   static uint16_t computeQos(const QosStats &s) {
     uint32_t numerator = s.ack_success_count + s.echo_success_count;
     uint32_t denominator = computeQosExposure(s);
