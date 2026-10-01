@@ -1493,6 +1493,65 @@ TEST(MonRingLiveSink, NeverFiresWhenNoSinkSet) {
   EXPECT_TRUE(g_live_sink_calls.empty());
 }
 
+TEST(MonRingLiveSink, DebugRelayedLiveWhenCaptureBitOff) {
+  // MON_DEBUG is live-relayed even with its capture bit off, without
+  // touching the ring: a watch must not depend on history capture.
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setConfig((MON_CAP_ALL & ~MON_CAP_EVENT) | MON_CAP_ENABLED);
+  f.ring.setLiveSink(&captureLiveSink);
+  uint32_t n0 = f.ring.count();
+
+  f.ring.appendDebug(makeDebug(), f.ms(1000));
+
+  EXPECT_EQ(0u, f.ring.debugCount());
+  EXPECT_EQ(n0, f.ring.count());
+  ASSERT_EQ(2u, g_live_sink_calls.size());   // live-only SYNC, then the record
+  EXPECT_EQ(MON_SYNC, g_live_sink_calls[0].kind);
+  EXPECT_EQ(MON_DEBUG, g_live_sink_calls[1].kind);
+  EXPECT_EQ(0x1234, g_live_sink_calls[1].debug.detail);
+  EXPECT_EQ(0, g_live_sink_calls[1].debug.offset);
+}
+
+TEST(MonRingLiveSink, LiveOnlyDebugRelatchesBaseOnOffsetOverflow) {
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setConfig((MON_CAP_ALL & ~MON_CAP_EVENT) | MON_CAP_ENABLED);
+  f.ring.setLiveSink(&captureLiveSink);
+  uint32_t n0 = f.ring.count();
+
+  f.ring.appendDebug(makeDebug(), f.ms(1000));
+  f.ring.appendDebug(makeDebug(), f.ms(1000) + 5000);     // same base
+  f.ring.appendDebug(makeDebug(), f.ms(1000) + 70000);    // > 65535 ms: relatch
+
+  ASSERT_EQ(5u, g_live_sink_calls.size());   // SYNC D D SYNC D
+  EXPECT_EQ(MON_DEBUG, g_live_sink_calls[2].kind);
+  EXPECT_EQ(5000, g_live_sink_calls[2].debug.offset);
+  EXPECT_EQ(MON_SYNC, g_live_sink_calls[3].kind);
+  EXPECT_EQ(MON_DEBUG, g_live_sink_calls[4].kind);
+  EXPECT_EQ(n0, f.ring.count());
+}
+
+TEST(MonRingLiveSink, StoredRecordResendsRingBaseAfterLiveOnlyRelatch) {
+  // A live-only relatch moves only the client's base, never the ring's, so
+  // the next stored record must be preceded by SYNC(ring base).
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setLiveSink(&captureLiveSink);
+  f.ring.appendTx(makeTx(), f.ms(1001));   // stored, client base == ring base
+  g_live_sink_calls.clear();
+  f.ring.setConfig((MON_CAP_ALL & ~MON_CAP_EVENT) | MON_CAP_ENABLED);
+  f.ring.appendDebug(makeDebug(), f.ms(1000) + 70000);   // live-only relatch
+  g_live_sink_calls.clear();
+
+  f.ring.appendTx(makeTx(), f.ms(1002));   // stored, offset vs ring base
+
+  ASSERT_EQ(2u, g_live_sink_calls.size());
+  EXPECT_EQ(MON_SYNC, g_live_sink_calls[0].kind);
+  EXPECT_EQ(f.seed, g_live_sink_calls[0].sync.timestamp);
+  EXPECT_EQ(MON_TX, g_live_sink_calls[1].kind);
+}
+
 TEST(MonRingLiveSink, DisabledKindNeverReachesSink) {
   // beebo: a MON_CAP_* gated-off kind never reaches _store() at all (design
   // decision 4) -- appendXxx() itself is the gate, live-relay included.

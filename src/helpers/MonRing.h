@@ -913,7 +913,10 @@ public:
   // beebo: fired from _store() for every record actually appended (after
   // the per-kind MON_CAP_* capture gate every appendXxx() already applies --
   // a record that wouldn't be captured into the ring never reaches _store()
-  // and so is never live-relayed either. Plain function pointer, not std::function, matching
+  // and so is never live-relayed either, with one exception: MON_DEBUG
+  // (appendDebug()) is relayed live even when its capture bit is off, so a
+  // `monitor watch` stays complete whatever history capture is set to.
+  // Plain function pointer, not std::function, matching
   // this codebase's no-dynamic-allocation convention. nullptr by default, so
   // the native test suite (which never calls setLiveSink()) is unaffected.
   using LiveSink = void (*)(const MonRecord &rec);
@@ -925,6 +928,13 @@ private:
   uint32_t  _count = 0;     // valid records (<= _cap)
   uint32_t  _next_seq = 0;  // seq to assign to the next appended record
   LiveSink  _live_sink = nullptr;
+  // beebo: the time base (epoch seconds) the live client currently holds
+  // from the MON_SYNC records it was sent, 0 = unknown. Tracked apart from
+  // `_base` (the ring's own base) because a live-only record (MON_DEBUG with
+  // capture off) must never store a SYNC or move `_base`: it relatches this
+  // one with a live-only SYNC instead, and _livePushStored() re-sends
+  // SYNC(_base) before the next stored record if the two diverged.
+  uint32_t  _live_base = 0;
   bool      _mlog_replay_active = false;
   uint32_t  _mlog_replay_seq = 0;
   bool      _mlog_replay_pending = false;
@@ -1149,6 +1159,44 @@ private:
     return (uint16_t)offset_ms;
   }
 
+  // Live push of a record that is also going into the ring (offset is
+  // relative to `_base`): make sure the client holds that base first.
+  void _livePushStored(const MonRecord &rec) {
+    if ((rec.kind & RLOG_KIND_MASK) == MON_SYNC) {
+      _live_base = rec.sync.timestamp;
+    } else if (_live_base != 0 && _live_base != _base) {   // 0 = unknown: the enable path seeds it
+      MonRecord s{};
+      s.sync.kind = MON_SYNC;
+      s.sync.timestamp = _base;
+      s.sync.abi_version = MONRING_ABI_VERSION;
+      _live_sink(s);
+      _live_base = _base;
+    }
+    _live_sink(rec);
+  }
+
+  // Live push of a record that is NOT stored (capture off): stamps its
+  // offset against `_live_base`, relatching that with a live-only SYNC when
+  // the offset would overflow 16 bits. Never touches the ring or `_base`.
+  // Dropped while a replay is pending/active, like _store()'s own live push:
+  // a relatch now would change the base the still-undelivered backlog's
+  // offsets are read against.
+  void _livePushOnly(MonRecord &r, uint64_t now_ms) {
+    if (!_live_sink || _mlog_replay_active || _mlog_replay_pending) return;
+    uint64_t base_ms = (uint64_t)_live_base * 1000;
+    if (_live_base == 0 || now_ms < base_ms || now_ms - base_ms >= 65536) {
+      _live_base = (uint32_t)(now_ms / 1000);
+      MonRecord s{};
+      s.sync.kind = MON_SYNC;
+      s.sync.timestamp = _live_base;
+      s.sync.abi_version = MONRING_ABI_VERSION;
+      _live_sink(s);
+      base_ms = (uint64_t)_live_base * 1000;
+    }
+    r.debug.offset = (uint16_t)(now_ms - base_ms);
+    _live_sink(r);
+  }
+
   // Raw append of a fully-formed record. Assigns the next seq, wraps the ring.
   uint32_t _store(const MonRecord &rec) {
     // beebo: suppressed while a paced MLOG replay is active or about to
@@ -1164,7 +1212,7 @@ private:
     // forward against the live _next_seq each step, so it naturally
     // reaches and delivers this exact record, in order, once replay
     // catches up to it.
-    if (_live_sink && !_mlog_replay_active && !_mlog_replay_pending) _live_sink(rec);
+    if (_live_sink && !_mlog_replay_active && !_mlog_replay_pending) _livePushStored(rec);
     if (_count == _cap) {
       // beebo: a multi-record run (RLOG_CONT_BIT set on all but its last slot)
       // is evicted as one unit, so the oldest resident record is always a run
@@ -1361,7 +1409,10 @@ public:
         if (covered && kSlotKind[s] != MON_SYNC) peek_pos++;   // real record covers this slot
         if (kSlotKind[s] == MON_SYNC || !covered) {
           MonRecord ref;
-          if (emitStartRef(kSlotKind[s], &ref)) _live_sink(ref);
+          if (emitStartRef(kSlotKind[s], &ref)) {
+            _live_sink(ref);
+            if (kSlotKind[s] == MON_SYNC) _live_base = ref.sync.timestamp;
+          }
         }
       }
     }
@@ -1391,7 +1442,10 @@ public:
       _mlog_replay_active = false;
       return false;
     }
-    if (_live_sink) _live_sink(rec);
+    if (_live_sink) {
+      _live_sink(rec);
+      if (rec.kind == MON_SYNC) _live_base = rec.sync.timestamp;
+    }
     _mlog_replay_seq++;
     if (_mlog_replay_seq >= _next_seq) _mlog_replay_active = false;
     return _mlog_replay_active;
@@ -1658,11 +1712,19 @@ public:
   // kind/struct but shares the capture bit. Unconditional per call, like
   // appendEvent() -- a debug event is a discrete occurrence, not a running
   // state to diff against.
+  //
+  // beebo: with the capture bit off (or capture paused for a read) the
+  // record is not stored but is still relayed live, see _livePushOnly() --
+  // a debug watch must not depend on history capture being on.
   void appendDebug(DebugRecord debug, uint64_t now_ms) {
-    if (!enabled() || !(_config & MON_CAP_EVENT) || _buf == nullptr) return;
+    if (_buf == nullptr) return;
     MonRecord r{};
     r.debug = debug;
     r.debug.kind = MON_DEBUG;
+    if (!enabled() || !(_config & MON_CAP_EVENT)) {
+      _livePushOnly(r, now_ms);
+      return;
+    }
     r.debug.offset = _ensureSync(now_ms);
     _end_time = (uint32_t)(now_ms / 1000);
     _debug_count++;
