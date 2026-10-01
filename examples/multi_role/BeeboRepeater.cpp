@@ -560,6 +560,8 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_WIFI_PWD,                TLV_STRING, nullptr, nullptr, tlvGetWifiPwdSetStr, tlvSetWifiPwd },
   { PREFS_TLV_RADIO_FEM_RXGAIN, TLV_U32,   tlvGetRadioFemRxgain, tlvSetRadioFemRxgain, nullptr, nullptr },
   { PREFS_TLV_RADIO_FEM_TXGAIN, TLV_U32,   tlvGetRadioFemTxgain, tlvSetRadioFemTxgain, nullptr, nullptr },
+  { PREFS_TLV_TZ_OFFSET,        TLV_U32,   tlvGetTzOffset,       tlvSetTzOffset,       nullptr, nullptr },
+  { PREFS_TLV_CAD,              TLV_U32,   tlvGetCad,            tlvSetCad,            nullptr, nullptr },
   { PREFS_TLV_RADIO_RXGAIN,     TLV_U32,   tlvGetRadioRxgain,    tlvSetRadioRxgain,    nullptr, nullptr },
   { PREFS_TLV_ADC_MULTIPLIER,   TLV_FLOAT, tlvGetAdcMultiplier,  tlvSetAdcMultiplier,  nullptr, nullptr },
   { PREFS_TLV_ADC_RESOLUTION,   TLV_U32,   tlvGetAdcResolution,  tlvSetAdcResolution,  nullptr, nullptr },

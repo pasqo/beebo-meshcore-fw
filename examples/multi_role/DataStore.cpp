@@ -266,6 +266,12 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
           // field existed.
           if (file.available() >= (int)sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain)) {
             file.read((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
+            // tz_offset, cad_on -- tail-guarded the same way, defaulting to 0
+            // for a file saved before these fields existed.
+            if (file.available() >= (int)(sizeof(_prefs.tz_offset) + sizeof(_prefs.cad_on))) {
+              file.read((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
+              file.read((uint8_t *)&_prefs.cad_on, sizeof(_prefs.cad_on));
+            }
           }
         }
       }
@@ -322,6 +328,8 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
     file.write((uint8_t *)&_prefs.monring_event_mask, sizeof(_prefs.monring_event_mask));
     file.write((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
+    file.write((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
+    file.write((uint8_t *)&_prefs.cad_on, sizeof(_prefs.cad_on));
 
     file.close();
   }
@@ -540,6 +548,11 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
             // existed.
             if (file.available() >= (int)sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain)) {
               file.read((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
+              // tz_offset -- tail-guarded the same way; the repeater keeps
+              // cad in ComPrefs::cad_enabled, so cad_on is not stored here.
+              if (file.available() >= (int)sizeof(_prefs.tz_offset)) {
+                file.read((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
+              }
             }
           }
         }
@@ -621,6 +634,7 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     // beebo: ble_pin -- see loadBeeboRepeaterPrefs()'s matching comment.
     file.write((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));
     file.write((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
+    file.write((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
 
     file.close();
   }

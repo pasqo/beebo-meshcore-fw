@@ -44,4 +44,8 @@ struct BeeboBasePrefs {
                                  // per-role-differs rationale as monring_config above.
   uint8_t radio_fem_txgain = 0;  // external LoRa FEM TX gain (PA), same per-role-differs
                                  // rationale as radio_fem_rxgain above.
+  int8_t tz_offset = 0;          // hours from UTC, -12..+14; stored for the app's CLI
+                                 // (get/set tz.offset), no beebo consumer (no display).
+  uint8_t cad_on = 0;            // companion's hardware CAD before TX; the repeater role
+                                 // keeps ComPrefs::cad_enabled instead (see getCADEnabled()).
 };

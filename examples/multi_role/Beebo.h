@@ -482,6 +482,7 @@ public:
   // this dispatcher; mesh bandwidth and multi-hop reliability don't suit
   // them (admin-only by design).
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply);
+  bool handleAppCliCommand(const char* command, char* reply);
 
   // The 'self' sentinel runs the command locally via
   // handleCommand() and queues the reply as if it came from target, instead of relaying
@@ -1504,6 +1505,9 @@ private:
     PREFS_TLV_PROFILE_ENABLED = 55,     // u32 (bool 0/1)
     PREFS_TLV_RADIO_FEM_TXGAIN = 56,    // board LoRa FEM PA gain, bool -- same role-generic,
                                         // BeeboBasePrefs-backed shape as PREFS_TLV_RADIO_FEM_RXGAIN.
+    PREFS_TLV_TZ_OFFSET = 57,           // u32 (sign-extended int8 hours, -12..14), per role, no consumer
+    PREFS_TLV_CAD = 58,                 // u32 (bool): hardware CAD before TX; companion cad_on,
+                                        // repeater ComPrefs::cad_enabled
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1613,6 +1617,10 @@ private:
   static bool tlvSetRadioFemRxgain(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRadioFemTxgain(Beebo* self, uint8_t role);
   static bool tlvSetRadioFemTxgain(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetTzOffset(Beebo* self, uint8_t role);
+  static bool tlvSetTzOffset(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetCad(Beebo* self, uint8_t role);
+  static bool tlvSetCad(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRadioRxgain(Beebo* self, uint8_t role);
   static bool tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAdcMultiplier(Beebo* self, uint8_t role);

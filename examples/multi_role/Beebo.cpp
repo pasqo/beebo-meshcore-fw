@@ -215,13 +215,13 @@ int Beebo::getInterferenceThreshold() const {
   return 0;
 }
 
-// beebo: cad_enabled is a ComPrefs field (repeater-only) -- companion has no
-// hardware-CAD concept, keeps Dispatcher's own default (false).
+// beebo: the repeater role keeps its CAD setting in ComPrefs::cad_enabled, the
+// companion role in BeeboBasePrefs::cad_on (default off, Dispatcher's own default).
 bool Beebo::getCADEnabled() const {
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (isRepeater()) return _role_state->prefs.cad_enabled;
 #endif
-  return false;
+  return _role_state->prefs.cad_on != 0;
 }
 
 // beebo: Dispatcher's default
@@ -3542,6 +3542,35 @@ bool Beebo::tlvSetRadioFemTxgain(Beebo* self, uint8_t role, uint32_t raw) {
   if (role == self->_board.role && board.canControlLoRaFemPaGain()) {
     board.setLoRaFemPaGainEnabled(raw != 0);
   }
+  return true;
+}
+
+uint32_t Beebo::tlvGetTzOffset(Beebo* self, uint8_t role) {
+  return (uint32_t)(int32_t)self->role_state_store[role].prefs.tz_offset;
+}
+bool Beebo::tlvSetTzOffset(Beebo* self, uint8_t role, uint32_t raw) {
+  int32_t hours = (int32_t)raw;
+  if (hours < -12 || hours > 14) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.tz_offset = (int8_t)hours;
+  if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
+  return true;
+}
+
+uint32_t Beebo::tlvGetCad(Beebo* self, uint8_t role) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+  if (role == NODE_ROLE_REPEATER) return self->role_state_store[role].prefs.cad_enabled;
+#endif
+  return self->role_state_store[role].prefs.cad_on;
+}
+bool Beebo::tlvSetCad(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw > 1) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+#if BEEBO_ENABLE_REPEATER_ROLE
+  if (role == NODE_ROLE_REPEATER) slot.prefs.cad_enabled = (uint8_t)raw; else
+#endif
+  slot.prefs.cad_on = (uint8_t)raw;
+  if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
   return true;
 }
 
@@ -8214,8 +8243,74 @@ static bool isValidName(const char *n) {
   return true;
 }
 
+// beebo: the companion CLI commands upstream's app CLI screen sends
+// (meshcore-dev/MeshCore dev, MyMesh::handleCommand) that the get/set chains below
+// do not carry under that name, answered against the live role in upstream's reply
+// format. Exact key matches only; false means "not one of these".
+bool Beebo::handleAppCliCommand(const char* command, char* reply) {
+  if (strcmp(command, "poweroff") == 0 || strcmp(command, "shutdown") == 0) {
+    board.powerOff();   // doesn't return
+    return true;
+  }
+  if (strcmp(command, "get tz.offset") == 0) {
+    sprintf(reply, "> %d", (int)_role_state->prefs.tz_offset);
+    return true;
+  }
+  if (memcmp(command, "set tz.offset ", 14) == 0) {
+    if (tlvSetTzOffset(this, _board.role, (uint32_t)(int32_t)atoi(&command[14]))) strcpy(reply, "OK");
+    else strcpy(reply, "Error, must be from -12 to +14");
+    return true;
+  }
+  if (strcmp(command, "get pin") == 0) {
+    sprintf(reply, "> %06lu", (unsigned long)_role_state->prefs.ble_pin);
+    return true;
+  }
+  if (memcmp(command, "set pin ", 8) == 0) {
+    _role_state->prefs.ble_pin = (uint32_t)atol(&command[8]);
+    savePrefs();
+    sprintf(reply, "> pin is now %06lu", (unsigned long)_role_state->prefs.ble_pin);
+    return true;
+  }
+  if (strcmp(command, "get wifi.enabled") == 0) {
+    sprintf(reply, "> %d", _role_state->prefs.tcp_enabled ? 1 : 0);
+    return true;
+  }
+  if (memcmp(command, "set wifi.enabled ", 17) == 0) {
+    bool on = atoi(&command[17]) != 0;
+    uint32_t raw = tlvGetTransportConfig(this, _board.role);
+    if (on) raw |= (uint32_t)0xFF << 8; else raw &= ~((uint32_t)0xFF << 8);
+    tlvSetTransportConfig(this, _board.role, raw);
+    sprintf(reply, "> wifi.enabled is now %d", _role_state->prefs.tcp_enabled ? 1 : 0);
+    return true;
+  }
+  if (strcmp(command, "get wifi.status") == 0) {
+    strcpy(reply, _wifi_ip_cache[0] ? "> connected" : "> disconnected");
+    return true;
+  }
+  if (strcmp(command, "get cad") == 0) {
+    sprintf(reply, "> %s", tlvGetCad(this, _board.role) ? "on" : "off");
+    return true;
+  }
+  if (memcmp(command, "set cad ", 8) == 0) {
+    tlvSetCad(this, _board.role, memcmp(&command[8], "on", 2) == 0 ? 1 : 0);
+    strcpy(reply, "OK");
+    return true;
+  }
+  if (strcmp(command, "get radio.rxgain") == 0) {
+    sprintf(reply, "> %s", tlvGetRadioRxgain(this, _board.role) ? "on" : "off");
+    return true;
+  }
+  if (memcmp(command, "set radio.rxgain ", 17) == 0) {
+    tlvSetRadioRxgain(this, _board.role, memcmp(&command[17], "on", 2) == 0 ? 1 : 0);
+    strcpy(reply, "OK");
+    return true;
+  }
+  return false;
+}
+
 void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
   while (*command == ' ') command++;  // skip leading spaces
+  if (handleAppCliCommand(command, reply)) return;
 
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: this text-CLI entry point is reachable via DualModeSerialInterface's
