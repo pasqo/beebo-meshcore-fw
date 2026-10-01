@@ -565,6 +565,8 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_RADIO_RXGAIN,     TLV_U32,   tlvGetRadioRxgain,    tlvSetRadioRxgain,    nullptr, nullptr },
   { PREFS_TLV_ADC_MULTIPLIER,   TLV_FLOAT, tlvGetAdcMultiplier,  tlvSetAdcMultiplier,  nullptr, nullptr },
   { PREFS_TLV_ADC_RESOLUTION,   TLV_U32,   tlvGetAdcResolution,  tlvSetAdcResolution,  nullptr, nullptr },
+  { PREFS_TLV_FEM_RSSI_OFS_LNA,    TLV_U32, tlvGetFemRssiOfsLna,    tlvSetFemRssiOfsLna,    nullptr, nullptr },
+  { PREFS_TLV_FEM_RSSI_OFS_BYPASS, TLV_U32, tlvGetFemRssiOfsBypass, tlvSetFemRssiOfsBypass, nullptr, nullptr },
   { PREFS_TLV_BATT_PRESENT,        TLV_U32, tlvGetBattPresent,       tlvSetBattPresent,       nullptr, nullptr },
   { PREFS_TLV_BATT_SAMPLE_PERIOD,  TLV_U32, tlvGetBattSamplePeriod,  tlvSetBattSamplePeriod,  nullptr, nullptr },
   { PREFS_TLV_BATT_SAMPLE_WINDOW,  TLV_U32, tlvGetBattSampleWindow,  tlvSetBattSampleWindow,  nullptr, nullptr },

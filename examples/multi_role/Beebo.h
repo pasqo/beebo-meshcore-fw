@@ -1071,6 +1071,8 @@ private:
   uint16_t updateBattTrend(bool force_read = false);
   void clampRadioPrefs();  // beebo: sanitize radio-affecting prefs (shared by begin/reloadPrefs)
   void applyRadioPrefs();  // beebo: push radio-affecting prefs into radio driver + board FEM
+  bool setFemLna(bool on); // beebo: FEM LNA on/off + matching RSSI offset + noise-floor reset
+  bool applyRssiOffset();  // beebo: push the active FEM path's RSSI offset; true if it changed
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);
   void writeDisabledFrame();
@@ -1508,6 +1510,9 @@ private:
     PREFS_TLV_TZ_OFFSET = 57,           // u32 (sign-extended int8 hours, -12..14), per role, no consumer
     PREFS_TLV_CAD = 58,                 // u32 (bool): hardware CAD before TX; companion cad_on,
                                         // repeater ComPrefs::cad_enabled
+    // BeeboBoardPrefs FEM RSSI offsets, role byte ignored like BOARD_NAME.
+    PREFS_TLV_FEM_RSSI_OFS_LNA = 59,    // u32 (sign-extended int8 dB, -30..30)
+    PREFS_TLV_FEM_RSSI_OFS_BYPASS = 60, // u32 (sign-extended int8 dB, -30..30)
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1625,6 +1630,11 @@ private:
   static bool tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAdcMultiplier(Beebo* self, uint8_t role);
   static bool tlvSetAdcMultiplier(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetFemRssiOfsLna(Beebo* self, uint8_t role);
+  static bool tlvSetFemRssiOfsLna(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetFemRssiOfsBypass(Beebo* self, uint8_t role);
+  static bool tlvSetFemRssiOfsBypass(Beebo* self, uint8_t role, uint32_t raw);
+  bool setFemRssiOffset(bool lna, int32_t db, uint8_t source);
   static uint32_t tlvGetAdcResolution(Beebo* self, uint8_t role);
   static bool tlvSetAdcResolution(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetBattPresent(Beebo* self, uint8_t role);

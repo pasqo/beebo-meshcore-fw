@@ -275,6 +275,12 @@ uint8_t Beebo::getExtraAckTransmitCount() const {
   return _role_state->prefs.multi_acks;
 }
 
+// beebo: RSSI/noise floor narrowed to int8 for a frame or MonRing record;
+// saturates instead of wrapping (an offset can move a reading past -128).
+static inline int8_t satI8(float v) {
+  return v <= -128.0f ? (int8_t)-128 : (v >= 127.0f ? (int8_t)127 : (int8_t)v);
+}
+
 void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
   _last_radio_active_ms = _ms->getMillis();  // beebo: feeds isIdle()'s settle-margin gate
   // beebo: distill the raw frame into the fields rxlog lets a companion recover
@@ -299,7 +305,7 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
     RxRecord &rec = _rx_stage;
     memset(&rec, 0, sizeof(rec));
     rec.snr = (int8_t)(snr * 4);
-    rec.rssi = (int8_t)rssi;
+    rec.rssi = satI8(rssi);
     rec.header = raw[0];
     // RX-gain state now lives in the RADIO record (monring.noteRadio), not here.
 
@@ -425,7 +431,7 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
     int i = 0;
     out_frame[i++] = PUSH_CODE_LOG_RX_DATA;
     out_frame[i++] = (int8_t)(snr * 4);
-    out_frame[i++] = (int8_t)(rssi);
+    out_frame[i++] = satI8(rssi);
     memcpy(&out_frame[i], raw, len);
     i += len;
 
@@ -984,7 +990,7 @@ void Beebo::onControlDataRecv(mesh::Packet *packet) {
   int i = 0;
   out_frame[i++] = PUSH_CODE_CONTROL_DATA;
   out_frame[i++] = (int8_t)(_radio->getLastSNR() * 4);
-  out_frame[i++] = (int8_t)(_radio->getLastRSSI());
+  out_frame[i++] = satI8(_radio->getLastRSSI());
   out_frame[i++] = packet->path_len;
   memcpy(&out_frame[i], packet->payload, packet->payload_len);
   i += packet->payload_len;
@@ -1004,7 +1010,7 @@ void Beebo::onRawDataRecv(mesh::Packet *packet) {
   int i = 0;
   out_frame[i++] = PUSH_CODE_RAW_DATA;
   out_frame[i++] = (int8_t)(_radio->getLastSNR() * 4);
-  out_frame[i++] = (int8_t)(_radio->getLastRSSI());
+  out_frame[i++] = satI8(_radio->getLastRSSI());
   out_frame[i++] = 0xFF; // reserved (possibly path_len in future)
   memcpy(&out_frame[i], packet->payload, packet->payload_len);
   i += packet->payload_len;
@@ -1725,6 +1731,8 @@ void Beebo::clampRadioPrefs() {
   _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain = constrain(_role_state->prefs.BeeboBasePrefs::radio_fem_rxgain, 0, 1);
   _role_state->prefs.BeeboBasePrefs::radio_fem_txgain = constrain(_role_state->prefs.BeeboBasePrefs::radio_fem_txgain, 0, 1);
   _board.adc_multiplier = constrain(_board.adc_multiplier, 0.0f, 10.0f);
+  _board.fem_rssi_ofs_lna = constrain(_board.fem_rssi_ofs_lna, FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
+  _board.fem_rssi_ofs_bypass = constrain(_board.fem_rssi_ofs_bypass, FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
   if (_board.batt_sample_period_secs == 0) {
     _board.batt_sample_period_secs = BATT_SAMPLE_PERIOD_DEFAULT_SECS;  // beebo: default period
   }
@@ -1763,9 +1771,33 @@ void Beebo::applyRadioPrefs() {
   radio_driver.setTxPower(_role_state->prefs.tx_power_dbm);
   radio_driver.setRxBoostedGainMode(_role_state->prefs.rx_boosted_gain);
   board.setLoRaFemLnaEnabled(_role_state->prefs.BeeboBasePrefs::radio_fem_rxgain);
+  if (applyRssiOffset()) radio_driver.resetAGC();
   board.setLoRaFemPaGainEnabled(_role_state->prefs.BeeboBasePrefs::radio_fem_txgain);
   board.setAdcMultiplier(_board.adc_multiplier);
   board.setAdcResolution(_board.adc_resolution_bits);
+}
+
+// beebo: the one path for switching the FEM LNA at run time. The RSSI offset
+// follows the RX path, and the noise floor restarts so it never averages
+// samples from both paths.
+bool Beebo::setFemLna(bool on) {
+  if (!board.setLoRaFemLnaEnabled(on)) return false;
+  applyRssiOffset();
+  radio_driver.resetAGC();
+  return true;
+}
+
+bool Beebo::applyRssiOffset() {
+#ifdef BEEBO_RSSI_ANT_REF
+  // GC1109 (V4.2) has no bypass control: its LNA is always in the RX path.
+  bool lna = !board.canControlLoRaFemLna() || board.isLoRaFemLnaEnabled();
+  int8_t ofs = lna ? _board.fem_rssi_ofs_lna : _board.fem_rssi_ofs_bypass;
+  if (radio_driver.getRssiOffset() == ofs) return false;
+  radio_driver.setRssiOffset(ofs);
+  return true;
+#else
+  return false;
+#endif
 }
 
 // beebo: allocate the monitor ring. Called last in setup(), after the
@@ -2200,7 +2232,7 @@ void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
   auto& p = _role_state->prefs;
   switch (sw) {
     case TrialSequence::LNA:
-      if (board.canControlLoRaFemLna() && board.setLoRaFemLnaEnabled(value != 0)) radio_driver.resetAGC();
+      if (board.canControlLoRaFemLna()) setFemLna(value != 0);
       break;
     case TrialSequence::RX_BOOST:
       radio_driver.setRxBoostedGainMode(value);
@@ -2556,6 +2588,9 @@ RadioRecord Beebo::buildRadioRecord() {
   if (_role_state->prefs.rx_boosted_gain)  radio.flags |= RADIO_FLAG_RXBOOST;
   if (_role_state->prefs.BeeboBasePrefs::radio_fem_rxgain) radio.flags |= RADIO_FLAG_FEMRXGAIN;
   if (_role_state->prefs.BeeboBasePrefs::radio_fem_txgain) radio.flags |= RADIO_FLAG_FEMTXGAIN;
+#ifdef BEEBO_RSSI_ANT_REF
+  radio.rssi_ofs = radio_driver.getRssiOffset();
+#endif
   return radio;
 }
 
@@ -2568,7 +2603,7 @@ RadioRecord Beebo::buildRadioRecord() {
 // monring.init()/monring.clear() call sites, same reason as buildRadioRecord().
 EnvRecord Beebo::buildEnvRecord() {
   EnvRecord env{};
-  env.noise_floor = (int8_t)_radio->getNoiseFloor();
+  env.noise_floor = satI8(_radio->getNoiseFloor());
   env.temp_c = (int8_t)(_mcu_temp_scaled / 10);
   return env;
 }
@@ -3526,7 +3561,7 @@ bool Beebo::tlvSetRadioFemRxgain(Beebo* self, uint8_t role, uint32_t raw) {
   slot.prefs.BeeboBasePrefs::radio_fem_rxgain = (uint8_t)raw;
   persistRoleSlot(self, role, slot);
   if (role == self->_board.role && board.canControlLoRaFemLna()) {
-    if (board.setLoRaFemLnaEnabled(raw != 0)) radio_driver.resetAGC();
+    self->setFemLna(raw != 0);
   }
   return true;
 }
@@ -3706,6 +3741,32 @@ bool Beebo::tlvSetAdcMultiplier(Beebo* self, uint8_t role, uint32_t raw) {
   self->_board_dirty = true;
   board.setAdcMultiplier(v);
   return true;
+}
+
+// beebo: board-scoped like the ADC fields above. Keys double as MON_SETTING
+// ids (see MonRing.h's SETTING_* comment), so raw values stay recoverable
+// offline: raw = reported - active offset.
+bool Beebo::setFemRssiOffset(bool lna, int32_t db, uint8_t source) {
+  if (db < FEM_RSSI_OFS_MIN || db > FEM_RSSI_OFS_MAX) return false;
+  int8_t& field = lna ? _board.fem_rssi_ofs_lna : _board.fem_rssi_ofs_bypass;
+  appendSettingChangedEvent(lna ? PREFS_TLV_FEM_RSSI_OFS_LNA : PREFS_TLV_FEM_RSSI_OFS_BYPASS,
+                            (uint32_t)(int32_t)field, (uint32_t)db, source);
+  field = (int8_t)db;
+  _board_dirty = true;
+  if (applyRssiOffset()) radio_driver.resetAGC();
+  return true;
+}
+uint32_t Beebo::tlvGetFemRssiOfsLna(Beebo* self, uint8_t role) {
+  return (uint32_t)(int32_t)self->_board.fem_rssi_ofs_lna;
+}
+bool Beebo::tlvSetFemRssiOfsLna(Beebo* self, uint8_t role, uint32_t raw) {
+  return self->setFemRssiOffset(true, (int32_t)raw, EVENT_SOURCE_BINARY);
+}
+uint32_t Beebo::tlvGetFemRssiOfsBypass(Beebo* self, uint8_t role) {
+  return (uint32_t)(int32_t)self->_board.fem_rssi_ofs_bypass;
+}
+bool Beebo::tlvSetFemRssiOfsBypass(Beebo* self, uint8_t role, uint32_t raw) {
+  return self->setFemRssiOffset(false, (int32_t)raw, EVENT_SOURCE_BINARY);
 }
 
 uint32_t Beebo::tlvGetAdcResolution(Beebo* self, uint8_t role) {
@@ -4969,7 +5030,7 @@ void Beebo::handleCmdFrame(size_t len) {
       int8_t last_snr = 0;
       if (!_bench_quiet) {
         noise_floor = (int16_t)_radio->getNoiseFloor();
-        last_rssi = (int8_t)radio_driver.getLastRSSI();
+        last_rssi = satI8(radio_driver.getLastRSSI());
         last_snr = (int8_t)(radio_driver.getLastSNR() * 4); // scaled by 4 for 0.25 dB precision
       }
       uint32_t tx_air_secs = getTotalAirTime() / 1000;
@@ -8528,6 +8589,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %.3f", board.getAdcMultiplier());
     } else if (memcmp(key, "adc.resolution", 14) == 0) {
       sprintf(reply, "> %u", _board.adc_resolution_bits);
+    } else if (memcmp(key, "fem.rssi_offset.lna", 19) == 0) {
+      sprintf(reply, "> %d", (int)_board.fem_rssi_ofs_lna);
+    } else if (memcmp(key, "fem.rssi_offset.bypass", 22) == 0) {
+      sprintf(reply, "> %d", (int)_board.fem_rssi_ofs_bypass);
     } else if (memcmp(key, "battery.sample_period", 21) == 0) {
       sprintf(reply, "> %u", _board.batt_sample_period_secs);
     } else if (memcmp(key, "battery.sample_window", 21) == 0) {
@@ -8777,7 +8842,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       if (!board.canControlLoRaFemLna()) {
         strcpy(reply, "Error: unsupported");
       } else if (memcmp(&key[17], "on", 2) == 0) {
-        if (board.setLoRaFemLnaEnabled(true)) {
+        if (setFemLna(true)) {
           _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain = 1;
           savePrefs();
           strcpy(reply, "OK - LoRa FEM RX gain on");
@@ -8785,7 +8850,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
           strcpy(reply, "Error: failed to apply LoRa FEM RX gain");
         }
       } else if (memcmp(&key[17], "off", 3) == 0) {
-        if (board.setLoRaFemLnaEnabled(false)) {
+        if (setFemLna(false)) {
           _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain = 0;
           savePrefs();
           strcpy(reply, "OK - LoRa FEM RX gain off");
@@ -8841,6 +8906,16 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       uint32_t raw; memcpy(&raw, &v, 4);
       tlvSetAdcMultiplier(this, this->_board.role, raw);
       sprintf(reply, "> %.3f", _board.adc_multiplier);
+    } else if (memcmp(key, "fem.rssi_offset.lna ", 20) == 0 || memcmp(key, "fem.rssi_offset.bypass ", 23) == 0) {
+      bool lna = key[16] == 'l';
+      const char* arg = &key[lna ? 20 : 23];
+      char* end;
+      long db = strtol(arg, &end, 10);
+      if (end == arg || *end != 0 || !setFemRssiOffset(lna, (int32_t)db, EVENT_SOURCE_TEXT_CLI)) {
+        sprintf(reply, "Error: must be %d to %d dB", FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
+      } else {
+        strcpy(reply, "OK");
+      }
     } else if (memcmp(key, "lat ", 4) == 0) {
       // beebo: fixes the "set lat has no interceptor" gap flagged in
       // kbase/PROTOCOL_AND_SETTINGS_STORAGE.md's "critical trap" section --

@@ -372,6 +372,12 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
       file.read((uint8_t *)&discard, sizeof(discard));
       file.read((uint8_t *)&discard, sizeof(discard));
     }
+    // 59: FEM RSSI offsets -- an older file ends before them and keeps the
+    // struct defaults.
+    if ((size_t)file.available() >= sizeof(_prefs.fem_rssi_ofs_lna) + sizeof(_prefs.fem_rssi_ofs_bypass)) {
+      file.read((uint8_t *)&_prefs.fem_rssi_ofs_lna, sizeof(_prefs.fem_rssi_ofs_lna));       // 59
+      file.read((uint8_t *)&_prefs.fem_rssi_ofs_bypass, sizeof(_prefs.fem_rssi_ofs_bypass)); // 60
+    }
   }
   file.close();
   return has_battery_fields;
@@ -389,6 +395,8 @@ void DataStore::saveBeeboBoardPrefs(const BeeboBoardPrefs& _prefs) {
     file.write((uint8_t *)&_prefs.batt_present, sizeof(_prefs.batt_present));               // 54
     file.write((uint8_t *)&_prefs.batt_sample_period_secs, sizeof(_prefs.batt_sample_period_secs)); // 55
     file.write((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs)); // 57
+    file.write((uint8_t *)&_prefs.fem_rssi_ofs_lna, sizeof(_prefs.fem_rssi_ofs_lna));       // 59
+    file.write((uint8_t *)&_prefs.fem_rssi_ofs_bypass, sizeof(_prefs.fem_rssi_ofs_bypass)); // 60
     file.close();
   }
   _abi.board_prefs_version = BOARD_PREFS_VERSION;

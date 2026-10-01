@@ -58,4 +58,13 @@ struct BeeboBoardPrefs {
   uint8_t batt_present = 0;          // board.battery.present
   uint16_t batt_sample_period_secs = 0;  // board.battery.sample_period
   uint16_t batt_sample_window_secs = 0;  // board.battery.sample_window
+
+  // One FEM per board. dB added to every SX1262 RSSI read (packet RSSI,
+  // instantaneous RSSI, noise floor) for the active FEM RX path, referring
+  // it to the antenna connector. 0 = no correction for that path.
+  int8_t fem_rssi_ofs_lna = -17;    // board.fem.rssi_offset.lna - LNA in path (fem.rxgain on)
+  int8_t fem_rssi_ofs_bypass = 2;   // board.fem.rssi_offset.bypass - LNA bypassed (fem.rxgain off)
 };
+
+#define FEM_RSSI_OFS_MIN  -30
+#define FEM_RSSI_OFS_MAX   30
