@@ -8,7 +8,7 @@
 // beebo: on-device A/B trial for one front-end switch (FEM LNA, RX
 // boosted gain, coding rate), stage 1 of the two-stage tuner (see plans/
 // DYNAMIC_OPTIMIZER_PLAN.md). These switches are high-sensitivity and
-// site/environment dependent, so a bandit's -step/stay/+step arms are the
+// site/environment dependent, so a bandit's -step/stay/+step choices are the
 // wrong tool; a paired trial decides them directly.
 //
 // The FSM is pure logic (no hardware, no records): the caller applies
@@ -47,19 +47,19 @@
 // MIN_LOOK_PAIRS pairs ends UNDECIDED and keeps A. Unmeasured blocks discard
 // their pair from the paired test only.
 //
-// Before the paired test, after every pair: a dead arm. A block that heard
+// Before the paired test, after every pair: a dead side. A block that heard
 // nothing is unmeasured, so a setting that deafens the radio never forms a
-// pair and the paired test alone would keep A by default. Each arm's RX Valid
+// pair and the paired test alone would keep A by default. Each side's RX Valid
 // count (capped at ALIVE_CAP per block, against bursts) is summed over the
-// pairs with no invalidated block; ABBA gives both arms equal time, so with
-// no effect the split is 50/50. When the weaker arm has at most 1/ALIVE_RATIO
+// pairs with no invalidated block; ABBA gives both sides equal time, so with
+// no effect the split is 50/50. When the weaker side has at most 1/ALIVE_RATIO
 // of the stronger's count, the stronger heard something in at least
 // ALIVE_MIN_BLOCKS blocks, and the two-sided binomial tail is below alpha /
-// (pairs in the schedule), the stronger arm wins: ALIVE_A keeps A, ALIVE_B
+// (pairs in the schedule), the stronger side wins: ALIVE_A keeps A, ALIVE_B
 // adopts B.
 //
 // After every A B B A cycle: idle. An average below Config.min_rx_rate packets a
-// minute over the whole cycle (both arms, no invalidated block) ends the trial
+// minute over the whole cycle (both sides, no invalidated block) ends the trial
 // ABORTED_IDLE: the channel is too quiet to decide anything. The caller
 // retries the switch later.
 //
@@ -79,9 +79,9 @@ public:
   static constexpr uint32_t MIN_LOOK_PAIRS = 3;       // fewest pairs a decision may rest on
   static constexpr int16_t  RATIO_TOLERANCE = 200;    // confirm ratio, 0-10000
   static constexpr uint32_t STABLE_PAIRS = 4;         // looks the bounds must stay put over to end an undecided trial
-  static constexpr uint32_t ALIVE_CAP = 8;            // RX Valid counted per block by the dead-arm test
-  static constexpr uint32_t ALIVE_RATIO = 4;          // the weaker arm at most 1/ALIVE_RATIO of the stronger
-  static constexpr uint32_t ALIVE_MIN_BLOCKS = 2;     // blocks the stronger arm heard something in
+  static constexpr uint32_t ALIVE_CAP = 8;            // RX Valid counted per block by the dead-side test
+  static constexpr uint32_t ALIVE_RATIO = 4;          // the weaker side at most 1/ALIVE_RATIO of the stronger
+  static constexpr uint32_t ALIVE_MIN_BLOCKS = 2;     // blocks the stronger side heard something in
   static constexpr uint8_t  MIN_RX_RATE = 5;          // default Config.min_rx_rate
 
   struct Config {
@@ -187,7 +187,7 @@ public:
   uint8_t alternative() const { return _alt; }
   uint8_t currentValue() const { return valueFor(_idx); }
 
-  // `alt` is arm B's value. Omitted (a binary switch), B is the opposite of
+  // `alt` is side B's value. Omitted (a binary switch), B is the opposite of
   // `original` and `original` is clamped to 0/1; a multi-valued switch (coding
   // rate) passes both explicitly.
   static constexpr uint8_t ALT_OPPOSITE = 0xFF;
@@ -215,7 +215,7 @@ public:
   Step onBlock(const EvalWindow::Result &r, uint8_t reach_heard, uint8_t reach_marginal) {
     Step s = {};
     if (_state != RUN) return s;
-    bool is_b = armIsB(_idx);
+    bool is_b = sideIsB(_idx);
     bool valid = r.measured;
 
     if (valid) {
@@ -225,7 +225,7 @@ public:
     }
 
     double g = valid ? objective().trialLog(r) : 0.0;   // ln of the objective
-    // heard or silent, but not invalidated: counts toward the dead-arm and idle tests
+    // heard or silent, but not invalidated: counts toward the dead-side and idle tests
     bool usable = valid || r.outcome == EVAL_INSUFFICIENT_DATA;
     uint32_t rx = usable ? r.rx_valid : 0;
     if ((_idx & 3) == 0) { _cycle_rx = 0; _cycle_usable = true; }
@@ -267,7 +267,7 @@ public:
 
     _idx++;
     if (pair_done) {
-      int alive = aliveArm();
+      int alive = aliveSide();
       if (alive > 0) return finish(ALIVE_B);
       if (alive < 0) return finish(ALIVE_A);
     }
@@ -299,8 +299,8 @@ public:
   }
 
 private:
-  static bool armIsB(uint16_t idx) { uint8_t m = idx & 3; return m == 1 || m == 2; }   // A B B A
-  uint8_t valueFor(uint16_t idx) const { return armIsB(idx) ? _alt : _orig; }
+  static bool sideIsB(uint16_t idx) { uint8_t m = idx & 3; return m == 1 || m == 2; }   // A B B A
+  uint8_t valueFor(uint16_t idx) const { return sideIsB(idx) ? _alt : _orig; }
 
   void resetRun() {
     _idx = 0;
@@ -356,8 +356,8 @@ private:
     return 0;
   }
 
-  // +1: B alive against a dead A, -1: the reverse, 0: neither arm dead.
-  int aliveArm() const {
+  // +1: B alive against a dead A, -1: the reverse, 0: neither side dead.
+  int aliveSide() const {
     uint32_t hi = _live_b > _live_a ? _live_b : _live_a;
     uint32_t lo = _live_b > _live_a ? _live_a : _live_b;
     uint32_t hi_blocks = _live_b > _live_a ? _live_b_blocks : _live_a_blocks;
@@ -404,7 +404,7 @@ private:
   uint32_t _prev_rx = 0;
   uint32_t _prev_ros = 0;
   double _sum_ros_d = 0;   // confirmed deliveries per hour, B - A, summed over pairs
-  uint32_t _live_a = 0, _live_b = 0, _live_a_blocks = 0, _live_b_blocks = 0;   // dead-arm test sums
+  uint32_t _live_a = 0, _live_b = 0, _live_a_blocks = 0, _live_b_blocks = 0;   // dead-side test sums
   uint32_t _cycle_rx = 0;       // RX Valid in the current A B B A cycle
   bool _cycle_usable = true;    // no invalidated block in it so far
   uint32_t _n = 0;

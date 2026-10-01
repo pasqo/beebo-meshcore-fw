@@ -33,7 +33,7 @@ EvalWindow::Result heard(uint32_t rx) {
   return r;
 }
 
-// Feed blocks whose RX count depends on the arm, until the trial finishes or
+// Feed blocks whose RX count depends on the side, until the trial finishes or
 // `blocks` have run.
 TrialFSM::Step runHeard(TrialFSM &t, uint8_t original, int blocks, uint32_t a_rx, uint32_t b_rx) {
   TrialFSM::Step s = {};
@@ -198,7 +198,7 @@ TEST(TrialFSM, AliveBAgainstADeadAAdoptsBWithoutWaitingForPairs) {
   t.begin(cfg(96));
   t.start(0);
   // A hears nothing, B about 12 a block: no measured pair ever forms, but the
-  // arms' RX counts alone settle it after two pairs (B alive in two blocks).
+  // sides' RX counts alone settle it after two pairs (B alive in two blocks).
   TrialFSM::Step s = runHeard(t, 0, 96, 0, 12);
   ASSERT_TRUE(s.finished);
   EXPECT_EQ(TrialFSM::ALIVE_B, s.outcome);
@@ -234,7 +234,7 @@ TEST(TrialFSM, OneBurstyBlockIsNotEnoughToCallAnArmAlive) {
   t.start(0);
   t.onBlock(heard(0), 0, 0);    // A
   t.onBlock(heard(60), 0, 0);   // B: one burst, capped
-  // then both arms hear the same: no dead arm
+  // then both sides hear the same: no dead side
   TrialFSM::Step s = runHeard(t, 0, 8, 10, 10);
   EXPECT_NE(TrialFSM::ALIVE_B, s.outcome);
   EXPECT_NE(TrialFSM::ALIVE_A, s.outcome);

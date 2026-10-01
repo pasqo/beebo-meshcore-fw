@@ -642,7 +642,7 @@ private:
   // debug events never takes the last send_queue slot a real app command
   // reply needs (see SerialBLEInterface::isWriteBusy()'s own comment on
   // why that slot matters); the raw USB tap has no such shared traffic to
-  // protect, so it always pushes when armed. Takes explicit usb_enabled/
+  // protect, so it always pushes when enabled. Takes explicit usb_enabled/
   // session_enabled flags rather than reading _usb_enabled/_session_enabled
   // directly -- DLOG/RLOG and MLOG are enabled
   // independently, each with their own pair of flags, but route through

@@ -598,7 +598,7 @@ struct __attribute__((packed)) AdaptiveRecord {
 #define TRIALF_GUARDRAIL 0x04   // the pool guardrail tripped in this block
 #define TRIALF_BOUNDS    0x08   // lower/upper hold the sequential rule's bounds (3+ pairs)
 // beebo: a trial begins. `param` is a TUNING_* id (TUNING_FEM_LNA, TUNING_RX_BOOST,
-// TUNING_CR); a and b are the two arms' values (a = the stored value).
+// TUNING_CR); a and b are the two sides' values (a = the stored value).
 struct __attribute__((packed)) TrialStartRecord {
   uint8_t  kind;            // MON_TRIAL
   uint16_t offset;
@@ -818,7 +818,7 @@ struct __attribute__((packed)) DebugRecord {
 static_assert(sizeof(DebugRecord) == 16, "DebugRecord must be 16 bytes");
 
 union MonRecord {
-  uint8_t     kind;     // common discriminant (byte 0 of every arm)
+  uint8_t     kind;     // common discriminant (byte 0 of every member)
   SyncRecord  sync;
   RxRecord    rx;
   TxRecord    tx;
@@ -1346,7 +1346,7 @@ public:
   void     setLiveSink(LiveSink sink) { _live_sink = sink; }
 
   // beebo: two-phase MLOG replay-on-enable -- requestMlogReplay() (called
-  // from the enable handler) only arms `_mlog_replay_pending`; the actual
+  // from the enable handler) only sets `_mlog_replay_pending`; the actual
   // beginMlogReplay() is deferred until DebugLog's own replay has fully
   // drained (Beebo.cpp's paced-stream chain checks `!debug_log.
   // isReplaying()`), so MLOG's replayed backlog always prints *after*
@@ -1392,7 +1392,7 @@ public:
   // reached it).
   //
   // beebo: split out of beginMlogReplay() so a DEBUG_LOG_ENABLE_BIT_NO_REPLAY
-  // client (which skips the backlog walk below entirely, never arming
+  // client (which skips the backlog walk below entirely, never starting
   // beginMlogReplay()) still gets this one-time anchor seed -- otherwise
   // every live line dashes out for the rest of the session, since the next
   // periodic real MON_SYNC can be minutes away (confirmed on real hardware,
@@ -1492,7 +1492,7 @@ public:
   // are no-ops while paused, per the enabled() gating below); resumeAfterRead()
   // restores the previous state, so a manually-paused ring stays paused.
   void pauseForRead() {
-    if (!_paused_for_read) _paused_for_read = enabled();   // a re-armed read pauses again
+    if (!_paused_for_read) _paused_for_read = enabled();   // a restarted read pauses again
     _config &= ~MON_CAP_ENABLED;
   }
   void resumeAfterRead() {

@@ -49,7 +49,7 @@ void DebugLog::logLink(const char* file, int line, uint16_t id, uint8_t severity
   // that relying on isConnected() here let every push retry-block the main
   // loop for up to ZERO_WRITE_GIVEUP_MS (3s) whenever nothing was draining
   // the USB TX side, stalling completely unrelated traffic (BLE/TCP
-  // included) on every single event while armed.
+  // included) on every single event while enabled.
   if (!isEnabled() || (!_serial && !_usb)) return;
 
   BaseSerialInterface* cap_source = _serial ? _serial : _usb;

@@ -77,7 +77,7 @@ void Beebo::loopRepeater(bool skip_radio) {
 // lazy load-on-first-repeater-entry model this function used to implement
 // itself. beginRepeater() (called from begin() only `if (isRepeater())` --
 // a role switch always reboots, see requestNodeRoleSwitch(), so begin() is
-// the only entry point) is now just the live-session part: arm the local
+// the only entry point) is now just the live-session part: start the local
 // advert timer as already-due (`futureMillis(0)`) instead of an explicit
 // advert() call here -- loopRepeater()'s own periodic check
 // (`next_local_advert && millisHasNowPassed(...)`) fires it the first time
@@ -147,7 +147,7 @@ void Beebo::updateFloodAdvertTimer() {
 // than a plain store: either a value transform (AGC_RESET_INTERVAL's
 // stored-quarter-seconds, ADVERT_INTERVAL's asymmetric */`raw store on
 // write -- see its individual SET_ADVERT_INTERVAL comment in Beebo.cpp),
-// validation (LOOP_DETECT rejects out-of-range), a timer rearm
+// validation (LOOP_DETECT rejects out-of-range), a timer restart
 // (FLOOD_ADVERT_INTERVAL/ADVERT_INTERVAL), or (REPEAT_MODE) an inverted
 // on-disk sense (disable_fwd vs. the TLV's repeat=on/off sense). Each of
 // these is called by BOTH this table's SET_PREFS_TLV path AND the matching
@@ -217,7 +217,7 @@ bool Beebo::tlvSetAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
   slot.prefs.advert_interval = (uint8_t)raw;
   persistRoleSlot(self, role, slot);
   // beebo: updateAdvertTimer() reads _role_state->prefs (the LIVE role) --
-  // a genuine re-arm when repeater is live, a harmless no-op re-apply of
+  // a genuine restart when repeater is live, a harmless no-op re-apply of
   // the live (non-repeater) role's own unrelated advert_interval otherwise,
   // same reasoning as tlvSetDedupWindow's pushActiveDedupWindow()
   // call above.
@@ -298,7 +298,7 @@ bool Beebo::tlvSetFloodAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
   slot.prefs.flood_advert_interval = (uint8_t)raw;
   persistRoleSlot(self, role, slot);
   // beebo: see tlvSetAdvertInterval's comment above -- same live-vs-target
-  // reasoning applies to this timer rearm.
+  // reasoning applies to this timer restart.
   self->updateFloodAdvertTimer();
 #endif
   return true;

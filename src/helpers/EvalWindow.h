@@ -46,7 +46,7 @@ public:
     uint32_t min_ms = 300000;
     uint32_t max_ms = 3600000;
     // false: no rolling baseline and no cold start -- a window is measured as
-    // soon as it is exposed (used by TrialFSM blocks, which compare arms
+    // soon as it is exposed (used by TrialFSM blocks, which compare sides
     // directly rather than against a baseline).
     bool use_baseline = true;
   };

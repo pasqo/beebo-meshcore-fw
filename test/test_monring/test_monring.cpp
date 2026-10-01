@@ -171,7 +171,7 @@ TEST(MonRing, PausingTwiceForReadStillResumesCapture) {
   RingFixture<8> f;
   ASSERT_TRUE(f.ring.enabled());
   f.ring.pauseForRead();
-  f.ring.pauseForRead();   // a stream re-armed mid-read pauses again
+  f.ring.pauseForRead();   // a stream restarted mid-read pauses again
   EXPECT_FALSE(f.ring.enabled());
   f.ring.resumeAfterRead();
   EXPECT_TRUE(f.ring.enabled());
@@ -1647,7 +1647,7 @@ TEST(MonRingMlogReplay, StartRefInjectedEvenWhenRingEmpty) {
 }
 
 // beebo: two-phase replay (plans/MLOG_LIVE_STREAM.md) -- requestMlogReplay()
-// only arms a pending flag; beginMlogReplay() (and its synchronous start-ref
+// only sets a pending flag; beginMlogReplay() (and its synchronous start-ref
 // push) doesn't fire until the caller actually calls it, letting Beebo.cpp
 // defer that call until DLOG/RLOG's own replay has drained, so MLOG's
 // "now"-timestamped lines never print ahead of DLOG/RLOG's replayed

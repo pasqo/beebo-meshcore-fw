@@ -95,7 +95,7 @@ void SerialBLEInterface::initRadio() {
   memcpy(_local_bda, *BLEDevice::getAddress().getNative(), sizeof(_local_bda));
 
   // beebo: (re)register every initRadio() -- deinitRadio() doesn't reset
-  // BLEDevice::m_customGapHandler itself but there's no harm re-arming it.
+  // BLEDevice::m_customGapHandler itself but there's no harm restarting it.
   // BLEDevice::init() above already registered ITS OWN gap callback
   // (BLEDevice::gapEventHandler) with the IDF via
   // esp_ble_gap_register_callback() -- that's the single global slot the

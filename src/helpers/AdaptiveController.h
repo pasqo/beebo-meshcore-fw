@@ -7,7 +7,7 @@
 
 // On-device, observe-only dynamic-tuning controller.
 //
-// Runs one small multi-armed bandit (UCB1) per tunable repeater parameter,
+// Runs one small multi-choice bandit (UCB1) per tunable repeater parameter,
 // over a fixed 3-step neighborhood {-step, 0 (stay), +step} around whatever
 // the parameter's live value currently is. Only one parameter's bandit
 // advances per tick (round-robin across TUNING_* -- see MonRing.h), so a

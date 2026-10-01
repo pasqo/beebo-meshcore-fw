@@ -2091,7 +2091,7 @@ void Beebo::openEvalWindow(uint16_t window_id) {
 void Beebo::loopTuning() {
   if (trialRunning()) { loopTrial(); return; }
   uint16_t pending = _trial_enabled ? (_trial_switches & ~_trial_done_mask) : 0;
-  if (_trial_enabled && _trial_done_mask && !pending) {   // every selected switch decided: disarm
+  if (_trial_enabled && _trial_done_mask && !pending) {   // every selected switch decided: switch off
     setTrialEnabled(false, EVENT_SOURCE_TUNING);
     if (!_adaptive_enabled) return;
   }
@@ -2319,7 +2319,7 @@ bool Beebo::startTrial(int sw) {
     emitTrialSkip(sw, TrialFSM::SKIPPED_NO_CONTROL);
     return false;
   }
-  while (_trial_lists.v[sw].current() == trialSwitchStoredValue(sw)) {   // arm B equals arm A: nothing to compare
+  while (_trial_lists.v[sw].current() == trialSwitchStoredValue(sw)) {   // side B equals side A: nothing to compare
     emitTrialSkip(sw, TrialFSM::SKIPPED_SAME);
     if (!trialNextValue(sw)) return false;
   }
@@ -2480,7 +2480,11 @@ void Beebo::finishTrial(const TrialFSM::Step& step) {
   trialRevert(sw);   // back to what was stored; a winner is stored below
   if (step.outcome == TrialFSM::ABORTED_IDLE) {   // the switch stays pending
     _trial_switch = -1;
-    if (++_trial_idle_count >= TRIAL_IDLE_MAX) {
+    if (!_trial_idle_streak) {
+      _trial_idle_streak = true;
+      _trial_idle_since = millis();
+    }
+    if ((unsigned long)(millis() - _trial_idle_since) >= TRIAL_IDLE_GIVE_UP_MS) {
       setTrialEnabled(false, EVENT_SOURCE_TUNING);
     } else {
       _trial_idle_hold = true;
@@ -2489,7 +2493,7 @@ void Beebo::finishTrial(const TrialFSM::Step& step) {
     if (_adaptive_enabled) openEvalWindow(adaptive_controller.windowId());
     return;
   }
-  _trial_idle_count = 0;
+  _trial_idle_streak = false;
   if (step.final_value != trialSwitchStoredValue(sw)) {
     trialPersistValue(sw, step.final_value);   // the winner is B: stored, and live
   }
@@ -5062,7 +5066,7 @@ void Beebo::handleCmdFrame(size_t len) {
       // beebo: same page-size/streaming uplevel as BEEBO_CMD_GET_MONRING --
       // paged at the legacy 176-byte MAX_FRAME_SIZE with one command round
       // trip per page unless the app negotiated streaming via
-      // SET_XFER_CAPS, in which case a bare offset==0 request just arms the
+      // SET_XFER_CAPS, in which case a bare offset==0 request just starts the
       // loop pump (see checkSerialInterface()) instead of replying
       // immediately -- same shape as BEEBO_CMD_GET_MONRING's _monread. An
       // explicit offset!=0 (a pre-streaming app, or an app that decided not
@@ -5981,7 +5985,7 @@ void Beebo::handleCmdFrame(size_t len) {
       }
     }
     if (_app_stream) {
-      // beebo: negotiated streaming -> arm the loop pump; frames are emitted one
+      // beebo: negotiated streaming -> start the loop pump; frames are emitted one
       // per loop() from checkSerialInterface() so radio RX keeps being serviced.
       // Snapshot `next` as the stop point; the client no longer drives
       // termination in stream mode. Pause capture for the duration of the read.
@@ -6002,7 +6006,7 @@ void Beebo::handleCmdFrame(size_t len) {
     size_t page_cap = _app_max_tx;   // #1: larger paged frames if negotiated (else 176)
     monring.pauseForRead();
     uint32_t returned = 0;
-    // See the BULK_XFER arm site above: emitStartRefs() is self-limiting to
+    // See the BULK_XFER start site above: emitStartRefs() is self-limiting to
     // genuinely evicted kinds, so gating on after_seq==0 alone is enough.
     int i = fillMonRingFrame(out_frame, after_seq, page_cap, &returned, after_seq == 0, reset);
     monring.resumeAfterRead();
@@ -6516,7 +6520,7 @@ void Beebo::checkSerialInterface() {
       if (monring.isMlogReplaying() || monring.mlogReplayPending()) {
         // beebo: hold it -- see _pending_time_sync's own comment (Beebo.h).
         // mlogReplayPending() also counts: the debug-log-enable frame that
-        // arms it is written just before this one, so it's routinely still
+        // starts it is written just before this one, so it's routinely still
         // pending (not yet promoted to active by the paced-stream chain's
         // own loop() tick) when this frame is processed.
         _pending_time_sync = true;
@@ -6631,7 +6635,7 @@ void Beebo::checkSerialInterface() {
     // put and retry next iteration.
     uint32_t returned = 0;
     if (_monread.after_seq >= _monread.next) {
-      // Cursor caught up to the snapshot taken when the stream was armed: emit
+      // Cursor caught up to the snapshot taken when the stream was started: emit
       // one empty terminator (header only, no records) so the client's stream
       // loop ends, then let capture resume.
       int n = fillMonRingFrame(out_frame, 0, 0, &returned, false, _monread.reset);
@@ -7686,7 +7690,7 @@ Beebo::BtpState Beebo::teardownTcpThen_(bool ble_on, bool tcp_on) {
   // calls esp_wifi_disconnect() before esp_wifi_connect() on every
   // re-connectable disconnect reason, exactly the same self-inflicted-de-auth
   // anti-pattern this whole design exists to eliminate -- so it must never
-  // be armed at all, not just turned off again here.
+  // be started at all, not just turned off again here.
   WiFi.setAutoReconnect(false);
   board.setInhibitSleep(false);
   if (ble_on) {
@@ -8901,7 +8905,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "flood.advert.interval ", 22) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
       uint8_t v = (uint8_t)atoi(&key[22]);
-      tlvSetFloodAdvertInterval(this, NODE_ROLE_REPEATER, v);   // also rearms the flood-advert timer internally
+      tlvSetFloodAdvertInterval(this, NODE_ROLE_REPEATER, v);   // also restarts the flood-advert timer internally
       flushDirtyPrefs();
       sprintf(reply, "> %d", (uint32_t)v);
 #else
@@ -8919,7 +8923,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "advert.interval ", 16) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
       uint32_t v = (uint32_t)atoi(&key[16]);
-      tlvSetAdvertInterval(this, NODE_ROLE_REPEATER, v);   // also rearms the local-advert timer internally; stores raw/2 -- see tlvSetAdvertInterval's own comment
+      tlvSetAdvertInterval(this, NODE_ROLE_REPEATER, v);   // also restarts the local-advert timer internally; stores raw/2 -- see tlvSetAdvertInterval's own comment
       flushDirtyPrefs();
       sprintf(reply, "> %d", tlvGetAdvertInterval(this, NODE_ROLE_REPEATER));
 #else

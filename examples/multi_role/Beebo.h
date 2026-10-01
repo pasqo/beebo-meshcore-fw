@@ -529,7 +529,7 @@ protected:
   // beebo: repeater role must return the RAM-cached
   // _role_state->prefs.agc_reset_interval, or Dispatcher's default (0,
   // disabled) leaves repeater.agc.reset.interval stored/read-back correctly
-  // but never actually arming the periodic AGC-reset in Dispatcher::loop().
+  // but never actually starting the periodic AGC-reset in Dispatcher::loop().
   // Companion keeps the implicit default (0, disabled -- companion never
   // had this pref at all).
   int getAGCResetInterval() const override;
@@ -1526,7 +1526,7 @@ private:
   // ALLOW_READ_ONLY normalizes to 0/1), a RAM-shadow sync
   // (allowPacketForward()'s hot-path _fwd_* copies -- see Beebo.h's field
   // comment above them -- or _role_state->prefs.owner_info/com_prefs.node_name for the
-  // string fields), or a timer rearm (FLOOD_ADVERT_INTERVAL/
+  // string fields), or a timer restart (FLOOD_ADVERT_INTERVAL/
   // ADVERT_INTERVAL). No setter writes flash itself: the ComPrefs-backed ones
   // touch _com_prefs_cache (via _writeComPrefsCacheOnly, not
   // writeComPrefsField) and the NodePrefs-backed ones (WIFI_SSID/
@@ -1667,7 +1667,7 @@ private:
   static void persistRoleSlot(Beebo* self, uint8_t role, BeeboRoleState& slot);
   // beebo: shared core of every PREFS_TLV_FIELDS scalar setter -- store,
   // persist the owning role's slot, report success. Individual setters
-  // still exist for their own transform/validation/timer-rearm logic (see
+  // still exist for their own transform/validation/timer-restart logic (see
   // the PREFS_TLV_FIELDS comment above); this only collapses the
   // store+persist tail every one of them repeats.
   template <typename T, typename V>
@@ -1716,7 +1716,7 @@ private:
   // full state (ACL/region/prefs/identity) is now loaded once per boot,
   // eagerly, by loadRoleState() (called from begin() for every compiled-in
   // role, regardless of which is live -- see that function's own comment).
-  // beginRepeater() only (re-)arms the live-session advert timers now, same
+  // beginRepeater() only (re)starts the live-session advert timers now, same
   // as the SET_NODE_ROLE handlers already did on every switch into repeater.
 #if BEEBO_ENABLE_COMPANION_ROLE
   void beginCompanion();
@@ -1962,11 +1962,12 @@ private:
   float _trial_orig_f = 0;
   uint8_t _trial_orig_u8 = 0;
   // A trial that ends idle (TrialFSM::ABORTED_IDLE) leaves its switch pending:
-  // the sequence waits TRIAL_IDLE_HOLDOFF_MS and retries it, and disarms after
-  // TRIAL_IDLE_MAX idle ends in a row.
+  // the sequence waits TRIAL_IDLE_HOLDOFF_MS and retries it, and switches off only
+  // when no trial has completed for TRIAL_IDLE_GIVE_UP_MS (always idle).
   static constexpr int TRIAL_IDLE_HOLDOFF_MS = 3600000;
-  static constexpr uint8_t TRIAL_IDLE_MAX = 3;
-  uint8_t _trial_idle_count = 0;
+  static constexpr unsigned long TRIAL_IDLE_GIVE_UP_MS = 86400000UL;
+  bool _trial_idle_streak = false;
+  unsigned long _trial_idle_since = 0;
   bool _trial_idle_hold = false;
   unsigned long _trial_idle_until = 0;
   // A switch is decided (finished, skipped or aborted): mark it done and clear
@@ -1988,10 +1989,10 @@ private:
     return false;
   }
   // Every selected switch eligible again, each list back at its first value.
-  void rearmTrials() {
+  void restartTrials() {
     _trial_done_mask = 0;
     _trial_seq_started = false;
-    _trial_idle_count = 0;
+    _trial_idle_streak = false;
     _trial_idle_hold = false;
     _trial_rate_wait = false;
     for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_lists.v[i].restart();
@@ -2001,7 +2002,7 @@ private:
     if (on != _trial_enabled) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_ENABLED, _trial_enabled ? 1 : 0, on ? 1 : 0, source);
       abortTrial(false);
-      rearmTrials();
+      restartTrials();
     }
     _trial_enabled = on;
   }
@@ -2010,7 +2011,7 @@ private:
     if (mask != _trial_switches) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_SWITCHES, _trial_switches, mask, source);
       abortTrial(false);
-      rearmTrials();
+      restartTrials();
     }
     _trial_switches = mask;
     return true;
@@ -2022,7 +2023,7 @@ private:
     if (next.packed() != _trial_lists.v[sw].packed() || next.n != _trial_lists.v[sw].n) {
       appendSettingChangedEvent(sw < 3 ? SETTING_TUNING_TRIAL_VALUES_LNA + sw : SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE + sw - 3, _trial_lists.v[sw].packed(), next.packed(), source);
       abortTrial(false);
-      rearmTrials();
+      restartTrials();
     }
     _trial_lists.v[sw] = next;
     return true;
@@ -2032,7 +2033,7 @@ private:
     if (v != _trial_confidence_pct) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_CONFIDENCE, _trial_confidence_pct, v, source);
       abortTrial(false);
-      rearmTrials();
+      restartTrials();
     }
     _trial_confidence_pct = v;
     return true;
@@ -2049,7 +2050,7 @@ private:
     if (stored != _trial_start_stored) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_START, _trial_start_stored ? 1 : 0, stored ? 1 : 0, source);
       abortTrial(false);
-      rearmTrials();
+      restartTrials();
     }
     _trial_start_stored = stored;
     return true;
@@ -2059,7 +2060,7 @@ private:
     if (v != _trial_min_gain_pct) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_MIN_GAIN, _trial_min_gain_pct, v, source);
       abortTrial(false);
-      rearmTrials();
+      restartTrials();
     }
     _trial_min_gain_pct = v;
     return true;
@@ -2073,7 +2074,7 @@ private:
       appendSettingChangedEvent(SETTING_TUNING_REWARD_WEIGHT_BASE + idx, (uint32_t)(int32_t)objective.weights[idx],
                                 (uint32_t)(int32_t)v, source);
       abortTrial(false);
-      rearmTrials();
+      restartTrials();
       adaptive_controller.begin();
       objective.resetBaselines();
       eval_window.begin(evalWindowConfig());
@@ -2086,7 +2087,7 @@ private:
     if (v != _trial_block_s) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCK_S, _trial_block_s, v, source);
       abortTrial(false);
-      rearmTrials();
+      restartTrials();
     }
     _trial_block_s = v;
     return true;
@@ -2096,7 +2097,7 @@ private:
     if (v != _trial_blocks) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCKS, _trial_blocks, v, source);
       abortTrial(false);
-      rearmTrials();
+      restartTrials();
     }
     _trial_blocks = v;
     return true;
