@@ -32,10 +32,17 @@ public:
   bool isReceivingPacket() override { 
     return ((CustomSX1262 *)_radio)->isReceiving();
   }
+#ifdef BEEBO_RSSI_ANT_REF
+  float getCurrentRSSI() override {
+    return ((CustomSX1262 *)_radio)->getRSSI(false) + _rssi_offset;
+  }
+  float getLastRSSI() const override { return ((CustomSX1262 *)_radio)->getRSSI() + _rssi_offset; }
+#else
   float getCurrentRSSI() override {
     return ((CustomSX1262 *)_radio)->getRSSI(false);
   }
   float getLastRSSI() const override { return ((CustomSX1262 *)_radio)->getRSSI(); }
+#endif
   float getLastSNR() const override { return ((CustomSX1262 *)_radio)->getSNR(); }
 
   float packetScore(float snr, int packet_len) override {

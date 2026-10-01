@@ -32,6 +32,9 @@ protected:
   unsigned long _cw_start = 0;     // beebo: millis() when the carrier was keyed
   uint32_t _cw_max_ms = 0;         // beebo: auto-stop after this long (0 = no limit)
   bool _pa_optimize = true;        // beebo: RadioLib paOptTable optimization (SX1262 only)
+#ifdef BEEBO_RSSI_ANT_REF
+  int8_t _rssi_offset = 0;         // beebo: dB added to every RSSI read, refers it to the antenna connector
+#endif
 
 public:
   RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board), _preamble_sf(0) { n_recv = n_sent = 0; }
@@ -68,6 +71,14 @@ public:
   // config (paDutyCycle=4,hpMax=7,paVal=dbm) for a monotonic sweep. SX1262 only.
   void setTxPowerOptimize(bool en) { _pa_optimize = en; }
   bool getTxPowerOptimize() const { return _pa_optimize; }
+
+#ifdef BEEBO_RSSI_ANT_REF
+  // beebo: the SX1262 reports RSSI at its own input pin, after the FEM; the
+  // board sets the active RX path's offset so RSSI and the noise floor read
+  // at the antenna connector. Callers reset the noise floor after a change.
+  void setRssiOffset(int8_t db) { _rssi_offset = db; }
+  int8_t getRssiOffset() const { return _rssi_offset; }
+#endif
 
   virtual float getCurrentRSSI() =0;
   virtual uint8_t getSpreadingFactor() const { return LORA_SF; }

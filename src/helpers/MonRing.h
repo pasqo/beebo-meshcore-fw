@@ -541,7 +541,8 @@ struct __attribute__((packed)) RadioRecord {
   uint8_t  cr;
   int8_t   tx_power;    // dBm
   uint8_t  flags;       // rx_boosted_gain(b0) | fem_rxgain(b1)
-  uint8_t  _rsvd[3];
+  int8_t   rssi_ofs;    // dB already added to RSSI/noise floor (BEEBO_RSSI_ANT_REF); raw = value - rssi_ofs
+  uint8_t  _rsvd[2];
 };
 // beebo: genuine environment readings only -- noise_floor, temp_c.
 // batt_mv/free_heap/pool_free/tx_queue/err_flags/cad_busy_events and CPU
@@ -1747,7 +1748,8 @@ public:
     _radio_ever_sampled = true;
     bool changed = first_real_sample || !_radio_valid || _radio.freq != radio.freq ||
                    _radio.sf != radio.sf || _radio.bw != radio.bw || _radio.cr != radio.cr ||
-                   _radio.tx_power != radio.tx_power || _radio.flags != radio.flags;
+                   _radio.tx_power != radio.tx_power || _radio.flags != radio.flags ||
+                   _radio.rssi_ofs != radio.rssi_ofs;
     if (!changed) return;
     _radio = radio;
     _radio_valid = true;

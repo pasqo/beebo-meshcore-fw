@@ -664,6 +664,17 @@ TEST(MonRing, NoteRadioAndSampleEnvAreNoOpsWhenUnchanged) {
   EXPECT_GT(f.ring.nextSeq(), after_first);
 }
 
+TEST(MonRing, NoteRadioStoresRecordWhenRssiOffsetChanges) {
+  RingFixture<8> f;
+  RadioRecord radio = makeRadio();
+  radio.rssi_ofs = 2;
+  f.ring.noteRadio(radio, f.ms(1000));
+  uint32_t after_first = f.ring.nextSeq();
+  radio.rssi_ofs = -17;   // LNA switched in: offline raw recovery needs a new epoch
+  f.ring.noteRadio(radio, f.ms(1001));
+  EXPECT_GT(f.ring.nextSeq(), after_first);
+}
+
 TEST(MonRing, PauseForReadMakesAppendsNoOps) {
   RingFixture<8> f;
   f.ring.appendRx(makeRx(), f.ms(1000));

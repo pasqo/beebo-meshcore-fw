@@ -134,8 +134,13 @@ void RadioLibWrapper::loop() {
     }
   } else if (_num_floor_samples >= NUM_NOISE_FLOOR_SAMPLES && _floor_sample_sum != 0) {
     _noise_floor = _floor_sample_sum / NUM_NOISE_FLOOR_SAMPLES;
-    if (_noise_floor < -120) {
-      _noise_floor = -120;    // clamp to lower bound of -120dBi
+#ifdef BEEBO_RSSI_ANT_REF
+    int16_t floor_min = -120 + _rssi_offset;   // beebo: clamp at the raw SX1262 plane, not the offset one
+#else
+    int16_t floor_min = -120;
+#endif
+    if (_noise_floor < floor_min) {
+      _noise_floor = floor_min;    // clamp to lower bound of -120dBi
     }
     _floor_sample_sum = 0;
 
