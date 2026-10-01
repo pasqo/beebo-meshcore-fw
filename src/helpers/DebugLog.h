@@ -66,8 +66,9 @@
 // already visible via RLOG_ID_XPORT_LINK_WL_STATUS transitioning off its 255
 // (uninitialized) sentinel -- see RLOG_ID_BLE_POWER_ON/OFF below for why BLE
 // needed a real dedicated pair instead.
-// 12 (RLOG_ID_CMD_RECV) and 13 (RLOG_ID_CMD_DONE) retired 2026-09-11 --
-// converted to DLOG_ID_CMD_RECV/DLOG_ID_CMD_DONE (RLOGL/DEBUG_TLOG retired).
+// 12 (RLOG_ID_CMD_RECV) and 13 (RLOG_ID_CMD_DONE) retired -- 12 became
+// DLOG_ID_CMD_RECV; there is no completion line (per-command timing is
+// PROFILE_SCOPE's job, `beebo profile`).
 #define RLOG_ID_WIFI_STA_DISCONNECTED 14   // detail = disconnect reason code
 #define RLOG_ID_WIFI_STA_GOT_IP       15   // station (re)associated and got an IP; detail = the IPv4 address, packed MSB-first (octet1<<24 | octet2<<16 | octet3<<8 | octet4)
 // beebo: BLE session-FSM bring-up sequence, one grouped id instead of a
@@ -88,7 +89,7 @@
 // bug it was aimed at anyway. The real fix was
 // reordering applyTransportConfig() to a teardown-pass-then-bring-up-pass
 // shape; see that function's own comment.
-#define RLOG_ID_WIFI_CLIENT_REJECTED  20   // a second peer's TCP connect was accepted at the OS level (WiFiServer's backlog) while a live session was already locked in -- rejected instead of preempting it; detail = the rejected client's remote port
+#define RLOG_ID_WIFI_CLIENT_REJECTED  20   // a second peer's TCP connect was accepted at the OS level (WiFiServer's backlog) while a live session was already locked in and its IP differs from the live client's -- rejected instead of preempting it; detail = the rejected client's remote port
 #define RLOG_ID_CLOCK_SET             21   // RTC epoch (re)established -- via CMD_SET_DEVICE_TIME/the text-CLI "time" command, or Beebo::initMonRing()'s boot-time anchor capture; detail = the epoch seconds now in effect, so a reader can re-anchor every earlier event's millis() offset against the old epoch (or none, if this is the first) and every later one against the new
 // 22, 23 retired -- folded into RLOG_ID_XPORT_INIT/_CHANGE below.
 // 24 (RLOG_ID_WIFI_HEALTH) retired 2026-09-11 -- converted to
@@ -242,6 +243,10 @@
 // anywhere. detail = milliseconds the signal had read false before the
 // debounce confirmed it (>= USB_SERIAL_FALSE_DEBOUNCE_MS).
 #define RLOG_ID_USB_SERIAL_RESET  59
+// beebo: a new connection from the SAME remote IP as the live client replaced
+// that session (the old one is stale); a different IP is rejected instead
+// (RLOG_ID_WIFI_CLIENT_REJECTED). detail = the new client's remote port.
+#define RLOG_ID_WIFI_CLIENT_TAKEOVER 62
 // GEN_RLOG_NAMES_END
 // 22, 26 retired -- subsumed by RLOG_ID_XPORT_LINK_WIFI_LISTENING.
 // 24/25 never assigned.
@@ -325,7 +330,12 @@
 // beebo: MultiSerialInterface::SessionState -- not tracked in
 // Beebo::_last_xport_var[], so not bound by RLOG_XPORT_VAR_COUNT below.
 #define RLOG_ID_XPORT_LINK_SESSION_STATE         24   // MultiSerialInterface::SessionState: 0=DISABLED, 1=IDLE, 2=ACTIVE
-#define RLOG_XPORT_VAR_COUNT                 26   // array size for Beebo::_last_xport_var[]
+// beebo: lwIP ground truth for the companion TCP port (SerialWifiInterface::lwipProbe()),
+// sampled every 250 ms while WiFi is enabled. Logged as a plain 8-bit count, change-only.
+#define RLOG_ID_XPORT_LINK_WIFI_LWIP_LISTEN      25   // LISTEN PCBs on the port (1 while no session, 0 during one)
+#define RLOG_ID_XPORT_LINK_WIFI_LWIP_SYN_RCVD    26   // PCBs that got a SYN and await the final ACK
+#define RLOG_ID_XPORT_LINK_WIFI_LWIP_ESTAB       27   // ESTABLISHED PCBs (live session, or unaccepted in the backlog)
+#define RLOG_XPORT_VAR_COUNT                 28   // array size for Beebo::_last_xport_var[]
 
 // Stable transport type ids, logged as the `detail` of MULTI_* events so the
 // transport is identifiable regardless of registration order (which varies with
@@ -369,7 +379,7 @@
 // beebo/src/beebo/_debug_names_gen.py's DLOG_NAMES from every
 // `#define DLOG_ID_<NAME> <id>` in this bracketed region (name = <NAME>,
 // i.e. the DLOG_ID_ prefix stripped) -- never hand-edit that generated file.
-#define DLOG_ID_WIFI_LISTENER_REBUILD      1   // SerialWifiInterface.cpp: listening socket found dead, rebuilding it
+#define DLOG_ID_WIFI_LISTENER_REBUILD      1   // SerialWifiInterface.cpp: listening socket was closed (session end or dead), reopening it
 #define DLOG_ID_BLE_TORN_DOWN              2   // Beebo.cpp: BLE radio deinit complete, heap snapshot
 #define DLOG_ID_WIFI_TORN_DOWN             3   // Beebo.cpp: WiFi radio deinit complete, heap-capability snapshot
 #define DLOG_ID_WIFI_BRINGUP_AFTER_BLE     4   // Beebo.cpp: WiFi bring-up right after a BLE teardown in the same switch, BT controller status snapshot
@@ -390,9 +400,8 @@
 // already covers exactly the same ground with no host-side decode table to
 // keep in sync).
 #define DLOG_ID_CMD_RECV                   110   // Beebo.cpp checkSerialInterface(): command received, message = "cmd=0x%04x" ((cmd<<8)|sub, hex)
-#define DLOG_ID_CMD_DONE                   111   // Beebo.cpp checkSerialInterface(): command handler returned, same id encoding as DLOG_ID_CMD_RECV
 #define DLOG_ID_CPU_SNAPSHOT               112   // Beebo.cpp: 1-minute busy/idle snapshot for a live `--debug`/`-d` session, message = "radio=N%% link=N%% idle=N%%"
-#define DLOG_ID_WIFI_HEALTH                113   // Beebo.cpp: periodic low-level WiFi health sample, message = "heap=NKB rssi=NdBm ch=N"
+#define DLOG_ID_WIFI_HEALTH                113   // Beebo.cpp: periodic low-level WiFi health sample, message = "heap=NKB rssi=NdBm ch=N lsn=N syn=N est=N" (lsn/syn/est = lwIP LISTEN/SYN_RCVD/ESTABLISHED PCBs on the companion port)
 #define DLOG_ID_BLE_HEALTH                 114   // SerialBLEInterface.cpp: periodic low-level BLE health sample, message = "heap=NKB"
 // GEN_DLOG_NAMES_END
 

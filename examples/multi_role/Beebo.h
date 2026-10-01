@@ -136,7 +136,7 @@ static_assert(USB_TX_BUFFER_SIZE >= 2 * (MAX_SEND_FRAME_SIZE + 3), "USB TX buffe
 // translation unit, so a #define local to one is invisible to the other.
 // GEN_CMD_NAMES_START -- tools/gen_debug_names.py scrapes this block into
 // the host's CMD_NAMES (beebo/src/beebo/_debug_names_gen.py, merged with
-// CMD_BEEBO/RESP_CODE_BEEBO in monitor.py), so a DLOG_ID_CMD_RECV/CMD_DONE
+// CMD_BEEBO/RESP_CODE_BEEBO in monitor.py), so a DLOG_ID_CMD_RECV
 // line's "cmd=0x%04x" outer byte can be decoded to a real name in --debug
 // output without firmware storing any string table itself -- see that
 // event's own comment (Beebo.cpp). Replaces monitor.py's old hand-
@@ -899,6 +899,9 @@ private:
   enum BtpState : uint8_t {
     BTP_OFF,
     BTP_BLE_UP_WAIT, BTP_BLE_UP, BTP_BLE_OFF_WAIT,
+    // BTP_TCP_UP: STA has an IP and the companion listener is open -- it
+    // stays open through a session (see SerialWifiInterface::checkRecvFrame()'s
+    // accept policy).
     BTP_TCP_UP_WAIT, BTP_TCP_UP, BTP_TCP_BACKOFF, BTP_TCP_OFF_WAIT,
   };
   BtpState _btp_state = BTP_OFF;
@@ -1016,6 +1019,12 @@ private:
   // that call logs each var's real boot value under the INIT id instead of
   // CHANGE -- one harness for both the boot baseline and every later change.
   int16_t _last_xport_var[RLOG_XPORT_VAR_COUNT];
+
+  // beebo: SerialWifiInterface::lwipProbe() results, refreshed every
+  // LWIP_PROBE_MS by _checkTransportStateChanges().
+  static constexpr unsigned long LWIP_PROBE_MS = 250;
+  unsigned long _lwip_probe_ms = 0;
+  uint8_t _lwip_listen = 0, _lwip_syn_rcvd = 0, _lwip_estab = 0;
 
   // beebo: re-checks every RLOG_ID_XPORT_VAR_* variable against
   // _last_xport_var and logs a RLOG_ID_XPORT_INIT/_CHANGE (or

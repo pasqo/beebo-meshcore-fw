@@ -67,6 +67,11 @@ class SerialWifiInterface : public BaseSerialInterface {
   // guard alone is sufficient, since deviceConnected only clears once the
   // socket is genuinely gone. No debounce needed here.
 
+  // beebo: remote IP of the live client, saved at accept time (not read back
+  // from `client`, which fails once lwIP has freed a dead socket) -- see
+  // checkRecvFrame()'s accept policy.
+  IPAddress _client_ip;
+
   void clearBuffers() { recv_queue_len = 0; send_queue_len = 0; _send_off = 0; _recv_body_len = 0; }
 
 protected:
@@ -99,8 +104,8 @@ public:
   // A plain server.begin(_port) is not enough here: WiFiServer::begin()
   // no-ops whenever _listening is already true (WiFiServer.cpp), and a
   // reassociation never clears it -- only WiFiServer::end() does. Since the
-  // listener sits open in steady state (only end()'ed for the duration of
-  // a live session -- see checkRecvFrame()'s server.end() below), _listening
+  // listener sits open in steady state (it stays open through a live
+  // session too -- see checkRecvFrame()'s accept policy), _listening
   // is almost always still true when a reassociation happens, so the old
   // begin()-only rebind() silently did nothing: the orphaned socket from
   // before the reassociation stayed in place, later handing back a
@@ -110,18 +115,24 @@ public:
   // never reaching the client). end() first forces WiFiServer to close the
   // old socket and open a fresh one against the current association.
   //
-  // Skipped while deviceConnected: a live session already has the listener
-  // closed for its own exclusivity guarantee (see checkRecvFrame()'s
-  // comment on server.end() below) -- rebuilding it here would reopen the
-  // port mid-session. checkRecvFrame()'s own top-of-function reopen logic
-  // picks the listener back up once that session actually ends.
-  void rebind() { if (_port > 0 && !deviceConnected) { server.end(); server.begin(_port); } }
+  // Safe mid-session: the live client's socket is independent of the
+  // listening one (the listener stays open for the whole session).
+  void rebind() { if (_port > 0) { server.end(); server.begin(_port); } }
 
   // beebo: raw listen-socket state (WiFiServer's own _listening, via its
   // operator bool()) -- distinct from isEnabled()/isConnected() below, and
   // exactly the piece of state rebind()'s no-op bug above turned out to
   // hinge on. Exposed for transport-state dumps (Beebo::_logTransportState()).
   bool isListening() { return (bool)server; }   // WiFiServer::operator bool() isn't const
+
+  // beebo: lwIP ground truth for the companion port, unlike isListening()
+  // (a software flag that stays 1 if the listen PCB is gone). Counts PCBs
+  // whose local port is the companion port: listen = LISTEN PCBs (expect 1
+  // while no session), syn_rcvd = handshakes that got a SYN but no final ACK
+  // yet, estab = ESTABLISHED (includes connections sitting unaccepted in the
+  // backlog). Each capped at 254 (0xFF is the no-previous-value sentinel in
+  // RLOG_ID_XPORT_*'s detail packing). Takes the tcpip core lock.
+  void lwipProbe(uint8_t& listen, uint8_t& syn_rcvd, uint8_t& estab);
 
   // BaseSerialInterface methods
   void enable() override;

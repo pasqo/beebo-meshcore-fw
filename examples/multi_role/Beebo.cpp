@@ -1589,6 +1589,17 @@ void Beebo::_checkTransportStateChanges() {
   check(RLOG_ID_XPORT_LINK_WIFI_IFACE_ENABLED,    wifi_interface.isEnabled());
   check(RLOG_ID_XPORT_LINK_WIFI_IFACE_CONNECTED,  wifi_interface.isConnected());
   check(RLOG_ID_XPORT_LINK_WIFI_LISTENING,        wifi_interface.isListening());
+  // beebo: lwIP ground truth behind the flag above, throttled -- walks the
+  // PCB lists under the tcpip core lock. Zeroed while WiFi is disabled.
+  if (!wifi_interface.isEnabled()) {
+    _lwip_listen = _lwip_syn_rcvd = _lwip_estab = 0;
+  } else if (millis() - _lwip_probe_ms >= LWIP_PROBE_MS) {
+    _lwip_probe_ms = millis();
+    wifi_interface.lwipProbe(_lwip_listen, _lwip_syn_rcvd, _lwip_estab);
+  }
+  check(RLOG_ID_XPORT_LINK_WIFI_LWIP_LISTEN,      _lwip_listen);
+  check(RLOG_ID_XPORT_LINK_WIFI_LWIP_SYN_RCVD,    _lwip_syn_rcvd);
+  check(RLOG_ID_XPORT_LINK_WIFI_LWIP_ESTAB,       _lwip_estab);
   bool ble_enabled = ble_interface.isEnabled();
   if (check(RLOG_ID_XPORT_LINK_BLE_IFACE_ENABLED, ble_enabled) && ble_enabled) {
     // beebo: log this device's own BLE address right alongside the rest
@@ -6578,7 +6589,6 @@ void Beebo::checkSerialInterface() {
                 cmd_frame[1] == BEEBO_CMD_GET_PREFS_TLV));
       if (command_run_eligible) appendCommandRunEvent(prof_id);
       handleCmdFrame(len);
-      DLOGL(DLOG_ID_CMD_DONE, "cmd=0x%04x", prof_id);
     } else {
       handleCmdFrame(len);
     }
@@ -7371,7 +7381,8 @@ void Beebo::loopTransports() {
     uint16_t heap_kb = (uint16_t)(ESP.getFreeHeap() / 1024);
     int8_t rssi = (int8_t)WiFi.RSSI();
     uint8_t channel = (uint8_t)WiFi.channel();
-    DLOGL(DLOG_ID_WIFI_HEALTH, "heap=%uKB rssi=%ddBm ch=%u", heap_kb, (int)rssi, channel);
+    DLOGL(DLOG_ID_WIFI_HEALTH, "heap=%uKB rssi=%ddBm ch=%u lsn=%u syn=%u est=%u",
+          heap_kb, (int)rssi, channel, _lwip_listen, _lwip_syn_rcvd, _lwip_estab);
     _wifi_rssi_cache = rssi;
   }
 

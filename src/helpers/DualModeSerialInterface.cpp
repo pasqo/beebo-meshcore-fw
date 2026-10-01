@@ -331,7 +331,7 @@ size_t DualModeSerialInterface::writeFrame(const uint8_t src[], size_t len) {
 // the cable is plugged in, host or no host reader. With DEBUG_LOG_ENABLE
 // on and nothing draining USB, the ring buffer fills once and stays full,
 // so every subsequent push -- one per RLOG event, which includes
-// CMD_RECV/CMD_DONE for every companion command on *every* transport --
+// CMD_RECV for every companion command on *every* transport --
 // paid that ~100ms internally, back-to-back, on the same single-threaded
 // main loop that also services BLE/TCP: confirmed on real hardware as the
 // actual cause of TCP requests timing out while USB stayed responsive
