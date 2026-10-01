@@ -9,6 +9,7 @@
 #include <helpers/BattTrend.h>
 #include "BeeboProtocol.h"
 #include "AdminSelfCommand.h"
+#include "CliCommand.h"
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_mac.h>  // beebo: esp_efuse_mac_get_default() for BEEBO_CMD_GET_BOARD_ID
@@ -5193,6 +5194,25 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_TABLE_FULL);
     }
+  } else if (cmd_frame[0] == CMD_RUN_CLI_COMMAND && len >= 3) {   // v14+, the app's local CLI screen
+    // beebo: the same text-CLI entry point the 'self' admin command and
+    // BEEBO_CMD_RUN_SELF_COMMAND use, run against the live role; protected only
+    // by the authenticated companion session. An optional "xx|" prefix is reflected.
+    char command[160];
+    size_t cmd_len = min((size_t)len - 1, sizeof(command) - 1);
+    memcpy(command, &cmd_frame[1], cmd_len);
+    command[cmd_len] = 0;
+    char prefix[4];
+    char* text = splitCliPrefix(command, prefix);
+    char reply[164];
+    size_t plen = strlen(prefix);
+    memcpy(reply, prefix, plen);
+    reply[plen] = 0;
+    handleCommand(getRTCClock()->getCurrentTimeUnique(), text, &reply[plen]);
+    out_frame[0] = RESP_CODE_CLI_REPLY;
+    int reply_len = strlen(reply);
+    memcpy(&out_frame[1], reply, reply_len);
+    _serial->writeFrame(out_frame, 1 + reply_len);
   } else if (cmd_frame[0] == CMD_BEEBO && len >= 2) {
     uint8_t* sub = &cmd_frame[1];
     int sub_len = len - 1;

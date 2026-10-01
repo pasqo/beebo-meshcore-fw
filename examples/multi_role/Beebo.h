@@ -200,6 +200,7 @@ static_assert(USB_TX_BUFFER_SIZE >= 2 * (MAX_SEND_FRAME_SIZE + 3), "USB TX buffe
 #define CMD_SET_DEFAULT_FLOOD_SCOPE   63
 #define CMD_GET_DEFAULT_FLOOD_SCOPE   64
 #define CMD_SEND_RAW_PACKET           65
+#define CMD_RUN_CLI_COMMAND           66  // v14+
 // GEN_CMD_NAMES_END
 
 // Stats sub-types for CMD_GET_STATS
@@ -242,6 +243,7 @@ static_assert(USB_TX_BUFFER_SIZE >= 2 * (MAX_SEND_FRAME_SIZE + 3), "USB TX buffe
 #define RESP_ALLOWED_REPEAT_FREQ      26
 #define RESP_CODE_CHANNEL_DATA_RECV   27
 #define RESP_CODE_DEFAULT_FLOOD_SCOPE 28
+#define RESP_CODE_CLI_REPLY           29  // v14+, a reply to CMD_RUN_CLI_COMMAND
 
 #define MAX_CHANNEL_DATA_LENGTH       (MAX_FRAME_SIZE - 9)
 
