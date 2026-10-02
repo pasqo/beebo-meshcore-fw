@@ -3823,7 +3823,7 @@ bool Beebo::tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw) {
 // live role corrupted repeater's own slot. CMD_SET_OTHER_PARAMS/
 // CMD_SET_PATH_HASH_MODE/CMD_SET_ADVERT_LATLON/CMD_SET_DEVICE_NAME keep
 // their existing always-live-role-targeting semantics (real legacy-app
-// compatibility requirement -- see CLAUDE.md's Backward compatibility
+// compatibility requirement -- see AGENTS.md's Backward compatibility
 // section); these new opcodes are the role-explicit alternative
 // companion.* (prefs.py) now calls instead. Same clamping as the stock
 // entry points they mirror. Unlike most of this file's other companion-only
