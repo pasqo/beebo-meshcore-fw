@@ -24,7 +24,7 @@
 #define BEEBO_CMD_SEND_POKE                     13  // originate a 'poke' to a contact. payload: [pub_key:PUB_KEY_SIZE]
 #define BEEBO_CMD_GET_BATT_STATE                14  // reply OK + value (4B LE) = BATT_STATE_* (byte0); RAM-only live sensor state, not a PrefsTlv field
 #define BEEBO_CMD_GET_QUIET                     15  // reply OK + value (1B) = bench-quiet state (0=off, 1=on)
-#define BEEBO_CMD_SET_QUIET                     16  // payload: 1B value (0=off -> reboots, 1=on -> sleeps radio+FEM); RAM-only, not persisted
+#define BEEBO_CMD_SET_QUIET                     16  // payload: 1B value (0=off -> wakes radio+FEM, 1=on -> sleeps them); RAM-only, not persisted
 #define BEEBO_CMD_SET_BATT_STATE                17  // payload: 1B value = BATT_STATE_*; RAM-only, not persisted; re-seeds the trend anchor
 #define BEEBO_CMD_GET_NODE_ROLE                 18  // reply OK + value (4B LE) = NODE_ROLE_* (0=companion, 1=repeater); multi_role only
 #define BEEBO_CMD_SET_NODE_ROLE                 19  // payload: 1B value = NODE_ROLE_*; persisted; reboots into the new role after the ack (no-op if already that role); multi_role only
