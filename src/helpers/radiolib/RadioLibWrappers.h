@@ -48,6 +48,10 @@ public:
   // sleep period). No RadioLib exotica: SX126x auto-wakes on any SPI
   // transaction, and standby() is itself that transaction.
   void wake();
+  // beebo: restart the noise-floor average only, for an RX path or RSSI
+  // offset change; unlike resetAGC() it leaves the radio alone and never
+  // skips, so the next average is all from the new path.
+  void resetNoiseFloor() { _noise_floor = 0; _num_floor_samples = 0; _floor_sample_sum = 0; }
   int recvRaw(uint8_t* bytes, int sz) override;
   uint32_t getEstAirtimeFor(int len_bytes) override;
   bool startSendRaw(const uint8_t* bytes, int len) override;

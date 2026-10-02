@@ -1771,7 +1771,7 @@ void Beebo::applyRadioPrefs() {
   radio_driver.setTxPower(_role_state->prefs.tx_power_dbm);
   radio_driver.setRxBoostedGainMode(_role_state->prefs.rx_boosted_gain);
   board.setLoRaFemLnaEnabled(_role_state->prefs.BeeboBasePrefs::radio_fem_rxgain);
-  if (applyRssiOffset()) radio_driver.resetAGC();
+  if (applyRssiOffset()) radio_driver.resetNoiseFloor();
   board.setLoRaFemPaGainEnabled(_role_state->prefs.BeeboBasePrefs::radio_fem_txgain);
   board.setAdcMultiplier(_board.adc_multiplier);
   board.setAdcResolution(_board.adc_resolution_bits);
@@ -1783,7 +1783,7 @@ void Beebo::applyRadioPrefs() {
 bool Beebo::setFemLna(bool on) {
   if (!board.setLoRaFemLnaEnabled(on)) return false;
   applyRssiOffset();
-  radio_driver.resetAGC();
+  radio_driver.resetNoiseFloor();
   return true;
 }
 
@@ -2236,7 +2236,7 @@ void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
       break;
     case TrialSequence::RX_BOOST:
       radio_driver.setRxBoostedGainMode(value);
-      radio_driver.resetAGC();
+      radio_driver.resetNoiseFloor();
       break;
     case TrialSequence::CR:
       radio_driver.setParams(p.freq, p.bw, p.sf, value);
@@ -3620,7 +3620,7 @@ bool Beebo::tlvSetRadioRxgain(Beebo* self, uint8_t role, uint32_t raw) {
   persistRoleSlot(self, role, slot);
   if (role == self->_board.role) {
     radio_driver.setRxBoostedGainMode(raw);
-    radio_driver.resetAGC();
+    radio_driver.resetNoiseFloor();
   }
   return true;
 }
@@ -3753,7 +3753,7 @@ bool Beebo::setFemRssiOffset(bool lna, int32_t db, uint8_t source) {
                             (uint32_t)(int32_t)field, (uint32_t)db, source);
   field = (int8_t)db;
   _board_dirty = true;
-  if (applyRssiOffset()) radio_driver.resetAGC();
+  if (applyRssiOffset()) radio_driver.resetNoiseFloor();
   return true;
 }
 uint32_t Beebo::tlvGetFemRssiOfsLna(Beebo* self, uint8_t role) {
