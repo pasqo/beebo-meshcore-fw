@@ -5982,13 +5982,12 @@ void Beebo::handleCmdFrame(size_t len) {
       // via CMD_GET_STATS/STATS_TYPE_CORE) live for a bench meter to read
       // board current in isolation.
       board.loRaFEMControl.setSleepModeEnable();
-      radio_driver.powerOff();
+      radio_driver.sleepWarm();
       _bench_quiet = true;
     } else {
       // beebo: live wake, no reboot needed -- same FEM-restore call
       // onAfterTransmit() already uses after every normal TX
-      // (HeltecV4Board.cpp), plus RadioLibWrapper::wake() (mirrors
-      // stopCW()'s own sleep-to-active recovery sequence). Clearing
+      // (HeltecV4Board.cpp), plus RadioLibWrapper::wake(). Clearing
       // _bench_quiet immediately lets loop()'s skip_radio drop on the
       // very next iteration, resuming mesh/radio work with no delay.
       board.loRaFEMControl.setRxModeEnable();

@@ -41,12 +41,12 @@ public:
 
   void begin() override;
   virtual void powerOff() { _radio->sleep(); }
-  // beebo: live counterpart to powerOff() -- wakes the chip back to
-  // standby and resumes normal reception, same standby()+startRecv()
-  // sequence stopCW() already uses to recover from its own special radio
-  // state, plus resetAGC()'s noise-floor-sampling reset (stale after a
-  // sleep period). No RadioLib exotica: SX126x auto-wakes on any SPI
-  // transaction, and standby() is itself that transaction.
+  // beebo: warm sleep (chip config retained) for board.state.quiet;
+  // powerOff() may cold-sleep, which wake() cannot recover from.
+  void sleepWarm() { _radio->sleep(); }
+  // beebo: wakes the chip from sleepWarm() and resumes reception:
+  // doResetAGC() recalibrates and re-applies the RX settings a sleep can
+  // drop, then the noise-floor sampling restarts.
   void wake();
   // beebo: restart the noise-floor average only, for an RX path or RSSI
   // offset change; unlike resetAGC() it leaves the radio alone and never

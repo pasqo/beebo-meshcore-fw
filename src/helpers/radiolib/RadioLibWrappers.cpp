@@ -87,12 +87,7 @@ void RadioLibWrapper::resetAGC() {
 }
 
 void RadioLibWrapper::wake() {
-  // beebo: live counterpart to powerOff() -- SX126x auto-wakes on any SPI
-  // transaction, and standby() is itself that transaction, so no special
-  // "wake" primitive is needed at the RadioLib level. Same tail as
-  // resetAGC() (stale noise-floor sampling after a sleep period) and the
-  // same standby()-then-startRecv() shape stopCW() already uses to
-  // recover from its own special radio state.
+  doResetAGC();
   _radio->standby();
   state = STATE_IDLE;
   _noise_floor = 0;
