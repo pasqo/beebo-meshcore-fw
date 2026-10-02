@@ -2093,6 +2093,18 @@ void Beebo::initMonRing() {
   eval_window.begin(evalWindowConfig());
 }
 
+// Objective indicator by its setting name; `len` limits the compared prefix
+// (a "set" key carries its value after a space), -1 = whole string.
+int Beebo::rewardIndex(const char* name, int len) {
+  static const char* const names[Objective::NUM_INDICATORS] = {
+    "routed", "confirm", "rx_valid", "rx_errors", "tx_dispatched", "nbr_heard", "pool_busy", "cad_busy"};
+  for (int i = 0; i < Objective::NUM_INDICATORS; i++) {
+    size_t n = strlen(names[i]);
+    if (len < 0 ? strcmp(name, names[i]) == 0 : ((size_t)len == n && strncmp(name, names[i], n) == 0)) return i;
+  }
+  return -1;
+}
+
 #if BEEBO_ENABLE_REPEATER_ROLE
 // beebo: lifetime reward counters, the same four every QoS/RoS computation uses.
 MonRing::QosStats Beebo::tuningQosStats() {
@@ -2181,18 +2193,6 @@ void Beebo::loopTuning() {
 }
 
 // ---- on-device RX front-end trial (TrialFSM.h) ----------------------------
-
-// Objective indicator by its setting name; `len` limits the compared prefix
-// (a "set" key carries its value after a space), -1 = whole string.
-int Beebo::rewardIndex(const char* name, int len) {
-  static const char* const names[Objective::NUM_INDICATORS] = {
-    "routed", "confirm", "rx_valid", "rx_errors", "tx_dispatched", "nbr_heard", "pool_busy", "cad_busy"};
-  for (int i = 0; i < Objective::NUM_INDICATORS; i++) {
-    size_t n = strlen(names[i]);
-    if (len < 0 ? strcmp(name, names[i]) == 0 : ((size_t)len == n && strncmp(name, names[i], n) == 0)) return i;
-  }
-  return -1;
-}
 
 uint8_t Beebo::trialParamId(int sw) {
   static const uint8_t ids[TrialSequence::NUM_SWITCHES] = {
