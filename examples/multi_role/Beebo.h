@@ -2036,12 +2036,18 @@ private:
     _trial_switches = mask;
     return true;
   }
+  static uint8_t trialValuesSettingId(uint8_t sw) {
+    return sw < 3 ? SETTING_TUNING_TRIAL_VALUES_LNA + sw
+         : sw == TrialSequence::CAD ? SETTING_TUNING_TRIAL_VALUES_CAD
+         : sw == TrialSequence::MULTI_ACKS ? SETTING_TUNING_TRIAL_VALUES_MULTIACKS
+         : SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE + sw - 3;
+  }
   bool setTrialValues(uint8_t sw, const uint8_t* values, int count, uint8_t source) {
     if (sw >= TrialSequence::NUM_SWITCHES) return false;
     TrialSequence::List next = _trial_lists.v[sw];
     if (!next.set(sw, values, count)) return false;
     if (next.packed() != _trial_lists.v[sw].packed() || next.n != _trial_lists.v[sw].n) {
-      appendSettingChangedEvent(sw < 3 ? SETTING_TUNING_TRIAL_VALUES_LNA + sw : SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE + sw - 3, _trial_lists.v[sw].packed(), next.packed(), source);
+      appendSettingChangedEvent(trialValuesSettingId(sw), _trial_lists.v[sw].packed(), next.packed(), source);
       abortTrial(false);
       restartTrials();
     }

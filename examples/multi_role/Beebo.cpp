@@ -2198,7 +2198,7 @@ uint8_t Beebo::trialParamId(int sw) {
   static const uint8_t ids[TrialSequence::NUM_SWITCHES] = {
     TUNING_FEM_LNA, TUNING_RX_BOOST, TUNING_CR, TUNING_AGC_RESET_INTERVAL,
     TUNING_INTERFERENCE_THRESHOLD, TUNING_RX_DELAY_BASE, TUNING_TX_DELAY_FACTOR,
-    TUNING_DIRECT_TX_DELAY_FACTOR, TUNING_AIRTIME_FACTOR };
+    TUNING_DIRECT_TX_DELAY_FACTOR, TUNING_AIRTIME_FACTOR, TUNING_CAD, TUNING_MULTI_ACKS };
   return ids[sw];
 }
 
@@ -2220,6 +2220,8 @@ uint8_t Beebo::trialSwitchStoredValue(int sw) const {
     case TrialSequence::RX_DELAY: return (uint8_t)lroundf(p.rx_delay_base * trialUnitsPerOne(sw));
     case TrialSequence::TX_DELAY: return (uint8_t)lroundf(p.tx_delay_factor * trialUnitsPerOne(sw));
     case TrialSequence::DIRECT_TX_DELAY: return (uint8_t)lroundf(p.direct_tx_delay_factor * trialUnitsPerOne(sw));
+    case TrialSequence::CAD: return p.cad_enabled;
+    case TrialSequence::MULTI_ACKS: return p.multi_acks;
     default: return (uint8_t)lroundf(p.airtime_factor * trialUnitsPerOne(sw));
   }
 }
@@ -2227,7 +2229,9 @@ uint8_t Beebo::trialSwitchStoredValue(int sw) const {
 // Live only -- never persistRoleSlot(): a reboot mid-trial reverts to the
 // stored value on its own. The first three act on the hardware. The rest are
 // read from the RAM prefs by the mesh, so the trial writes the value there
-// (not flagged dirty); trialRevert() puts the exact original back.
+// (not flagged dirty); trialRevert() puts the exact original back. CAD also
+// reaches the radio now, since the dispatcher only re-reads it once per noise
+// floor calibration.
 void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
   auto& p = _role_state->prefs;
   switch (sw) {
@@ -2246,6 +2250,11 @@ void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
     case TrialSequence::RX_DELAY: p.rx_delay_base = value / trialUnitsPerOne(sw); break;
     case TrialSequence::TX_DELAY: p.tx_delay_factor = value / trialUnitsPerOne(sw); break;
     case TrialSequence::DIRECT_TX_DELAY: p.direct_tx_delay_factor = value / trialUnitsPerOne(sw); break;
+    case TrialSequence::CAD:
+      p.cad_enabled = value;
+      _radio->setCADEnabled(value != 0);
+      break;
+    case TrialSequence::MULTI_ACKS: p.multi_acks = value; break;
     default: p.airtime_factor = value / trialUnitsPerOne(sw); break;
   }
 }
@@ -2432,7 +2441,8 @@ void Beebo::trialPersistValue(int sw, uint8_t value) {
   static const uint8_t keys[TrialSequence::NUM_SWITCHES] = {
     PREFS_TLV_RADIO_FEM_RXGAIN, PREFS_TLV_RADIO_RXGAIN, PREFS_TLV_RADIO_CR,
     PREFS_TLV_AGC_RESET_INTERVAL, PREFS_TLV_INTERFERENCE_THRESHOLD, PREFS_TLV_RXDELAY,
-    PREFS_TLV_TXDELAY_FACTOR, PREFS_TLV_DIRECT_TXDELAY_FACTOR, PREFS_TLV_AIRTIME };
+    PREFS_TLV_TXDELAY_FACTOR, PREFS_TLV_DIRECT_TXDELAY_FACTOR, PREFS_TLV_AIRTIME,
+    PREFS_TLV_CAD, PREFS_TLV_MULTI_ACKS };
   switch (sw) {
     case TrialSequence::LNA: tlvSetRadioFemRxgain(this, _board.role, value); break;
     case TrialSequence::RX_BOOST: tlvSetRadioRxgain(this, _board.role, value); break;
@@ -2442,6 +2452,8 @@ void Beebo::trialPersistValue(int sw, uint8_t value) {
     case TrialSequence::RX_DELAY: tlvSetRxDelayBase(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
     case TrialSequence::TX_DELAY: tlvSetTxDelayFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
     case TrialSequence::DIRECT_TX_DELAY: tlvSetDirectTxDelayFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
+    case TrialSequence::CAD: tlvSetCad(this, NODE_ROLE_REPEATER, value); break;
+    case TrialSequence::MULTI_ACKS: tlvSetMultiAcks(this, NODE_ROLE_REPEATER, value); break;
     default: tlvSetAirtimeFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
   }
   if (sw >= TrialSequence::AGC) flushDirtyPrefs();
@@ -3498,6 +3510,7 @@ uint32_t Beebo::tlvGetMultiAcks(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.multi_acks;
 }
 bool Beebo::tlvSetMultiAcks(Beebo* self, uint8_t role, uint32_t raw) {
+  if (self->_trial_switch == TrialSequence::MULTI_ACKS) self->abortTrial(false);   // a manual change ends the trial first
   return persistScalarField(self, role, self->role_state_store[role].prefs.multi_acks, raw ? 1 : 0);
 }
 
@@ -3600,6 +3613,7 @@ uint32_t Beebo::tlvGetCad(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetCad(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > 1) return false;
+  if (self->_trial_switch == TrialSequence::CAD) self->abortTrial(false);   // a manual change ends the trial first
   BeeboRoleState& slot = self->role_state_store[role];
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (role == NODE_ROLE_REPEATER) slot.prefs.cad_enabled = (uint8_t)raw; else

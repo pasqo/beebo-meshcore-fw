@@ -103,6 +103,7 @@ enum {
   // bandit -- they only appear in AdaptiveRecords, never in
   // AdaptiveController::specFor().
   TUNING_FEM_LNA, TUNING_RX_BOOST, TUNING_CR,
+  TUNING_CAD, TUNING_MULTI_ACKS,
 };
 
 // ---- EVENT types: what kind of thing an EventRecord reports, plus its own
@@ -384,8 +385,10 @@ enum : uint8_t {
   SETTING_TUNING_TRIAL_VALUES_LNA = 110, SETTING_TUNING_TRIAL_VALUES_RXBOOST = 111,
   SETTING_TUNING_TRIAL_VALUES_CR = 112, SETTING_TUNING_TRIAL_ENABLED = 113,
   // the value lists of the six later switches (agc, interference, rxdelay,
-  // txdelay, directtxdelay, airtime): 124 + switch index - 3
+  // txdelay, directtxdelay, airtime): 124 + switch index - 3; cad and
+  // multiacks have their own ids (131 and 132 are taken)
   SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE = 124,
+  SETTING_TUNING_TRIAL_VALUES_CAD = 130, SETTING_TUNING_TRIAL_VALUES_MULTIACKS = 133,
   SETTING_TUNING_TRIAL_CONFIDENCE = 114, SETTING_TUNING_TRIAL_MIN_GAIN = 115,
   SETTING_TUNING_TRIAL_START = 131,
   SETTING_TUNING_TRIAL_MIN_RX_RATE = 132,

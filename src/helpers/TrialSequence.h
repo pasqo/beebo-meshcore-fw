@@ -16,10 +16,12 @@ public:
   // Switch indexes are wire-stable (bit i of the switches mask). Values are
   // held as whole numbers in the trial records: the float settings in steps of
   // 0.1 (rx delay base), 0.01 (tx and direct tx delay factors) and 0.05
-  // (airtime factor), the AGC reset interval in its own 4 s units.
+  // (airtime factor), the AGC reset interval in its own 4 s units; the two
+  // booleans CAD and multi acks are 0/1.
   enum Switch {
     LNA = 0, RX_BOOST = 1, CR = 2, AGC = 3, INTERFERENCE = 4,
-    RX_DELAY = 5, TX_DELAY = 6, DIRECT_TX_DELAY = 7, AIRTIME = 8, NUM_SWITCHES = 9
+    RX_DELAY = 5, TX_DELAY = 6, DIRECT_TX_DELAY = 7, AIRTIME = 8,
+    CAD = 9, MULTI_ACKS = 10, NUM_SWITCHES = 11
   };
   static const int MAX_VALUES = 4;
 
@@ -27,16 +29,17 @@ public:
   static const char* name(int sw) {
     static const char* const names[NUM_SWITCHES] = {
       "lna", "rxboost", "cr", "agc", "interference", "rxdelay", "txdelay",
-      "directtxdelay", "airtime" };
+      "directtxdelay", "airtime", "cad", "multiacks" };
     return names[sw];
   }
 
   // The switch index run i-th: the receive path (LNA, RX boost, AGC), then
-  // channel-busy behavior, the link setting that costs airtime (coding rate),
-  // then the timing knobs.
+  // channel-busy behavior (interference threshold, CAD), the link settings that
+  // cost airtime (coding rate, multi acks), then the timing knobs.
   static int orderAt(int i) {
     static const uint8_t order[NUM_SWITCHES] = {
-      LNA, RX_BOOST, AGC, INTERFERENCE, CR, RX_DELAY, TX_DELAY, DIRECT_TX_DELAY, AIRTIME };
+      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, RX_DELAY, TX_DELAY,
+      DIRECT_TX_DELAY, AIRTIME };
     return order[i];
   }
 
@@ -66,7 +69,7 @@ public:
   // Largest value each switch takes, in its wire units.
   static int maxValue(int sw) {
     switch (sw) {
-      case LNA: case RX_BOOST: return 1;
+      case LNA: case RX_BOOST: case CAD: case MULTI_ACKS: return 1;
       case CR: return 8;
       case AGC: return 255;
       case INTERFERENCE: return 9;
@@ -122,8 +125,10 @@ public:
         {50, 0, 100, 200},       // tx delay factor: 0.5, 0, 1, 2
         {30, 0, 100, 200},       // direct tx delay factor: 0.3, 0, 1, 2
         {20, 10, 60, 180},       // airtime factor: 1.0, 0.5, 3, 9
+        {0, 1, 0, 0},            // CAD: off, on
+        {0, 1, 0, 0},            // multi acks: off, on
       };
-      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4};
+      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2};
       for (int i = 0; i < MAX_VALUES; i++) v[i] = table[sw][i];
       n = counts[sw];
       pos = 1;
