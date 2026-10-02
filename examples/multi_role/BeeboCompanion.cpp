@@ -246,7 +246,7 @@ void Beebo::sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uin
 void Beebo::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis) {
   // TODO: have per-channel send_scope
   if (send_unscoped) {
-    sendFlood(pkt, delay_millis, _role_state->prefs.path_hash_mode + 1);  // app has explicitly requested un-scoped
+    sendFlood(pkt, delay_millis, _role_state->prefs.path_hash_mode + 1, _hop_cap);  // app has explicitly requested un-scoped
   } else {
     TransportKey default_scope;
     memcpy(&default_scope.key, _role_state->prefs.default_scope_key, sizeof(default_scope.key));

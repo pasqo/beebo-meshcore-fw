@@ -1825,6 +1825,7 @@ private:
   bool _iter_started;
   bool _pending_disconnect;
   bool send_unscoped;   // force un-scoped flood (instead of using send_scope)
+  uint8_t _hop_cap = 0; // BEEBO_CMD_SEND_CHANNEL_MSG_HOPS: max repeater hops for the channel message being sent, else 0 (no cap)
   uint8_t app_target_ver;
   uint8_t *sign_data;
   uint32_t sign_data_len;

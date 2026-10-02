@@ -1,4 +1,5 @@
 #include "Mesh.h"
+#include <helpers/RoutingPolicy.h>
 //#include <Arduino.h>
 
 namespace mesh {
@@ -809,7 +810,7 @@ Packet* Mesh::createControlData(const uint8_t* data, size_t len) {
   return packet;
 }
 
-void Mesh::sendFlood(Packet* packet, uint32_t delay_millis, uint8_t path_hash_size) {
+void Mesh::sendFlood(Packet* packet, uint32_t delay_millis, uint8_t path_hash_size, uint8_t max_hops) {
   if (packet->getPayloadType() == PAYLOAD_TYPE_TRACE) {
     MESH_DEBUG_PRINTLN("%s Mesh::sendFlood(): TRACE type not suspported", getLogDateTime());
     return;
@@ -822,6 +823,11 @@ void Mesh::sendFlood(Packet* packet, uint32_t delay_millis, uint8_t path_hash_si
   packet->header &= ~PH_ROUTE_MASK;
   packet->header |= ROUTE_TYPE_FLOOD;
   packet->setPathHashSizeAndCount(path_hash_size, 0);
+  if (max_hops > 0) {
+    uint8_t self_hash[3];
+    self_id.copyHashTo(self_hash, sizeof(self_hash));
+    applyHopCap(packet, max_hops, self_hash);
+  }
 
   _tables->markSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
   _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
@@ -837,7 +843,7 @@ void Mesh::sendFlood(Packet* packet, uint32_t delay_millis, uint8_t path_hash_si
   sendPacket(packet, pri, delay_millis);
 }
 
-void Mesh::sendFlood(Packet* packet, uint16_t* transport_codes, uint32_t delay_millis, uint8_t path_hash_size) {
+void Mesh::sendFlood(Packet* packet, uint16_t* transport_codes, uint32_t delay_millis, uint8_t path_hash_size, uint8_t max_hops) {
   if (packet->getPayloadType() == PAYLOAD_TYPE_TRACE) {
     MESH_DEBUG_PRINTLN("%s Mesh::sendFlood(): TRACE type not suspported", getLogDateTime());
     return;
@@ -852,6 +858,11 @@ void Mesh::sendFlood(Packet* packet, uint16_t* transport_codes, uint32_t delay_m
   packet->transport_codes[0] = transport_codes[0];
   packet->transport_codes[1] = transport_codes[1];
   packet->setPathHashSizeAndCount(path_hash_size, 0);
+  if (max_hops > 0) {
+    uint8_t self_hash[3];
+    self_id.copyHashTo(self_hash, sizeof(self_hash));
+    applyHopCap(packet, max_hops, self_hash);
+  }
 
   _tables->markSeen(packet); // mark this packet as already sent in case it is rebroadcast back to us
   _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));

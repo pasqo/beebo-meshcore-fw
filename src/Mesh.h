@@ -222,14 +222,15 @@ public:
 
   /**
    * \brief  send a locally-generated Packet with flood routing
+   * \param max_hops   if non-zero, limit the flood to this many repeater hops (see applyHopCap(); forces 3-byte path hashes)
   */
-  void sendFlood(Packet* packet, uint32_t delay_millis=0, uint8_t path_hash_size=1);
+  void sendFlood(Packet* packet, uint32_t delay_millis=0, uint8_t path_hash_size=1, uint8_t max_hops=0);
 
   /**
    * \brief  send a locally-generated Packet with flood routing
    * \param transport_codes   array of 2 codes to attach to packet
   */
-  void sendFlood(Packet* packet, uint16_t* transport_codes, uint32_t delay_millis=0, uint8_t path_hash_size=1);
+  void sendFlood(Packet* packet, uint16_t* transport_codes, uint32_t delay_millis=0, uint8_t path_hash_size=1, uint8_t max_hops=0);
 
   /**
    * \brief  send a locally-generated Packet with Direct routing

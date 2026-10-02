@@ -108,3 +108,54 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+
+// ---- applyHopCap: sender-side hop limit via a pre-filled flood path ----
+
+// Number of repeaters that can still append their hash, as Mesh::routeRecvPacket does.
+static int hopsLeft(const Packet& p) {
+    int n = p.getPathHashCount(), left = 0;
+    while ((n + 1) * p.getPathHashSize() <= MAX_PATH_SIZE) { n++; left++; }
+    return left;
+}
+
+static const uint8_t SELF[3] = {0xAB, 0xCD, 0xEF};
+
+TEST(HopCap, LeavesExactlyMaxHopsAppendSlots) {
+    for (uint8_t cap = 1; cap <= 21; cap++) {
+        Packet p;
+        applyHopCap(&p, cap, SELF);
+        EXPECT_EQ(hopsLeft(p), cap) << "cap=" << (int)cap;
+        EXPECT_EQ(p.getPathHashSize(), 3);
+    }
+}
+
+TEST(HopCap, FillsWithZerosAndEndsWithTheSendersOwnHash) {
+    Packet p;
+    memset(p.path, 0xAA, sizeof(p.path));
+    applyHopCap(&p, 3, SELF);
+    EXPECT_EQ(p.getPathHashCount(), 18);
+    for (int i = 0; i < 17 * 3; i++) EXPECT_EQ(p.path[i], 0) << i;
+    EXPECT_EQ(memcmp(&p.path[17 * 3], SELF, 3), 0);   // last hop = the sender, as a receiver's nbr
+}
+
+TEST(HopCap, SingleEntryPathIsJustTheSendersHash) {
+    Packet p;
+    applyHopCap(&p, 20, SELF);
+    EXPECT_EQ(p.getPathHashCount(), 1);
+    EXPECT_EQ(memcmp(p.path, SELF, 3), 0);
+}
+
+TEST(HopCap, ClampsAboveTheProtocolMaximum) {
+    Packet p;
+    applyHopCap(&p, 200, SELF);
+    EXPECT_EQ(p.getPathHashCount(), 0);
+    EXPECT_EQ(hopsLeft(p), 21);
+}
+
+TEST(HopCap, ZeroMeansNoCapAndKeepsThePacketUntouched) {
+    Packet p;
+    p.setPathHashSizeAndCount(2, 0);
+    applyHopCap(&p, 0, SELF);
+    EXPECT_EQ(p.getPathHashCount(), 0);
+    EXPECT_EQ(p.getPathHashSize(), 2);
+}

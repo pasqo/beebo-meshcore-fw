@@ -902,12 +902,12 @@ void Beebo::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32
   // NodePrefs.h) -- no role branch needed since both roles share the field.
   uint8_t path_hash_mode = _role_state->prefs.path_hash_mode;
   if (scope.isNull()) {
-    sendFlood(pkt, delay_millis, path_hash_mode + 1);
+    sendFlood(pkt, delay_millis, path_hash_mode + 1, _hop_cap);
   } else {
     uint16_t codes[2];
     codes[0] = scope.calcTransportCode(pkt);
     codes[1] = 0;  // REVISIT: set to 'home' Region, for sender/return region?
-    sendFlood(pkt, codes, delay_millis, path_hash_mode + 1);
+    sendFlood(pkt, codes, delay_millis, path_hash_mode + 1, _hop_cap);
   }
 }
 
@@ -5947,6 +5947,32 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_MIN_RX_RATE && sub_len >= 2) {
     setTrialMinRxRate(sub[1], EVENT_SOURCE_BINARY);
     writeOKFrame();
+  } else if (sub[0] == BEEBO_CMD_SEND_CHANNEL_MSG_HOPS && sub_len >= 8) {
+    // [idx:1][max_hops:1][timestamp:4][text] -- CMD_SEND_CHANNEL_TXT_MSG with
+    // the flood limited to max_hops repeaters (applyHopCap via _hop_cap).
+#if BEEBO_ENABLE_COMPANION_ROLE
+    if (isRepeater()) {
+      writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+    } else if (sub[2] < 1 || sub[2] > 21) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      uint32_t msg_timestamp;
+      memcpy(&msg_timestamp, &sub[3], 4);
+      ChannelDetails channel;
+      _hop_cap = sub[2];
+      bool sent = getChannel(sub[1], channel) &&
+                  sendGroupMessage(msg_timestamp, channel.channel, _role_state->prefs.node_name,
+                                   (const char *)&sub[7], sub_len - 7);
+      _hop_cap = 0;
+      if (sent) {
+        writeOKFrame();
+      } else {
+        writeErrFrame(ERR_CODE_NOT_FOUND);  // bad channel_idx
+      }
+    }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_START) {
     uint32_t v = _trial_start_stored ? 1 : 0;
     out_frame[0] = RESP_CODE_OK;
