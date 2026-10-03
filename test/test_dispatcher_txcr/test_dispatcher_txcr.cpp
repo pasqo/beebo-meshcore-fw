@@ -19,7 +19,14 @@ struct FakeClock : public MillisecondClock {
 struct FakeRadio : public Radio {
     std::string log;
     bool send_complete = false;
-    int recvRaw(uint8_t*, int) override { return 0; }
+    uint8_t rx_frame[MAX_TRANS_UNIT];
+    int rx_len = 0;
+    int recvRaw(uint8_t* bytes, int) override {
+        int n = rx_len;
+        if (n) memcpy(bytes, rx_frame, n);
+        rx_len = 0;                           // one frame, delivered once
+        return n;
+    }
     uint32_t getEstAirtimeFor(int) override { return 500; }
     uint32_t getEstAirtimeFor(int, uint8_t cr) override { return 100u * cr; }
     float packetScore(float, int) override { return 0; }
@@ -50,7 +57,12 @@ struct FakePool : public PacketManager {
 
 struct TestDispatcher : public Dispatcher {
     TestDispatcher(Radio& r, MillisecondClock& c, PacketManager& m) : Dispatcher(r, c, m) {}
-    DispatcherAction onRecvPacket(Packet*) override { return ACTION_RELEASE; }
+    int seen_tx_cr = -1, seen_tx_attempt = -1;
+    DispatcherAction onRecvPacket(Packet* p) override {
+        seen_tx_cr = p->_tx_cr;
+        seen_tx_attempt = p->_tx_attempt;
+        return ACTION_RELEASE;
+    }
     float getAirtimeBudgetFactor() const override { return 0.0f; }
 };
 
@@ -93,6 +105,22 @@ TEST_F(Fixture, SendTimeout_UsesAirtimeAtPacketCr) {
     clock.now += 300;
     d.loop();
     EXPECT_EQ("finish,", radio.log.substr(0, 7));
+}
+
+// a received packet comes from the pool without obtainNewPacket(): if it is then
+// forwarded, a stale CR or attempt from the packet's previous use would go with it
+TEST_F(Fixture, ReceivedPacket_StartsWithoutStaleTxCrOrAttempt) {
+    pool.pool._tx_cr = 8;
+    pool.pool._tx_attempt = 2;
+    Packet tmp;
+    tmp.header = ROUTE_TYPE_FLOOD | (PAYLOAD_TYPE_ACK << PH_TYPE_SHIFT);
+    tmp.payload_len = 1;
+    tmp.payload[0] = 0x07;
+    tmp.path_len = 0;
+    radio.rx_len = tmp.writeTo(radio.rx_frame);
+    d.loop();
+    EXPECT_EQ(0, d.seen_tx_cr);
+    EXPECT_EQ(0, d.seen_tx_attempt);
 }
 
 TEST_F(Fixture, ObtainNewPacket_ClearsStaleTxCr) {

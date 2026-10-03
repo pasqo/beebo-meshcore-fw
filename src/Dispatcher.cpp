@@ -225,6 +225,7 @@ void Dispatcher::checkRecv() {
         MESH_DEBUG_PRINTLN("%s Dispatcher::checkRecv(): WARNING: received data, no unused packets available!", getLogDateTime());
         logRxDisposition(NULL, RX_DISP_POOL_FULL);   // no Packet was ever allocated; error counter only
       } else {
+        pkt->clearTxState();     // beebo: a received packet may be forwarded; drop the previous use's CR/attempt
         onPacketCaptured(pkt);   // stage logRxRaw's distilled fields onto pkt
         if (tryParsePacket(pkt, raw, len)) {
           pkt->_snr = _radio->getLastSNR() * 4.0f;
@@ -435,8 +436,7 @@ Packet* Dispatcher::obtainNewPacket() {
   } else {
     pkt->payload_len = pkt->path_len = 0;
     pkt->_snr = 0;
-    pkt->_tx_cr = 0;
-    pkt->_tx_attempt = 0;
+    pkt->clearTxState();
   }
   return pkt;
 }
