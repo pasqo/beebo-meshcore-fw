@@ -46,6 +46,10 @@ struct BeeboBasePrefs {
                                  // rationale as radio_fem_rxgain above.
   int8_t tz_offset = 0;          // hours from UTC, -12..+14; stored for the app's CLI
                                  // (get/set tz.offset), no beebo consumer (no display).
+  uint8_t retry_no = 0;          // route retry (plans/ROUTE_RETRY.md): retries of a forward whose echo
+                                 // timed out, 0..3, 0 = off. Repeater-role only: persisted and
+                                 // exposed for the repeater slot, the companion's stays 0.
+  uint8_t retry_cr = 8;          // coding rate 4/x (5..8) of a retry
   uint8_t cad_on = 0;            // companion's hardware CAD before TX; the repeater role
                                  // keeps ComPrefs::cad_enabled instead (see getCADEnabled()).
 };

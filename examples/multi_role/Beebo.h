@@ -433,11 +433,10 @@ public:
 #ifdef BEEBO_ROUTE_RETRY
   // beebo: route retry (plans/ROUTE_RETRY.md). initRouteRetry() claims the
   // retry body store (PSRAM, once) and installs the hook; setRouteRetry()
-  // applies the two settings, retry_no only while the repeater role is live.
+  // pushRouteRetry() applies the two settings, retry_no only while the repeater role is live.
   void initRouteRetry();
-  void setRouteRetry(uint8_t retry_no, uint8_t retry_cr);
+  void pushRouteRetry();   // apply the live role's retry_no/retry_cr (boot, reloadPrefs(), the two setters)
   bool sendRouteRetry(const uint8_t* raw, uint8_t len);
-  uint8_t _route_retry_no = 0;
   uint8_t _route_retry_cr = 8;
 #endif
   void initMonRing();  // beebo: apply MonRing's real boot-known state (call after beebo.begin(), same position as before)
@@ -1523,6 +1522,8 @@ private:
     // BeeboBoardPrefs FEM RSSI offsets, role byte ignored like BOARD_NAME.
     PREFS_TLV_FEM_RSSI_OFS_LNA = 59,    // u32 (sign-extended int8 dB, -30..30)
     PREFS_TLV_FEM_RSSI_OFS_BYPASS = 60, // u32 (sign-extended int8 dB, -30..30)
+    PREFS_TLV_ROUTE_RETRY_NO = 61,      // u32 0..3, retries of a forward whose echo timed out; repeater slot only
+    PREFS_TLV_ROUTE_RETRY_CR = 62,      // u32 5..8, coding rate 4/x of a retry; repeater slot only
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1632,6 +1633,10 @@ private:
   static bool tlvSetRadioFemRxgain(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRadioFemTxgain(Beebo* self, uint8_t role);
   static bool tlvSetRadioFemTxgain(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRouteRetryNo(Beebo* self, uint8_t role);
+  static bool tlvSetRouteRetryNo(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRouteRetryCr(Beebo* self, uint8_t role);
+  static bool tlvSetRouteRetryCr(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetTzOffset(Beebo* self, uint8_t role);
   static bool tlvSetTzOffset(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetCad(Beebo* self, uint8_t role);

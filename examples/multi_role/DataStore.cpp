@@ -560,6 +560,12 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
               // cad in ComPrefs::cad_enabled, so cad_on is not stored here.
               if (file.available() >= (int)sizeof(_prefs.tz_offset)) {
                 file.read((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
+                // retry_no, retry_cr -- tail-guarded the same way, defaulting
+                // to 0 / 8 for a file saved before these fields existed.
+                if (file.available() >= (int)(sizeof(_prefs.retry_no) + sizeof(_prefs.retry_cr))) {
+                  file.read((uint8_t *)&_prefs.retry_no, sizeof(_prefs.retry_no));
+                  file.read((uint8_t *)&_prefs.retry_cr, sizeof(_prefs.retry_cr));
+                }
               }
             }
           }
@@ -643,6 +649,8 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));
     file.write((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
     file.write((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
+    file.write((uint8_t *)&_prefs.retry_no, sizeof(_prefs.retry_no));
+    file.write((uint8_t *)&_prefs.retry_cr, sizeof(_prefs.retry_cr));
 
     file.close();
   }

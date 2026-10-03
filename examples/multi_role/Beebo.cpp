@@ -2046,14 +2046,37 @@ void Beebo::initRouteRetry() {
   }
   tables->setRetryStore(store);
   tables->setRetryHook(routeRetryHook, this);
-  setRouteRetry(_route_retry_no, _route_retry_cr);
+  pushRouteRetry();
 }
 
 // Retry applies to the repeater's forwards only; a companion never retries.
-void Beebo::setRouteRetry(uint8_t retry_no, uint8_t retry_cr) {
-  _route_retry_no = retry_no;
-  _route_retry_cr = retry_cr;
-  ((SimpleMeshTables*)getTables())->setRetryNo(isRepeater() ? retry_no : 0);
+void Beebo::pushRouteRetry() {
+  _route_retry_cr = _role_state->prefs.retry_cr;
+  ((SimpleMeshTables*)getTables())->setRetryNo(isRepeater() ? _role_state->prefs.retry_no : 0);
+}
+
+// beebo: route retry settings, repeater slot only (the companion has none).
+uint32_t Beebo::tlvGetRouteRetryNo(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.retry_no;
+}
+bool Beebo::tlvSetRouteRetryNo(Beebo* self, uint8_t role, uint32_t raw) {
+  if (role != NODE_ROLE_REPEATER || raw > ECHO_RETRY_NO_MAX) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.retry_no = (uint8_t)raw;
+  if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
+  self->pushRouteRetry();
+  return true;
+}
+uint32_t Beebo::tlvGetRouteRetryCr(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.retry_cr;
+}
+bool Beebo::tlvSetRouteRetryCr(Beebo* self, uint8_t role, uint32_t raw) {
+  if (role != NODE_ROLE_REPEATER || raw < 5 || raw > 8) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.retry_cr = (uint8_t)raw;
+  if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
+  self->pushRouteRetry();
+  return true;
 }
 #endif
 
@@ -2983,6 +3006,9 @@ void Beebo::reloadPrefs() {
   clampRadioPrefs();
   applyRadioPrefs();
   pushActiveDedupWindow();
+#ifdef BEEBO_ROUTE_RETRY
+  pushRouteRetry();
+#endif
 }
 
 const char *Beebo::getNodeName() {
