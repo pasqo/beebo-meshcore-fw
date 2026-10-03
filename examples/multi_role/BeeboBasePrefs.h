@@ -50,6 +50,8 @@ struct BeeboBasePrefs {
                                  // timed out, 0..3, 0 = off. Repeater-role only: persisted and
                                  // exposed for the repeater slot, the companion's stays 0.
   uint8_t retry_cr = 8;          // coding rate 4/x (5..8) of a retry
+  uint8_t echo_at_tx = 0;        // 1: a flood's echo slot starts when it is sent, not when it is scheduled
+                                 // (kbase/ROUTE_RETRY.md). Repeater role only, like retry_no.
   uint8_t cad_on = 0;            // companion's hardware CAD before TX; the repeater role
                                  // keeps ComPrefs::cad_enabled instead (see getCADEnabled()).
 };

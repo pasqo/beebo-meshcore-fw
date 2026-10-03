@@ -31,11 +31,6 @@ public:
   // from the same physical round-trip cost (one hop's backoff + TX, same as
   // waiting for a neighbor's ack) instead of a guessed flat constant.
   virtual void markSelfTx(const Packet* packet, uint32_t pkt_airtime_millis) { }
-
-  // beebo: called right after markSelfTx() for a packet this node is
-  // forwarding (not one it originated), so an implementation can retry it if
-  // its echo never comes back. Default no-op.
-  virtual void markRetryable(const Packet* packet) { }
 };
 
 /**

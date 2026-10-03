@@ -22,7 +22,7 @@ public:
   enum Switch {
     LNA = 0, RX_BOOST = 1, CR = 2, AGC = 3, INTERFERENCE = 4,
     RX_DELAY = 5, TX_DELAY = 6, DIRECT_TX_DELAY = 7, AIRTIME = 8,
-    CAD = 9, MULTI_ACKS = 10, RETRY_NO = 11, RETRY_CR = 12, NUM_SWITCHES = 13
+    CAD = 9, MULTI_ACKS = 10, RETRY_NO = 11, RETRY_CR = 12, ECHO_AT_TX = 13, NUM_SWITCHES = 14
   };
   static const int MAX_VALUES = 4;
 
@@ -30,7 +30,7 @@ public:
   static const char* name(int sw) {
     static const char* const names[NUM_SWITCHES] = {
       "lna", "rxboost", "cr", "agc", "interference", "rxdelay", "txdelay",
-      "directtxdelay", "airtime", "cad", "multiacks", "retry_no", "retry_cr" };
+      "directtxdelay", "airtime", "cad", "multiacks", "retry_no", "retry_cr", "echo_at_tx" };
     return names[sw];
   }
 
@@ -40,7 +40,7 @@ public:
   // the timing knobs.
   static int orderAt(int i) {
     static const uint8_t order[NUM_SWITCHES] = {
-      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, RETRY_NO, RETRY_CR,
+      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, ECHO_AT_TX, RETRY_NO, RETRY_CR,
       RX_DELAY, TX_DELAY, DIRECT_TX_DELAY, AIRTIME };
     return order[i];
   }
@@ -71,7 +71,7 @@ public:
   // Largest value each switch takes, in its wire units.
   static int maxValue(int sw) {
     switch (sw) {
-      case LNA: case RX_BOOST: case CAD: case MULTI_ACKS: return 1;
+      case LNA: case RX_BOOST: case CAD: case MULTI_ACKS: case ECHO_AT_TX: return 1;
       case CR: case RETRY_CR: return 8;
       case RETRY_NO: return 3;
       case AGC: return 255;
@@ -132,8 +132,9 @@ public:
         {0, 1, 0, 0},            // multi acks: off, on
         {0, 1, 2, 0},            // retry count: off, 1, 2
         {8, 6, 5, 0},            // retry coding rate: the default, 6, 5 (same as the first send)
+        {0, 1, 0, 0},            // echo slot at the send: off (at scheduling), on
       };
-      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 3, 3};
+      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 3, 3, 2};
       for (int i = 0; i < MAX_VALUES; i++) v[i] = table[sw][i];
       n = counts[sw];
       pos = 1;

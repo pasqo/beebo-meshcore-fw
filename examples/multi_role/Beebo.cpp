@@ -527,7 +527,7 @@ static void fillTxRecordCommon(TxRecord& rec, mesh::Packet* pkt, int len, mesh::
 
 void Beebo::logTx(mesh::Packet* pkt, int len) {
   _last_radio_active_ms = _ms->getMillis();  // beebo: feeds isIdle()'s settle-margin gate
-  ((SimpleMeshTables*)getTables())->noteTx(pkt);   // a queued retry's echo window starts when it is sent
+  ((SimpleMeshTables*)getTables())->noteTx(pkt, _radio->getEstAirtimeFor(pkt->getRawLength()), true);   // echo slot / retry window start at the send
   if (monring.enabled() && monring.allocated() && len > 0) {
     TxRecord rec;
     fillTxRecordCommon(rec, pkt, len, _radio, _role_state->prefs.cr);
@@ -544,7 +544,7 @@ void Beebo::logTx(mesh::Packet* pkt, int len) {
 
 void Beebo::logTxFail(mesh::Packet* pkt, int len) {
   _last_radio_active_ms = _ms->getMillis();  // beebo: feeds isIdle()'s settle-margin gate
-  ((SimpleMeshTables*)getTables())->noteTx(pkt);   // a failed start ends the wait too
+  ((SimpleMeshTables*)getTables())->noteTx(pkt, 0, false);   // a failed start ends a retry's wait, never creates a slot
   if (monring.enabled() && monring.allocated() && len > 0) {
     TxRecord rec;
     fillTxRecordCommon(rec, pkt, len, _radio, _role_state->prefs.cr);
@@ -2058,6 +2058,7 @@ void Beebo::initRouteRetry() {
 void Beebo::pushRouteRetry() {
   _route_retry_cr = _role_state->prefs.retry_cr;
   ((SimpleMeshTables*)getTables())->setRetryNo(isRepeater() ? _role_state->prefs.retry_no : 0);
+  ((SimpleMeshTables*)getTables())->setEchoAtTx(isRepeater() && _role_state->prefs.echo_at_tx);
 }
 
 // beebo: route retry settings, repeater slot only (the companion has none).
@@ -2069,6 +2070,18 @@ bool Beebo::tlvSetRouteRetryNo(Beebo* self, uint8_t role, uint32_t raw) {
   if (self->_trial_switch == TrialSequence::RETRY_NO) self->abortTrial(false);   // a manual change ends the trial first
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.retry_no = (uint8_t)raw;
+  if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
+  self->pushRouteRetry();
+  return true;
+}
+uint32_t Beebo::tlvGetEchoAtTx(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.echo_at_tx;
+}
+bool Beebo::tlvSetEchoAtTx(Beebo* self, uint8_t role, uint32_t raw) {
+  if (role != NODE_ROLE_REPEATER || raw > 1) return false;
+  if (self->_trial_switch == TrialSequence::ECHO_AT_TX) self->abortTrial(false);   // a manual change ends the trial first
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.echo_at_tx = (uint8_t)raw;
   if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
   self->pushRouteRetry();
   return true;
@@ -2272,7 +2285,7 @@ uint8_t Beebo::trialParamId(int sw) {
     TUNING_FEM_LNA, TUNING_RX_BOOST, TUNING_CR, TUNING_AGC_RESET_INTERVAL,
     TUNING_INTERFERENCE_THRESHOLD, TUNING_RX_DELAY_BASE, TUNING_TX_DELAY_FACTOR,
     TUNING_DIRECT_TX_DELAY_FACTOR, TUNING_AIRTIME_FACTOR, TUNING_CAD, TUNING_MULTI_ACKS,
-    TUNING_RETRY_NO, TUNING_RETRY_CR };
+    TUNING_RETRY_NO, TUNING_RETRY_CR, TUNING_ECHO_AT_TX };
   return ids[sw];
 }
 
@@ -2298,6 +2311,7 @@ uint8_t Beebo::trialSwitchStoredValue(int sw) const {
     case TrialSequence::MULTI_ACKS: return p.multi_acks;
     case TrialSequence::RETRY_NO: return p.retry_no;
     case TrialSequence::RETRY_CR: return p.retry_cr;
+    case TrialSequence::ECHO_AT_TX: return p.echo_at_tx;
     default: return (uint8_t)lroundf(p.airtime_factor * trialUnitsPerOne(sw));
   }
 }
@@ -2337,6 +2351,11 @@ void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
 #endif
       break;
     case TrialSequence::RETRY_CR: p.retry_cr = value;
+#ifdef BEEBO_ROUTE_RETRY
+      pushRouteRetry();
+#endif
+      break;
+    case TrialSequence::ECHO_AT_TX: p.echo_at_tx = value;
 #ifdef BEEBO_ROUTE_RETRY
       pushRouteRetry();
 #endif
@@ -2533,7 +2552,8 @@ void Beebo::trialPersistValue(int sw, uint8_t value) {
     PREFS_TLV_RADIO_FEM_RXGAIN, PREFS_TLV_RADIO_RXGAIN, PREFS_TLV_RADIO_CR,
     PREFS_TLV_AGC_RESET_INTERVAL, PREFS_TLV_INTERFERENCE_THRESHOLD, PREFS_TLV_RXDELAY,
     PREFS_TLV_TXDELAY_FACTOR, PREFS_TLV_DIRECT_TXDELAY_FACTOR, PREFS_TLV_AIRTIME,
-    PREFS_TLV_CAD, PREFS_TLV_MULTI_ACKS, PREFS_TLV_ROUTE_RETRY_NO, PREFS_TLV_ROUTE_RETRY_CR };
+    PREFS_TLV_CAD, PREFS_TLV_MULTI_ACKS, PREFS_TLV_ROUTE_RETRY_NO, PREFS_TLV_ROUTE_RETRY_CR,
+    PREFS_TLV_ECHO_AT_TX };
   switch (sw) {
     case TrialSequence::LNA: tlvSetRadioFemRxgain(this, _board.role, value); break;
     case TrialSequence::RX_BOOST: tlvSetRadioRxgain(this, _board.role, value); break;
@@ -2548,6 +2568,7 @@ void Beebo::trialPersistValue(int sw, uint8_t value) {
 #ifdef BEEBO_ROUTE_RETRY
     case TrialSequence::RETRY_NO: tlvSetRouteRetryNo(this, NODE_ROLE_REPEATER, value); break;
     case TrialSequence::RETRY_CR: tlvSetRouteRetryCr(this, NODE_ROLE_REPEATER, value); break;
+    case TrialSequence::ECHO_AT_TX: tlvSetEchoAtTx(this, NODE_ROLE_REPEATER, value); break;
 #endif
     default: tlvSetAirtimeFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
   }

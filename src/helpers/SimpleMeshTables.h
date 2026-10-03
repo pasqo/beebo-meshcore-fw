@@ -131,6 +131,7 @@ class SimpleMeshTables : public mesh::MeshTables {
   uint8_t* _retry_store = nullptr;
   uint8_t _retry_len[MAX_ECHO_HASHES];
   uint8_t _retry_no = 0;
+  bool _echo_at_tx = false;  // setEchoAtTx(): slots start when the packet is sent, not when it is scheduled
   uint8_t _waiting_tx = 0;   // slots with ECHO_F_WAIT_TX set, so noteTx() hashes only when one waits
   EchoRetryHook _retry_hook = nullptr;
   void* _retry_ctx = nullptr;
@@ -262,6 +263,15 @@ public:
       _self_tx_direct_count++;
       return;
     }
+    if (!_echo_at_tx) _startSlot(packet, pkt_airtime_millis);   // else noteTx() does it once the packet is on the air
+  }
+
+  // beebo: a flood's echo slot -- hash, echo window and, for a forward, the retry
+  // copy. Starts at scheduling (markSelfTx()) by default, or when the packet is
+  // sent (noteTx()) with setEchoAtTx(): the window then measures the neighbor's
+  // turnaround only, not our own retransmit delay and queue wait, and a packet
+  // that is never sent never gets a slot.
+  void _startSlot(const mesh::Packet* packet, uint32_t pkt_airtime_millis) {
     int idx = _echo_next_idx;
     // if the slot we're about to
     // reuse was assigned but never reached a verdict (not confirmed heard,
@@ -287,10 +297,40 @@ public:
         (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
     if (_echo_flags[idx] & ECHO_F_WAIT_TX) _waiting_tx--;   // its queued retry no longer has a slot to time
-    _echo_flags[idx] = ECHO_F_ACTIVE;   // fresh generation for this slot; retry state starts at none
+    // fresh generation; a forward keeps a copy and its retries_left starts at retry_no
+    uint8_t left = 0;
+    if (packet->_retryable && _retry_no > 0 && _retry_store != nullptr) {
+      _retry_len[idx] = packet->writeTo(&_retry_store[idx * MAX_TRANS_UNIT]);
+      left = _retry_no;
+    }
+    _echo_flags[idx] = ECHO_F_ACTIVE | (left << ECHO_F_LEFT_SHIFT);
     _echo_next_idx = (idx + 1) % MAX_ECHO_HASHES;
     _echo_attempt_count++;
   }
+
+  // beebo: the dispatcher finished a send (ok) or could not start it. For a first
+  // send with setEchoAtTx(), a sent flood gets its slot now. A retry (attempt > 0)
+  // has its slot already: its echo window starts now, whether it went out or not.
+  // Costs a hash only for a flood being sent in at-tx mode, or while a retry waits.
+  void noteTx(const mesh::Packet* packet, uint32_t pkt_airtime_millis, bool ok) {
+    if (packet->_tx_attempt > 0) {
+      if (_waiting_tx == 0) return;
+      uint8_t hash[MAX_HASH_SIZE];
+      packet->calculatePacketHash(hash);
+      for (int i = 0; i < MAX_ECHO_HASHES; i++) {
+        if ((_echo_flags[i] & ECHO_F_WAIT_TX) && memcmp(hash, _echo_hashes[i], MAX_HASH_SIZE) == 0) {
+          _echo_flags[i] &= ~ECHO_F_WAIT_TX;
+          _echo_time[i] = millis();
+          _waiting_tx--;
+        }
+      }
+    } else if (_echo_at_tx && ok && !packet->isRouteDirect()) {
+      _startSlot(packet, pkt_airtime_millis);
+    }
+  }
+
+  void setEchoAtTx(bool on) { _echo_at_tx = on; }
+  bool getEchoAtTx() const { return _echo_at_tx; }
 
   // sweeps every ring slot for a
   // generation that's aged past its own per-packet echo timeout
@@ -322,32 +362,6 @@ public:
         _echo_timeout_count++;
         _echo_flags[i] |= ECHO_F_RESOLVED;
         _emitEchoEvent(TXCONFIRM_TIMEOUT, _echo_monring_hash[i], now - _echo_time[i], sent);
-      }
-    }
-  }
-
-  // beebo: called right after markSelfTx() for a forwarded packet: keep a copy
-  // and set the slot's retries to retry_no, so checkEchoTimeouts() can resend it.
-  // Packets we originate never get here, so they are never retried.
-  void markRetryable(const mesh::Packet* packet) override {
-    if (packet->isRouteDirect() || _retry_no == 0 || _retry_store == nullptr) return;
-    int idx = (_echo_next_idx + MAX_ECHO_HASHES - 1) % MAX_ECHO_HASHES;   // the slot markSelfTx() just set
-    _retry_len[idx] = packet->writeTo(&_retry_store[idx * MAX_TRANS_UNIT]);
-    _echo_flags[idx] = (_echo_flags[idx] & ~(ECHO_F_COUNT_MASK << ECHO_F_LEFT_SHIFT))
-                       | (_retry_no << ECHO_F_LEFT_SHIFT);
-  }
-
-  // beebo: a packet just went on the air (or failed to): if it is a queued retry,
-  // its echo window starts now. Costs a hash only while a retry is waiting.
-  void noteTx(const mesh::Packet* packet) {
-    if (_waiting_tx == 0) return;
-    uint8_t hash[MAX_HASH_SIZE];
-    packet->calculatePacketHash(hash);
-    for (int i = 0; i < MAX_ECHO_HASHES; i++) {
-      if ((_echo_flags[i] & ECHO_F_WAIT_TX) && memcmp(hash, _echo_hashes[i], MAX_HASH_SIZE) == 0) {
-        _echo_flags[i] &= ~ECHO_F_WAIT_TX;
-        _echo_time[i] = millis();
-        _waiting_tx--;
       }
     }
   }

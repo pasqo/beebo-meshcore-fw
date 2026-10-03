@@ -433,8 +433,8 @@ DispatcherAction Mesh::routeRecvPacket(Packet* packet) {
       // RESPONSE/TXT_MSG/ANON_REQ/GRP_DATA/GRP_TXT/ADVERT all funnel
       // through here). wasSeen() was already checked by the caller before
       // this function runs, so only markSelfTx() is needed here, not both.
+      packet->_retryable = 1;   // beebo: a forward, so its echo slot may retry it (never set on a packet we originate)
       _tables->markSelfTx(packet, _radio->getEstAirtimeFor(packet->getRawLength()));
-      _tables->markRetryable(packet);
       return ACTION_RETRANSMIT_DELAYED(packet->getPathHashCount(), d);   // give priority to closer sources, than ones further away
     }
     logRxDisposition(packet, RX_DISP_PATH_FULL);  // would relay, but no room to append our hash

@@ -57,8 +57,9 @@ public:
   int8_t _snr;
   uint8_t _tx_cr;  // beebo: LoRa coding rate (5..8 = 4/x) to transmit this packet at; 0 = the radio's configured CR
   uint8_t _tx_attempt;  // beebo: 0 = first send, n = nth retry of this packet (route retry), logged in MON_TX
+  uint8_t _retryable;   // beebo: a flood this node is forwarding (set in Mesh::routeRecvPacket()): its echo ring slot may retry it
   // beebo: pool packets are reused, so every owner of a fresh one clears the TX state
-  void clearTxState() { _tx_cr = 0; _tx_attempt = 0; }
+  void clearTxState() { _tx_cr = 0; _tx_attempt = 0; _retryable = 0; }
 #ifdef MSG_INCLUDE_RSSI
   int16_t _rssi;  // dBm; captured at RX so message frames can report it (off by default)
 #endif

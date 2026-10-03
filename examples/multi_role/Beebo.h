@@ -1524,6 +1524,7 @@ private:
     PREFS_TLV_FEM_RSSI_OFS_BYPASS = 60, // u32 (sign-extended int8 dB, -30..30)
     PREFS_TLV_ROUTE_RETRY_NO = 61,      // u32 0..3, retries of a forward whose echo timed out; repeater slot only
     PREFS_TLV_ROUTE_RETRY_CR = 62,      // u32 5..8, coding rate 4/x of a retry; repeater slot only
+    PREFS_TLV_ECHO_AT_TX = 63,          // u32 bool, echo slot starts at the send; repeater slot only
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1637,6 +1638,8 @@ private:
   static bool tlvSetRouteRetryNo(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRouteRetryCr(Beebo* self, uint8_t role);
   static bool tlvSetRouteRetryCr(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetEchoAtTx(Beebo* self, uint8_t role);
+  static bool tlvSetEchoAtTx(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetTzOffset(Beebo* self, uint8_t role);
   static bool tlvSetTzOffset(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetCad(Beebo* self, uint8_t role);
@@ -2058,6 +2061,7 @@ private:
          : sw == TrialSequence::MULTI_ACKS ? SETTING_TUNING_TRIAL_VALUES_MULTIACKS
          : sw == TrialSequence::RETRY_NO ? SETTING_TUNING_TRIAL_VALUES_RETRYNO
          : sw == TrialSequence::RETRY_CR ? SETTING_TUNING_TRIAL_VALUES_RETRYCR
+         : sw == TrialSequence::ECHO_AT_TX ? SETTING_TUNING_TRIAL_VALUES_ECHOATTX
          : SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE + sw - 3;
   }
   bool setTrialValues(uint8_t sw, const uint8_t* values, int count, uint8_t source) {

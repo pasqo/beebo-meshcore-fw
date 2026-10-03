@@ -564,6 +564,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
 #ifdef BEEBO_ROUTE_RETRY
   { PREFS_TLV_ROUTE_RETRY_NO,   TLV_U32,   tlvGetRouteRetryNo,   tlvSetRouteRetryNo,   nullptr, nullptr },
   { PREFS_TLV_ROUTE_RETRY_CR,   TLV_U32,   tlvGetRouteRetryCr,   tlvSetRouteRetryCr,   nullptr, nullptr },
+  { PREFS_TLV_ECHO_AT_TX,       TLV_U32,   tlvGetEchoAtTx,       tlvSetEchoAtTx,       nullptr, nullptr },
 #endif
   { PREFS_TLV_CAD,              TLV_U32,   tlvGetCad,            tlvSetCad,            nullptr, nullptr },
   { PREFS_TLV_RADIO_RXGAIN,     TLV_U32,   tlvGetRadioRxgain,    tlvSetRadioRxgain,    nullptr, nullptr },

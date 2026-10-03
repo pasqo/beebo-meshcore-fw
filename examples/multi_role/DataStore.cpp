@@ -565,6 +565,10 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
                 if (file.available() >= (int)(sizeof(_prefs.retry_no) + sizeof(_prefs.retry_cr))) {
                   file.read((uint8_t *)&_prefs.retry_no, sizeof(_prefs.retry_no));
                   file.read((uint8_t *)&_prefs.retry_cr, sizeof(_prefs.retry_cr));
+                  // echo_at_tx -- tail-guarded the same way, defaulting to 0
+                  if (file.available() >= (int)sizeof(_prefs.echo_at_tx)) {
+                    file.read((uint8_t *)&_prefs.echo_at_tx, sizeof(_prefs.echo_at_tx));
+                  }
                 }
               }
             }
@@ -651,6 +655,7 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
     file.write((uint8_t *)&_prefs.retry_no, sizeof(_prefs.retry_no));
     file.write((uint8_t *)&_prefs.retry_cr, sizeof(_prefs.retry_cr));
+    file.write((uint8_t *)&_prefs.echo_at_tx, sizeof(_prefs.echo_at_tx));
 
     file.close();
   }
