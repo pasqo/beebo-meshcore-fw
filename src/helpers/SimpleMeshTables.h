@@ -279,13 +279,7 @@ public:
     _echo_timeout[idx] = ECHO_TIMEOUT_BASE_MILLIS +
         (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
-    // fresh generation for this slot; retries_left starts at retry_no
-    uint8_t left = 0;
-    if (_retry_no > 0 && _retry_store != nullptr) {
-      _retry_len[idx] = packet->writeTo(&_retry_store[idx * MAX_TRANS_UNIT]);
-      left = _retry_no;
-    }
-    _echo_flags[idx] = ECHO_F_ACTIVE | (left << ECHO_F_LEFT_SHIFT);
+    _echo_flags[idx] = ECHO_F_ACTIVE;   // fresh generation for this slot; retry state starts at none
     _echo_next_idx = (idx + 1) % MAX_ECHO_HASHES;
     _echo_attempt_count++;
   }
@@ -320,6 +314,17 @@ public:
         _emitEchoEvent(TXCONFIRM_TIMEOUT, _echo_monring_hash[i], now - _echo_time[i]);
       }
     }
+  }
+
+  // beebo: called right after markSelfTx() for a forwarded packet: keep a copy
+  // and set the slot's retries to retry_no, so checkEchoTimeouts() can resend it.
+  // Packets we originate never get here, so they are never retried.
+  void markRetryable(const mesh::Packet* packet) override {
+    if (packet->isRouteDirect() || _retry_no == 0 || _retry_store == nullptr) return;
+    int idx = (_echo_next_idx + MAX_ECHO_HASHES - 1) % MAX_ECHO_HASHES;   // the slot markSelfTx() just set
+    _retry_len[idx] = packet->writeTo(&_retry_store[idx * MAX_TRANS_UNIT]);
+    _echo_flags[idx] = (_echo_flags[idx] & ~(ECHO_F_COUNT_MASK << ECHO_F_LEFT_SHIFT))
+                       | (_retry_no << ECHO_F_LEFT_SHIFT);
   }
 
   // beebo: route retry. n = retries per forward (0 disables), clamped to

@@ -190,6 +190,7 @@ struct RetryFixture : public ::testing::Test {
     void forward(Packet& p) {
         t.markSeen(&p);
         t.markSelfTx(&p, AIRTIME_MS);
+        t.markRetryable(&p);
     }
     void pastWindow() {
         g_mock_millis += PAST_WINDOW_MS;
@@ -304,6 +305,7 @@ TEST_F(RetryFixture, NoStore_NeverRetries) {
     Packet p = makeFloodPacket(0x17);
     bare.markSeen(&p);
     bare.markSelfTx(&p, AIRTIME_MS);
+    bare.markRetryable(&p);
     g_mock_millis += PAST_WINDOW_MS;
     bare.checkEchoTimeouts();
     EXPECT_EQ(0, probe.calls);
@@ -315,10 +317,21 @@ TEST_F(RetryFixture, DirectForward_NeverRetried) {
     Packet p = makeDirectPacket(0x18);
     t.markSeen(&p);
     t.markSelfTx(&p, AIRTIME_MS);
+    t.markRetryable(&p);
     pastWindow();
     EXPECT_EQ(0, probe.calls);
     EXPECT_EQ(0u, t.getEchoAttemptCount());
     EXPECT_EQ(1u, t.getSelfTxDirectCount());
+}
+
+TEST_F(RetryFixture, SelfOriginatedFlood_NeverRetried) {
+    t.setRetryNo(1);                          // markSelfTx() alone: an advert or message we originated
+    Packet p = makeFloodPacket(0x1B);
+    t.markSeen(&p);
+    t.markSelfTx(&p, AIRTIME_MS);
+    pastWindow();
+    EXPECT_EQ(0, probe.calls);
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
 }
 
 TEST_F(RetryFixture, RetryNoChange_AffectsOnlyNewForwards) {

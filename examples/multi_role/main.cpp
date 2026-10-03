@@ -150,6 +150,9 @@ void setup() {
   // below: if the ring (or anything in setup) wedges the node, we want the
   // bootloader to roll back to the previous working firmware, not confirm a
   // broken image as healthy.
+#ifdef BEEBO_ROUTE_RETRY
+  beebo.initRouteRetry();
+#endif
   beebo.initMonRing();
 
   // Confirm this firmware is healthy so the bootloader doesn't roll back.

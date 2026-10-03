@@ -2014,6 +2014,49 @@ uint32_t Beebo::applyClockSync(
 // start (see its own comment). Deliberately does NOT call monring.init()
 // again -- that would wipe out any real boot events already captured since
 // startMonRing() ran.
+#ifdef BEEBO_ROUTE_RETRY
+// beebo: a retry is the forwarded packet again, as the lowest-priority send.
+#define ROUTE_RETRY_PRIORITY 255
+
+static bool routeRetryHook(void* ctx, const uint8_t* raw, uint8_t len, uint8_t attempt) {
+  return ((Beebo*)ctx)->sendRouteRetry(raw, len);
+}
+
+bool Beebo::sendRouteRetry(const uint8_t* raw, uint8_t len) {
+  mesh::Packet* pkt = obtainNewPacket();
+  if (pkt == NULL) return false;
+  if (!pkt->readFrom(raw, len)) {
+    releasePacket(pkt);
+    return false;
+  }
+  pkt->_tx_cr = _route_retry_cr;
+  if (!_mgr->queueOutbound(pkt, ROUTE_RETRY_PRIORITY, futureMillis(0))) {
+    logTxQueueFull(false);
+    return false;
+  }
+  return true;
+}
+
+void Beebo::initRouteRetry() {
+  SimpleMeshTables* tables = (SimpleMeshTables*)getTables();
+  uint8_t* store = (uint8_t*)heap_caps_malloc(MAX_ECHO_HASHES * MAX_TRANS_UNIT, MALLOC_CAP_SPIRAM);
+  if (store == NULL) {
+    MESH_DEBUG_PRINTLN("RouteRetry: PSRAM unavailable at boot, retry disabled");
+    return;   // no store: SimpleMeshTables never retries
+  }
+  tables->setRetryStore(store);
+  tables->setRetryHook(routeRetryHook, this);
+  setRouteRetry(_route_retry_no, _route_retry_cr);
+}
+
+// Retry applies to the repeater's forwards only; a companion never retries.
+void Beebo::setRouteRetry(uint8_t retry_no, uint8_t retry_cr) {
+  _route_retry_no = retry_no;
+  _route_retry_cr = retry_cr;
+  ((SimpleMeshTables*)getTables())->setRetryNo(isRepeater() ? retry_no : 0);
+}
+#endif
+
 void Beebo::initMonRing() {
   // beebo: not radioIsIdle()-verified at this point in boot -- reset the
   // trend anchor/state instead of seeding it directly, so updateBattTrend()
