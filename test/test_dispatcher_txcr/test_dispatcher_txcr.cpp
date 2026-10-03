@@ -112,8 +112,8 @@ TEST_F(Fixture, SendTimeout_UsesAirtimeAtPacketCr) {
 TEST_F(Fixture, ReceivedPacket_StartsWithoutStaleTxCrOrAttempt) {
     pool.pool._tx_cr = 8;
     pool.pool._tx_attempt = 2;
-    Packet tmp;
-    tmp.header = ROUTE_TYPE_FLOOD | (PAYLOAD_TYPE_ACK << PH_TYPE_SHIFT);
+    Packet tmp;   // direct: a flood would take the delayed-processing queue, which the fake pool stubs out
+    tmp.header = ROUTE_TYPE_DIRECT | (PAYLOAD_TYPE_ACK << PH_TYPE_SHIFT);
     tmp.payload_len = 1;
     tmp.payload[0] = 0x07;
     tmp.path_len = 0;
