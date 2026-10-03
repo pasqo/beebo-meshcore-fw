@@ -2017,9 +2017,6 @@ uint32_t Beebo::applyClockSync(
 // again -- that would wipe out any real boot events already captured since
 // startMonRing() ran.
 #ifdef BEEBO_ROUTE_RETRY
-// beebo: a retry is the forwarded packet again, as the lowest-priority send.
-#define ROUTE_RETRY_PRIORITY PACKET_PRIORITY_LOWEST
-
 static bool routeRetryHook(void* ctx, const uint8_t* raw, uint8_t len, uint8_t attempt) {
   return ((Beebo*)ctx)->sendRouteRetry(raw, len, attempt);
 }
@@ -2033,7 +2030,10 @@ bool Beebo::sendRouteRetry(const uint8_t* raw, uint8_t len, uint8_t attempt) {
   }
   pkt->_tx_cr = _route_retry_cr;
   pkt->_tx_attempt = attempt;
-  if (!_mgr->queueOutbound(pkt, ROUTE_RETRY_PRIORITY, futureMillis(0))) {
+  // beebo: the original forward's own priority (its hop count, see
+  // Mesh::routeRecvPacket()): a retry that waits behind fresh traffic can reach
+  // a neighbor after its dedup entry expired and be taken for a new packet.
+  if (!_mgr->queueOutbound(pkt, pkt->getPathHashCount(), futureMillis(0))) {
     logTxQueueFull(false);
     return false;
   }

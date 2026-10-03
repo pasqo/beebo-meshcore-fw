@@ -103,8 +103,8 @@ TEST_F(Fixture, ObtainNewPacket_ClearsStaleTxCr) {
 
 // beebo: PacketQueue::get() starts its best-priority search at 0xFF and keeps
 // only a strictly lower value, so a packet queued at priority 255 is never
-// selected: it would sit in the queue forever, holding a pool slot. The route
-// retry is queued at the lowest priority that can still be sent.
+// selected: it would sit in the queue forever, holding a pool slot. (A retry
+// is queued at its hop count, far below this; the limit is pinned here.)
 TEST(PacketQueuePriority, Priority255IsNeverSelected) {
     PacketQueue q(4);
     Packet p;
@@ -113,13 +113,13 @@ TEST(PacketQueuePriority, Priority255IsNeverSelected) {
     EXPECT_EQ(1, q.count());                  // still stuck in the queue
 }
 
-TEST(PacketQueuePriority, LowestSendablePriorityIsSelectedAfterTheOthers) {
+TEST(PacketQueuePriority, Priority254IsStillSelectedAfterTheOthers) {
     PacketQueue q(4);
-    Packet retry, forward;
-    ASSERT_TRUE(q.add(&retry, PACKET_PRIORITY_LOWEST, 0));
+    Packet low, forward;
+    ASSERT_TRUE(q.add(&low, 254, 0));
     ASSERT_TRUE(q.add(&forward, 3, 0));
-    EXPECT_EQ(&forward, q.get(1000));         // a forward still goes first
-    EXPECT_EQ(&retry, q.get(1000));           // then the retry, which does get sent
+    EXPECT_EQ(&forward, q.get(1000));
+    EXPECT_EQ(&low, q.get(1000));
     EXPECT_EQ(0, q.count());
 }
 
