@@ -486,10 +486,35 @@ TEST_F(AtTxFixture, SentForward_UnansweredTimesOutOneWindowAfterTheSend) {
     forward(p);
     g_mock_millis += 60000;
     sentOnAir(p);
-    g_mock_millis += 1000;
+    g_mock_millis += 500;
     t.checkEchoTimeouts();
     EXPECT_EQ(0u, t.getEchoTimeoutCount());
     pastWindow();
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+}
+
+// the window is the neighbor's turnaround only: airtime * 6 + 250 ms, without the
+// 500 ms base that the start-at-scheduling window also carries (100 ms airtime here)
+TEST_F(AtTxFixture, WindowIsTheNeighborTurnaroundWithoutTheBase) {
+    Packet p = makeFloodPacket(0x58);
+    forward(p);
+    sentOnAir(p);
+    g_mock_millis += 800;                      // 100 * 6 + 250 = 850
+    t.checkEchoTimeouts();
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());
+    g_mock_millis += 100;
+    t.checkEchoTimeouts();
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+}
+
+TEST_F(RetryFixture, ScheduleTimeWindowKeepsTheBase) {
+    Packet p = makeFloodPacket(0x59);
+    forward(p);
+    g_mock_millis += 1300;                     // 500 + 100 * 6 + 250 = 1350
+    t.checkEchoTimeouts();
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());
+    g_mock_millis += 100;
+    t.checkEchoTimeouts();
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
 }
 

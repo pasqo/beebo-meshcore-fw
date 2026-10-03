@@ -293,7 +293,11 @@ public:
     // TX of the rebroadcast) -- see the comment above
     // ECHO_TIMEOUT_BASE_MILLIS for why the constants are a local copy
     // rather than a shared call.
-    _echo_timeout[idx] = ECHO_TIMEOUT_BASE_MILLIS +
+    // At the send (setEchoAtTx()) the window is the neighbor's turnaround only:
+    // its random retransmit delay plus its own airtime (ECHO_PERHOP_FACTOR) and a
+    // margin. The base covers our own side of a window that starts at scheduling,
+    // which this one no longer includes.
+    _echo_timeout[idx] = (_echo_at_tx ? 0 : ECHO_TIMEOUT_BASE_MILLIS) +
         (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
     if (_echo_flags[idx] & ECHO_F_WAIT_TX) _waiting_tx--;   // its queued retry no longer has a slot to time
