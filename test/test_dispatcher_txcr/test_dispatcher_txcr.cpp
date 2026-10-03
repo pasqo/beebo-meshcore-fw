@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <string>
 #include "Dispatcher.h"
+#include "helpers/StaticPoolPacketManager.h"
 
 using namespace mesh;
 
@@ -98,6 +99,28 @@ TEST_F(Fixture, ObtainNewPacket_ClearsStaleTxCr) {
     pool.pool._tx_cr = 8;                     // pool reuses a packet that was sent at CR 8
     Packet* p = d.obtainNewPacket();
     EXPECT_EQ(0, p->_tx_cr);
+}
+
+// beebo: PacketQueue::get() starts its best-priority search at 0xFF and keeps
+// only a strictly lower value, so a packet queued at priority 255 is never
+// selected: it would sit in the queue forever, holding a pool slot. The route
+// retry is queued at the lowest priority that can still be sent.
+TEST(PacketQueuePriority, Priority255IsNeverSelected) {
+    PacketQueue q(4);
+    Packet p;
+    ASSERT_TRUE(q.add(&p, 255, 0));
+    EXPECT_EQ(nullptr, q.get(1000));
+    EXPECT_EQ(1, q.count());                  // still stuck in the queue
+}
+
+TEST(PacketQueuePriority, LowestSendablePriorityIsSelectedAfterTheOthers) {
+    PacketQueue q(4);
+    Packet retry, forward;
+    ASSERT_TRUE(q.add(&retry, PACKET_PRIORITY_LOWEST, 0));
+    ASSERT_TRUE(q.add(&forward, 3, 0));
+    EXPECT_EQ(&forward, q.get(1000));         // a forward still goes first
+    EXPECT_EQ(&retry, q.get(1000));           // then the retry, which does get sent
+    EXPECT_EQ(0, q.count());
 }
 
 int main(int argc, char** argv) {

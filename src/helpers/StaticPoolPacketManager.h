@@ -2,6 +2,11 @@
 
 #include <Dispatcher.h>
 
+// beebo: lower value = sent first. PacketQueue::get() never selects a packet
+// queued at 0xFF (its search keeps only a strictly lower priority than 0xFF),
+// so the lowest priority that is ever sent is one below it.
+#define PACKET_PRIORITY_LOWEST 254
+
 class PacketQueue {
   mesh::Packet** _table;
   uint8_t* _pri_table;

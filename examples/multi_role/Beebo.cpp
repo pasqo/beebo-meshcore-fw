@@ -2018,7 +2018,7 @@ uint32_t Beebo::applyClockSync(
 // startMonRing() ran.
 #ifdef BEEBO_ROUTE_RETRY
 // beebo: a retry is the forwarded packet again, as the lowest-priority send.
-#define ROUTE_RETRY_PRIORITY 255
+#define ROUTE_RETRY_PRIORITY PACKET_PRIORITY_LOWEST
 
 static bool routeRetryHook(void* ctx, const uint8_t* raw, uint8_t len, uint8_t attempt) {
   return ((Beebo*)ctx)->sendRouteRetry(raw, len, attempt);
