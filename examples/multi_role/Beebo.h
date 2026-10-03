@@ -431,7 +431,7 @@ public:
   void begin();
   void startMonRing();  // beebo: claim MonRing's fixed PSRAM block + resolve the real time anchor (call FIRST in setup(), after clock_init(), before RLOG_ID_BOOT_START)
 #ifdef BEEBO_ROUTE_RETRY
-  // beebo: route retry (plans/ROUTE_RETRY.md). initRouteRetry() claims the
+  // beebo: route retry (kbase/ROUTE_RETRY.md). initRouteRetry() claims the
   // retry body store (PSRAM, once) and installs the hook; setRouteRetry()
   // pushRouteRetry() applies the two settings, retry_no only while the repeater role is live.
   void initRouteRetry();
