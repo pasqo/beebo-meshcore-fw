@@ -36,6 +36,17 @@ public:
   */
   virtual uint32_t getEstAirtimeFor(int len_bytes) = 0;
 
+  /**
+   * \brief  beebo: air-time for 'len_bytes' at coding rate 'cr' (5..8); 0 = the configured CR.
+  */
+  virtual uint32_t getEstAirtimeFor(int len_bytes, uint8_t cr) { return getEstAirtimeFor(len_bytes); }
+
+  /**
+   * \brief  beebo: transmit the next packet at coding rate 'cr' (5..8). Called before
+   *         startSendRaw(); onSendFinished() restores the configured CR.
+  */
+  virtual void setTxCr(uint8_t cr) { }
+
   virtual float packetScore(float snr, int packet_len) = 0;
 
   /**

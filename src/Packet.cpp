@@ -8,6 +8,7 @@ Packet::Packet() {
   header = 0;
   path_len = 0;
   payload_len = 0;
+  _tx_cr = 0;
 #ifdef MSG_INCLUDE_RSSI
   _rssi = 0;
 #endif

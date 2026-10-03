@@ -155,6 +155,198 @@ TEST(SimpleMeshTables, DedupTableFullEvent_TimestampMatchesRtcEpochNotScaleConfu
     EXPECT_EQ(1758000000u, sync_rec->sync.timestamp);
 }
 
+// ── echo retry (flood forwards) ──────────────────────────────────────────────
+
+namespace {
+struct RetryCall { uint8_t raw[MAX_TRANS_UNIT]; uint8_t len; uint8_t attempt; };
+struct RetryProbe {
+    int calls = 0;
+    bool accept = true;
+    RetryCall last;
+};
+bool retryHook(void* ctx, const uint8_t* raw, uint8_t len, uint8_t attempt) {
+    RetryProbe* p = (RetryProbe*)ctx;
+    p->calls++;
+    p->last.len = len;
+    p->last.attempt = attempt;
+    memcpy(p->last.raw, raw, len);
+    return p->accept;
+}
+
+const uint32_t AIRTIME_MS = 100;
+// ECHO_TIMEOUT_BASE_MILLIS + airtime * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS = 1350
+const uint32_t PAST_WINDOW_MS = 2000;
+
+struct RetryFixture : public ::testing::Test {
+    SimpleMeshTables t;
+    RetryProbe probe;
+    uint8_t store[MAX_ECHO_HASHES * MAX_TRANS_UNIT];
+    void SetUp() override {
+        g_mock_millis = 1000;
+        t.setRetryStore(store);
+        t.setRetryHook(retryHook, &probe);
+    }
+    // what Mesh::routeRecvPacket() does for a forwarded flood
+    void forward(Packet& p) {
+        t.markSeen(&p);
+        t.markSelfTx(&p, AIRTIME_MS);
+    }
+    void pastWindow() {
+        g_mock_millis += PAST_WINDOW_MS;
+        t.checkEchoTimeouts();
+    }
+};
+}
+
+TEST_F(RetryFixture, RetryNoZero_TimeoutResolvesWithoutRetry) {
+    Packet p = makeFloodPacket(0x10);
+    forward(p);
+    pastWindow();
+    EXPECT_EQ(0, probe.calls);
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+    EXPECT_EQ(1u, t.getEchoAttemptCount());
+}
+
+TEST_F(RetryFixture, RetryNoOne_TimeoutFiresRetryWithSameBytes) {
+    t.setRetryNo(1);
+    Packet p = makeFloodPacket(0x11);
+    forward(p);
+    uint8_t expect[MAX_TRANS_UNIT];
+    uint8_t expect_len = p.writeTo(expect);
+    pastWindow();
+    ASSERT_EQ(1, probe.calls);
+    EXPECT_EQ(1, probe.last.attempt);
+    ASSERT_EQ(expect_len, probe.last.len);
+    EXPECT_EQ(0, memcmp(expect, probe.last.raw, expect_len));
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());   // not resolved yet
+    EXPECT_EQ(2u, t.getEchoAttemptCount());   // a retry is an attempt
+}
+
+TEST_F(RetryFixture, RetryEchoed_CountsSuccessNotTimeout) {
+    t.setRetryNo(1);
+    Packet p = makeFloodPacket(0x12);
+    forward(p);
+    pastWindow();
+    ASSERT_EQ(1, probe.calls);
+    g_mock_millis += 100;
+    EXPECT_TRUE(t.wasSeen(&p));               // neighbor's echo of the retry
+    t.checkEchoTimeouts();
+    EXPECT_EQ(1u, t.getEchoSuccessCount());
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());
+    EXPECT_EQ(2u, t.getEchoAttemptCount());
+}
+
+TEST_F(RetryFixture, RetryExhausted_CountsTimeoutOnce) {
+    t.setRetryNo(1);
+    Packet p = makeFloodPacket(0x13);
+    forward(p);
+    pastWindow();
+    pastWindow();
+    EXPECT_EQ(1, probe.calls);
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+    EXPECT_EQ(0u, t.getEchoSuccessCount());
+    EXPECT_EQ(2u, t.getEchoAttemptCount());
+    pastWindow();                             // resolved: nothing more happens
+    EXPECT_EQ(1, probe.calls);
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+}
+
+TEST_F(RetryFixture, RetryNoTwo_RetriesTwiceWithIncreasingAttempt) {
+    t.setRetryNo(2);
+    Packet p = makeFloodPacket(0x14);
+    forward(p);
+    pastWindow();
+    EXPECT_EQ(1, probe.last.attempt);
+    pastWindow();
+    EXPECT_EQ(2, probe.last.attempt);
+    pastWindow();
+    EXPECT_EQ(2, probe.calls);
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+    EXPECT_EQ(3u, t.getEchoAttemptCount());
+}
+
+TEST_F(RetryFixture, RetryNo_ClampedToThree) {
+    t.setRetryNo(9);
+    EXPECT_EQ(3, t.getRetryNo());
+    t.setRetryNo(0);
+    EXPECT_EQ(0, t.getRetryNo());
+}
+
+TEST_F(RetryFixture, EchoBeforeTimeout_NoRetry) {
+    t.setRetryNo(1);
+    Packet p = makeFloodPacket(0x15);
+    forward(p);
+    g_mock_millis += 200;
+    EXPECT_TRUE(t.wasSeen(&p));
+    pastWindow();
+    EXPECT_EQ(0, probe.calls);
+    EXPECT_EQ(1u, t.getEchoSuccessCount());
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());
+}
+
+TEST_F(RetryFixture, HookRefuses_ResolvesAsTimeout) {
+    t.setRetryNo(1);
+    probe.accept = false;                     // TX queue full
+    Packet p = makeFloodPacket(0x16);
+    forward(p);
+    pastWindow();
+    EXPECT_EQ(1, probe.calls);
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+    EXPECT_EQ(1u, t.getEchoAttemptCount());   // the refused retry never went out
+    pastWindow();
+    EXPECT_EQ(1, probe.calls);
+}
+
+TEST_F(RetryFixture, NoStore_NeverRetries) {
+    SimpleMeshTables bare;                    // PSRAM allocation failed or not compiled in
+    bare.setRetryHook(retryHook, &probe);
+    bare.setRetryNo(1);
+    Packet p = makeFloodPacket(0x17);
+    bare.markSeen(&p);
+    bare.markSelfTx(&p, AIRTIME_MS);
+    g_mock_millis += PAST_WINDOW_MS;
+    bare.checkEchoTimeouts();
+    EXPECT_EQ(0, probe.calls);
+    EXPECT_EQ(1u, bare.getEchoTimeoutCount());
+}
+
+TEST_F(RetryFixture, DirectForward_NeverRetried) {
+    t.setRetryNo(1);
+    Packet p = makeDirectPacket(0x18);
+    t.markSeen(&p);
+    t.markSelfTx(&p, AIRTIME_MS);
+    pastWindow();
+    EXPECT_EQ(0, probe.calls);
+    EXPECT_EQ(0u, t.getEchoAttemptCount());
+    EXPECT_EQ(1u, t.getSelfTxDirectCount());
+}
+
+TEST_F(RetryFixture, RetryNoChange_AffectsOnlyNewForwards) {
+    t.setRetryNo(1);
+    Packet p1 = makeFloodPacket(0x19);
+    forward(p1);
+    t.setRetryNo(0);                          // slot keeps the value it had when the packet was forwarded
+    Packet p2 = makeFloodPacket(0x1A);
+    forward(p2);
+    pastWindow();
+    EXPECT_EQ(1, probe.calls);                // only p1 retried
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());   // p2 resolved
+}
+
+TEST_F(RetryFixture, RetrySlotReusedByRingWrap_DoesNotRetryStaleBody) {
+    t.setRetryNo(1);
+    Packet first = makeFloodPacket(0x20);
+    forward(first);
+    for (int i = 1; i <= MAX_ECHO_HASHES; i++) {   // wraps onto first's slot
+        Packet p = makeFloodPacket(0x20 + i);
+        forward(p);
+    }
+    EXPECT_EQ(1u, t.getEchoOverflowCount());
+    pastWindow();
+    // every live slot retries its own body; the overwritten one never does
+    EXPECT_EQ(MAX_ECHO_HASHES, probe.calls);
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

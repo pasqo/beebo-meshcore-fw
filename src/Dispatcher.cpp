@@ -396,7 +396,9 @@ void Dispatcher::checkSend() {
     } else {
       memcpy(&raw[len], outbound->payload, outbound->payload_len); len += outbound->payload_len;
 
-      uint32_t max_airtime = _radio->getEstAirtimeFor(len)*3/2;
+      uint8_t tx_cr = outbound->_tx_cr;
+      uint32_t max_airtime = _radio->getEstAirtimeFor(len, tx_cr)*3/2;
+      if (tx_cr) _radio->setTxCr(tx_cr);
       outbound_start = _ms->getMillis();
       bool success = _radio->startSendRaw(raw, len);
       if (!success) {
@@ -433,6 +435,7 @@ Packet* Dispatcher::obtainNewPacket() {
   } else {
     pkt->payload_len = pkt->path_len = 0;
     pkt->_snr = 0;
+    pkt->_tx_cr = 0;
   }
   return pkt;
 }

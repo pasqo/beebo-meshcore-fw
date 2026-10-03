@@ -55,6 +55,7 @@ public:
   uint8_t path[MAX_PATH_SIZE];
   uint8_t payload[MAX_PACKET_PAYLOAD];
   int8_t _snr;
+  uint8_t _tx_cr;  // beebo: LoRa coding rate (5..8 = 4/x) to transmit this packet at; 0 = the radio's configured CR
 #ifdef MSG_INCLUDE_RSSI
   int16_t _rssi;  // dBm; captured at RX so message frames can report it (off by default)
 #endif

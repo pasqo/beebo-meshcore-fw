@@ -65,6 +65,24 @@
 #define DEDUP_LIVE_WINDOW_MS_DEFAULT 10000UL
 #define DEDUP_WINDOW_MAX_MS 60000UL
 
+// beebo: _echo_flags bits. CONFIRMED: already counted toward echo_success_count
+// this generation. RESOLVED: reached a final verdict (see _echo_flags' use in
+// checkEchoTimeouts()). ACTIVE: slot ever assigned (vs. pristine boot state).
+// RETRIES_LEFT: retries still to send if the echo window elapses unanswered.
+// RETRIES_SENT: retries already sent (the next retry's attempt number - 1).
+#define ECHO_F_CONFIRMED     0x01
+#define ECHO_F_RESOLVED      0x02
+#define ECHO_F_ACTIVE        0x04
+#define ECHO_F_LEFT_SHIFT    3
+#define ECHO_F_SENT_SHIFT    5
+#define ECHO_F_COUNT_MASK    0x03
+#define ECHO_RETRY_NO_MAX    3
+
+// beebo: sends one retry of a forward whose echo timed out. raw/len is the
+// packet as it was forwarded, attempt 1..ECHO_RETRY_NO_MAX. Returns false if it
+// could not be queued (the slot then resolves as an echo timeout).
+typedef bool (*EchoRetryHook)(void* ctx, const uint8_t* raw, uint8_t len, uint8_t attempt);
+
 class SimpleMeshTables : public mesh::MeshTables {
   uint8_t _hashes[MAX_PACKET_HASHES*MAX_HASH_SIZE];
   // beebo: millis() at each _hashes slot's own insertion (index-aligned
@@ -89,14 +107,14 @@ class SimpleMeshTables : public mesh::MeshTables {
   // ECHO_TIMEOUT_BASE_MILLIS. Replaces a single flat window constant so
   // a short packet doesn't wait as long as a long one, and vice versa.
   uint32_t _echo_timeout[MAX_ECHO_HASHES];
-  bool _echo_confirmed[MAX_ECHO_HASHES];  // already counted toward echo_success_count this generation?
+  // beebo: per-slot flag byte, see ECHO_F_* below. Packs what used to be three
+  // bool arrays (confirmed/resolved/active) plus the route-retry state.
+  uint8_t _echo_flags[MAX_ECHO_HASHES];
   // true once this generation has
   // reached a final verdict, confirmed (_echo_confirmed) or timed out
   // unconfirmed (checkEchoTimeouts()). Mirrors the ack-table fix: a slot
   // that's still pending (neither) when the ring wraps back to reuse it is a
   // real starvation event (_echo_overflow_count), not a silent no-op.
-  bool _echo_resolved[MAX_ECHO_HASHES];
-  bool _echo_active[MAX_ECHO_HASHES];  // has this slot ever been assigned? (vs. pristine boot state)
   // Packet::calculateMonRingHash()
   // per slot (SHA256(payload)[0:4], NOT the calculatePacketHash() this ring
   // matches dups against) -- the correlation key EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT needs
@@ -104,6 +122,14 @@ class SimpleMeshTables : public mesh::MeshTables {
   // MON_RX record of the specific packet that confirmed it too).
   uint32_t _echo_monring_hash[MAX_ECHO_HASHES];
   int _echo_next_idx;
+  // beebo: route retry. _retry_store is MAX_ECHO_HASHES * MAX_TRANS_UNIT bytes
+  // owned by the caller (PSRAM, allocated once), one raw packet per echo slot;
+  // null disables retry.
+  uint8_t* _retry_store = nullptr;
+  uint8_t _retry_len[MAX_ECHO_HASHES];
+  uint8_t _retry_no = 0;
+  EchoRetryHook _retry_hook = nullptr;
+  void* _retry_ctx = nullptr;
   MonRing* _monring = nullptr;
   mesh::RTCClock* _rtc = nullptr;
   uint32_t _echo_success_count;
@@ -204,9 +230,8 @@ public:
     memset(_echo_hashes, 0, sizeof(_echo_hashes));
     memset(_echo_time, 0, sizeof(_echo_time));
     memset(_echo_timeout, 0, sizeof(_echo_timeout));
-    memset(_echo_confirmed, 0, sizeof(_echo_confirmed));
-    memset(_echo_resolved, 0, sizeof(_echo_resolved));
-    memset(_echo_active, 0, sizeof(_echo_active));
+    memset(_echo_flags, 0, sizeof(_echo_flags));
+    memset(_retry_len, 0, sizeof(_retry_len));
     memset(_echo_monring_hash, 0, sizeof(_echo_monring_hash));
     _echo_next_idx = 0;
     _echo_success_count = 0;
@@ -237,7 +262,7 @@ public:
     // than that generation's own echo window -- a real starvation event,
     // not a silent no-op. Only possible if MAX_ECHO_HASHES self-tx
     // events happen inside one generation's own echo timeout.
-    if (_echo_active[idx] && !_echo_resolved[idx]) {
+    if ((_echo_flags[idx] & ECHO_F_ACTIVE) && !(_echo_flags[idx] & ECHO_F_RESOLVED)) {
       _echo_overflow_count++;
       _emitEchoOverflowEvent(_echo_monring_hash[idx],
                              millis() - _echo_time[idx]);
@@ -254,9 +279,13 @@ public:
     _echo_timeout[idx] = ECHO_TIMEOUT_BASE_MILLIS +
         (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
-    _echo_confirmed[idx] = false;  // fresh generation for this slot
-    _echo_resolved[idx] = false;
-    _echo_active[idx] = true;
+    // fresh generation for this slot; retries_left starts at retry_no
+    uint8_t left = 0;
+    if (_retry_no > 0 && _retry_store != nullptr) {
+      _retry_len[idx] = packet->writeTo(&_retry_store[idx * MAX_TRANS_UNIT]);
+      left = _retry_no;
+    }
+    _echo_flags[idx] = ECHO_F_ACTIVE | (left << ECHO_F_LEFT_SHIFT);
     _echo_next_idx = (idx + 1) % MAX_ECHO_HASHES;
     _echo_attempt_count++;
   }
@@ -272,14 +301,34 @@ public:
   void checkEchoTimeouts() {
     uint32_t now = millis();
     for (int i = 0; i < MAX_ECHO_HASHES; i++) {
-      if (_echo_active[i] && !_echo_resolved[i]
+      uint8_t f = _echo_flags[i];
+      if ((f & ECHO_F_ACTIVE) && !(f & ECHO_F_RESOLVED)
           && (now - _echo_time[i]) > _echo_timeout[i]) {  // unsigned sub -- millis() rollover-safe
+        uint8_t left = (f >> ECHO_F_LEFT_SHIFT) & ECHO_F_COUNT_MASK;
+        uint8_t sent = (f >> ECHO_F_SENT_SHIFT) & ECHO_F_COUNT_MASK;
+        if (left > 0 && _retry_hook != nullptr
+            && _retry_hook(_retry_ctx, &_retry_store[i * MAX_TRANS_UNIT], _retry_len[i], sent + 1)) {
+          // retried: same slot, echo window restarted, verdict deferred to the retry
+          _echo_flags[i] = (f & ~((ECHO_F_COUNT_MASK << ECHO_F_LEFT_SHIFT) | (ECHO_F_COUNT_MASK << ECHO_F_SENT_SHIFT)))
+                           | ((left - 1) << ECHO_F_LEFT_SHIFT) | ((sent + 1) << ECHO_F_SENT_SHIFT);
+          _echo_time[i] = now;
+          _echo_attempt_count++;
+          continue;
+        }
         _echo_timeout_count++;
-        _echo_resolved[i] = true;
+        _echo_flags[i] |= ECHO_F_RESOLVED;
         _emitEchoEvent(TXCONFIRM_TIMEOUT, _echo_monring_hash[i], now - _echo_time[i]);
       }
     }
   }
+
+  // beebo: route retry. n = retries per forward (0 disables), clamped to
+  // ECHO_RETRY_NO_MAX; applies to packets forwarded after the call. The store is
+  // MAX_ECHO_HASHES * MAX_TRANS_UNIT bytes, one raw packet per echo slot.
+  void setRetryNo(uint8_t n) { _retry_no = n > ECHO_RETRY_NO_MAX ? ECHO_RETRY_NO_MAX : n; }
+  uint8_t getRetryNo() const { return _retry_no; }
+  void setRetryStore(uint8_t* store) { _retry_store = store; }
+  void setRetryHook(EchoRetryHook hook, void* ctx) { _retry_hook = hook; _retry_ctx = ctx; }
 
   uint32_t getEchoSuccessCount() const { return _echo_success_count; }
   uint32_t getEchoTimeoutCount() const { return _echo_timeout_count; }
@@ -331,9 +380,8 @@ public:
         // making it an unbounded echo-multiplicity count instead of a
         // proper 0/1-per-attempt rate comparable to ack_success_count.
         int slot = _findRecentEchoSlot(hash);
-        if (slot >= 0 && !_echo_confirmed[slot]) {
-          _echo_confirmed[slot] = true;
-          _echo_resolved[slot] = true;
+        if (slot >= 0 && !(_echo_flags[slot] & ECHO_F_CONFIRMED)) {
+          _echo_flags[slot] |= ECHO_F_CONFIRMED | ECHO_F_RESOLVED;
           _echo_success_count++;
           _emitEchoEvent(TXCONFIRM_SUCCESS, _echo_monring_hash[slot],
                             millis() - _echo_time[slot]);
