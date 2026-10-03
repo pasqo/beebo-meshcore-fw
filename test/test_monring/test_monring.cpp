@@ -1892,6 +1892,14 @@ TEST(MonRingRouteStats, TheIntervalAloneIsNotAChange) {
   EXPECT_FALSE(MonRing::routeStatsDue(MonRing::packRouteStats(0, 99, 0, 60), last, true));
 }
 
+// beebo: route retry -- a TX record says which transmission of a packet it is
+// (0 = first send, n = nth retry) and the coding rate it went out at.
+TEST(TxRecordLayout, AttemptAndCrFillTheReservedBytes) {
+    EXPECT_EQ(14u, offsetof(TxRecord, attempt));
+    EXPECT_EQ(15u, offsetof(TxRecord, cr));
+    EXPECT_EQ(16u, sizeof(TxRecord));
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

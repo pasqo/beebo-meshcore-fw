@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "helpers/SimpleMeshTables.h"
 #include "helpers/MonRing.h"
+#include <vector>
 
 using namespace mesh;
 
@@ -322,6 +323,71 @@ TEST_F(RetryFixture, DirectForward_NeverRetried) {
     EXPECT_EQ(0, probe.calls);
     EXPECT_EQ(0u, t.getEchoAttemptCount());
     EXPECT_EQ(1u, t.getSelfTxDirectCount());
+}
+
+// the echo events say which transmission they judge: data[9] = 0 for the first
+// send, n for the nth retry
+struct EventFixture : public RetryFixture {
+    MonRecord buf[16];
+    MonRing ring;
+    FakeRTCClock clock{1758000000u};
+    void SetUp() override {
+        RetryFixture::SetUp();
+        ASSERT_TRUE(ring.init(reinterpret_cast<uint8_t*>(buf), sizeof(buf), 0, 0, RadioRecord{}, EnvRecord{}));
+        ring.setConfig(MON_CAP_ALL | MON_CAP_ENABLED);
+        t.setMonRing(&ring, &clock);
+        t.setRetryNo(2);
+    }
+    // (event_type, attempt) of every echo verdict event, oldest first
+    std::vector<std::pair<int, int>> verdicts() {
+        MonRecord out[16];
+        uint32_t returned = 0;
+        ring.serialize(reinterpret_cast<uint8_t*>(out), sizeof(out), 0, &returned);
+        std::vector<std::pair<int, int>> v;
+        for (uint32_t i = 0; i < returned; i++) {
+            if (out[i].kind != MON_EVENT) continue;
+            int type = out[i].event.event_type;
+            if (type == EVENT_ECHO_SUCCESS || type == EVENT_ECHO_TIMEOUT) v.push_back({type, out[i].event.data[9]});
+        }
+        return v;
+    }
+};
+
+TEST_F(EventFixture, FirstSendEchoed_EventAttemptZero) {
+    Packet p = makeFloodPacket(0x30);
+    forward(p);
+    EXPECT_TRUE(t.wasSeen(&p));
+    ASSERT_EQ(1u, verdicts().size());
+    EXPECT_EQ(std::make_pair((int)EVENT_ECHO_SUCCESS, 0), verdicts()[0]);
+}
+
+TEST_F(EventFixture, RetryEchoed_EventAttemptOne_NoTimeoutEventForTheFirstSend) {
+    Packet p = makeFloodPacket(0x31);
+    forward(p);
+    pastWindow();                              // first send unanswered -> retry 1 sent
+    EXPECT_TRUE(verdicts().empty());           // a retry in flight is not a verdict
+    EXPECT_TRUE(t.wasSeen(&p));
+    ASSERT_EQ(1u, verdicts().size());
+    EXPECT_EQ(std::make_pair((int)EVENT_ECHO_SUCCESS, 1), verdicts()[0]);
+}
+
+TEST_F(EventFixture, RetriesExhausted_TimeoutEventCarriesLastAttempt) {
+    Packet p = makeFloodPacket(0x32);
+    forward(p);
+    pastWindow();
+    pastWindow();
+    pastWindow();                              // retry 2 unanswered: final verdict
+    ASSERT_EQ(1u, verdicts().size());
+    EXPECT_EQ(std::make_pair((int)EVENT_ECHO_TIMEOUT, 2), verdicts()[0]);
+}
+
+TEST_F(EventFixture, NoRetry_TimeoutEventAttemptZero) {
+    t.setRetryNo(0);
+    Packet p = makeFloodPacket(0x33);
+    forward(p);
+    pastWindow();
+    ASSERT_EQ(1u, verdicts().size());
+    EXPECT_EQ(std::make_pair((int)EVENT_ECHO_TIMEOUT, 0), verdicts()[0]);
 }
 
 TEST_F(RetryFixture, SelfOriginatedFlood_NeverRetried) {

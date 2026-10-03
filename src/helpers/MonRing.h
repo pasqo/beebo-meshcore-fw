@@ -291,7 +291,11 @@ enum : uint8_t {
   //                MON_TX record, not to the ACK packet's own MON_RX record.
   //   data[5:9]  = age_ms (u32 LE) -- elapsed time since the original
   //                transmission until this verdict (trip time).
-  //   data[9:12] = reserved
+  //   data[9]    = (EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT) which transmission
+  //                the verdict judges: 0 = the first send, n = the nth retry
+  //                (TxRecord.attempt of the MON_TX record it belongs to).
+  //                A retry in flight emits no verdict for the attempt before it.
+  //   data[10:12] = reserved
   EVENT_ACK_SUCCESS = 20,   // DM/ACK side, ACK received (Beebo::processAck())
   EVENT_ACK_TIMEOUT = 21,   // DM/ACK side, no ACK within deadline (checkAckTableTimeouts())
   EVENT_ECHO_SUCCESS = 22,  // flood-echo side, rebroadcast heard (SimpleMeshTables::wasSeen()/markSeen())
@@ -534,7 +538,8 @@ struct __attribute__((packed)) TxRecord {
   uint8_t  result;      // TXR_* send outcome
   uint16_t airtime_ms;  // estimated on-air time (deterministic from sf/bw/cr/len)
   uint8_t  dst[3];      // next-hop neighbor hash (DIRECT only; zero for FLOOD)
-  uint8_t  _rsvd[2];
+  uint8_t  attempt;     // route retry: 0 = first send, n = nth retry of the same packet
+  uint8_t  cr;          // LoRa coding rate 4/x (5..8) this frame went out at
 };
 struct __attribute__((packed)) RadioRecord {
   uint8_t  kind;        // MON_RADIO

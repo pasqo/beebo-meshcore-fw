@@ -436,7 +436,7 @@ public:
   // pushRouteRetry() applies the two settings, retry_no only while the repeater role is live.
   void initRouteRetry();
   void pushRouteRetry();   // apply the live role's retry_no/retry_cr (boot, reloadPrefs(), the two setters)
-  bool sendRouteRetry(const uint8_t* raw, uint8_t len);
+  bool sendRouteRetry(const uint8_t* raw, uint8_t len, uint8_t attempt);
   uint8_t _route_retry_cr = 8;
 #endif
   void initMonRing();  // beebo: apply MonRing's real boot-known state (call after beebo.begin(), same position as before)

@@ -499,7 +499,7 @@ void Beebo::onPacketDisposed(mesh::Packet* pkt) {
 #endif
 }
 
-static void fillTxRecordCommon(TxRecord& rec, mesh::Packet* pkt, int len, mesh::Radio* radio) {
+static void fillTxRecordCommon(TxRecord& rec, mesh::Packet* pkt, int len, mesh::Radio* radio, uint8_t configured_cr) {
   // beebo: shared TX record fill for logTx/logTxFail — pkt_hash uses the same
   // payload-only SHA256 scheme as the RX capture so records correlate across
   // the rx/tx path (see Beebo::logRxRaw). Airtime is estimated rather than
@@ -507,7 +507,9 @@ static void fillTxRecordCommon(TxRecord& rec, mesh::Packet* pkt, int len, mesh::
   // as accurate as a wall-clock measurement and needs no extra timing plumbing.
   memset(&rec, 0, sizeof(rec));
   rec.header = pkt->header;
-  rec.airtime_ms = (uint16_t)radio->getEstAirtimeFor(len);
+  rec.airtime_ms = (uint16_t)radio->getEstAirtimeFor(len, pkt->_tx_cr);
+  rec.attempt = pkt->_tx_attempt;
+  rec.cr = pkt->_tx_cr ? pkt->_tx_cr : configured_cr;
 
   SHA256 sha;
   sha.update(pkt->payload, pkt->payload_len);
@@ -527,7 +529,7 @@ void Beebo::logTx(mesh::Packet* pkt, int len) {
   _last_radio_active_ms = _ms->getMillis();  // beebo: feeds isIdle()'s settle-margin gate
   if (monring.enabled() && monring.allocated() && len > 0) {
     TxRecord rec;
-    fillTxRecordCommon(rec, pkt, len, _radio);
+    fillTxRecordCommon(rec, pkt, len, _radio, _role_state->prefs.cr);
     rec.result = TXR_OK;
     // beebo: close out any stale radio epoch before this capture -- env
     // sampling is on its own fixed cadence in loop(), not this trigger,
@@ -543,7 +545,7 @@ void Beebo::logTxFail(mesh::Packet* pkt, int len) {
   _last_radio_active_ms = _ms->getMillis();  // beebo: feeds isIdle()'s settle-margin gate
   if (monring.enabled() && monring.allocated() && len > 0) {
     TxRecord rec;
-    fillTxRecordCommon(rec, pkt, len, _radio);
+    fillTxRecordCommon(rec, pkt, len, _radio, _role_state->prefs.cr);
     rec.result = TXR_TIMEOUT;
     // beebo: close out any stale radio epoch before this capture -- env
     // sampling is on its own fixed cadence in loop(), not this trigger,
@@ -2019,10 +2021,10 @@ uint32_t Beebo::applyClockSync(
 #define ROUTE_RETRY_PRIORITY 255
 
 static bool routeRetryHook(void* ctx, const uint8_t* raw, uint8_t len, uint8_t attempt) {
-  return ((Beebo*)ctx)->sendRouteRetry(raw, len);
+  return ((Beebo*)ctx)->sendRouteRetry(raw, len, attempt);
 }
 
-bool Beebo::sendRouteRetry(const uint8_t* raw, uint8_t len) {
+bool Beebo::sendRouteRetry(const uint8_t* raw, uint8_t len, uint8_t attempt) {
   mesh::Packet* pkt = obtainNewPacket();
   if (pkt == NULL) return false;
   if (!pkt->readFrom(raw, len)) {
@@ -2030,6 +2032,7 @@ bool Beebo::sendRouteRetry(const uint8_t* raw, uint8_t len) {
     return false;
   }
   pkt->_tx_cr = _route_retry_cr;
+  pkt->_tx_attempt = attempt;
   if (!_mgr->queueOutbound(pkt, ROUTE_RETRY_PRIORITY, futureMillis(0))) {
     logTxQueueFull(false);
     return false;

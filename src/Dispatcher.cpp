@@ -436,6 +436,7 @@ Packet* Dispatcher::obtainNewPacket() {
     pkt->payload_len = pkt->path_len = 0;
     pkt->_snr = 0;
     pkt->_tx_cr = 0;
+    pkt->_tx_attempt = 0;
   }
   return pkt;
 }

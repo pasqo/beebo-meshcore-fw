@@ -173,13 +173,14 @@ class SimpleMeshTables : public mesh::MeshTables {
   // instead (see MonRing.h's EVENT_ECHO_OVERFLOW comment for why it's a
   // separate event type). No-op if setMonRing() was never called (e.g.
   // native unit tests construct this class directly).
-  void _emitEchoEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_ms) {
+  void _emitEchoEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_ms, uint8_t attempt) {
     if (_monring == nullptr || _rtc == nullptr) return;
     EventRecord rec;
     memset(&rec, 0, sizeof(rec));
     rec.event_type = (verdict == TXCONFIRM_SUCCESS) ? EVENT_ECHO_SUCCESS : EVENT_ECHO_TIMEOUT;
     memcpy(&rec.data[1], &pkt_hash, 4);
     memcpy(&rec.data[5], &age_ms, 4);
+    rec.data[9] = attempt;   // which transmission this judges: 0 first send, n the nth retry
     // beebo: MonRing::appendEvent()'s `now_ms` is an already-resolved
     // absolute epoch-ms instant -- _rtc->nowMillis() (RTCClock::
     // nowMillis(), MeshCore.h), the one canonical function for "what time
@@ -311,7 +312,7 @@ public:
         }
         _echo_timeout_count++;
         _echo_flags[i] |= ECHO_F_RESOLVED;
-        _emitEchoEvent(TXCONFIRM_TIMEOUT, _echo_monring_hash[i], now - _echo_time[i]);
+        _emitEchoEvent(TXCONFIRM_TIMEOUT, _echo_monring_hash[i], now - _echo_time[i], sent);
       }
     }
   }
@@ -389,7 +390,8 @@ public:
           _echo_flags[slot] |= ECHO_F_CONFIRMED | ECHO_F_RESOLVED;
           _echo_success_count++;
           _emitEchoEvent(TXCONFIRM_SUCCESS, _echo_monring_hash[slot],
-                            millis() - _echo_time[slot]);
+                            millis() - _echo_time[slot],
+                            (_echo_flags[slot] >> ECHO_F_SENT_SHIFT) & ECHO_F_COUNT_MASK);
         }
         return true;
       }
