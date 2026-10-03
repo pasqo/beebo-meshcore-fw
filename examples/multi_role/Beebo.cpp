@@ -527,6 +527,7 @@ static void fillTxRecordCommon(TxRecord& rec, mesh::Packet* pkt, int len, mesh::
 
 void Beebo::logTx(mesh::Packet* pkt, int len) {
   _last_radio_active_ms = _ms->getMillis();  // beebo: feeds isIdle()'s settle-margin gate
+  ((SimpleMeshTables*)getTables())->noteTx(pkt);   // a queued retry's echo window starts when it is sent
   if (monring.enabled() && monring.allocated() && len > 0) {
     TxRecord rec;
     fillTxRecordCommon(rec, pkt, len, _radio, _role_state->prefs.cr);
@@ -543,6 +544,7 @@ void Beebo::logTx(mesh::Packet* pkt, int len) {
 
 void Beebo::logTxFail(mesh::Packet* pkt, int len) {
   _last_radio_active_ms = _ms->getMillis();  // beebo: feeds isIdle()'s settle-margin gate
+  ((SimpleMeshTables*)getTables())->noteTx(pkt);   // a failed start ends the wait too
   if (monring.enabled() && monring.allocated() && len > 0) {
     TxRecord rec;
     fillTxRecordCommon(rec, pkt, len, _radio, _role_state->prefs.cr);

@@ -70,6 +70,9 @@
 // checkEchoTimeouts()). ACTIVE: slot ever assigned (vs. pristine boot state).
 // RETRIES_LEFT: retries still to send if the echo window elapses unanswered.
 // RETRIES_SENT: retries already sent (the next retry's attempt number - 1).
+// WAIT_TX: a retry of this slot is queued and not on the air yet, so no echo
+// window runs; noteTx() starts it when the retry is sent.
+#define ECHO_F_WAIT_TX       0x80
 #define ECHO_F_CONFIRMED     0x01
 #define ECHO_F_RESOLVED      0x02
 #define ECHO_F_ACTIVE        0x04
@@ -128,6 +131,7 @@ class SimpleMeshTables : public mesh::MeshTables {
   uint8_t* _retry_store = nullptr;
   uint8_t _retry_len[MAX_ECHO_HASHES];
   uint8_t _retry_no = 0;
+  uint8_t _waiting_tx = 0;   // slots with ECHO_F_WAIT_TX set, so noteTx() hashes only when one waits
   EchoRetryHook _retry_hook = nullptr;
   void* _retry_ctx = nullptr;
   MonRing* _monring = nullptr;
@@ -160,7 +164,8 @@ class SimpleMeshTables : public mesh::MeshTables {
     uint32_t now = millis();
     for (int i = 0; i < MAX_ECHO_HASHES; i++) {
       if (memcmp(hash, _echo_hashes[i], MAX_HASH_SIZE) == 0
-          && (now - _echo_time[i]) <= _echo_timeout[i]) {  // unsigned sub -- millis() rollover-safe
+          && ((_echo_flags[i] & ECHO_F_WAIT_TX)
+              || (now - _echo_time[i]) <= _echo_timeout[i])) {  // unsigned sub -- millis() rollover-safe
         return i;
       }
     }
@@ -233,6 +238,7 @@ public:
     memset(_echo_timeout, 0, sizeof(_echo_timeout));
     memset(_echo_flags, 0, sizeof(_echo_flags));
     memset(_retry_len, 0, sizeof(_retry_len));
+    _waiting_tx = 0;
     memset(_echo_monring_hash, 0, sizeof(_echo_monring_hash));
     _echo_next_idx = 0;
     _echo_success_count = 0;
@@ -280,6 +286,7 @@ public:
     _echo_timeout[idx] = ECHO_TIMEOUT_BASE_MILLIS +
         (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
+    if (_echo_flags[idx] & ECHO_F_WAIT_TX) _waiting_tx--;   // its queued retry no longer has a slot to time
     _echo_flags[idx] = ECHO_F_ACTIVE;   // fresh generation for this slot; retry state starts at none
     _echo_next_idx = (idx + 1) % MAX_ECHO_HASHES;
     _echo_attempt_count++;
@@ -297,16 +304,18 @@ public:
     uint32_t now = millis();
     for (int i = 0; i < MAX_ECHO_HASHES; i++) {
       uint8_t f = _echo_flags[i];
-      if ((f & ECHO_F_ACTIVE) && !(f & ECHO_F_RESOLVED)
+      if ((f & ECHO_F_ACTIVE) && !(f & ECHO_F_RESOLVED) && !(f & ECHO_F_WAIT_TX)
           && (now - _echo_time[i]) > _echo_timeout[i]) {  // unsigned sub -- millis() rollover-safe
         uint8_t left = (f >> ECHO_F_LEFT_SHIFT) & ECHO_F_COUNT_MASK;
         uint8_t sent = (f >> ECHO_F_SENT_SHIFT) & ECHO_F_COUNT_MASK;
         if (left > 0 && _retry_hook != nullptr
             && _retry_hook(_retry_ctx, &_retry_store[i * MAX_TRANS_UNIT], _retry_len[i], sent + 1)) {
-          // retried: same slot, echo window restarted, verdict deferred to the retry
+          // retried: same slot, verdict deferred to the retry. Its echo window
+          // starts when noteTx() sees it go on the air, not while it is queued.
           _echo_flags[i] = (f & ~((ECHO_F_COUNT_MASK << ECHO_F_LEFT_SHIFT) | (ECHO_F_COUNT_MASK << ECHO_F_SENT_SHIFT)))
-                           | ((left - 1) << ECHO_F_LEFT_SHIFT) | ((sent + 1) << ECHO_F_SENT_SHIFT);
-          _echo_time[i] = now;
+                           | ((left - 1) << ECHO_F_LEFT_SHIFT) | ((sent + 1) << ECHO_F_SENT_SHIFT)
+                           | ECHO_F_WAIT_TX;
+          _waiting_tx++;
           _echo_attempt_count++;
           continue;
         }
@@ -326,6 +335,21 @@ public:
     _retry_len[idx] = packet->writeTo(&_retry_store[idx * MAX_TRANS_UNIT]);
     _echo_flags[idx] = (_echo_flags[idx] & ~(ECHO_F_COUNT_MASK << ECHO_F_LEFT_SHIFT))
                        | (_retry_no << ECHO_F_LEFT_SHIFT);
+  }
+
+  // beebo: a packet just went on the air (or failed to): if it is a queued retry,
+  // its echo window starts now. Costs a hash only while a retry is waiting.
+  void noteTx(const mesh::Packet* packet) {
+    if (_waiting_tx == 0) return;
+    uint8_t hash[MAX_HASH_SIZE];
+    packet->calculatePacketHash(hash);
+    for (int i = 0; i < MAX_ECHO_HASHES; i++) {
+      if ((_echo_flags[i] & ECHO_F_WAIT_TX) && memcmp(hash, _echo_hashes[i], MAX_HASH_SIZE) == 0) {
+        _echo_flags[i] &= ~ECHO_F_WAIT_TX;
+        _echo_time[i] = millis();
+        _waiting_tx--;
+      }
+    }
   }
 
   // beebo: route retry. n = retries per forward (0 disables), clamped to
@@ -387,11 +411,16 @@ public:
         // proper 0/1-per-attempt rate comparable to ack_success_count.
         int slot = _findRecentEchoSlot(hash);
         if (slot >= 0 && !(_echo_flags[slot] & ECHO_F_CONFIRMED)) {
-          _echo_flags[slot] |= ECHO_F_CONFIRMED | ECHO_F_RESOLVED;
+          // a retry still queued has not been sent: this echo answers the send before it
+          uint8_t attempt = (_echo_flags[slot] >> ECHO_F_SENT_SHIFT) & ECHO_F_COUNT_MASK;
+          if (_echo_flags[slot] & ECHO_F_WAIT_TX) {
+            attempt--;
+            _waiting_tx--;
+          }
+          _echo_flags[slot] = (_echo_flags[slot] & ~ECHO_F_WAIT_TX) | ECHO_F_CONFIRMED | ECHO_F_RESOLVED;
           _echo_success_count++;
           _emitEchoEvent(TXCONFIRM_SUCCESS, _echo_monring_hash[slot],
-                            millis() - _echo_time[slot],
-                            (_echo_flags[slot] >> ECHO_F_SENT_SHIFT) & ECHO_F_COUNT_MASK);
+                            millis() - _echo_time[slot], attempt);
         }
         return true;
       }

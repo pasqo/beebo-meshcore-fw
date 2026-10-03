@@ -197,6 +197,8 @@ struct RetryFixture : public ::testing::Test {
         g_mock_millis += PAST_WINDOW_MS;
         t.checkEchoTimeouts();
     }
+    // the queued retry just went on the air: its echo window starts now
+    void retrySent(Packet& p) { t.noteTx(&p); }
 };
 }
 
@@ -230,6 +232,7 @@ TEST_F(RetryFixture, RetryEchoed_CountsSuccessNotTimeout) {
     forward(p);
     pastWindow();
     ASSERT_EQ(1, probe.calls);
+    retrySent(p);
     g_mock_millis += 100;
     EXPECT_TRUE(t.wasSeen(&p));               // neighbor's echo of the retry
     t.checkEchoTimeouts();
@@ -243,6 +246,7 @@ TEST_F(RetryFixture, RetryExhausted_CountsTimeoutOnce) {
     Packet p = makeFloodPacket(0x13);
     forward(p);
     pastWindow();
+    retrySent(p);
     pastWindow();
     EXPECT_EQ(1, probe.calls);
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
@@ -259,8 +263,10 @@ TEST_F(RetryFixture, RetryNoTwo_RetriesTwiceWithIncreasingAttempt) {
     forward(p);
     pastWindow();
     EXPECT_EQ(1, probe.last.attempt);
+    retrySent(p);
     pastWindow();
     EXPECT_EQ(2, probe.last.attempt);
+    retrySent(p);
     pastWindow();
     EXPECT_EQ(2, probe.calls);
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
@@ -364,7 +370,8 @@ TEST_F(EventFixture, FirstSendEchoed_EventAttemptZero) {
 TEST_F(EventFixture, RetryEchoed_EventAttemptOne_NoTimeoutEventForTheFirstSend) {
     Packet p = makeFloodPacket(0x31);
     forward(p);
-    pastWindow();                              // first send unanswered -> retry 1 sent
+    pastWindow();                              // first send unanswered -> retry 1 queued
+    retrySent(p);
     EXPECT_TRUE(verdicts().empty());           // a retry in flight is not a verdict
     EXPECT_TRUE(t.wasSeen(&p));
     ASSERT_EQ(1u, verdicts().size());
@@ -375,7 +382,9 @@ TEST_F(EventFixture, RetriesExhausted_TimeoutEventCarriesLastAttempt) {
     Packet p = makeFloodPacket(0x32);
     forward(p);
     pastWindow();
+    retrySent(p);
     pastWindow();
+    retrySent(p);
     pastWindow();                              // retry 2 unanswered: final verdict
     ASSERT_EQ(1u, verdicts().size());
     EXPECT_EQ(std::make_pair((int)EVENT_ECHO_TIMEOUT, 2), verdicts()[0]);
@@ -388,6 +397,50 @@ TEST_F(EventFixture, NoRetry_TimeoutEventAttemptZero) {
     pastWindow();
     ASSERT_EQ(1u, verdicts().size());
     EXPECT_EQ(std::make_pair((int)EVENT_ECHO_TIMEOUT, 0), verdicts()[0]);
+}
+
+// the retry's echo window starts when it is on the air, not when it is queued
+TEST_F(RetryFixture, QueuedRetry_HasNoWindowUntilItIsSent) {
+    t.setRetryNo(1);
+    Packet p = makeFloodPacket(0x40);
+    forward(p);
+    pastWindow();                             // retry handed to the queue
+    ASSERT_EQ(1, probe.calls);
+    g_mock_millis += 60000;                    // stuck behind other traffic for a minute
+    t.checkEchoTimeouts();
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());   // no window running yet
+    retrySent(p);
+    g_mock_millis += 1000;
+    t.checkEchoTimeouts();
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());   // inside the window that just started
+    g_mock_millis += PAST_WINDOW_MS;
+    t.checkEchoTimeouts();
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());   // and it ends one window after the send
+}
+
+TEST_F(RetryFixture, EchoOfTheFirstSendWhileTheRetryWaits_CountsSuccessForAttemptZero) {
+    t.setRetryNo(1);
+    Packet p = makeFloodPacket(0x41);
+    forward(p);
+    pastWindow();                             // retry queued, not sent
+    g_mock_millis += 5000;
+    EXPECT_TRUE(t.wasSeen(&p));               // a late echo of the first send
+    EXPECT_EQ(1u, t.getEchoSuccessCount());
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());
+    t.checkEchoTimeouts();
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());
+}
+
+TEST_F(RetryFixture, NoteTx_IgnoresPacketsThatAreNotWaitingForTheirRetry) {
+    t.setRetryNo(1);
+    Packet p = makeFloodPacket(0x42);
+    forward(p);
+    t.noteTx(&p);                             // the first send going out
+    g_mock_millis += 1000;
+    Packet other = makeFloodPacket(0x43);
+    t.noteTx(&other);                         // a packet this node never tracked
+    pastWindow();                             // the original window still ends on time
+    EXPECT_EQ(1, probe.calls);
 }
 
 TEST_F(RetryFixture, SelfOriginatedFlood_NeverRetried) {
