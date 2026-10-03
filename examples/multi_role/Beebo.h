@@ -2056,6 +2056,8 @@ private:
     return sw < 3 ? SETTING_TUNING_TRIAL_VALUES_LNA + sw
          : sw == TrialSequence::CAD ? SETTING_TUNING_TRIAL_VALUES_CAD
          : sw == TrialSequence::MULTI_ACKS ? SETTING_TUNING_TRIAL_VALUES_MULTIACKS
+         : sw == TrialSequence::RETRY_NO ? SETTING_TUNING_TRIAL_VALUES_RETRYNO
+         : sw == TrialSequence::RETRY_CR ? SETTING_TUNING_TRIAL_VALUES_RETRYCR
          : SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE + sw - 3;
   }
   bool setTrialValues(uint8_t sw, const uint8_t* values, int count, uint8_t source) {

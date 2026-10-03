@@ -17,11 +17,12 @@ public:
   // held as whole numbers in the trial records: the float settings in steps of
   // 0.1 (rx delay base), 0.01 (tx and direct tx delay factors) and 0.05
   // (airtime factor), the AGC reset interval in its own 4 s units; the two
-  // booleans CAD and multi acks are 0/1.
+  // booleans CAD and multi acks are 0/1; the retry count is 0..3 and the retry
+  // coding rate 5..8.
   enum Switch {
     LNA = 0, RX_BOOST = 1, CR = 2, AGC = 3, INTERFERENCE = 4,
     RX_DELAY = 5, TX_DELAY = 6, DIRECT_TX_DELAY = 7, AIRTIME = 8,
-    CAD = 9, MULTI_ACKS = 10, NUM_SWITCHES = 11
+    CAD = 9, MULTI_ACKS = 10, RETRY_NO = 11, RETRY_CR = 12, NUM_SWITCHES = 13
   };
   static const int MAX_VALUES = 4;
 
@@ -29,17 +30,18 @@ public:
   static const char* name(int sw) {
     static const char* const names[NUM_SWITCHES] = {
       "lna", "rxboost", "cr", "agc", "interference", "rxdelay", "txdelay",
-      "directtxdelay", "airtime", "cad", "multiacks" };
+      "directtxdelay", "airtime", "cad", "multiacks", "retry_no", "retry_cr" };
     return names[sw];
   }
 
   // The switch index run i-th: the receive path (LNA, RX boost, AGC), then
   // channel-busy behavior (interference threshold, CAD), the link settings that
-  // cost airtime (coding rate, multi acks), then the timing knobs.
+  // cost airtime (coding rate, multi acks, retry count, retry coding rate), then
+  // the timing knobs.
   static int orderAt(int i) {
     static const uint8_t order[NUM_SWITCHES] = {
-      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, RX_DELAY, TX_DELAY,
-      DIRECT_TX_DELAY, AIRTIME };
+      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, RETRY_NO, RETRY_CR,
+      RX_DELAY, TX_DELAY, DIRECT_TX_DELAY, AIRTIME };
     return order[i];
   }
 
@@ -70,7 +72,8 @@ public:
   static int maxValue(int sw) {
     switch (sw) {
       case LNA: case RX_BOOST: case CAD: case MULTI_ACKS: return 1;
-      case CR: return 8;
+      case CR: case RETRY_CR: return 8;
+      case RETRY_NO: return 3;
       case AGC: return 255;
       case INTERFERENCE: return 9;
       case RX_DELAY: return 200;         // 20.0
@@ -81,7 +84,7 @@ public:
   }
   static bool validValue(int sw, uint8_t v) {
     if (sw < 0 || sw >= NUM_SWITCHES) return false;
-    return v <= maxValue(sw) && (sw != CR || v >= 5);
+    return v <= maxValue(sw) && ((sw != CR && sw != RETRY_CR) || v >= 5);
   }
 
   // Parse "8,16,32" (spaces around numbers allowed) into `out` (room for
@@ -127,8 +130,10 @@ public:
         {20, 10, 60, 180},       // airtime factor: 1.0, 0.5, 3, 9
         {0, 1, 0, 0},            // CAD: off, on
         {0, 1, 0, 0},            // multi acks: off, on
+        {0, 1, 2, 0},            // retry count: off, 1, 2
+        {8, 6, 5, 0},            // retry coding rate: the default, 6, 5 (same as the first send)
       };
-      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2};
+      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 3, 3};
       for (int i = 0; i < MAX_VALUES; i++) v[i] = table[sw][i];
       n = counts[sw];
       pos = 1;

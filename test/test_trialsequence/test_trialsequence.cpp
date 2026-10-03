@@ -31,11 +31,15 @@ TEST(TrialSequence, RunOrderCoversEverySwitchOnce) {
   EXPECT_EQ(TrialSequence::CAD, TrialSequence::orderAt(4));   // channel-busy behavior
   EXPECT_EQ(TrialSequence::CR, TrialSequence::orderAt(5));
   EXPECT_EQ(TrialSequence::MULTI_ACKS, TrialSequence::orderAt(6));   // costs airtime, after the link setting
-  EXPECT_EQ(TrialSequence::RX_DELAY, TrialSequence::orderAt(7));
-  EXPECT_EQ(TrialSequence::AIRTIME, TrialSequence::orderAt(10));
-  EXPECT_EQ(11, TrialSequence::NUM_SWITCHES);
-  EXPECT_EQ(9, TrialSequence::CAD);          // wire bits of the two newest switches
+  EXPECT_EQ(TrialSequence::RETRY_NO, TrialSequence::orderAt(7));     // retry count, then the CR it uses
+  EXPECT_EQ(TrialSequence::RETRY_CR, TrialSequence::orderAt(8));
+  EXPECT_EQ(TrialSequence::RX_DELAY, TrialSequence::orderAt(9));
+  EXPECT_EQ(TrialSequence::AIRTIME, TrialSequence::orderAt(12));
+  EXPECT_EQ(13, TrialSequence::NUM_SWITCHES);
+  EXPECT_EQ(9, TrialSequence::CAD);          // wire bits of the newest switches
   EXPECT_EQ(10, TrialSequence::MULTI_ACKS);
+  EXPECT_EQ(11, TrialSequence::RETRY_NO);
+  EXPECT_EQ(12, TrialSequence::RETRY_CR);
 }
 
 TEST(TrialSequence, NamesResolveToSwitches) {
@@ -47,6 +51,8 @@ TEST(TrialSequence, NamesResolveToSwitches) {
   EXPECT_EQ(TrialSequence::TX_DELAY, TrialSequence::byName("txdelay.values", &rest));
   EXPECT_EQ(TrialSequence::CAD, TrialSequence::byName("cad.enable", &rest));
   EXPECT_EQ(TrialSequence::MULTI_ACKS, TrialSequence::byName("multiacks.values", &rest));
+  EXPECT_EQ(TrialSequence::RETRY_NO, TrialSequence::byName("retry_no.enable", &rest));
+  EXPECT_EQ(TrialSequence::RETRY_CR, TrialSequence::byName("retry_cr.values", &rest));
   EXPECT_EQ(-1, TrialSequence::byName("lnax.values", &rest));
   EXPECT_EQ(-1, TrialSequence::byName("lna", &rest));   // no dot
   EXPECT_EQ(-1, TrialSequence::byName("nothing.values", &rest));
@@ -78,6 +84,13 @@ TEST(TrialSequence, ValueRangesPerSwitch) {
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::CAD, 2));
   EXPECT_TRUE(TrialSequence::validValue(TrialSequence::MULTI_ACKS, 1));
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::MULTI_ACKS, 2));
+  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY_NO, 0));
+  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY_NO, 3));
+  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::RETRY_NO, 4));
+  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::RETRY_CR, 4));   // like the CR switch: 5..8
+  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY_CR, 5));
+  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY_CR, 8));
+  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::RETRY_CR, 9));
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::NUM_SWITCHES, 0));
 }
 
@@ -117,6 +130,10 @@ TEST(TrialSequence, DefaultListsStartAtTheUpstreamDefaults) {
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
   l.reset(TrialSequence::MULTI_ACKS);   EXPECT_EQ(0, l.first());   // off, then on
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
+  l.reset(TrialSequence::RETRY_NO);     EXPECT_EQ(0, l.first());   // off, then 1, then 2 retries
+  EXPECT_EQ(3, l.n); EXPECT_EQ(1, l.v[1]); EXPECT_EQ(2, l.v[2]);
+  l.reset(TrialSequence::RETRY_CR);     EXPECT_EQ(8, l.first());   // the default, then 6, then 5
+  EXPECT_EQ(3, l.n); EXPECT_EQ(6, l.v[1]); EXPECT_EQ(5, l.v[2]);
 }
 
 TEST(TrialSequence, SetRejectsTooShortTooLongAndOutOfRange) {
