@@ -271,6 +271,10 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
             if (file.available() >= (int)(sizeof(_prefs.tz_offset) + sizeof(_prefs.cad_on))) {
               file.read((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
               file.read((uint8_t *)&_prefs.cad_on, sizeof(_prefs.cad_on));
+              // tx_disable -- tail-guarded the same way, defaulting to 0 (transmit on)
+              if (file.available() >= (int)sizeof(_prefs.tx_disable)) {
+                file.read((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
+              }
             }
           }
         }
@@ -330,6 +334,7 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
     file.write((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
     file.write((uint8_t *)&_prefs.cad_on, sizeof(_prefs.cad_on));
+    file.write((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
 
     file.close();
   }
@@ -568,6 +573,10 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
                   // echo_at_tx -- tail-guarded the same way, defaulting to 0
                   if (file.available() >= (int)sizeof(_prefs.echo_at_tx)) {
                     file.read((uint8_t *)&_prefs.echo_at_tx, sizeof(_prefs.echo_at_tx));
+                    // tx_disable -- tail-guarded the same way, defaulting to 0 (transmit on)
+                    if (file.available() >= (int)sizeof(_prefs.tx_disable)) {
+                      file.read((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
+                    }
                   }
                 }
               }
@@ -656,6 +665,7 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((uint8_t *)&_prefs.retry_no, sizeof(_prefs.retry_no));
     file.write((uint8_t *)&_prefs.retry_cr, sizeof(_prefs.retry_cr));
     file.write((uint8_t *)&_prefs.echo_at_tx, sizeof(_prefs.echo_at_tx));
+    file.write((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
 
     file.close();
   }

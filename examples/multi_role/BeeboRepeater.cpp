@@ -567,6 +567,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_ECHO_AT_TX,       TLV_U32,   tlvGetEchoAtTx,       tlvSetEchoAtTx,       nullptr, nullptr },
 #endif
   { PREFS_TLV_CAD,              TLV_U32,   tlvGetCad,            tlvSetCad,            nullptr, nullptr },
+  { PREFS_TLV_TRANSMIT,         TLV_U32,   tlvGetTransmit,       tlvSetTransmit,       nullptr, nullptr },
   { PREFS_TLV_RADIO_RXGAIN,     TLV_U32,   tlvGetRadioRxgain,    tlvSetRadioRxgain,    nullptr, nullptr },
   { PREFS_TLV_ADC_MULTIPLIER,   TLV_FLOAT, tlvGetAdcMultiplier,  tlvSetAdcMultiplier,  nullptr, nullptr },
   { PREFS_TLV_ADC_RESOLUTION,   TLV_U32,   tlvGetAdcResolution,  tlvSetAdcResolution,  nullptr, nullptr },

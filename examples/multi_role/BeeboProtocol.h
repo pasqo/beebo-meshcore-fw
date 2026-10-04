@@ -14,7 +14,7 @@
 #define BEEBO_CMD_OTA_END                        3  // finalize and reboot. optional trailing 4B LE uint32 epoch seconds accepted for backward compat with older CLIs but ignored -- the device's own clock is expected to already be synced via the normal connect-time clock sync before this is sent
 #define BEEBO_CMD_GET_SAVE_PREFS                 4  // reply OK + value (byte0 = save_prefs, 1=on)
 #define BEEBO_CMD_SET_SAVE_PREFS                 5  // payload: 1 byte -- 0=off, 1=on, 2=restore(reload), 3=commit(write now)
-#define BEEBO_CMD_SET_CW                         6  // bench CW carrier. payload: [on:1][max_secs:2 LE]; on=0 stops
+#define BEEBO_CMD_SET_CW                         6  // bench CW carrier. payload: [on:1][max_secs:2 LE]; on=0 stops; on=1 replies ERR_CODE_BAD_STATE when node.transmit is off (PREFS_TLV_TRANSMIT)
 #define BEEBO_CMD_SET_TX_OPTIMIZE                7  // PA optimization. payload: [on:1]; 1=paOptTable(default), 0=fixed/monotonic
 #define BEEBO_CMD_GET_NEIGHBORS                  8  // stream the direct (zero-hop) neighbor table
 #define BEEBO_CMD_GET_MONRING                    9  // read monitor ring. payload: [after_seq:4 LE] (optional) [after_ts:4 LE] (optional, capture-time epoch of the record at after_seq as the client last recorded it -- lets the firmware detect a reboot/clear/wraparound since then and override to a full read, since after_seq alone can alias across MonRing::_next_seq resetting to 0; see the reply's reset flag)

@@ -901,6 +901,11 @@ void Beebo::logForwardDenyEvent(uint8_t event_type, const mesh::Packet* packet) 
   monring.appendEvent(rec, getRTCClock()->nowMillis());
 }
 
+// beebo: Dispatcher::checkSend() discarded this packet because node.transmit is off.
+void Beebo::logTxSuppressed(mesh::Packet* pkt) {
+  logForwardDenyEvent(EVENT_TX_SUPPRESSED, pkt);
+}
+
 void Beebo::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis) {
   // beebo: path_hash_mode is one of the 14 SharedPrefs fields (see
   // NodePrefs.h) -- no role branch needed since both roles share the field.
@@ -2072,6 +2077,16 @@ bool Beebo::tlvSetRouteRetryNo(Beebo* self, uint8_t role, uint32_t raw) {
   slot.prefs.retry_no = (uint8_t)raw;
   if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
   self->pushRouteRetry();
+  return true;
+}
+uint32_t Beebo::tlvGetTransmit(Beebo* self, uint8_t role) {
+  return !self->role_state_store[role].prefs.tx_disable;
+}
+bool Beebo::tlvSetTransmit(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw > 1) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  slot.prefs.tx_disable = raw ? 0 : 1;
+  if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
   return true;
 }
 uint32_t Beebo::tlvGetEchoAtTx(Beebo* self, uint8_t role) {
@@ -6158,13 +6173,17 @@ void Beebo::handleCmdFrame(size_t len) {
     // beebo: bench CW carrier for spectrum-analyzer power measurement.
     // [1]=on (0=stop, 1=start), optional [2..3]=max duration in seconds (LE).
     uint8_t on = sub[1];
-    if (on) {
-      uint16_t max_secs = (sub_len >= 4) ? (sub[2] | (sub[3] << 8)) : 30;
-      radio_driver.startCW((uint32_t)max_secs * 1000);
+    if (on && !txAllowed()) {   // node.transmit off
+      writeErrFrame(ERR_CODE_BAD_STATE);
     } else {
-      radio_driver.stopCW();
+      if (on) {
+        uint16_t max_secs = (sub_len >= 4) ? (sub[2] | (sub[3] << 8)) : 30;
+        radio_driver.startCW((uint32_t)max_secs * 1000);
+      } else {
+        radio_driver.stopCW();
+      }
+      writeOKFrame();
     }
-    writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_SET_TX_OPTIMIZE && sub_len >= 2) {
     // beebo: select RadioLib PA optimization. [1]=1 -> efficiency table (default,
     // non-monotonic low end); [1]=0 -> fixed PA config (monotonic). Re-applies
@@ -6603,6 +6622,7 @@ void Beebo::handleCmdFrame(size_t len) {
       if (mlog_enabling && !debug_log.isMlogEnabled()) {
         debug_log.setSessionMlogEnabled(true);
         if (!no_replay) monring.requestMlogReplay();
+        else monring.seedMlogStartRefs();   // beebo: no backlog walk, but still seed the time anchor (same as the raw USB path)
       } else {
         debug_log.setSessionMlogEnabled(mlog_enabling);
       }
@@ -8504,6 +8524,15 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
   }
   if (strcmp(command, "get wifi.status") == 0) {
     strcpy(reply, _wifi_ip_cache[0] ? "> connected" : "> disconnected");
+    return true;
+  }
+  if (strcmp(command, "get transmit") == 0) {
+    sprintf(reply, "> %s", tlvGetTransmit(this, _board.role) ? "on" : "off");
+    return true;
+  }
+  if (memcmp(command, "set transmit ", 13) == 0) {
+    tlvSetTransmit(this, _board.role, memcmp(&command[13], "on", 2) == 0 ? 1 : 0);
+    strcpy(reply, "OK");
     return true;
   }
   if (strcmp(command, "get cad") == 0) {

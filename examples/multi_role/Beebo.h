@@ -591,6 +591,8 @@ protected:
   void onPacketDisposed(mesh::Packet* pkt) override;  // beebo: commit the finished monitor-ring record
   void logTx(mesh::Packet* pkt, int len) override;      // beebo: capture our own TX into the monitor ring
   void logTxFail(mesh::Packet* pkt, int len) override;  // beebo: ditto, send timed out
+  bool txAllowed() const override { return !_role_state->prefs.tx_disable; }   // beebo: node.transmit of the live role
+  void logTxSuppressed(mesh::Packet* pkt) override;     // beebo: EVENT_TX_SUPPRESSED
 #if BEEBO_ENABLE_COMPANION_ROLE
   bool isAutoAddEnabled() const override;
   bool shouldAutoAddContactType(uint8_t type) const override;
@@ -1525,6 +1527,7 @@ private:
     PREFS_TLV_ROUTE_RETRY_NO = 61,      // u32 0..3, retries of a forward whose echo timed out; repeater slot only
     PREFS_TLV_ROUTE_RETRY_CR = 62,      // u32 5..8, coding rate 4/x of a retry; repeater slot only
     PREFS_TLV_ECHO_AT_TX = 63,          // u32 bool, echo slot starts at the send; repeater slot only
+    PREFS_TLV_TRANSMIT = 64,            // u32 bool, 0 = the radio never sends (Dispatcher::checkSend() drops); per role
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1638,6 +1641,8 @@ private:
   static bool tlvSetRouteRetryNo(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRouteRetryCr(Beebo* self, uint8_t role);
   static bool tlvSetRouteRetryCr(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetTransmit(Beebo* self, uint8_t role);
+  static bool tlvSetTransmit(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetEchoAtTx(Beebo* self, uint8_t role);
   static bool tlvSetEchoAtTx(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetTzOffset(Beebo* self, uint8_t role);

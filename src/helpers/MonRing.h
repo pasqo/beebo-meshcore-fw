@@ -336,6 +336,12 @@ enum : uint8_t {
   //   data[4:6] = interval_s (u16 LE)
   //   data[6:12] = reserved
   EVENT_ROUTE_STATS = 27,
+  // A queued packet discarded unsent because transmit is off (node.transmit,
+  // Dispatcher::checkSend()). Same payload as the forward-deny events:
+  //   data[0]    = reserved
+  //   data[1:5]  = pkt_hash (u32 LE) -- Packet::calculateMonRingHash()
+  //   data[5:12] = reserved
+  EVENT_TX_SUPPRESSED = 28,
 };
 
 // ---- TXCONFIRM_*: verdict enum used ONLY for internal bookkeeping now

@@ -54,4 +54,7 @@ struct BeeboBasePrefs {
                                  // (kbase/ROUTE_RETRY.md). Repeater role only, like retry_no.
   uint8_t cad_on = 0;            // companion's hardware CAD before TX; the repeater role
                                  // keeps ComPrefs::cad_enabled instead (see getCADEnabled()).
+  uint8_t tx_disable = 0;        // 1: node.transmit off, Dispatcher::checkSend() drops every
+                                 // outbound packet unsent (txAllowed()). Inverted so a file
+                                 // saved before this field existed reads as transmit on.
 };

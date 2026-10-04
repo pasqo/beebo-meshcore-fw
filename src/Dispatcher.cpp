@@ -326,6 +326,17 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
 void Dispatcher::checkSend() {
   if (_mgr->getOutboundCount(_ms->getMillis()) == 0) return;
 
+#ifdef BEEBO_TX_GATE
+  if (!txAllowed()) {
+    Packet* dropped = _mgr->getNextOutbound(_ms->getMillis());
+    if (dropped) {
+      logTxSuppressed(dropped);
+      releasePacket(dropped);
+    }
+    return;
+  }
+#endif
+
 #ifdef BEEBO_CPU_ACCOUNTING
   // Routing-latency wait accounting: dt since the last tick where
   // something was actually outbound-queued, attributed to whichever cause

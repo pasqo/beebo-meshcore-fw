@@ -1079,7 +1079,7 @@ TEST(MonRing, AppendEventRoundTripsForwardDenyPayloads) {
   // correlate the specific packet. No cumulative count in the payload --
   // that lifetime total lives in the GET_MONRING header instead (Beebo's
   // own _max_hop_no_fwd_count/etc. member fields), not duplicated here.
-  const uint8_t types[] = {EVENT_MAX_HOP_NO_FWD, EVENT_REGION_NO_FWD, EVENT_LOOP_NO_FWD};
+  const uint8_t types[] = {EVENT_MAX_HOP_NO_FWD, EVENT_REGION_NO_FWD, EVENT_LOOP_NO_FWD, EVENT_TX_SUPPRESSED};
   for (uint8_t type : types) {
     RingFixture<8> f;
     EventRecord event; memset(&event, 0, sizeof(event));
