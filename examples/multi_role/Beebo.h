@@ -2317,6 +2317,13 @@ private:
   // seconds-scale) for a different consumer (status/STATS_TYPE_SYSTEM).
   unsigned long _next_env_sample_ms = 0;
 
+  // beebo: live-only noise_floor push while an MLOG stream is on (see
+  // loop()): its own timer, last relayed value, and whether any value has
+  // been relayed since the stream came up.
+  unsigned long _next_live_env_ms = 0;
+  int8_t _live_env_noise = 0;
+  bool _live_env_sent = false;
+
 #ifdef BEEBO_CPU_ACCOUNTING
   // beebo: RX/TX/LX busy-time accounting -- two decoupled cadences (see
   // kbase/CPU_UTILIZATION.md). Named _busy, not _cpu: this is

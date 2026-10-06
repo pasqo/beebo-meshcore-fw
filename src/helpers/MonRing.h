@@ -1198,9 +1198,9 @@ private:
   // the offset would overflow 16 bits. Never touches the ring or `_base`.
   // Dropped while a replay is pending/active, like _store()'s own live push:
   // a relatch now would change the base the still-undelivered backlog's
-  // offsets are read against.
-  void _livePushOnly(MonRecord &r, uint64_t now_ms) {
-    if (!_live_sink || _mlog_replay_active || _mlog_replay_pending) return;
+  // offsets are read against. Returns whether the record was relayed.
+  bool _livePushOnly(MonRecord &r, uint64_t now_ms) {
+    if (!_live_sink || _mlog_replay_active || _mlog_replay_pending) return false;
     uint64_t base_ms = (uint64_t)_live_base * 1000;
     if (_live_base == 0 || now_ms < base_ms || now_ms - base_ms >= 65536) {
       _live_base = (uint32_t)(now_ms / 1000);
@@ -1213,6 +1213,7 @@ private:
     }
     r.debug.offset = (uint16_t)(now_ms - base_ms);
     _live_sink(r);
+    return true;
   }
 
   // Raw append of a fully-formed record. Assigns the next seq, wraps the ring.
@@ -1747,6 +1748,20 @@ public:
     _end_time = (uint32_t)(now_ms / 1000);
     _debug_count++;
     _store(r);
+  }
+
+  // Relay an environment sample to the live stream only, whatever the capture
+  // config says: it is not stored and not adopted as the running env state,
+  // so it never affects sampleEnv()'s change detection. For a live view that
+  // wants the noise floor at the radio's own recalibration pace instead of
+  // the stored trend's. Returns whether it was relayed (false: no sink, no
+  // buffer, or a replay pending/active) so the caller can retry.
+  bool livePushEnv(EnvRecord env, uint64_t now_ms) {
+    if (_buf == nullptr) return false;
+    MonRecord r{};
+    r.env = env;
+    r.env.kind = MON_ENV;
+    return _livePushOnly(r, now_ms);
   }
 
   // Note the current radio config. On a real change, store the NEW config as

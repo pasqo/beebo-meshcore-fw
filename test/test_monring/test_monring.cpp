@@ -1524,6 +1524,63 @@ TEST(MonRingLiveSink, DebugRelayedLiveWhenCaptureBitOff) {
   EXPECT_EQ(0, g_live_sink_calls[1].debug.offset);
 }
 
+TEST(MonRingLiveSink, LiveEnvRelayedWithoutStoringOrTouchingEnvState) {
+  // The live noise-floor push: relayed whatever the capture config says,
+  // never stored, and never adopted as the ring's running env state (so it
+  // can't make sampleEnv() dedup a later real sample away).
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setLiveSink(&captureLiveSink);
+  uint32_t n0 = f.ring.count();
+
+  EXPECT_TRUE(f.ring.livePushEnv(makeEnv(-97), f.ms(1000)));
+
+  EXPECT_EQ(n0, f.ring.count());
+  EXPECT_EQ(0u, f.ring.envCount());
+  ASSERT_EQ(2u, g_live_sink_calls.size());   // live-only SYNC, then the record
+  EXPECT_EQ(MON_SYNC, g_live_sink_calls[0].kind);
+  EXPECT_EQ(MON_ENV, g_live_sink_calls[1].kind);
+  EXPECT_EQ(-97, g_live_sink_calls[1].env.noise_floor);
+
+  f.ring.sampleEnv(makeEnv(-97), f.ms(1001));   // same value: still its first stored sample
+  EXPECT_EQ(1u, f.ring.envCount());
+}
+
+TEST(MonRingLiveSink, LiveEnvRelayedWithCaptureOff) {
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setConfig(MON_CAP_ALL & ~MON_CAP_ENV & ~MON_CAP_ENABLED);
+  f.ring.setLiveSink(&captureLiveSink);
+
+  EXPECT_TRUE(f.ring.livePushEnv(makeEnv(), f.ms(1000)));
+  EXPECT_EQ(2u, g_live_sink_calls.size());
+}
+
+TEST(MonRingLiveSink, LiveEnvReportsNotSentWithoutSinkOrDuringReplay) {
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  EXPECT_FALSE(f.ring.livePushEnv(makeEnv(), f.ms(1000)));   // no sink
+
+  f.ring.setLiveSink(&captureLiveSink);
+  f.ring.requestMlogReplay();
+  EXPECT_FALSE(f.ring.livePushEnv(makeEnv(), f.ms(1000)));   // replay pending: dropped
+  EXPECT_TRUE(g_live_sink_calls.empty());
+}
+
+TEST(MonRingLiveSink, LiveEnvRelatchesBaseOnOffsetOverflow) {
+  g_live_sink_calls.clear();
+  RingFixture<8> f;
+  f.ring.setLiveSink(&captureLiveSink);
+
+  f.ring.livePushEnv(makeEnv(-90), f.ms(1000));
+  f.ring.livePushEnv(makeEnv(-91), f.ms(1000) + 2000);
+  f.ring.livePushEnv(makeEnv(-92), f.ms(1000) + 70000);
+
+  ASSERT_EQ(5u, g_live_sink_calls.size());   // SYNC E E SYNC E
+  EXPECT_EQ(2000, g_live_sink_calls[2].env.offset);
+  EXPECT_EQ(MON_SYNC, g_live_sink_calls[3].kind);
+}
+
 TEST(MonRingLiveSink, LiveOnlyDebugRelatchesBaseOnOffsetOverflow) {
   g_live_sink_calls.clear();
   RingFixture<8> f;

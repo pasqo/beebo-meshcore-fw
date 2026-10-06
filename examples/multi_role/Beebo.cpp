@@ -32,6 +32,7 @@
 #define MONRING_FIXED_BYTES   (1024u * 1024)  // fixed size (~64k records at 16 bytes each)
 #define SLOWSTAT_REFRESH_MS   60000u          // beebo: cadence to refresh cached FS usage + MCU temp
 #define ENV_SAMPLE_MS         300000u         // beebo: EnvRecord (noise_floor/temp_c) fixed sampling cadence (5 min)
+#define LIVE_ENV_MS           2000u           // beebo: live-only noise_floor push cadence while an MLOG stream is on (the radio recalibrates every NOISE_FLOOR_CALIB_INTERVAL, 2 s)
 #define ENV_RETRY_MS          1000u           // beebo: retry cadence while waiting for noise_floor calibration to complete post-boot
 #define CPU_WINDOW_MS         1000u           // beebo: CPU accounting live-window compute cadence
 #define CPU_REPORT_MS         10000u          // beebo: CPU accounting reported-snapshot cadence (MonRing/STATS_TYPE_SYSTEM)
@@ -7344,6 +7345,24 @@ void Beebo::loop() {
       // logging. Retry soon instead of waiting a full ENV_SAMPLE_MS for
       // the first real sample.
       _next_env_sample_ms = futureMillis(ENV_RETRY_MS);
+    }
+  }
+
+  // beebo: live noise floor for `monitor plot rssi` -- the stored ENV trend
+  // above is minutes-scale, but the radio refreshes its floor every couple
+  // of seconds. While an MLOG stream is on, relay each change live (never
+  // stored; MonRing::livePushEnv()), plus the first reading after the stream
+  // came up so a fresh client has a value at once. _live_env_sent only
+  // latches once the push was actually relayed (not dropped by a replay).
+  if (!debug_log.isMlogEnabled()) {
+    _live_env_sent = false;
+  } else if (monring.allocated() && millisHasNowPassed(_next_live_env_ms)) {
+    _next_live_env_ms = futureMillis(LIVE_ENV_MS);
+    EnvRecord env = buildEnvRecord();
+    if (_radio->getNoiseFloor() != 0 && (!_live_env_sent || env.noise_floor != _live_env_noise) &&
+        monring.livePushEnv(env, getRTCClock()->nowMillis())) {
+      _live_env_sent = true;
+      _live_env_noise = env.noise_floor;
     }
   }
 
