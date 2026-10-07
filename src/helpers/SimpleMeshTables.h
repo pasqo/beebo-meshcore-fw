@@ -360,7 +360,6 @@ public:
                            | ((left - 1) << ECHO_F_LEFT_SHIFT) | ((sent + 1) << ECHO_F_SENT_SHIFT)
                            | ECHO_F_WAIT_TX;
           _waiting_tx++;
-          _echo_attempt_count++;
           continue;
         }
         _echo_timeout_count++;

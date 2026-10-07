@@ -227,7 +227,7 @@ TEST_F(RetryFixture, RetryNoOne_TimeoutFiresRetryWithSameBytes) {
     ASSERT_EQ(expect_len, probe.last.len);
     EXPECT_EQ(0, memcmp(expect, probe.last.raw, expect_len));
     EXPECT_EQ(0u, t.getEchoTimeoutCount());   // not resolved yet
-    EXPECT_EQ(2u, t.getEchoAttemptCount());   // a retry is an attempt
+    EXPECT_EQ(1u, t.getEchoAttemptCount());   // a retry is the same confirmable packet
 }
 
 TEST_F(RetryFixture, RetryEchoed_CountsSuccessNotTimeout) {
@@ -242,7 +242,7 @@ TEST_F(RetryFixture, RetryEchoed_CountsSuccessNotTimeout) {
     t.checkEchoTimeouts();
     EXPECT_EQ(1u, t.getEchoSuccessCount());
     EXPECT_EQ(0u, t.getEchoTimeoutCount());
-    EXPECT_EQ(2u, t.getEchoAttemptCount());
+    EXPECT_EQ(1u, t.getEchoAttemptCount());
 }
 
 TEST_F(RetryFixture, RetryExhausted_CountsTimeoutOnce) {
@@ -255,7 +255,7 @@ TEST_F(RetryFixture, RetryExhausted_CountsTimeoutOnce) {
     EXPECT_EQ(1, probe.calls);
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
     EXPECT_EQ(0u, t.getEchoSuccessCount());
-    EXPECT_EQ(2u, t.getEchoAttemptCount());
+    EXPECT_EQ(1u, t.getEchoAttemptCount());
     pastWindow();                             // resolved: nothing more happens
     EXPECT_EQ(1, probe.calls);
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
@@ -274,7 +274,7 @@ TEST_F(RetryFixture, RetryNoTwo_RetriesTwiceWithIncreasingAttempt) {
     pastWindow();
     EXPECT_EQ(2, probe.calls);
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
-    EXPECT_EQ(3u, t.getEchoAttemptCount());
+    EXPECT_EQ(1u, t.getEchoAttemptCount());
 }
 
 TEST_F(RetryFixture, RetryNo_ClampedToThree) {
@@ -562,7 +562,7 @@ TEST_F(AtTxFixture, Forward_RetriedWithTheWindowStartingAtEachSend) {
     g_mock_millis += 100;
     EXPECT_TRUE(t.wasSeen(&p));
     EXPECT_EQ(1u, t.getEchoSuccessCount());
-    EXPECT_EQ(2u, t.getEchoAttemptCount());   // the first send and the retry
+    EXPECT_EQ(1u, t.getEchoAttemptCount());   // one packet, however often retried
 }
 
 TEST_F(RetryFixture, ScheduleTimeSlot_IsTheDefault) {
