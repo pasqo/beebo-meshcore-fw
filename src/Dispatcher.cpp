@@ -324,6 +324,15 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
 }
 
 void Dispatcher::checkSend() {
+#ifdef BEEBO_CPU_ACCOUNTING
+  // Routing-latency wait accounting: dt since the previous call, attributed
+  // below to whichever cause this call's early-return (if any) is blocked on.
+  // Taken before the nothing-due return so an idle gap is never charged to
+  // the first call that finds a packet due.
+  unsigned long now_ms = _ms->getMillis();
+  unsigned long dt_ms = now_ms - last_checksend_ms;
+  last_checksend_ms = now_ms;
+#endif
   if (_mgr->getOutboundCount(_ms->getMillis()) == 0) return;
 
 #ifdef BEEBO_TX_GATE
@@ -335,15 +344,6 @@ void Dispatcher::checkSend() {
     }
     return;
   }
-#endif
-
-#ifdef BEEBO_CPU_ACCOUNTING
-  // Routing-latency wait accounting: dt since the last tick where
-  // something was actually outbound-queued, attributed to whichever cause
-  // this tick's early-return (if any) is blocked on.
-  unsigned long now_ms = _ms->getMillis();
-  unsigned long dt_ms = now_ms - last_checksend_ms;
-  last_checksend_ms = now_ms;
 #endif
 
   updateTxBudget();

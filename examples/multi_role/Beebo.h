@@ -2379,8 +2379,7 @@ private:
   // slice of occupied loop time -- see that plan's "Why not per-task
   // idle" section. Sourced by snapshot-diffing Dispatcher's own
   // continuously-running ms accumulators (getTxWaitAirtimeMs() etc.),
-  // which keep their existing 1-minute-reset cadence for RouteRecord
-  // unchanged -- this tier reads them without resetting them.
+  // which are free-running (never reset).
   uint32_t _tx_wait_airtime_ms_at_report = 0, _tx_wait_cad_ms_at_report = 0, _rx_wait_relay_ms_at_report = 0;
   uint16_t _tx_wait_airtime_reported = 0, _tx_wait_cad_reported = 0, _rx_wait_relay_reported = 0;  // 0-10000
 
@@ -2389,10 +2388,10 @@ private:
   // ticks as the busy report tier (same rx_us/tx_us source, just a
   // longer-running total); tx/rx wait accumulate directly and
   // continuously in Dispatcher (getTxWaitAirtimeMs()/getTxWaitCadMs()/
-  // getRxWaitMs()), reset only at this 1-minute cadence -- unrelated to
-  // the 10s wait-reported tier above, which reads the same Dispatcher
-  // accumulators without resetting them.
+  // getRxWaitMs()), never reset: this 1-minute tier, the 10s wait-reported
+  // tier above, EVENT_ROUTE_STATS and the eval windows each snapshot-diff them.
   uint32_t _route_start_us = 0;        // start of the current 1-minute route window
+  uint32_t _route_wait_airtime0_ms = 0, _route_wait_cad0_ms = 0, _route_wait_relay0_ms = 0;  // Dispatcher accumulators at that start
   unsigned long _next_route_ms = 0;
 
   // EVENT_ROUTE_STATS interval state: counter baselines at the interval start

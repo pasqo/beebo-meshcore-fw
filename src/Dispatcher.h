@@ -182,7 +182,8 @@ class Dispatcher {
   uint32_t rx_busy_us;  // beebo: micros() accumulated in loop()'s housekeeping + checkRecv() since last resetCpuAccounting()
   uint32_t tx_busy_us;  // beebo: micros() accumulated in checkSend() since last resetCpuAccounting()
   // beebo: routing-latency wait accumulators -- wall-clock millis() a queued outbound
-  // packet spent blocked by each cause, since last resetRouteAccounting().
+  // packet spent blocked by each cause, free-running (never reset: every window
+  // snapshot-diffs it, uint32 wrap-safe).
   // Orthogonal to tx_busy_us above: checkSend() returns near-instantly
   // while throttled/CAD-busy, so these accumulate time tx_busy_us does not.
   // ms resolution is enough here (waits are ms-to-second scale, unlike
@@ -192,8 +193,8 @@ class Dispatcher {
   unsigned long last_checksend_ms;  // wall-clock of the previous checkSend() call, for the dt slice above
 #ifdef RX_DISPOSITION
   // beebo: rx_wait_relay's accumulator -- how much a delayed flood-relay's
-  // actual send overran calcRxDelay()'s own scheduled time, summed since
-  // last resetRouteAccounting(). Needs Packet::_rx_scheduled_for
+  // actual send overran calcRxDelay()'s own scheduled time, free-running
+  // total. Needs Packet::_rx_scheduled_for
   // (RX_DISPOSITION-gated, see Packet.h), so gated the same way here.
   uint32_t rx_wait_ms;
 #endif
@@ -333,9 +334,6 @@ public:
   uint32_t getTxWaitCadMs() const { return tx_wait_cad_ms; }
 #ifdef RX_DISPOSITION
   uint32_t getRxWaitMs() const { return rx_wait_ms; }
-  void resetRouteAccounting() { tx_wait_airtime_ms = 0; tx_wait_cad_ms = 0; rx_wait_ms = 0; }
-#else
-  void resetRouteAccounting() { tx_wait_airtime_ms = 0; tx_wait_cad_ms = 0; }
 #endif
 #endif
 

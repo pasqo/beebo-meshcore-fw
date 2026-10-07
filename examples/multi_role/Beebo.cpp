@@ -2187,6 +2187,11 @@ void Beebo::initMonRing() {
   _next_cpu_window_ms = futureMillis(CPU_WINDOW_MS);
   _next_cpu_report_ms = futureMillis(CPU_REPORT_MS);
   _route_start_us = _cpu_window_start_us;
+  _route_wait_airtime0_ms = getTxWaitAirtimeMs();
+  _route_wait_cad0_ms = getTxWaitCadMs();
+#ifdef RX_DISPOSITION
+  _route_wait_relay0_ms = getRxWaitMs();
+#endif
   _next_route_ms = futureMillis(ROUTE_WINDOW_MS);
 #endif
 
@@ -2776,10 +2781,10 @@ void Beebo::computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
   uint32_t window_us = micros() - _route_start_us;
   rx_busy = MonRing::computeRoutePct(_rx_route_us, window_us);
   tx_busy = MonRing::computeRoutePct(_tx_route_us, window_us);
-  tx_wait_airtime = MonRing::computeRoutePct(getTxWaitAirtimeMs() * 1000, window_us);
-  tx_wait_cad = MonRing::computeRoutePct(getTxWaitCadMs() * 1000, window_us);
+  tx_wait_airtime = MonRing::computeRoutePct((getTxWaitAirtimeMs() - _route_wait_airtime0_ms) * 1000, window_us);
+  tx_wait_cad = MonRing::computeRoutePct((getTxWaitCadMs() - _route_wait_cad0_ms) * 1000, window_us);
 #ifdef RX_DISPOSITION
-  rx_wait_relay = MonRing::computeRoutePct(getRxWaitMs() * 1000, window_us);
+  rx_wait_relay = MonRing::computeRoutePct((getRxWaitMs() - _route_wait_relay0_ms) * 1000, window_us);
 #else
   rx_wait_relay = 0;  // no Packet::_rx_scheduled_for staging without RX_DISPOSITION
 #endif
@@ -7454,24 +7459,16 @@ void Beebo::loop() {
 
       // beebo: resource-wait duty-cycle, same 10s report window as busy
       // above -- see Beebo.h's member comment. Snapshot-diff Dispatcher's
-      // continuously-running ms accumulators (which keep resetting only
-      // every 1 minute for RouteRecord, unaffected by this read) rather
-      // than resetting them here; a decrease since the last snapshot means
-      // a 1-minute RouteRecord reset happened in between, so fall back to
-      // the current value alone (the portion accumulated since that
-      // reset) rather than underflowing.
+      // free-running ms accumulators (unsigned, wrap-safe).
       uint32_t cur_ta_ms = getTxWaitAirtimeMs();
       uint32_t cur_tc_ms = getTxWaitCadMs();
       uint32_t cur_rw_ms = 0;
 #ifdef RX_DISPOSITION
       cur_rw_ms = getRxWaitMs();
 #endif
-      uint32_t delta_ta_ms = (cur_ta_ms >= _tx_wait_airtime_ms_at_report) ?
-                              (cur_ta_ms - _tx_wait_airtime_ms_at_report) : cur_ta_ms;
-      uint32_t delta_tc_ms = (cur_tc_ms >= _tx_wait_cad_ms_at_report) ?
-                              (cur_tc_ms - _tx_wait_cad_ms_at_report) : cur_tc_ms;
-      uint32_t delta_rw_ms = (cur_rw_ms >= _rx_wait_relay_ms_at_report) ?
-                              (cur_rw_ms - _rx_wait_relay_ms_at_report) : cur_rw_ms;
+      uint32_t delta_ta_ms = cur_ta_ms - _tx_wait_airtime_ms_at_report;
+      uint32_t delta_tc_ms = cur_tc_ms - _tx_wait_cad_ms_at_report;
+      uint32_t delta_rw_ms = cur_rw_ms - _rx_wait_relay_ms_at_report;
       _tx_wait_airtime_reported = MonRing::computeRoutePct(delta_ta_ms * 1000, report_us);
       _tx_wait_cad_reported = MonRing::computeRoutePct(delta_tc_ms * 1000, report_us);
       _rx_wait_relay_reported = MonRing::computeRoutePct(delta_rw_ms * 1000, report_us);
@@ -7491,8 +7488,7 @@ void Beebo::loop() {
   // ROUTE_STATS_MS, logged whether or not tuning or a trial is running (the
   // eval windows only see them while one is open). An interval whose values
   // equal the last logged ones is not logged (routeStatsDue()). Snapshot-diffs
-  // the radio and Dispatcher counters; a CAD accumulator that went backwards was reset by the
-  // RouteRecord window in between, so its current value alone is the delta.
+  // the radio and Dispatcher counters (all free-running).
   if (monring.enabled() && monring.allocated()) {
     if (millisHasNowPassed(_rs_next_sample_ms)) {
       _rs_next_sample_ms = futureMillis(ROUTE_STATS_SAMPLE_MS);
@@ -7513,7 +7509,7 @@ void Beebo::loop() {
       _rs_next_ms = futureMillis(ROUTE_STATS_MS);
     } else if (millisHasNowPassed(_rs_next_ms)) {
       uint32_t elapsed_ms = millis() - _rs_t0_ms;
-      uint32_t d_cad = rs_cad_ms >= _rs_cad0_ms ? rs_cad_ms - _rs_cad0_ms : rs_cad_ms;
+      uint32_t d_cad = rs_cad_ms - _rs_cad0_ms;
       uint16_t cad_scale = MonRing::computeRoutePct(d_cad * 1000, elapsed_ms * 1000);
       uint8_t pool = _rs_util_n ? (uint8_t)(_rs_util_sum / _rs_util_n) : 0;
       EventRecord rs = MonRing::packRouteStats(rs_errs - _rs_errs0, cad_scale, pool,
@@ -7552,7 +7548,11 @@ void Beebo::loop() {
     route.rx_wait_relay = rx_wait_relay;
     monring.appendRoute(route, getRTCClock()->nowMillis());
     _rx_route_us = _tx_route_us = 0;
-    resetRouteAccounting();
+    _route_wait_airtime0_ms = getTxWaitAirtimeMs();
+    _route_wait_cad0_ms = getTxWaitCadMs();
+#ifdef RX_DISPOSITION
+    _route_wait_relay0_ms = getRxWaitMs();
+#endif
     _route_start_us = micros();
 
     // beebo: live-only CPU snapshot for a --debug/-d session, same cadence
