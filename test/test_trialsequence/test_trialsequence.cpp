@@ -235,6 +235,74 @@ TEST(TrialSequence, ParseAndFormatRoundTrip) {
   EXPECT_STREQ("255,0", buf);
 }
 
+// participants(): who takes part in a combined trial. Side A is the stored value
+// and side B the list's current challenger (see Beebo::loopTuning).
+struct Part {
+  TrialSequence::Lists lists;
+  uint8_t stored[TrialSequence::NUM_SWITCHES] = {};
+  Part() {
+    for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) {
+      lists.v[i].fromStored();
+      stored[i] = lists.v[i].first();
+    }
+  }
+  uint16_t run(uint16_t pending, bool fem_lna = true) const {
+    return TrialSequence::participants(lists, stored, pending, fem_lna);
+  }
+};
+static uint16_t bit(int sw) { return (uint16_t)(1u << sw); }
+
+TEST(TrialSequence, ParticipantsNeedASideBThatDiffers) {
+  Part p;
+  uint8_t v[2] = {0, 1};
+  ASSERT_TRUE(p.lists.v[TrialSequence::CAD].set(TrialSequence::CAD, v, 2));
+  p.lists.v[TrialSequence::CAD].restart();   // B = 1
+  p.stored[TrialSequence::CAD] = 1;
+  EXPECT_EQ(0, p.run(bit(TrialSequence::CAD)));   // B equals A
+  p.stored[TrialSequence::CAD] = 0;
+  EXPECT_EQ(bit(TrialSequence::CAD), p.run(bit(TrialSequence::CAD)));
+}
+
+TEST(TrialSequence, ParticipantsLeaveOutSwitchesNotPending) {
+  Part p;
+  uint8_t v[2] = {0, 1};
+  ASSERT_TRUE(p.lists.v[TrialSequence::CAD].set(TrialSequence::CAD, v, 2));
+  p.lists.v[TrialSequence::CAD].restart();   // pos 1: B = 1, A = stored 0
+  p.stored[TrialSequence::CAD] = 0;
+  EXPECT_EQ(bit(TrialSequence::CAD), p.run(bit(TrialSequence::CAD)));
+  EXPECT_EQ(0, p.run(0));                                   // disabled or done
+  EXPECT_EQ(0, p.run(bit(TrialSequence::MULTI_ACKS)));      // another switch pending
+}
+
+TEST(TrialSequence, ParticipantsSkipLnaWithoutFemControl) {
+  Part p;
+  p.lists.v[TrialSequence::LNA].restart();   // B = 1
+  p.stored[TrialSequence::LNA] = 0;
+  EXPECT_EQ(bit(TrialSequence::LNA), p.run(bit(TrialSequence::LNA), true));
+  EXPECT_EQ(0, p.run(bit(TrialSequence::LNA), false));
+}
+
+TEST(TrialSequence, ParticipantsRetryCrNeedsRetriesOnEitherSide) {
+  Part p;
+  p.lists.v[TrialSequence::RETRY_CR].restart();   // 8 -> 6
+  p.stored[TrialSequence::RETRY_CR] = 8;
+  p.stored[TrialSequence::RETRY_NO] = 0;
+  uint16_t cr = bit(TrialSequence::RETRY_CR), no = bit(TrialSequence::RETRY_NO);
+  EXPECT_EQ(0, p.run(cr));                  // no retries on A, none on B
+  p.lists.v[TrialSequence::RETRY_NO].restart();   // 0 -> 1
+  EXPECT_EQ(cr | no, p.run(cr | no));       // B uses retries
+  p.lists.v[TrialSequence::RETRY_NO].fromStored();   // challenger 0 == stored: retry_no out
+  EXPECT_EQ(0, p.run(cr | no) & cr);        // still no retries anywhere
+  p.stored[TrialSequence::RETRY_NO] = 1;
+  p.lists.v[TrialSequence::RETRY_NO].restart();      // B = 1 == stored 1
+  EXPECT_EQ(cr, p.run(cr | no));            // A has retries
+}
+
+TEST(TrialSequence, ParticipantCount) {
+  EXPECT_EQ(0, TrialSequence::countBits(0));
+  EXPECT_EQ(3, TrialSequence::countBits(bit(0) | bit(5) | bit(13)));
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {

@@ -904,6 +904,29 @@ TEST(MonRing, AppendTrialRoundTripsAllThreePhases) {
   EXPECT_EQ(3u, f.ring.tuningCount());
 }
 
+TEST(MonRing, AppendTrialRoundTripsAPartRecord) {
+  RingFixture<4> f;
+  MonRecord part{};
+  part.trial_part.phase = TRIAL_PHASE_PART;
+  part.trial_part.param = TUNING_CAD;
+  part.trial_part.a = 0;
+  part.trial_part.b = 1;
+  part.trial_part.index = 1;
+  part.trial_part.count = 3;
+  f.ring.appendTrial(part, f.ms(1000));
+  MonRecord out[4];
+  uint32_t returned = 0;
+  f.ring.serialize(reinterpret_cast<uint8_t *>(out), sizeof(out), 0, &returned);
+  ASSERT_EQ(1u, returned);
+  EXPECT_EQ(MON_TRIAL, out[0].kind);
+  EXPECT_EQ(TRIAL_PHASE_PART, out[0].trial_part.phase);
+  EXPECT_EQ(TUNING_CAD, out[0].trial_part.param);
+  EXPECT_EQ(1, out[0].trial_part.b);
+  EXPECT_EQ(3, out[0].trial_part.count);
+  EXPECT_EQ(14, TUNING_COMBINED);   // wire-stable: after TUNING_ECHO_AT_TX (13)
+  EXPECT_EQ(3, TRIAL_PHASE_PART);
+}
+
 TEST(MonRing, AppendTrialNoOpWhenMaskedAndCountDecrementsOnEviction) {
   RingFixture<2> f;
   f.ring.setConfig(MON_CAP_ENABLED | MON_CAP_TX);   // TUNE masked out

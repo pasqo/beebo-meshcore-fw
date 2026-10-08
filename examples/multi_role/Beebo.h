@@ -2003,8 +2003,21 @@ private:
   TrialSequence::Lists _trial_lists;
   // Exact pre-trial value of a prefs-backed switch (the float settings are
   // held as whole numbers in the trial), restored when its trial ends.
-  float _trial_orig_f = 0;
-  uint8_t _trial_orig_u8 = 0;
+  float _trial_orig_f[TrialSequence::NUM_SWITCHES] = {};
+  uint8_t _trial_orig_u8[TrialSequence::NUM_SWITCHES] = {};
+  // tuning.trial.combined: the sequence runs ONE trial, side A against side B of
+  // every participant at once (TrialSequence::participants()). While it runs
+  // _trial_switch is TRIAL_COMBINED, _trial_part_mask the participants and
+  // _trial_side_a/_b their two values.
+  static constexpr int8_t TRIAL_COMBINED = -2;
+  bool _trial_combined = false;
+  uint16_t _trial_part_mask = 0;
+  uint8_t _trial_side_a[TrialSequence::NUM_SWITCHES] = {};
+  uint8_t _trial_side_b[TrialSequence::NUM_SWITCHES] = {};
+  // A running trial changes switch sw: a manual change of it ends the trial.
+  bool trialTouches(int sw) const {
+    return _trial_switch == sw || (_trial_switch == TRIAL_COMBINED && ((_trial_part_mask >> sw) & 1u));
+  }
   // A trial that ends idle (TrialFSM::ABORTED_IDLE) leaves its switch pending:
   // the sequence waits TRIAL_IDLE_HOLDOFF_MS and retries it, and switches off only
   // when no trial has completed for TRIAL_IDLE_GIVE_UP_MS (always idle).
@@ -2108,6 +2121,15 @@ private:
     _trial_start_stored = stored;
     return true;
   }
+  bool setTrialCombined(bool on, uint8_t source) {
+    if (on != _trial_combined) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_COMBINED, _trial_combined ? 1 : 0, on ? 1 : 0, source);
+      abortTrial(false);
+      restartTrials();
+    }
+    _trial_combined = on;
+    return true;
+  }
   bool setTrialMinGain(uint8_t v, uint8_t source) {
     if (v > 50) return false;
     if (v != _trial_min_gain_pct) {
@@ -2159,7 +2181,12 @@ private:
   // `mark_done` records the switch as decided (guardrail abort) so it is not
   // immediately retried; a settings-driven abort leaves it eligible.
   void abortTrial(bool mark_done);
-  bool startTrial(int sw);
+  bool startTrial(int sw);   // sw >= 0 one switch, TRIAL_COMBINED the combined trial
+  // Every selected, undecided switch is decided (a combined trial covers them all).
+  void trialDoneAll();
+  // Put every participant on side 0 (A) or 1 (B), revert them all.
+  void applyTrialSide(int sw, uint8_t side);
+  void trialRevertAll(int sw);
   void loopTrial();
   void finishTrial(const TrialFSM::Step& step);
   static uint8_t trialParamId(int sw);
@@ -2177,6 +2204,7 @@ private:
   bool trialRateAllows();
   void applyTrialSwitchLive(int sw, uint8_t value);
   void emitTrialStart(int sw, const TrialFSM::Config& tc);
+  void emitTrialParts();
   void emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Result& r, uint32_t pairs_before);
   void emitTrialEnd(int sw, const TrialFSM::Step& step);
   void emitTrialSkip(int sw, TrialFSM::Outcome outcome);

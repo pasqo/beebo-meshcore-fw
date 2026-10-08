@@ -197,4 +197,27 @@ public:
     List v[NUM_SWITCHES];
     Lists() { for (int i = 0; i < NUM_SWITCHES; i++) v[i].reset(i); }
   };
+  static int countBits(uint16_t mask) {
+    int n = 0;
+    for (; mask; mask >>= 1) n += mask & 1u;
+    return n;
+  }
+
+  // Combined trial: the switches of `pending` that take part. Side A is the
+  // stored value, side B the list's current challenger. A switch takes part when
+  // B differs from A; the FEM LNA needs `fem_lna` (a controllable LNA), and the
+  // retry coding rate needs retries on either side (B's retry count is the
+  // challenger when the retry count is pending too).
+  static uint16_t participants(const Lists& lists, const uint8_t* stored, uint16_t pending, bool fem_lna) {
+    uint8_t b[NUM_SWITCHES];
+    for (int i = 0; i < NUM_SWITCHES; i++) b[i] = (pending & (1u << i)) ? lists.v[i].current() : stored[i];
+    uint16_t mask = 0;
+    for (int i = 0; i < NUM_SWITCHES; i++) {
+      if (!(pending & (1u << i)) || b[i] == stored[i]) continue;
+      if (i == LNA && !fem_lna) continue;
+      if (i == RETRY_CR && stored[RETRY_NO] == 0 && b[RETRY_NO] == 0) continue;
+      mask |= (uint16_t)(1u << i);
+    }
+    return mask;
+  }
 };

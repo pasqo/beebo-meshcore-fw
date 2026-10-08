@@ -191,7 +191,7 @@ uint32_t Beebo::tlvGetAgcResetInterval(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetAgcResetInterval(Beebo* self, uint8_t role, uint32_t raw) {
-  if (self->_trial_switch == TrialSequence::AGC) self->abortTrial(false);   // a manual change ends the trial first
+  if (self->trialTouches(TrialSequence::AGC)) self->abortTrial(false);   // a manual change ends the trial first
   // beebo: agc_reset_interval is a uint8_t storing secs/4 (CommonCLI.h) --
   // max representable is 255*4=1020s. Reject out of range instead of
   // silently wrapping, same convention as tlvSetLoopDetect's raw > 3 check.
@@ -234,7 +234,7 @@ uint32_t Beebo::tlvGetTxDelayFactor(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
-  if (self->_trial_switch == TrialSequence::TX_DELAY) self->abortTrial(false);   // a manual change ends the trial first
+  if (self->trialTouches(TrialSequence::TX_DELAY)) self->abortTrial(false);   // a manual change ends the trial first
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.tx_delay_factor, _bitsFloat(raw));
 #endif
@@ -249,7 +249,7 @@ uint32_t Beebo::tlvGetDirectTxDelayFactor(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetDirectTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
-  if (self->_trial_switch == TrialSequence::DIRECT_TX_DELAY) self->abortTrial(false);   // a manual change ends the trial first
+  if (self->trialTouches(TrialSequence::DIRECT_TX_DELAY)) self->abortTrial(false);   // a manual change ends the trial first
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.direct_tx_delay_factor, _bitsFloat(raw));
 #endif
@@ -312,7 +312,7 @@ uint32_t Beebo::tlvGetInterferenceThreshold(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetInterferenceThreshold(Beebo* self, uint8_t role, uint32_t raw) {
-  if (self->_trial_switch == TrialSequence::INTERFERENCE) self->abortTrial(false);   // a manual change ends the trial first
+  if (self->trialTouches(TrialSequence::INTERFERENCE)) self->abortTrial(false);   // a manual change ends the trial first
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.interference_threshold, raw > 9 ? 9 : raw);
 #endif
@@ -366,7 +366,7 @@ uint32_t Beebo::tlvGetRxDelayBase(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetRxDelayBase(Beebo* self, uint8_t role, uint32_t raw) {
-  if (self->_trial_switch == TrialSequence::RX_DELAY) self->abortTrial(false);   // a manual change ends the trial first
+  if (self->trialTouches(TrialSequence::RX_DELAY)) self->abortTrial(false);   // a manual change ends the trial first
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.rx_delay_base, _bitsFloat(raw));
 #endif
@@ -381,7 +381,7 @@ uint32_t Beebo::tlvGetAirtimeFactor(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw) {
-  if (self->_trial_switch == TrialSequence::AIRTIME) self->abortTrial(false);   // a manual change ends the trial first
+  if (self->trialTouches(TrialSequence::AIRTIME)) self->abortTrial(false);   // a manual change ends the trial first
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.airtime_factor, _bitsFloat(raw));
 #endif

@@ -105,6 +105,9 @@ enum {
   TUNING_FEM_LNA, TUNING_RX_BOOST, TUNING_CR,
   TUNING_CAD, TUNING_MULTI_ACKS, TUNING_RETRY_NO, TUNING_RETRY_CR,
   TUNING_ECHO_AT_TX,
+  // beebo: a combined trial (several switches at once) carries this as its param;
+  // the participants follow in TrialPartRecords.
+  TUNING_COMBINED,
 };
 
 // ---- EVENT types: what kind of thing an EventRecord reports, plus its own
@@ -405,6 +408,7 @@ enum : uint8_t {
   SETTING_TUNING_TRIAL_CONFIDENCE = 114, SETTING_TUNING_TRIAL_MIN_GAIN = 115,
   SETTING_TUNING_TRIAL_START = 131,
   SETTING_TUNING_TRIAL_MIN_RX_RATE = 132,
+  SETTING_TUNING_TRIAL_COMBINED = 137,
   // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
   SETTING_TUNING_REWARD_WEIGHT_BASE = 116,
 };
@@ -610,6 +614,7 @@ struct __attribute__((packed)) AdaptiveRecord {
 #define TRIAL_PHASE_START 0
 #define TRIAL_PHASE_BLOCK 1
 #define TRIAL_PHASE_END   2
+#define TRIAL_PHASE_PART  3   // one participant of a combined trial, right after its start record
 // beebo: MON_TRIAL block flags (TrialBlockRecord.flags)
 #define TRIALF_MEASURED  0x01   // the block had enough data to count
 #define TRIALF_PAIRED    0x02   // this block completed a pair
@@ -630,6 +635,20 @@ struct __attribute__((packed)) TrialStartRecord {
   uint8_t  min_gain_pct;
   uint16_t volume_ref;      // objective volume reference, events per hour (saturated)
   uint8_t  min_rx_rate;     // RX packets a minute an A B B A cycle must average, else the trial ends idle (0 = off)
+};
+// beebo: a participant of a combined trial (TrialStartRecord.param ==
+// TUNING_COMBINED). `param` is the switch's TUNING_* id, a and b its two sides'
+// values; `index` counts from 0 of `count` participants.
+struct __attribute__((packed)) TrialPartRecord {
+  uint8_t  kind;            // MON_TRIAL
+  uint16_t offset;
+  uint8_t  phase;           // TRIAL_PHASE_PART
+  uint8_t  param;
+  uint8_t  a;
+  uint8_t  b;
+  uint8_t  index;
+  uint8_t  count;
+  uint8_t  _rsvd[7];
 };
 // beebo: one closed block, scored. mean/lower/upper describe the paired ln score
 // difference B - A over the pairs so far, x1000 (saturated): the mean and the
@@ -847,6 +866,7 @@ union MonRecord {
   TrialStartRecord trial_start;
   TrialBlockRecord trial_block;
   TrialEndRecord   trial_end;
+  TrialPartRecord  trial_part;
   EvalRecordA eval_a;
   EvalRecordB eval_b;
   EvalRecordC eval_c;
@@ -868,6 +888,7 @@ static_assert(sizeof(AdaptiveRecord)  == 16, "AdaptiveRecord must be 16 bytes");
 static_assert(sizeof(TrialStartRecord) == 16, "TrialStartRecord must be 16 bytes");
 static_assert(sizeof(TrialBlockRecord) == 16, "TrialBlockRecord must be 16 bytes");
 static_assert(sizeof(TrialEndRecord)   == 16, "TrialEndRecord must be 16 bytes");
+static_assert(sizeof(TrialPartRecord)  == 16, "TrialPartRecord must be 16 bytes");
 static_assert(sizeof(EvalRecordA) == 16, "EvalRecordA must be 16 bytes");
 static_assert(sizeof(EvalRecordB) == 16, "EvalRecordB must be 16 bytes");
 static_assert(sizeof(EvalRecordC) == 16, "EvalRecordC must be 16 bytes");
