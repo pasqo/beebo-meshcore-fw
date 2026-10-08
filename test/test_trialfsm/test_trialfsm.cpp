@@ -4,17 +4,19 @@
 
 namespace {
 
-// A closed block as TrialFSM::onBlock() receives it. `ros_rate` is confirmed
-// deliveries per hour, `ratio` the confirm ratio (0-10000); every measured block
-// heard 10 packets unless a test says otherwise.
-EvalWindow::Result blk(uint32_t ros_rate, uint16_t ratio = 9000, uint8_t flags = 0) {
+// A closed block as TrialFSM::onBlock() receives it. `routed` is the packets
+// routed (confirmable attempts) per hour of a one hour window, `ratio` the
+// confirmed share (0-10000); every measured block heard 10 packets unless a
+// test says otherwise.
+EvalWindow::Result blk(uint32_t routed, uint16_t ratio = 9000, uint8_t flags = 0) {
   EvalWindow::Result r = {};
   r.measured = true;
   r.outcome = EVAL_ACCEPTED;
-  r.ros_rate = ros_rate;
+  r.window_ms = 3600000;
+  r.exposure = routed;
+  r.ros_rate = routed * ratio / 10000;
   r.confirm_ratio = ratio;
   r.flags = flags;
-  r.exposure = 200;
   r.rx_valid = 10;
   return r;
 }
@@ -362,7 +364,7 @@ TrialFSM::Step runRxGainRatioDrop(TrialFSM &t, const Objective &obj, int blocks)
 
 TEST(TrialFSM, RatioBelowToleranceBlocksAdoptionAndTheStableTrialEndsInconclusive) {
   Objective rx;
-  rx.weights[Objective::RX_VALID] = 10;
+  rx.weights[Objective::RECEIVED] = 10;
   TrialFSM t;
   TrialFSM::Config c = cfg(96);
   c.objective = &rx;
@@ -429,7 +431,7 @@ TEST(TrialFSM, AdoptsBWhenConfirmedDeliveriesGrowDespiteALowerConfirmRatio) {
 
 TEST(TrialFSM, NoStableStopWithoutEnoughLooks) {
   Objective rx;
-  rx.weights[Objective::RX_VALID] = 10;
+  rx.weights[Objective::RECEIVED] = 10;
   TrialFSM t;
   TrialFSM::Config c = cfg(96);
   c.objective = &rx;
@@ -670,7 +672,7 @@ TEST(TrialFSM, ObjectiveWeightsChangeWhatTheTrialOptimizes) {
   ASSERT_TRUE(a.finished);
   EXPECT_EQ(TrialFSM::KEEP_A, a.outcome);
   Objective rx;
-  rx.weights[Objective::RX_VALID] = 10;   // rx_valid counts: B wins
+  rx.weights[Objective::RECEIVED] = 10;   // rx_valid counts: B wins
   TrialFSM::Step b = run(&rx);
   ASSERT_TRUE(b.finished);
   EXPECT_EQ(TrialFSM::ADOPT_B, b.outcome);

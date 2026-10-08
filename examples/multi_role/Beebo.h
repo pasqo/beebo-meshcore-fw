@@ -2143,10 +2143,10 @@ private:
   // Objective weight in tenths (Objective.h). The value scale changes under
   // both tuners, so a change aborts a running trial and restarts the adaptive
   // tuner's statistics.
-  bool setRewardWeight(uint8_t idx, int8_t v, uint8_t source) {
+  bool setScoreWeight(uint8_t idx, int8_t v, uint8_t source) {
     if (idx >= Objective::NUM_INDICATORS || v < Objective::WEIGHT_MIN || v > Objective::WEIGHT_MAX) return false;
     if (v != objective.weights[idx]) {
-      appendSettingChangedEvent(SETTING_TUNING_REWARD_WEIGHT_BASE + idx, (uint32_t)(int32_t)objective.weights[idx],
+      appendSettingChangedEvent(SETTING_TUNING_SCORE_WEIGHT_BASE + idx, (uint32_t)(int32_t)objective.weights[idx],
                                 (uint32_t)(int32_t)v, source);
       abortTrial(false);
       restartTrials();
@@ -2190,7 +2190,7 @@ private:
   void loopTrial();
   void finishTrial(const TrialFSM::Step& step);
   static uint8_t trialParamId(int sw);
-  static int rewardIndex(const char* name, int len = -1);
+  static int scoreIndex(const char* name, int len = -1);
   uint8_t trialSwitchStoredValue(int sw) const;
   // Store value on switch sw through its normal setter (and apply it live).
   void trialPersistValue(int sw, uint8_t value);

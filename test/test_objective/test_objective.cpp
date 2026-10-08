@@ -7,13 +7,14 @@ constexpr double C = Objective::C;
 
 namespace {
 
-EvalWindow::Result win(uint32_t ros_rate, uint16_t ratio = 9000) {
+// `routed` is the window's confirmable attempts (exposure); a 10 min window
+// makes the per-hour rate count * 6.
+EvalWindow::Result win(uint32_t routed, uint16_t ratio = 9000) {
   EvalWindow::Result r = {};
   r.measured = true;
-  r.ros_rate = ros_rate;
+  r.exposure = routed;
   r.confirm_ratio = ratio;
-  r.window_ms = 600000;   // 10 min: per-hour rate = count * 6
-  r.ros_norm = 1000;
+  r.window_ms = 600000;
   return r;
 }
 
@@ -22,24 +23,34 @@ EvalWindow::Result win(uint32_t ros_rate, uint16_t ratio = 9000) {
 TEST(Objective, TransformIsZeroAtZeroAndLogarithmicAboveC) {
   Objective o;
   o.weights[Objective::ROUTED] = 10;
-  o.weights[Objective::CONFIRM] = 0;
+  o.weights[Objective::DELIVERED] = 0;
   EXPECT_DOUBLE_EQ(0.0, o.trialLog(win(0)));                    // continuous, exactly 0
   // a level of 100 (one reference volume): ln(1 + 100 / C)
-  EXPECT_NEAR(log1p(100.0 / C), o.trialLog(win((uint32_t)o.volumeReference)), 1e-3);
+  EXPECT_NEAR(log1p(100.0 / C), o.trialLog(win((uint32_t)(o.volumeReference / 6))), 0.01);   // the count is whole
   // well above C, a 10% change is ~ln 1.1 (the weighted relative change)
   double d = o.trialLog(win(220)) - o.trialLog(win(200));
   EXPECT_NEAR(log(1.1), d, 0.01);
 }
 
-TEST(Objective, DefaultWeightsTrackGoodputsRelativeChange) {
+TEST(Objective, DefaultWeightsTrackConfirmedDeliveriesRelativeChange) {
   Objective o;
   double d = o.trialLog(win(220, 9900)) - o.trialLog(win(200, 9000));
   EXPECT_NEAR(log(1.1) + log(1.1), d, 0.02);
 }
 
+TEST(Objective, RoutedIsInsensitiveToConfirmationsAndDeliveredToVolume) {
+  Objective o;
+  // same routed count, more confirmed: only the delivered share moves
+  o.weights[Objective::DELIVERED] = 0;
+  EXPECT_DOUBLE_EQ(o.trialLog(win(200, 3000)), o.trialLog(win(200, 9000)));
+  o.weights[Objective::DELIVERED] = 10;
+  o.weights[Objective::ROUTED] = 0;
+  EXPECT_DOUBLE_EQ(o.trialLog(win(50, 9000)), o.trialLog(win(500, 9000)));
+}
+
 TEST(Objective, WeightIsAnExponentInTenths) {
   Objective o;
-  o.weights[Objective::RX_VALID] = 5;   // sqrt
+  o.weights[Objective::RECEIVED] = 5;   // sqrt
   EvalWindow::Result a = win(100, 10000), b = win(100, 10000);
   a.rx_valid = 100; b.rx_valid = 400;   // x4 -> +0.5 * ln 4
   EXPECT_NEAR(0.5 * log(4.0), o.trialLog(b) - o.trialLog(a), 0.02);
@@ -50,7 +61,7 @@ TEST(Objective, VolumeReferenceComesFromAirtime) {
   EXPECT_NEAR(2760.0f, Objective::referenceFor(240), 1.0f);
   EXPECT_FLOAT_EQ(Objective::DEFAULT_VOLUME_REFERENCE, Objective::referenceFor(0));
   Objective o;
-  o.weights[Objective::RX_VALID] = 10;
+  o.weights[Objective::RECEIVED] = 10;
   EvalWindow::Result r = win(100); r.rx_valid = 50;
   o.banditReward(r);                       // seeds a baseline
   o.setVolumeReference(o.volumeReference * 1.005f);   // under 1%: ignored
@@ -64,40 +75,32 @@ TEST(Objective, ZeroWeightIgnoresTheIndicator) {
   Objective o;
   EvalWindow::Result a = win(100), b = win(100);
   b.rx_valid = 50; b.rx_errors = 30; b.tx_dispatched = 9; b.reach_heard = 7; b.util_pct = 80;
+  b.cad_busy_pct = 40;
   EXPECT_DOUBLE_EQ(o.trialValue(a), o.trialValue(b));
 }
 
 TEST(Objective, ZeroLevelsAreFiniteWithAnyWeight) {
   Objective o;
-  o.weights[Objective::RX_ERRORS] = -10;
-  o.weights[Objective::RX_VALID] = 10;
+  o.weights[Objective::RECEIVED] = -10;
   EXPECT_TRUE(std::isfinite(o.trialLog(win(0))));
   EXPECT_TRUE(std::isfinite(o.trialLog(win(100))));
 }
 
-TEST(Objective, CostPercentagesAreGentleNearZero) {
-  Objective o;
-  o.weights[Objective::CAD_BUSY] = -10;
-  EvalWindow::Result idle = win(100, 10000), busy = win(100, 10000);
-  busy.cad_busy_pct = 1;
-  // 0% -> 1%: ln(1 + 1/C) = ln 11, not the 100x jump a hard floor gives
-  EXPECT_NEAR(-log1p(1.0 / C), o.trialLog(busy) - o.trialLog(idle), 1e-6);
-}
-
-TEST(Objective, BanditRewardDefaultsToGoodputScale) {
+TEST(Objective, BanditRewardDefaultsToTheConfirmedShareAtTheAverageVolume) {
   Objective o;
   EvalWindow::Result r = win(100, 8000);
-  r.ros_norm = 1500;   // 1.5x baseline
-  // close to ros_norm x ratio (150 x 80 = 12000); the transform is exact only far above C
-  EXPECT_NEAR(12000.0, o.banditReward(r), 300.0);
+  // the first window seeds the volume average: routed reads 100, delivered 80%
+  EXPECT_NEAR(8000.0, o.banditReward(r), 300.0);
+  r.exposure = 150;                         // 1.5x the seeded average
+  EXPECT_NEAR(12000.0, o.banditReward(r), 400.0);
 }
 
 TEST(Objective, BanditRewardScoresExtraIndicatorsAgainstTheirOwnAverage) {
   Objective o;
-  o.weights[Objective::RX_VALID] = 10;
+  o.weights[Objective::RECEIVED] = 10;
   EvalWindow::Result r = win(100, 10000);
   r.rx_valid = 10;
-  float first = o.banditReward(r);          // seeds the average: ratio 1
+  float first = o.banditReward(r);          // seeds the averages: ratio 1
   EXPECT_NEAR(10000.0f, first, 300.0f);
   r.rx_valid = 20;                          // twice the seeded average
   float second = o.banditReward(r);
@@ -108,9 +111,9 @@ TEST(Objective, BanditRewardScoresExtraIndicatorsAgainstTheirOwnAverage) {
 
 TEST(Objective, NegativeBanditWeightWithZeroLevelIsFinite) {
   Objective o;
-  o.weights[Objective::RX_ERRORS] = -10;
+  o.weights[Objective::RECEIVED] = -10;
   EvalWindow::Result r = win(100, 10000);
-  r.rx_errors = 0;
+  r.rx_valid = 0;
   float v = o.banditReward(r);
   EXPECT_TRUE(std::isfinite(v));
   EXPECT_GT(v, 0.0f);
@@ -118,16 +121,17 @@ TEST(Objective, NegativeBanditWeightWithZeroLevelIsFinite) {
 
 TEST(Objective, ExtremeWeightsStayInTheLogDomain) {
   Objective o;
-  for (int i = 0; i < Objective::NUM_INDICATORS; i++) o.weights[i] = 50;   // 8 indicators at 5.0
+  for (int i = 0; i < Objective::NUM_INDICATORS; i++) o.weights[i] = 50;   // 3 indicators at 5.0
   EvalWindow::Result r = win(100000, 10000);
-  r.rx_valid = 60000; r.rx_errors = 60000; r.tx_dispatched = 60000; r.reach_heard = 40;
-  r.util_pct = 100; r.cad_busy_pct = 100;
+  r.rx_valid = 60000;
   double j = o.trialLog(r);
-  EXPECT_TRUE(std::isfinite(j));                 // a plain product would be ~1e150
-  EXPECT_GT(j, 100.0);                           // beyond float range (ln 3e38 = 88)
+  EXPECT_TRUE(std::isfinite(j));                 // a plain product would overflow
+  EXPECT_GT(j, 50.0);
   // the tuner's reward is capped, never inf or NaN
+  o.banditReward(r);                             // seeds the averages
   EvalWindow::Result b = r;
-  b.ros_norm = 3000;
+  b.exposure = 300000;
+  b.rx_valid = 180000;
   float reward = o.banditReward(b);
   EXPECT_TRUE(std::isfinite(reward));
   EXPECT_FLOAT_EQ(20000.0f, reward);
@@ -140,9 +144,9 @@ TEST(Objective, ExtremeWeightsStayInTheLogDomain) {
 
 TEST(Objective, LogScoreOfAChangeIsTheWeightedRelativeChange) {
   Objective o;
-  o.weights[Objective::RX_VALID] = 5;
+  o.weights[Objective::RECEIVED] = 5;
   EvalWindow::Result a = win(100, 9000), b = win(110, 9000);
-  a.rx_valid = 100; b.rx_valid = 121;   // +10% routed, +21% rx_valid
+  a.rx_valid = 100; b.rx_valid = 121;   // +10% routed, +21% received
   double d = o.trialLog(b) - o.trialLog(a);
   EXPECT_NEAR(log(1.10) + 0.5 * log(1.21), d, 0.01);
 }

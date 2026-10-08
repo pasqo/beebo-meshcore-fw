@@ -2202,9 +2202,9 @@ void Beebo::initMonRing() {
 
 // Objective indicator by its setting name; `len` limits the compared prefix
 // (a "set" key carries its value after a space), -1 = whole string.
-int Beebo::rewardIndex(const char* name, int len) {
+int Beebo::scoreIndex(const char* name, int len) {
   static const char* const names[Objective::NUM_INDICATORS] = {
-    "routed", "confirm", "rx_valid", "rx_errors", "tx_dispatched", "nbr_heard", "pool_busy", "cad_busy"};
+    "routed", "delivered", "received"};
   for (int i = 0; i < Objective::NUM_INDICATORS; i++) {
     size_t n = strlen(names[i]);
     if (len < 0 ? strcmp(name, names[i]) == 0 : ((size_t)len == n && strncmp(name, names[i], n) == 0)) return i;
@@ -6208,7 +6208,7 @@ void Beebo::handleCmdFrame(size_t len) {
       setTrialCombined(sub[1] == 1, EVENT_SOURCE_BINARY);
       writeOKFrame();
     }
-  } else if (sub[0] == BEEBO_CMD_GET_TUNING_REWARD_WEIGHT && sub_len >= 2) {
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_SCORE_WEIGHT && sub_len >= 2) {
     if (sub[1] < Objective::NUM_INDICATORS) {
       int32_t v = objective.weights[sub[1]];
       out_frame[0] = RESP_CODE_OK;
@@ -6217,8 +6217,8 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
-  } else if (sub[0] == BEEBO_CMD_SET_TUNING_REWARD_WEIGHT && sub_len >= 3) {
-    if (setRewardWeight(sub[1], (int8_t)sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_SCORE_WEIGHT && sub_len >= 3) {
+    if (setScoreWeight(sub[1], (int8_t)sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
     else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_VALUES && sub_len >= 2) {
     if (sub[1] < TrialSequence::NUM_SWITCHES) {
@@ -9014,8 +9014,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_adaptive_win_max_s);
     } else if (strcmp(key, "tuning.trial.switches") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_switches);
-    } else if (strncmp(key, "tuning.reward.", 14) == 0) {
-      int idx = rewardIndex(&key[14]);
+    } else if (strncmp(key, "tuning.score.", 13) == 0) {
+      int idx = scoreIndex(&key[13]);
       if (idx < 0) sprintf(reply, "??: %s", key);
       else sprintf(reply, "> %d", (int)objective.weights[idx]);
     } else if (strcmp(key, "tuning.trial.confidence_pct") == 0) {
@@ -9467,14 +9467,14 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       }
       if (!ok) { strcpy(reply, "ERR: expected 1-65535, min_s <= max_s"); return; }
       sprintf(reply, "> %ld", v);
-    } else if (memcmp(key, "tuning.reward.", 14) == 0) {
-      // beebo: objective weight in tenths, "set tuning.reward.<indicator> <-50..50>"
-      const char* sp = strchr(&key[14], ' ');
-      int idx = sp ? rewardIndex(&key[14], (int)(sp - &key[14])) : -1;
+    } else if (memcmp(key, "tuning.score.", 13) == 0) {
+      // beebo: objective weight in tenths, "set tuning.score.<indicator> <-50..50>"
+      const char* sp = strchr(&key[13], ' ');
+      int idx = sp ? scoreIndex(&key[13], (int)(sp - &key[13])) : -1;
       long v = sp ? atol(sp + 1) : 0;
       if (idx < 0) { sprintf(reply, "ERR: unknown key: %s", key); return; }
       if (v < Objective::WEIGHT_MIN || v > Objective::WEIGHT_MAX ||
-          !setRewardWeight((uint8_t)idx, (int8_t)v, EVENT_SOURCE_TEXT_CLI)) {
+          !setScoreWeight((uint8_t)idx, (int8_t)v, EVENT_SOURCE_TEXT_CLI)) {
         strcpy(reply, "ERR: expected -50 to 50"); return;
       }
       sprintf(reply, "> %ld", v);

@@ -410,7 +410,7 @@ enum : uint8_t {
   SETTING_TUNING_TRIAL_MIN_RX_RATE = 132,
   SETTING_TUNING_TRIAL_COMBINED = 137,
   // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
-  SETTING_TUNING_REWARD_WEIGHT_BASE = 116,
+  SETTING_TUNING_SCORE_WEIGHT_BASE = 116,
 };
 
 // ---- persisted capture config: per-kind mask + global enable (bit7) -------

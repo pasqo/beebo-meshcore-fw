@@ -14,13 +14,13 @@
 // indicator, and a negative weight penalizes a cost. Taking the log turns it
 // into a plain weighted sum of percentage changes, so unlike indicators
 // combine without unit juggling: +10% in any indicator moves ln P by about
-// 0.1 * w. The defaults, routed = 1 and confirm = 1, everything else 0, are
-// exactly the goodput the tuners always used (routed rate x confirm ratio).
+// 0.1 * w. The defaults, routed = 1 and delivered = 1, received 0, are the
+// confirmed deliveries per hour: the packets routed (confirmable attempts;
+// retries are not new ones) times the share of them confirmed.
 //
-// Every level is on one 0-100 scale (percent): the confirm ratio and the two
-// cost percentages already are; per-hour volumes are a percent of the channel's
-// usable capacity (volumeReference events per hour, see setVolumeReference()),
-// the neighbors heard a percent of the neighbor table. One transform then
+// Every level is on one 0-100 scale (percent): the delivered share already is;
+// per-hour volumes are a percent of the channel's usable capacity
+// (volumeReference events per hour, see setVolumeReference()). One transform then
 // serves every indicator, f(x) = ln(1 + x / C) with C = 0.1 (percent): it is 0
 // at x = 0 and continuous, behaves like ln(x / C) once x is well above C (so a
 // weight is the weighted relative change) and is linear below it (so a tiny
@@ -32,21 +32,15 @@
 class Objective {
 public:
   enum Indicator : uint8_t {
-    ROUTED,        // confirmed deliveries per hour (ros_rate), % of the reference
-    CONFIRM,       // TX confirm ratio, %
-    RX_VALID,      // valid packets received per hour, % of the reference
-    RX_ERRORS,     // radio-level receive errors per hour, % of the reference
-    TX_DISPATCHED, // packets sent per hour, % of the reference
-    NBR_HEARD,     // direct neighbors heard, % of the neighbor table
-    POOL_BUSY,     // packet pool utilization, %
-    CAD_BUSY,      // channel-busy TX wait, %
+    ROUTED,        // packets routed (confirmable attempts, a retry is not one) per hour, % of the reference
+    DELIVERED,     // share of the routed packets that were confirmed, %
+    RECEIVED,      // valid packets received per hour, % of the reference
     NUM_INDICATORS
   };
 
   static constexpr int8_t WEIGHT_MIN = -50, WEIGHT_MAX = 50;
   static constexpr double C = 0.1;                          // percent, the transform's scale
   static constexpr float DEFAULT_VOLUME_REFERENCE = 2800.0f;   // events/h, see below
-  static constexpr float NEIGHBOR_SLOTS = 16.0f;               // Beebo.h MAX_NEIGHBOURS
 
   // Events per hour that read as 100 for the volume indicators: the channel's
   // usable capacity, 1 / (2e) = 18.4% of raw airtime (the pure-ALOHA maximum
@@ -65,21 +59,16 @@ public:
                                      : DEFAULT_VOLUME_REFERENCE;
   }
 
-  int8_t weights[NUM_INDICATORS] = {10, 10, 0, 0, 0, 0, 0, 0};
+  int8_t weights[NUM_INDICATORS] = {10, 10, 0};
 
   // Levels for a window in absolute units (the trial compares two blocks of
   // the same length, so no baseline is needed).
   void levels(const EvalWindow::Result &r, float x[NUM_INDICATORS]) const {
     float per_hour = r.window_ms ? 3600000.0f / (float)r.window_ms : 0.0f;
     const float vol = 100.0f / volumeReference;
-    x[ROUTED] = (float)r.ros_rate * vol;
-    x[CONFIRM] = (float)r.confirm_ratio / 100.0f;
-    x[RX_VALID] = (float)r.rx_valid * per_hour * vol;
-    x[RX_ERRORS] = (float)r.rx_errors * per_hour * vol;
-    x[TX_DISPATCHED] = (float)r.tx_dispatched * per_hour * vol;
-    x[NBR_HEARD] = (float)r.reach_heard * 100.0f / NEIGHBOR_SLOTS;
-    x[POOL_BUSY] = (float)r.util_pct;
-    x[CAD_BUSY] = (float)r.cad_busy_pct;
+    x[ROUTED] = (float)r.exposure * per_hour * vol;
+    x[DELIVERED] = (float)r.confirm_ratio / 100.0f;
+    x[RECEIVED] = (float)r.rx_valid * per_hour * vol;
   }
 
   // The trial's per-block score ln P; the trial compares blocks by the plain
@@ -97,19 +86,18 @@ public:
   // 0-10000 scale goodput always had, capped at `cap`. J_ref is J with every
   // weighted level at its neutral value, 100 (the reference, "as usual"), so
   // the scale does not move with the weights: all indicators at neutral give
-  // 10000. Routed enters as 100 * ros_norm (its rate over its rolling
-  // baseline) and confirm as a percent, so the defaults give exactly
-  // ros_norm * ratio * 1e4. The other volume-like indicators enter as
-  // 100 * level / (its own running average, seeded by the first window), so a
-  // weight on one of them scores change against recent history. Updates those
-  // averages; call once per measured window.
+  // 10000. Delivered enters as a percent. The two volumes (routed, received)
+  // enter as 100 * level / (its own running average, seeded by the first
+  // window), so a weight on one of them scores change against recent history:
+  // the defaults give delivered ratio * routed / its average * 1e4. Updates
+  // those averages; call once per measured window.
   float banditReward(const EvalWindow::Result &r, float cap = 20000.0f) {
     float x[NUM_INDICATORS];
     levels(r, x);
     float raw[NUM_INDICATORS];
     for (int i = 0; i < NUM_INDICATORS; i++) raw[i] = x[i];
-    x[ROUTED] = (float)r.ros_norm / 10.0f;   // ros_norm 1000 = 1.0 -> 100
-    for (int i = RX_VALID; i <= NBR_HEARD; i++) {
+    for (int i = 0; i < NUM_INDICATORS; i++) {
+      if (i == DELIVERED) continue;   // a share, not a volume
       x[i] = _ema[i] > 0.0f ? 100.0f * raw[i] / _ema[i] : 100.0f;
       _ema[i] = _ema[i] > 0.0f ? _ema[i] + (raw[i] - _ema[i]) * EMA_ALPHA : raw[i];
     }
