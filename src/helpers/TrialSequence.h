@@ -90,14 +90,14 @@ public:
 
   // Parse "8,16,32" (spaces around numbers allowed) into `out` (room for
   // MAX_VALUES); the count, or -1 on anything else, an empty list, too many
-  // values or a value above 255. The retry list is "0|8|5,6": policies
-  // separated by '|', the coding rates of one policy by ','.
+  // values or a value above 255. The retry list is "0,8,5|6": policies
+  // separated by ',', the coding rates of one policy by '|'.
   static int parse(int sw, const char* text, uint8_t* out) {
     int n = 0;
     const char* p = text;
     while (true) {
       if (sw == RETRY) {
-        if (n >= MAX_VALUES || !RetryPolicy::parse(p, '|', &out[n], &p)) return -1;
+        if (n >= MAX_VALUES || !RetryPolicy::parse(p, ',', &out[n], &p)) return -1;
         n++;
         if (*p == '\0') return n;
         p++;
@@ -139,7 +139,7 @@ public:
         {20, 10, 60, 180},       // airtime factor: 1.0, 0.5, 3, 9
         {0, 1, 0, 0},            // CAD: off, on
         {0, 1, 0, 0},            // multi acks: off, on
-        {0, 112, 140, 0},        // retry policy: off, one retry at 4/8, two at 4/5 then 4/8
+        {0, 112, 140, 0},        // retry policy: off, one retry at 4/8, two at 4/5 then 4/8 (0,8,5|8)
         {0, 1, 0, 0},            // echo slot at the send: off (at scheduling), on
       };
       static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 3, 2};
@@ -177,11 +177,11 @@ public:
     // challenger, the first one too.
     void fromStored() { pos = 0; }
     // "8,16,32" into buf (size at least 6 * MAX_VALUES); the length. The retry
-    // list is "0|8|5,6" (see parse()).
+    // list is "0,8,5|6" (see parse()).
     int format(int sw, char* buf) const {
       int len = 0;
       for (int i = 0; i < n; i++) {
-        if (i) buf[len++] = sw == RETRY ? '|' : ',';
+        if (i) buf[len++] = ',';
         if (sw == RETRY) {
           len += RetryPolicy::format(v[i], &buf[len]);
           continue;

@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 // beebo: a route-retry policy (kbase/ROUTE_RETRY.md) in one byte: the coding
-// rates of the retries of a forward whose echo timed out, in order. "5,6" is
+// rates of the retries of a forward whose echo timed out, in order. "5|6" is
 // two retries, the first at 4/5 and the second at 4/6; 0 is no retries.
 //   bits 7..6  retry count, 0..3
 //   bits 5..4  coding rate - 5 of retry 1
@@ -38,7 +38,7 @@ public:
     return true;
   }
 
-  // "0", "8" or "5,6,8" (spaces around numbers allowed) into `out`. Parsing
+  // "0", "8" or "5|6|8" (spaces around numbers allowed) into `out`. Parsing
   // stops at '\0' or `stop` (the policy separator of a list) and sets *end there.
   static bool parse(const char* text, char stop, uint8_t* out, const char** end) {
     const char* p = text;
@@ -58,7 +58,7 @@ public:
       if (*p < '0' || *p > '9' || n >= MAX_RETRIES) return false;
       cr[n++] = (uint8_t)(*p++ - '0');
       while (*p == ' ') p++;
-      if (*p == ',') { p++; continue; }
+      if (*p == '|') { p++; continue; }
       if (*p != '\0' && *p != stop) return false;
       break;
     }
@@ -66,12 +66,12 @@ public:
     return pack(cr, n, out);
   }
 
-  // "0", "8", "5,6" into buf (size at least 6); the length.
+  // "0", "8", "5|6" into buf (size at least 6); the length.
   static int format(uint8_t p, char* buf) {
     int len = 0;
     if (count(p) == 0) buf[len++] = '0';
     for (int a = 1; a <= count(p); a++) {
-      if (a > 1) buf[len++] = ',';
+      if (a > 1) buf[len++] = '|';
       buf[len++] = (char)('0' + crAt(p, a));
     }
     buf[len] = '\0';

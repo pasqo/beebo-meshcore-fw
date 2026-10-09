@@ -129,7 +129,7 @@ TEST(TrialSequence, DefaultListsStartAtTheUpstreamDefaults) {
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
   l.reset(TrialSequence::MULTI_ACKS);   EXPECT_EQ(0, l.first());   // off, then on
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
-  l.reset(TrialSequence::RETRY);        EXPECT_EQ(0, l.first());   // off, then "8", then "5,8"
+  l.reset(TrialSequence::RETRY);        EXPECT_EQ(0, l.first());   // off, then "8", then "5|8"
   EXPECT_EQ(3, l.n); EXPECT_EQ(112, l.v[1]); EXPECT_EQ(140, l.v[2]);
   l.reset(TrialSequence::ECHO_AT_TX);   EXPECT_EQ(0, l.first());   // at scheduling, then at the send
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
@@ -228,25 +228,25 @@ TEST(TrialSequence, ParseAndFormatRoundTrip) {
   EXPECT_STREQ("255,0", buf);
 }
 
-TEST(TrialSequence, RetryListsSeparatePoliciesWithBar) {
+TEST(TrialSequence, RetryListsSeparateRatesWithBar) {
   uint8_t out[TrialSequence::MAX_VALUES];
   const int sw = TrialSequence::RETRY;
-  ASSERT_EQ(3, TrialSequence::parse(sw, "0|8|5,8", out));
+  ASSERT_EQ(3, TrialSequence::parse(sw, "0,8,5|8", out));
   EXPECT_EQ(0, out[0]); EXPECT_EQ(112, out[1]); EXPECT_EQ(140, out[2]);
-  ASSERT_EQ(2, TrialSequence::parse(sw, " 5 , 6 | 7,8,5 ", out));
+  ASSERT_EQ(2, TrialSequence::parse(sw, " 5 | 6 , 7|8|5 ", out));
   EXPECT_EQ(0x80 | 0x00 | 0x04, out[0]);
   EXPECT_EQ(0xC0 | 0x20 | 0x0C | 0x00, out[1]);
   EXPECT_EQ(-1, TrialSequence::parse(sw, "", out));
-  EXPECT_EQ(-1, TrialSequence::parse(sw, "8|", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "8,", out));
   EXPECT_EQ(-1, TrialSequence::parse(sw, "4", out));          // a coding rate is 5..8
-  EXPECT_EQ(-1, TrialSequence::parse(sw, "5,6,7,8", out));    // at most three retries
-  EXPECT_EQ(-1, TrialSequence::parse(sw, "0,5", out));
-  EXPECT_EQ(-1, TrialSequence::parse(sw, "0|5|6|7|8", out));  // at most four policies
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "5|6|7|8", out));    // at most three retries
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "0|5", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "0,5,6,7,8", out));  // at most four policies
   TrialSequence::List l;
   l.reset(sw);
   char buf[8 * TrialSequence::MAX_VALUES];
   l.format(sw, buf);
-  EXPECT_STREQ("0|8|5,8", buf);
+  EXPECT_STREQ("0,8,5|8", buf);
 }
 
 // participants(): who takes part in a combined trial. Side A is the stored value

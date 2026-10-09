@@ -50,16 +50,16 @@ TEST(RetryPolicy, EachPolicyHasOneCanonicalByte) {
 TEST(RetryPolicy, ParseStopsAtTheSeparator) {
   uint8_t p;
   const char* end;
-  const char* text = "5,6|8";
-  ASSERT_TRUE(RetryPolicy::parse(text, '|', &p, &end));
+  const char* text = "5|6,8";
+  ASSERT_TRUE(RetryPolicy::parse(text, ',', &p, &end));
   EXPECT_EQ(2, RetryPolicy::count(p));
-  EXPECT_EQ('|', *end);
-  ASSERT_TRUE(RetryPolicy::parse(" 0 ", '|', &p, &end));
+  EXPECT_EQ(',', *end);
+  ASSERT_TRUE(RetryPolicy::parse(" 0 ", ',', &p, &end));
   EXPECT_EQ(0, p);
   EXPECT_EQ('\0', *end);
-  EXPECT_FALSE(RetryPolicy::parse("5,", '|', &p, &end));
-  EXPECT_FALSE(RetryPolicy::parse("", '|', &p, &end));
-  EXPECT_FALSE(RetryPolicy::parse("5 6", '|', &p, &end));
+  EXPECT_FALSE(RetryPolicy::parse("5|", ',', &p, &end));
+  EXPECT_FALSE(RetryPolicy::parse("", ',', &p, &end));
+  EXPECT_FALSE(RetryPolicy::parse("5 6", ',', &p, &end));
 }
 
 TEST(RetryPolicy, FormatRoundTrips) {
@@ -67,13 +67,13 @@ TEST(RetryPolicy, FormatRoundTrips) {
   EXPECT_EQ(1, RetryPolicy::format(0, buf));
   EXPECT_STREQ("0", buf);
   EXPECT_EQ(3, RetryPolicy::format(140, buf));
-  EXPECT_STREQ("5,8", buf);
+  EXPECT_STREQ("5|8", buf);
   for (int p = 0; p < 256; p++) {
     if (!RetryPolicy::valid((uint8_t)p)) continue;
     RetryPolicy::format((uint8_t)p, buf);
     uint8_t q = 255;
     const char* end;
-    ASSERT_TRUE(RetryPolicy::parse(buf, '|', &q, &end));
+    ASSERT_TRUE(RetryPolicy::parse(buf, ',', &q, &end));
     EXPECT_EQ(p, q);
   }
 }
