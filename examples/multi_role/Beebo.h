@@ -5,6 +5,7 @@
 #include <helpers/MonRing.h>
 #include <helpers/AdaptiveController.h>
 #include <helpers/TrialFSM.h>
+#include <helpers/TrafficInjector.h>
 #include <helpers/TrialSequence.h>
 #include <helpers/NeighborReach.h>
 #include <esp_ota_ops.h>
@@ -1761,6 +1762,11 @@ private:
 #if BEEBO_ENABLE_COMPANION_ROLE
   void beginCompanion();
   void loopCompanion(bool skip_radio);
+  // Firmware traffic injector (companion only, RAM-only): TrafficInjector.h.
+  TrafficInjector _traffic;
+  uint32_t _traffic_next_ms = 0;
+  void trafficTick();
+  bool handleTrafficCmd(const uint8_t* sub, int sub_len);
 #endif
 #if BEEBO_ENABLE_REPEATER_ROLE
   void beginRepeater();

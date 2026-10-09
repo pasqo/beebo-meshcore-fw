@@ -12,6 +12,7 @@
 // radio-level overrides -- that both roles actually share.
 
 #include "Beebo.h"
+#include "BeeboProtocol.h"
 #include <helpers/DebugLog.h>
 
 #if BEEBO_ENABLE_COMPANION_ROLE
@@ -27,6 +28,7 @@ void Beebo::loopCompanion(bool skip_radio) {
   if (!skip_radio) {
     BaseChatMesh::loop();
     checkAckTableTimeouts();
+    trafficTick();
   }
 #ifdef BEEBO_CPU_ACCOUNTING
   uint32_t link_start_us = micros();
@@ -35,6 +37,68 @@ void Beebo::loopCompanion(bool skip_radio) {
 #else
   checkSerialInterface();
 #endif
+}
+
+// Traffic injector: one Poisson arrival per gap; the arrival sends only while
+// the node's own moving RX rate is below the target (TrafficInjector.h).
+void Beebo::trafficTick() {
+  if (!_traffic.active() || !millisHasNowPassed(_traffic_next_ms)) return;
+  _traffic_next_ms = futureMillis(TrafficInjector::gapMs(
+      _traffic.rate(), (uint16_t)getRNG()->nextInt(1, 65536)));
+#ifdef BEEBO_CPU_ACCOUNTING
+  bool full = _rate_filled >= RATE_SLOTS;   // a full window sums one minute
+  uint32_t rate = _rate_sum[0];             // rx_packets, as GET_COUNTER_RATES
+#else
+  bool full = false;
+  uint32_t rate = 0;
+#endif
+  if (!_traffic.shouldSend(rate, full)) return;
+  ChannelDetails ch;
+  if (!getChannel(_traffic.channel(), ch) || !ch.name[0] || ch.channel.hash[0] != _traffic.channelHash()) {
+    _traffic.clearChannel();   // the slot no longer holds the channel set
+    return;
+  }
+  char text[TrafficInjector::TEXT_SIZE + 1];
+  TrafficInjector::text(text, _traffic.nextSeq(), TrafficInjector::TEXT_SIZE);
+  sendGroupMessage(getRTCClock()->getCurrentTime(), ch.channel, _role_state->prefs.node_name,
+                   text, TrafficInjector::TEXT_SIZE);
+}
+
+// GET/SET_TRAFFIC_CHANNEL, GET/SET_TRAFFIC_RATE, GET_TRAFFIC_SENT.
+bool Beebo::handleTrafficCmd(const uint8_t* sub, int sub_len) {
+  uint32_t v;
+  switch (sub[0]) {
+    case BEEBO_CMD_GET_TRAFFIC_CHANNEL:
+    case BEEBO_CMD_GET_TRAFFIC_RATE:
+    case BEEBO_CMD_GET_TRAFFIC_SENT:
+      v = sub[0] == BEEBO_CMD_GET_TRAFFIC_CHANNEL ? _traffic.channel()
+          : sub[0] == BEEBO_CMD_GET_TRAFFIC_RATE ? _traffic.rate() : _traffic.sent();
+      out_frame[0] = RESP_CODE_OK;
+      memcpy(&out_frame[1], &v, 4);
+      _serial->writeFrame(out_frame, 5);
+      return true;
+    case BEEBO_CMD_SET_TRAFFIC_CHANNEL: {
+      if (sub_len < 2) { writeErrFrame(ERR_CODE_ILLEGAL_ARG); return true; }
+      if (sub[1] == TrafficInjector::NO_CHANNEL) {
+        _traffic.clearChannel();
+      } else {
+        ChannelDetails ch;
+        if (!getChannel(sub[1], ch) || !ch.name[0]) { writeErrFrame(ERR_CODE_NOT_FOUND); return true; }
+        _traffic.setChannel(sub[1], ch.channel.hash[0]);
+        _traffic_next_ms = futureMillis(TrafficInjector::gapMs(
+            _traffic.rate(), (uint16_t)getRNG()->nextInt(1, 65536)));
+      }
+      writeOKFrame();
+      return true;
+    }
+    case BEEBO_CMD_SET_TRAFFIC_RATE:
+      if (sub_len < 2) { writeErrFrame(ERR_CODE_ILLEGAL_ARG); return true; }
+      _traffic.setRate(sub[1]);
+      _traffic_next_ms = millis();
+      writeOKFrame();
+      return true;
+  }
+  return false;
 }
 
 bool Beebo::isAutoAddEnabled() const {

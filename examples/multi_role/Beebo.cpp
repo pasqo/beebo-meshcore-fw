@@ -6160,6 +6160,12 @@ void Beebo::handleCmdFrame(size_t len) {
 #else
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
 #endif
+  } else if (sub[0] >= BEEBO_CMD_GET_TRAFFIC_CHANNEL && sub[0] <= BEEBO_CMD_GET_TRAFFIC_SENT) {
+#if BEEBO_ENABLE_COMPANION_ROLE
+    if (isRepeater() || !handleTrafficCmd(sub, sub_len)) writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_START) {
     uint32_t v = _trial_start_stored ? 1 : 0;
     out_frame[0] = RESP_CODE_OK;
