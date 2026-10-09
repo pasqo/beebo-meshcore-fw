@@ -112,8 +112,8 @@ TEST(TrialSequence, EveryDefaultListIsValidAndDistinctNeighbors) {
 TEST(TrialSequence, DefaultListsStartAtTheUpstreamDefaults) {
   TrialSequence::List l;
   l.reset(TrialSequence::LNA);          EXPECT_EQ(0, l.first());
-  l.reset(TrialSequence::RX_BOOST);     EXPECT_EQ(1, l.first());   // boosted, the Heltec V4 default
-  EXPECT_EQ(0, l.v[1]);
+  l.reset(TrialSequence::RX_BOOST);     EXPECT_EQ(0, l.first());   // off, then on
+  EXPECT_EQ(1, l.v[1]);
   l.reset(TrialSequence::CR);           EXPECT_EQ(5, l.first());   // then 6, 7, 8
   EXPECT_EQ(4, l.n);
   EXPECT_EQ(6, l.v[1]); EXPECT_EQ(7, l.v[2]); EXPECT_EQ(8, l.v[3]);
@@ -121,16 +121,18 @@ TEST(TrialSequence, DefaultListsStartAtTheUpstreamDefaults) {
   EXPECT_EQ(4, l.n);
   l.reset(TrialSequence::INTERFERENCE); EXPECT_EQ(0, l.first());   // disabled
   l.reset(TrialSequence::RX_DELAY);     EXPECT_EQ(0, l.first());   // off
-  l.reset(TrialSequence::TX_DELAY);     EXPECT_EQ(50, l.first());  // 0.5
-  l.reset(TrialSequence::DIRECT_TX_DELAY); EXPECT_EQ(30, l.first());   // 0.3
-  l.reset(TrialSequence::AIRTIME);      EXPECT_EQ(20, l.first());  // 1.0
-  EXPECT_EQ(10, l.v[1]);   // 0.5: the airtime list has no unlimited (0) entry
+  l.reset(TrialSequence::TX_DELAY);     EXPECT_EQ(0, l.first());   // 0, then 0.5, 1, 2
+  EXPECT_EQ(50, l.v[1]);
+  l.reset(TrialSequence::DIRECT_TX_DELAY); EXPECT_EQ(0, l.first());   // 0, then 0.5, 1, 2
+  EXPECT_EQ(50, l.v[1]);
+  l.reset(TrialSequence::AIRTIME);      EXPECT_EQ(10, l.first());  // 0.5, then 1, 3, 9
+  EXPECT_EQ(20, l.v[1]);   // the airtime list has no unlimited (0) entry
   l.reset(TrialSequence::CAD);          EXPECT_EQ(0, l.first());   // off, then on
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
   l.reset(TrialSequence::MULTI_ACKS);   EXPECT_EQ(0, l.first());   // off, then on
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
-  l.reset(TrialSequence::RETRY);        EXPECT_EQ(0, l.first());   // off, then "8", then "5|8"
-  EXPECT_EQ(3, l.n); EXPECT_EQ(112, l.v[1]); EXPECT_EQ(140, l.v[2]);
+  l.reset(TrialSequence::RETRY);        EXPECT_EQ(0, l.first());   // off, then "5", "5|6", "5|7"
+  EXPECT_EQ(4, l.n); EXPECT_EQ(64, l.v[1]); EXPECT_EQ(132, l.v[2]); EXPECT_EQ(136, l.v[3]);
   l.reset(TrialSequence::ECHO_AT_TX);   EXPECT_EQ(0, l.first());   // at scheduling, then at the send
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
 }
@@ -246,7 +248,7 @@ TEST(TrialSequence, RetryListsSeparateRatesWithBar) {
   l.reset(sw);
   char buf[8 * TrialSequence::MAX_VALUES];
   l.format(sw, buf);
-  EXPECT_STREQ("0,8,5|8", buf);
+  EXPECT_STREQ("0,5,5|6,5|7", buf);
 }
 
 // participants(): who takes part in a combined trial. Side A is the stored value

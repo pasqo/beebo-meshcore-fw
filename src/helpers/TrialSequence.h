@@ -125,24 +125,24 @@ public:
     uint8_t n;     // at least 2
     uint8_t pos;   // index of the current challenger, from 1
 
-    // Default list: A is the upstream default, then values across the range.
+    // Default list: A first, then challengers across the range.
     void reset(int sw) {
       static const uint8_t table[NUM_SWITCHES][MAX_VALUES] = {
         {0, 1, 0, 0},            // LNA: off, on
-        {1, 0, 0, 0},            // RX boost: on (the Heltec V4 default), off
+        {0, 1, 0, 0},            // RX boost: off, on
         {5, 6, 7, 8},            // coding rate
         {0, 2, 4, 8},            // AGC reset interval: 0, 8, 16, 32 s
         {0, 3, 6, 9},            // interference threshold
         {0, 70, 130, 200},       // rx delay base: 0, 7, 13, 20
-        {50, 0, 100, 200},       // tx delay factor: 0.5, 0, 1, 2
-        {30, 0, 100, 200},       // direct tx delay factor: 0.3, 0, 1, 2
-        {20, 10, 60, 180},       // airtime factor: 1.0, 0.5, 3, 9
+        {0, 50, 100, 200},       // tx delay factor: 0, 0.5, 1, 2
+        {0, 50, 100, 200},       // direct tx delay factor: 0, 0.5, 1, 2
+        {10, 20, 60, 180},       // airtime factor: 0.5, 1, 3, 9
         {0, 1, 0, 0},            // CAD: off, on
         {0, 1, 0, 0},            // multi acks: off, on
-        {0, 112, 140, 0},        // retry policy: off, one retry at 4/8, two at 4/5 then 4/8 (0,8,5|8)
+        {0, 64, 132, 136},       // retry policy: off, 5, 5|6, 5|7
         {0, 1, 0, 0},            // echo slot at the send: off (at scheduling), on
       };
-      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 3, 2};
+      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 4, 2};
       for (int i = 0; i < MAX_VALUES; i++) v[i] = table[sw][i];
       n = counts[sw];
       pos = 1;
