@@ -107,6 +107,8 @@ enum {
   // beebo: a combined trial (several switches at once) carries this as its param;
   // the participants follow in TrialPartRecords.
   TUNING_COMBINED,
+  // a switch added after TUNING_COMBINED so the ids already in rings stay as they were
+  TUNING_ECHO_FACTOR,
 };
 
 // ---- EVENT types: what kind of thing an EventRecord reports, plus its own
@@ -298,7 +300,9 @@ enum : uint8_t {
   //                the verdict judges: 0 = the first send, n = the nth retry
   //                (TxRecord.attempt of the MON_TX record it belongs to).
   //                A retry in flight emits no verdict for the attempt before it.
-  //   data[10:12] = reserved
+  //   data[10:12] = (EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT) the echo window in ms
+  //                (u16 LE, 0xFFFF at most) the slot ran with: 0 in a ring
+  //                written before the firmware logged it, 0 for the ACK events
   EVENT_ACK_SUCCESS = 20,   // DM/ACK side, ACK received (Beebo::processAck())
   EVENT_ACK_TIMEOUT = 21,   // DM/ACK side, no ACK within deadline (checkAckTableTimeouts())
   EVENT_ECHO_SUCCESS = 22,  // flood-echo side, rebroadcast heard (SimpleMeshTables::wasSeen()/markSeen())
@@ -408,6 +412,7 @@ enum : uint8_t {
   SETTING_TUNING_TRIAL_START = 131,
   SETTING_TUNING_TRIAL_MIN_RX_RATE = 132,
   SETTING_TUNING_TRIAL_COMBINED = 137,
+  SETTING_TUNING_TRIAL_VALUES_ECHOFACTOR = 138,
   // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
   SETTING_TUNING_SCORE_WEIGHT_BASE = 116,
 };

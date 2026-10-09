@@ -924,6 +924,8 @@ TEST(MonRing, AppendTrialRoundTripsAPartRecord) {
   EXPECT_EQ(1, out[0].trial_part.b);
   EXPECT_EQ(3, out[0].trial_part.count);
   EXPECT_EQ(13, TUNING_COMBINED);   // wire-stable: after TUNING_ECHO_AT_TX (12)
+  EXPECT_EQ(14, TUNING_ECHO_FACTOR);   // added after it, so COMBINED keeps its id
+  EXPECT_EQ(138, SETTING_TUNING_TRIAL_VALUES_ECHOFACTOR);
   EXPECT_EQ(3, TRIAL_PHASE_PART);
 }
 

@@ -32,10 +32,12 @@ TEST(TrialSequence, RunOrderCoversEverySwitchOnce) {
   EXPECT_EQ(TrialSequence::CR, TrialSequence::orderAt(5));
   EXPECT_EQ(TrialSequence::MULTI_ACKS, TrialSequence::orderAt(6));   // costs airtime, after the link setting
   EXPECT_EQ(TrialSequence::ECHO_AT_TX, TrialSequence::orderAt(7));   // when the echo window starts, before the retries that use it
-  EXPECT_EQ(TrialSequence::RETRY, TrialSequence::orderAt(8));        // the retry policy
-  EXPECT_EQ(TrialSequence::RX_DELAY, TrialSequence::orderAt(9));
-  EXPECT_EQ(TrialSequence::AIRTIME, TrialSequence::orderAt(12));
-  EXPECT_EQ(13, TrialSequence::NUM_SWITCHES);
+  EXPECT_EQ(TrialSequence::ECHO_FACTOR, TrialSequence::orderAt(8));  // how long that window is, right after
+  EXPECT_EQ(TrialSequence::RETRY, TrialSequence::orderAt(9));        // the retry policy
+  EXPECT_EQ(TrialSequence::RX_DELAY, TrialSequence::orderAt(10));
+  EXPECT_EQ(TrialSequence::AIRTIME, TrialSequence::orderAt(13));
+  EXPECT_EQ(14, TrialSequence::NUM_SWITCHES);
+  EXPECT_EQ(13, TrialSequence::ECHO_FACTOR);
   EXPECT_EQ(12, TrialSequence::ECHO_AT_TX);
   EXPECT_EQ(9, TrialSequence::CAD);          // wire bits of the newest switches
   EXPECT_EQ(10, TrialSequence::MULTI_ACKS);
@@ -53,6 +55,8 @@ TEST(TrialSequence, NamesResolveToSwitches) {
   EXPECT_EQ(TrialSequence::MULTI_ACKS, TrialSequence::byName("multiacks.values", &rest));
   EXPECT_EQ(TrialSequence::RETRY, TrialSequence::byName("retry.values", &rest));
   EXPECT_EQ(TrialSequence::ECHO_AT_TX, TrialSequence::byName("echo_at_tx.enable", &rest));
+  EXPECT_EQ(TrialSequence::ECHO_FACTOR, TrialSequence::byName("echo_factor.values 12,18", &rest));
+  EXPECT_STREQ("values 12,18", rest);
   EXPECT_EQ(-1, TrialSequence::byName("lnax.values", &rest));
   EXPECT_EQ(-1, TrialSequence::byName("lna", &rest));   // no dot
   EXPECT_EQ(-1, TrialSequence::byName("nothing.values", &rest));
@@ -86,6 +90,12 @@ TEST(TrialSequence, ValueRangesPerSwitch) {
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::MULTI_ACKS, 2));
   EXPECT_TRUE(TrialSequence::validValue(TrialSequence::ECHO_AT_TX, 1));
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::ECHO_AT_TX, 2));
+  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::ECHO_FACTOR, 12));    // 6.0 in half units
+  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::ECHO_FACTOR, 2));     // 1.0, the least
+  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::ECHO_FACTOR, 40));    // 20.0, the most
+  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::ECHO_FACTOR, 1));
+  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::ECHO_FACTOR, 0));
+  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::ECHO_FACTOR, 41));
   EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY, 0));     // no retries
   EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY, 112));   // one retry at 4/8
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::RETRY, 1));    // bits of a retry not taken
@@ -135,6 +145,8 @@ TEST(TrialSequence, DefaultListsStartAtTheUpstreamDefaults) {
   EXPECT_EQ(4, l.n); EXPECT_EQ(64, l.v[1]); EXPECT_EQ(132, l.v[2]); EXPECT_EQ(136, l.v[3]);
   l.reset(TrialSequence::ECHO_AT_TX);   EXPECT_EQ(0, l.first());   // at scheduling, then at the send
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
+  l.reset(TrialSequence::ECHO_FACTOR);  EXPECT_EQ(12, l.first());  // 6 (the default), then 7.5, 9, 12
+  EXPECT_EQ(4, l.n); EXPECT_EQ(15, l.v[1]); EXPECT_EQ(18, l.v[2]); EXPECT_EQ(24, l.v[3]);
 }
 
 TEST(TrialSequence, SetRejectsTooShortTooLongAndOutOfRange) {

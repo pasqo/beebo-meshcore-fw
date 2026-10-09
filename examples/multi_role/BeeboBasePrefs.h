@@ -52,6 +52,8 @@ struct BeeboBasePrefs {
                                  // the companion's stays 0.
   uint8_t echo_at_tx = 0;        // 1: a flood's echo slot starts when it is sent, not when it is scheduled
                                  // (kbase/ROUTE_RETRY.md). Repeater role only, like retry.
+  float echo_factor = 6.0f;      // airtimes of a neighbor's turnaround an echo window allows
+                                 // (airtime * factor + 250 ms; kbase/ROUTE_RETRY.md). Repeater role only.
   uint8_t cad_on = 0;            // companion's hardware CAD before TX; the repeater role
                                  // keeps ComPrefs::cad_enabled instead (see getCADEnabled()).
   uint8_t tx_disable = 0;        // 1: node.transmit off, Dispatcher::checkSend() drops every

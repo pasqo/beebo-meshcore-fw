@@ -363,6 +363,56 @@ struct EventFixture : public RetryFixture {
     }
 };
 
+// data[10:12] = the echo window (ms, u16 LE) the slot ran with
+TEST_F(EventFixture, VerdictEventsCarryTheWindow) {
+    auto windows = [&]() {
+        MonRecord out[16];
+        uint32_t returned = 0;
+        ring.serialize(reinterpret_cast<uint8_t*>(out), sizeof(out), 0, &returned);
+        std::vector<int> w;
+        for (uint32_t i = 0; i < returned; i++) {
+            if (out[i].kind != MON_EVENT) continue;
+            int type = out[i].event.event_type;
+            if (type == EVENT_ECHO_SUCCESS || type == EVENT_ECHO_TIMEOUT) {
+                uint16_t v;
+                memcpy(&v, &out[i].event.data[10], 2);
+                w.push_back(v);
+            }
+        }
+        return w;
+    };
+    Packet heard = makeFloodPacket(0x34);
+    forward(heard);
+    EXPECT_TRUE(t.wasSeen(&heard));            // success: 500 + 100 * 6 + 250
+    t.setEchoFactor(9.0f);
+    Packet lost = makeFloodPacket(0x35);
+    t.setRetryNo(0);
+    forward(lost);
+    pastWindow();                              // timeout at the new factor: 500 + 900 + 250
+    EXPECT_EQ((std::vector<int>{1350, 1650}), windows());
+}
+
+TEST_F(EventFixture, ARetryKeepsTheWindowOfItsFirstSend) {
+    Packet p = makeFloodPacket(0x36);
+    forward(p);
+    pastWindow();
+    t.setEchoFactor(15.0f);                    // changed while the retry waits
+    retrySent(p);
+    pastWindow();
+    retrySent(p);
+    pastWindow();
+    MonRecord out[16];
+    uint32_t returned = 0;
+    ring.serialize(reinterpret_cast<uint8_t*>(out), sizeof(out), 0, &returned);
+    for (uint32_t i = 0; i < returned; i++) {
+        if (out[i].kind == MON_EVENT && out[i].event.event_type == EVENT_ECHO_TIMEOUT) {
+            uint16_t v;
+            memcpy(&v, &out[i].event.data[10], 2);
+            EXPECT_EQ(1350, v);
+        }
+    }
+}
+
 TEST_F(EventFixture, FirstSendEchoed_EventAttemptZero) {
     Packet p = makeFloodPacket(0x30);
     forward(p);
@@ -493,16 +543,59 @@ TEST_F(AtTxFixture, SentForward_UnansweredTimesOutOneWindowAfterTheSend) {
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
 }
 
-// the window is the neighbor's turnaround only: airtime * 6 + 250 ms, without the
-// 500 ms base that the start-at-scheduling window also carries (100 ms airtime here)
-TEST_F(AtTxFixture, WindowIsTheNeighborTurnaroundWithoutTheBase) {
+// the window has the upstream one-hop baseline in both modes: 500 + airtime * 6 + 250 ms
+// (100 ms airtime here); echo_at_tx only changes when it starts
+TEST_F(AtTxFixture, WindowHasTheSameBaselineAsFromScheduling) {
     Packet p = makeFloodPacket(0x58);
     forward(p);
     sentOnAir(p);
-    g_mock_millis += 800;                      // 100 * 6 + 250 = 850
+    g_mock_millis += 1300;                     // 500 + 100 * 6 + 250 = 1350
     t.checkEchoTimeouts();
     EXPECT_EQ(0u, t.getEchoTimeoutCount());
     g_mock_millis += 100;
+    t.checkEchoTimeouts();
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+}
+
+// the factor is a setting (setEchoFactor): the window is airtime * factor + 250 ms from the send,
+// 500 ms more from scheduling. 100 ms airtime here.
+TEST_F(AtTxFixture, WindowFollowsTheEchoFactor) {
+    t.setEchoFactor(9.0f);
+    Packet p = makeFloodPacket(0x5A);
+    forward(p);
+    sentOnAir(p);
+    g_mock_millis += 1600;                     // 500 + 100 * 9 + 250 = 1650
+    t.checkEchoTimeouts();
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());
+    g_mock_millis += 100;
+    t.checkEchoTimeouts();
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+}
+
+TEST_F(RetryFixture, ScheduleTimeWindowFollowsTheEchoFactorToo) {
+    t.setEchoFactor(4.0f);
+    Packet p = makeFloodPacket(0x5B);
+    forward(p);
+    g_mock_millis += 1100;                     // 500 + 100 * 4 + 250 = 1150
+    t.checkEchoTimeouts();
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());
+    g_mock_millis += 100;
+    t.checkEchoTimeouts();
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+}
+
+TEST_F(AtTxFixture, EchoFactorDefaultsToSixAndKeepsWhatItWasSet) {
+    EXPECT_FLOAT_EQ(6.0f, t.getEchoFactor());
+    t.setEchoFactor(11.5f);
+    EXPECT_FLOAT_EQ(11.5f, t.getEchoFactor());
+}
+
+TEST_F(AtTxFixture, ALiveSlotKeepsTheWindowItWasStartedWith) {
+    Packet p = makeFloodPacket(0x5C);
+    forward(p);
+    sentOnAir(p);                              // started at factor 6: 1350 ms
+    t.setEchoFactor(20.0f);
+    g_mock_millis += 1400;
     t.checkEchoTimeouts();
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
 }

@@ -39,6 +39,8 @@
 #define ECHO_TIMEOUT_BASE_MILLIS  500
 #define ECHO_PERHOP_FACTOR        6.0f
 #define ECHO_PERHOP_EXTRA_MILLIS  250
+#define ECHO_FACTOR_MIN           1.0f    // the range of the echo factor setting
+#define ECHO_FACTOR_MAX           20.0f
 
 // beebo: DoS/QoS audit follow-up -- a plain "any occupied-slot eviction"
 // counter fires on essentially every insert once the table has cycled once
@@ -132,6 +134,7 @@ class SimpleMeshTables : public mesh::MeshTables {
   uint8_t _retry_len[MAX_ECHO_HASHES];
   uint8_t _retry_no = 0;
   bool _echo_at_tx = false;  // setEchoAtTx(): slots start when the packet is sent, not when it is scheduled
+  float _echo_factor = ECHO_PERHOP_FACTOR;   // setEchoFactor(): airtimes the neighbor's turnaround may take
   uint8_t _waiting_tx = 0;   // slots with ECHO_F_WAIT_TX set, so noteTx() hashes only when one waits
   EchoRetryHook _retry_hook = nullptr;
   void* _retry_ctx = nullptr;
@@ -179,7 +182,8 @@ class SimpleMeshTables : public mesh::MeshTables {
   // instead (see MonRing.h's EVENT_ECHO_OVERFLOW comment for why it's a
   // separate event type). No-op if setMonRing() was never called (e.g.
   // native unit tests construct this class directly).
-  void _emitEchoEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_ms, uint8_t attempt) {
+  void _emitEchoEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_ms, uint8_t attempt,
+                      uint32_t window_ms) {
     if (_monring == nullptr || _rtc == nullptr) return;
     EventRecord rec;
     memset(&rec, 0, sizeof(rec));
@@ -187,6 +191,8 @@ class SimpleMeshTables : public mesh::MeshTables {
     memcpy(&rec.data[1], &pkt_hash, 4);
     memcpy(&rec.data[5], &age_ms, 4);
     rec.data[9] = attempt;   // which transmission this judges: 0 first send, n the nth retry
+    uint16_t window = window_ms > 0xFFFF ? 0xFFFF : (uint16_t)window_ms;
+    memcpy(&rec.data[10], &window, 2);   // the echo window the slot ran with
     // beebo: MonRing::appendEvent()'s `now_ms` is an already-resolved
     // absolute epoch-ms instant -- _rtc->nowMillis() (RTCClock::
     // nowMillis(), MeshCore.h), the one canonical function for "what time
@@ -293,12 +299,12 @@ public:
     // TX of the rebroadcast) -- see the comment above
     // ECHO_TIMEOUT_BASE_MILLIS for why the constants are a local copy
     // rather than a shared call.
-    // At the send (setEchoAtTx()) the window is the neighbor's turnaround only:
-    // its random retransmit delay plus its own airtime (ECHO_PERHOP_FACTOR) and a
-    // margin. The base covers our own side of a window that starts at scheduling,
-    // which this one no longer includes.
-    _echo_timeout[idx] = (_echo_at_tx ? 0 : ECHO_TIMEOUT_BASE_MILLIS) +
-        (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
+    // Upstream's one-hop baseline (500 + 250 ms) plus airtime * _echo_factor
+    // (default ECHO_PERHOP_FACTOR), in both modes: setEchoAtTx() only changes
+    // when the window starts. A measured capture needed a fixed part of about
+    // 700 ms, so the base is not left out for a window that starts at the send.
+    _echo_timeout[idx] = ECHO_TIMEOUT_BASE_MILLIS +
+        (uint32_t)(pkt_airtime_millis * _echo_factor + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
     if (_echo_flags[idx] & ECHO_F_WAIT_TX) _waiting_tx--;   // its queued retry no longer has a slot to time
     // fresh generation; a forward keeps a copy and its retries_left starts at retry_no
@@ -333,6 +339,10 @@ public:
     }
   }
 
+  // The factor of the echo window (airtime * factor + margin); a slot keeps the
+  // window it was started with.
+  void setEchoFactor(float factor) { _echo_factor = factor; }
+  float getEchoFactor() const { return _echo_factor; }
   void setEchoAtTx(bool on) { _echo_at_tx = on; }
   bool getEchoAtTx() const { return _echo_at_tx; }
 
@@ -364,7 +374,8 @@ public:
         }
         _echo_timeout_count++;
         _echo_flags[i] |= ECHO_F_RESOLVED;
-        _emitEchoEvent(TXCONFIRM_TIMEOUT, _echo_monring_hash[i], now - _echo_time[i], sent);
+        _emitEchoEvent(TXCONFIRM_TIMEOUT, _echo_monring_hash[i], now - _echo_time[i], sent,
+                       _echo_timeout[i]);
       }
     }
   }
@@ -437,7 +448,7 @@ public:
           _echo_flags[slot] = (_echo_flags[slot] & ~ECHO_F_WAIT_TX) | ECHO_F_CONFIRMED | ECHO_F_RESOLVED;
           _echo_success_count++;
           _emitEchoEvent(TXCONFIRM_SUCCESS, _echo_monring_hash[slot],
-                            millis() - _echo_time[slot], attempt);
+                            millis() - _echo_time[slot], attempt, _echo_timeout[slot]);
         }
         return true;
       }

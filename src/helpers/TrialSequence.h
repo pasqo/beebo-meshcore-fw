@@ -18,11 +18,12 @@ public:
   // held as whole numbers in the trial records: the float settings in steps of
   // 0.1 (rx delay base), 0.01 (tx and direct tx delay factors) and 0.05
   // (airtime factor), the AGC reset interval in its own 4 s units; the two
-  // booleans CAD and multi acks are 0/1; the retry value is a RetryPolicy byte.
+  // booleans CAD and multi acks are 0/1; the retry value is a RetryPolicy byte;
+  // the echo window factor is in half units (12 = 6.0).
   enum Switch {
     LNA = 0, RX_BOOST = 1, CR = 2, AGC = 3, INTERFERENCE = 4,
     RX_DELAY = 5, TX_DELAY = 6, DIRECT_TX_DELAY = 7, AIRTIME = 8,
-    CAD = 9, MULTI_ACKS = 10, RETRY = 11, ECHO_AT_TX = 12, NUM_SWITCHES = 13
+    CAD = 9, MULTI_ACKS = 10, RETRY = 11, ECHO_AT_TX = 12, ECHO_FACTOR = 13, NUM_SWITCHES = 14
   };
   static const int MAX_VALUES = 4;
 
@@ -30,7 +31,7 @@ public:
   static const char* name(int sw) {
     static const char* const names[NUM_SWITCHES] = {
       "lna", "rxboost", "cr", "agc", "interference", "rxdelay", "txdelay",
-      "directtxdelay", "airtime", "cad", "multiacks", "retry", "echo_at_tx" };
+      "directtxdelay", "airtime", "cad", "multiacks", "retry", "echo_at_tx", "echo_factor" };
     return names[sw];
   }
 
@@ -40,7 +41,7 @@ public:
   // the timing knobs.
   static int orderAt(int i) {
     static const uint8_t order[NUM_SWITCHES] = {
-      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, ECHO_AT_TX, RETRY,
+      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, ECHO_AT_TX, ECHO_FACTOR, RETRY,
       RX_DELAY, TX_DELAY, DIRECT_TX_DELAY, AIRTIME };
     return order[i];
   }
@@ -73,6 +74,7 @@ public:
     switch (sw) {
       case LNA: case RX_BOOST: case CAD: case MULTI_ACKS: case ECHO_AT_TX: return 1;
       case CR: return 8;
+      case ECHO_FACTOR: return 40;       // 20.0 in half units
       case RETRY: return 255;            // a RetryPolicy byte
       case AGC: return 255;
       case INTERFERENCE: return 9;
@@ -85,7 +87,7 @@ public:
   static bool validValue(int sw, uint8_t v) {
     if (sw < 0 || sw >= NUM_SWITCHES) return false;
     if (sw == RETRY) return RetryPolicy::valid(v);
-    return v <= maxValue(sw) && (sw != CR || v >= 5);
+    return v <= maxValue(sw) && (sw != CR || v >= 5) && (sw != ECHO_FACTOR || v >= 2);
   }
 
   // Parse "8,16,32" (spaces around numbers allowed) into `out` (room for
@@ -141,8 +143,9 @@ public:
         {0, 1, 0, 0},            // multi acks: off, on
         {0, 64, 132, 136},       // retry policy: off, 5, 5|6, 5|7
         {0, 1, 0, 0},            // echo slot at the send: off (at scheduling), on
+        {12, 15, 18, 24},        // echo window factor: 6 (the default), 7.5, 9, 12
       };
-      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 4, 2};
+      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 4, 2, 4};
       for (int i = 0; i < MAX_VALUES; i++) v[i] = table[sw][i];
       n = counts[sw];
       pos = 1;

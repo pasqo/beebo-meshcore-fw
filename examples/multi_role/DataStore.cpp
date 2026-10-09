@@ -335,6 +335,7 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
     file.write((uint8_t *)&_prefs.cad_on, sizeof(_prefs.cad_on));
     file.write((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
+    file.write((uint8_t *)&_prefs.echo_factor, sizeof(_prefs.echo_factor));
 
     file.close();
   }
@@ -575,6 +576,10 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
                     // tx_disable -- tail-guarded the same way, defaulting to 0 (transmit on)
                     if (file.available() >= (int)sizeof(_prefs.tx_disable)) {
                       file.read((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
+                      // echo_factor -- tail-guarded the same way, defaulting to 6.0
+                      if (file.available() >= (int)sizeof(_prefs.echo_factor)) {
+                        file.read((uint8_t *)&_prefs.echo_factor, sizeof(_prefs.echo_factor));
+                      }
                     }
                   }
                 }
