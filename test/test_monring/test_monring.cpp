@@ -923,7 +923,7 @@ TEST(MonRing, AppendTrialRoundTripsAPartRecord) {
   EXPECT_EQ(TUNING_CAD, out[0].trial_part.param);
   EXPECT_EQ(1, out[0].trial_part.b);
   EXPECT_EQ(3, out[0].trial_part.count);
-  EXPECT_EQ(14, TUNING_COMBINED);   // wire-stable: after TUNING_ECHO_AT_TX (13)
+  EXPECT_EQ(13, TUNING_COMBINED);   // wire-stable: after TUNING_ECHO_AT_TX (12)
   EXPECT_EQ(3, TRIAL_PHASE_PART);
 }
 

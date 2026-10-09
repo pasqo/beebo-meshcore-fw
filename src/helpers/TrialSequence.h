@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "RetryPolicy.h"
 
 // beebo: run order and per-switch value lists of the on-device trial sequence
 // (Beebo::loopTuning). Header-only, no Arduino dependency.
@@ -17,12 +18,11 @@ public:
   // held as whole numbers in the trial records: the float settings in steps of
   // 0.1 (rx delay base), 0.01 (tx and direct tx delay factors) and 0.05
   // (airtime factor), the AGC reset interval in its own 4 s units; the two
-  // booleans CAD and multi acks are 0/1; the retry count is 0..3 and the retry
-  // coding rate 5..8.
+  // booleans CAD and multi acks are 0/1; the retry value is a RetryPolicy byte.
   enum Switch {
     LNA = 0, RX_BOOST = 1, CR = 2, AGC = 3, INTERFERENCE = 4,
     RX_DELAY = 5, TX_DELAY = 6, DIRECT_TX_DELAY = 7, AIRTIME = 8,
-    CAD = 9, MULTI_ACKS = 10, RETRY_NO = 11, RETRY_CR = 12, ECHO_AT_TX = 13, NUM_SWITCHES = 14
+    CAD = 9, MULTI_ACKS = 10, RETRY = 11, ECHO_AT_TX = 12, NUM_SWITCHES = 13
   };
   static const int MAX_VALUES = 4;
 
@@ -30,17 +30,17 @@ public:
   static const char* name(int sw) {
     static const char* const names[NUM_SWITCHES] = {
       "lna", "rxboost", "cr", "agc", "interference", "rxdelay", "txdelay",
-      "directtxdelay", "airtime", "cad", "multiacks", "retry_no", "retry_cr", "echo_at_tx" };
+      "directtxdelay", "airtime", "cad", "multiacks", "retry", "echo_at_tx" };
     return names[sw];
   }
 
   // The switch index run i-th: the receive path (LNA, RX boost, AGC), then
   // channel-busy behavior (interference threshold, CAD), the link settings that
-  // cost airtime (coding rate, multi acks, retry count, retry coding rate), then
+  // cost airtime (coding rate, multi acks, retry policy), then
   // the timing knobs.
   static int orderAt(int i) {
     static const uint8_t order[NUM_SWITCHES] = {
-      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, ECHO_AT_TX, RETRY_NO, RETRY_CR,
+      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, ECHO_AT_TX, RETRY,
       RX_DELAY, TX_DELAY, DIRECT_TX_DELAY, AIRTIME };
     return order[i];
   }
@@ -72,8 +72,8 @@ public:
   static int maxValue(int sw) {
     switch (sw) {
       case LNA: case RX_BOOST: case CAD: case MULTI_ACKS: case ECHO_AT_TX: return 1;
-      case CR: case RETRY_CR: return 8;
-      case RETRY_NO: return 3;
+      case CR: return 8;
+      case RETRY: return 255;            // a RetryPolicy byte
       case AGC: return 255;
       case INTERFERENCE: return 9;
       case RX_DELAY: return 200;         // 20.0
@@ -84,16 +84,25 @@ public:
   }
   static bool validValue(int sw, uint8_t v) {
     if (sw < 0 || sw >= NUM_SWITCHES) return false;
-    return v <= maxValue(sw) && ((sw != CR && sw != RETRY_CR) || v >= 5);
+    if (sw == RETRY) return RetryPolicy::valid(v);
+    return v <= maxValue(sw) && (sw != CR || v >= 5);
   }
 
   // Parse "8,16,32" (spaces around numbers allowed) into `out` (room for
   // MAX_VALUES); the count, or -1 on anything else, an empty list, too many
-  // values or a value above 255.
-  static int parse(const char* text, uint8_t* out) {
+  // values or a value above 255. The retry list is "0|8|5,6": policies
+  // separated by '|', the coding rates of one policy by ','.
+  static int parse(int sw, const char* text, uint8_t* out) {
     int n = 0;
     const char* p = text;
     while (true) {
+      if (sw == RETRY) {
+        if (n >= MAX_VALUES || !RetryPolicy::parse(p, '|', &out[n], &p)) return -1;
+        n++;
+        if (*p == '\0') return n;
+        p++;
+        continue;
+      }
       while (*p == ' ') p++;
       if (*p < '0' || *p > '9') return -1;
       unsigned v = 0;
@@ -130,11 +139,10 @@ public:
         {20, 10, 60, 180},       // airtime factor: 1.0, 0.5, 3, 9
         {0, 1, 0, 0},            // CAD: off, on
         {0, 1, 0, 0},            // multi acks: off, on
-        {0, 1, 2, 0},            // retry count: off, 1, 2
-        {8, 6, 5, 0},            // retry coding rate: the default, 6, 5 (same as the first send)
+        {0, 112, 140, 0},        // retry policy: off, one retry at 4/8, two at 4/5 then 4/8
         {0, 1, 0, 0},            // echo slot at the send: off (at scheduling), on
       };
-      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 3, 3, 2};
+      static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 3, 2};
       for (int i = 0; i < MAX_VALUES; i++) v[i] = table[sw][i];
       n = counts[sw];
       pos = 1;
@@ -168,11 +176,16 @@ public:
     // A is whatever is stored (tuning.trial.start stored): every value is a
     // challenger, the first one too.
     void fromStored() { pos = 0; }
-    // "8,16,32" into buf (size at least 4 * MAX_VALUES); the length.
-    int format(char* buf) const {
+    // "8,16,32" into buf (size at least 6 * MAX_VALUES); the length. The retry
+    // list is "0|8|5,6" (see parse()).
+    int format(int sw, char* buf) const {
       int len = 0;
       for (int i = 0; i < n; i++) {
-        if (i) buf[len++] = ',';
+        if (i) buf[len++] = sw == RETRY ? '|' : ',';
+        if (sw == RETRY) {
+          len += RetryPolicy::format(v[i], &buf[len]);
+          continue;
+        }
         unsigned x = v[i];
         if (x >= 100) buf[len++] = (char)('0' + x / 100);
         if (x >= 10) buf[len++] = (char)('0' + x / 10 % 10);
@@ -205,9 +218,7 @@ public:
 
   // Combined trial: the switches of `pending` that take part. Side A is the
   // stored value, side B the list's current challenger. A switch takes part when
-  // B differs from A; the FEM LNA needs `fem_lna` (a controllable LNA), and the
-  // retry coding rate needs retries on either side (B's retry count is the
-  // challenger when the retry count is pending too).
+  // B differs from A; the FEM LNA needs `fem_lna` (a controllable LNA).
   static uint16_t participants(const Lists& lists, const uint8_t* stored, uint16_t pending, bool fem_lna) {
     uint8_t b[NUM_SWITCHES];
     for (int i = 0; i < NUM_SWITCHES; i++) b[i] = (pending & (1u << i)) ? lists.v[i].current() : stored[i];
@@ -215,7 +226,6 @@ public:
     for (int i = 0; i < NUM_SWITCHES; i++) {
       if (!(pending & (1u << i)) || b[i] == stored[i]) continue;
       if (i == LNA && !fem_lna) continue;
-      if (i == RETRY_CR && stored[RETRY_NO] == 0 && b[RETRY_NO] == 0) continue;
       mask |= (uint16_t)(1u << i);
     }
     return mask;

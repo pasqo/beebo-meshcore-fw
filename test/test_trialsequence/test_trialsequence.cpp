@@ -32,16 +32,14 @@ TEST(TrialSequence, RunOrderCoversEverySwitchOnce) {
   EXPECT_EQ(TrialSequence::CR, TrialSequence::orderAt(5));
   EXPECT_EQ(TrialSequence::MULTI_ACKS, TrialSequence::orderAt(6));   // costs airtime, after the link setting
   EXPECT_EQ(TrialSequence::ECHO_AT_TX, TrialSequence::orderAt(7));   // when the echo window starts, before the retries that use it
-  EXPECT_EQ(TrialSequence::RETRY_NO, TrialSequence::orderAt(8));     // retry count, then the CR it uses
-  EXPECT_EQ(TrialSequence::RETRY_CR, TrialSequence::orderAt(9));
-  EXPECT_EQ(TrialSequence::RX_DELAY, TrialSequence::orderAt(10));
-  EXPECT_EQ(TrialSequence::AIRTIME, TrialSequence::orderAt(13));
-  EXPECT_EQ(14, TrialSequence::NUM_SWITCHES);
-  EXPECT_EQ(13, TrialSequence::ECHO_AT_TX);
+  EXPECT_EQ(TrialSequence::RETRY, TrialSequence::orderAt(8));        // the retry policy
+  EXPECT_EQ(TrialSequence::RX_DELAY, TrialSequence::orderAt(9));
+  EXPECT_EQ(TrialSequence::AIRTIME, TrialSequence::orderAt(12));
+  EXPECT_EQ(13, TrialSequence::NUM_SWITCHES);
+  EXPECT_EQ(12, TrialSequence::ECHO_AT_TX);
   EXPECT_EQ(9, TrialSequence::CAD);          // wire bits of the newest switches
   EXPECT_EQ(10, TrialSequence::MULTI_ACKS);
-  EXPECT_EQ(11, TrialSequence::RETRY_NO);
-  EXPECT_EQ(12, TrialSequence::RETRY_CR);
+  EXPECT_EQ(11, TrialSequence::RETRY);
 }
 
 TEST(TrialSequence, NamesResolveToSwitches) {
@@ -53,8 +51,7 @@ TEST(TrialSequence, NamesResolveToSwitches) {
   EXPECT_EQ(TrialSequence::TX_DELAY, TrialSequence::byName("txdelay.values", &rest));
   EXPECT_EQ(TrialSequence::CAD, TrialSequence::byName("cad.enable", &rest));
   EXPECT_EQ(TrialSequence::MULTI_ACKS, TrialSequence::byName("multiacks.values", &rest));
-  EXPECT_EQ(TrialSequence::RETRY_NO, TrialSequence::byName("retry_no.enable", &rest));
-  EXPECT_EQ(TrialSequence::RETRY_CR, TrialSequence::byName("retry_cr.values", &rest));
+  EXPECT_EQ(TrialSequence::RETRY, TrialSequence::byName("retry.values", &rest));
   EXPECT_EQ(TrialSequence::ECHO_AT_TX, TrialSequence::byName("echo_at_tx.enable", &rest));
   EXPECT_EQ(-1, TrialSequence::byName("lnax.values", &rest));
   EXPECT_EQ(-1, TrialSequence::byName("lna", &rest));   // no dot
@@ -89,13 +86,10 @@ TEST(TrialSequence, ValueRangesPerSwitch) {
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::MULTI_ACKS, 2));
   EXPECT_TRUE(TrialSequence::validValue(TrialSequence::ECHO_AT_TX, 1));
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::ECHO_AT_TX, 2));
-  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY_NO, 0));
-  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY_NO, 3));
-  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::RETRY_NO, 4));
-  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::RETRY_CR, 4));   // like the CR switch: 5..8
-  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY_CR, 5));
-  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY_CR, 8));
-  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::RETRY_CR, 9));
+  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY, 0));     // no retries
+  EXPECT_TRUE(TrialSequence::validValue(TrialSequence::RETRY, 112));   // one retry at 4/8
+  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::RETRY, 1));    // bits of a retry not taken
+  EXPECT_FALSE(TrialSequence::validValue(TrialSequence::RETRY, 5));
   EXPECT_FALSE(TrialSequence::validValue(TrialSequence::NUM_SWITCHES, 0));
 }
 
@@ -135,10 +129,8 @@ TEST(TrialSequence, DefaultListsStartAtTheUpstreamDefaults) {
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
   l.reset(TrialSequence::MULTI_ACKS);   EXPECT_EQ(0, l.first());   // off, then on
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
-  l.reset(TrialSequence::RETRY_NO);     EXPECT_EQ(0, l.first());   // off, then 1, then 2 retries
-  EXPECT_EQ(3, l.n); EXPECT_EQ(1, l.v[1]); EXPECT_EQ(2, l.v[2]);
-  l.reset(TrialSequence::RETRY_CR);     EXPECT_EQ(8, l.first());   // the default, then 6, then 5
-  EXPECT_EQ(3, l.n); EXPECT_EQ(6, l.v[1]); EXPECT_EQ(5, l.v[2]);
+  l.reset(TrialSequence::RETRY);        EXPECT_EQ(0, l.first());   // off, then "8", then "5,8"
+  EXPECT_EQ(3, l.n); EXPECT_EQ(112, l.v[1]); EXPECT_EQ(140, l.v[2]);
   l.reset(TrialSequence::ECHO_AT_TX);   EXPECT_EQ(0, l.first());   // at scheduling, then at the send
   EXPECT_EQ(2, l.n); EXPECT_EQ(1, l.v[1]);
 }
@@ -214,25 +206,47 @@ TEST(TrialSequence, PackedValuesForTheWireAndTheSettingEvent) {
 
 TEST(TrialSequence, ParseAndFormatRoundTrip) {
   uint8_t out[TrialSequence::MAX_VALUES];
-  EXPECT_EQ(3, TrialSequence::parse("8,16, 32", out));
+  const int sw = TrialSequence::AGC;
+  EXPECT_EQ(3, TrialSequence::parse(sw, "8,16, 32", out));
   EXPECT_EQ(8, out[0]);
   EXPECT_EQ(16, out[1]);
   EXPECT_EQ(32, out[2]);
-  EXPECT_EQ(1, TrialSequence::parse(" 7 ", out));
-  EXPECT_EQ(-1, TrialSequence::parse("", out));
-  EXPECT_EQ(-1, TrialSequence::parse("8,", out));
-  EXPECT_EQ(-1, TrialSequence::parse("8;9", out));
-  EXPECT_EQ(-1, TrialSequence::parse("256", out));
-  EXPECT_EQ(-1, TrialSequence::parse("1,2,3,4,5", out));
+  EXPECT_EQ(1, TrialSequence::parse(sw, " 7 ", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "8,", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "8;9", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "256", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "1,2,3,4,5", out));
   TrialSequence::List l;
   const uint8_t v[] = {5, 6, 7, 8};
   ASSERT_TRUE(l.set(TrialSequence::CR, v, 4));
-  char buf[4 * TrialSequence::MAX_VALUES];
-  EXPECT_EQ(7, l.format(buf));
+  char buf[8 * TrialSequence::MAX_VALUES];
+  EXPECT_EQ(7, l.format(TrialSequence::CR, buf));
   EXPECT_STREQ("5,6,7,8", buf);
   l.n = 2; l.v[0] = 255; l.v[1] = 0;
-  l.format(buf);
+  l.format(sw, buf);
   EXPECT_STREQ("255,0", buf);
+}
+
+TEST(TrialSequence, RetryListsSeparatePoliciesWithBar) {
+  uint8_t out[TrialSequence::MAX_VALUES];
+  const int sw = TrialSequence::RETRY;
+  ASSERT_EQ(3, TrialSequence::parse(sw, "0|8|5,8", out));
+  EXPECT_EQ(0, out[0]); EXPECT_EQ(112, out[1]); EXPECT_EQ(140, out[2]);
+  ASSERT_EQ(2, TrialSequence::parse(sw, " 5 , 6 | 7,8,5 ", out));
+  EXPECT_EQ(0x80 | 0x00 | 0x04, out[0]);
+  EXPECT_EQ(0xC0 | 0x20 | 0x0C | 0x00, out[1]);
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "8|", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "4", out));          // a coding rate is 5..8
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "5,6,7,8", out));    // at most three retries
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "0,5", out));
+  EXPECT_EQ(-1, TrialSequence::parse(sw, "0|5|6|7|8", out));  // at most four policies
+  TrialSequence::List l;
+  l.reset(sw);
+  char buf[8 * TrialSequence::MAX_VALUES];
+  l.format(sw, buf);
+  EXPECT_STREQ("0|8|5,8", buf);
 }
 
 // participants(): who takes part in a combined trial. Side A is the stored value
@@ -282,25 +296,9 @@ TEST(TrialSequence, ParticipantsSkipLnaWithoutFemControl) {
   EXPECT_EQ(0, p.run(bit(TrialSequence::LNA), false));
 }
 
-TEST(TrialSequence, ParticipantsRetryCrNeedsRetriesOnEitherSide) {
-  Part p;
-  p.lists.v[TrialSequence::RETRY_CR].restart();   // 8 -> 6
-  p.stored[TrialSequence::RETRY_CR] = 8;
-  p.stored[TrialSequence::RETRY_NO] = 0;
-  uint16_t cr = bit(TrialSequence::RETRY_CR), no = bit(TrialSequence::RETRY_NO);
-  EXPECT_EQ(0, p.run(cr));                  // no retries on A, none on B
-  p.lists.v[TrialSequence::RETRY_NO].restart();   // 0 -> 1
-  EXPECT_EQ(cr | no, p.run(cr | no));       // B uses retries
-  p.lists.v[TrialSequence::RETRY_NO].fromStored();   // challenger 0 == stored: retry_no out
-  EXPECT_EQ(0, p.run(cr | no) & cr);        // still no retries anywhere
-  p.stored[TrialSequence::RETRY_NO] = 1;
-  p.lists.v[TrialSequence::RETRY_NO].restart();      // B = 1 == stored 1
-  EXPECT_EQ(cr, p.run(cr | no));            // A has retries
-}
-
 TEST(TrialSequence, ParticipantCount) {
   EXPECT_EQ(0, TrialSequence::countBits(0));
-  EXPECT_EQ(3, TrialSequence::countBits(bit(0) | bit(5) | bit(13)));
+  EXPECT_EQ(3, TrialSequence::countBits(bit(0) | bit(5) | bit(12)));
 }
 
 }  // namespace

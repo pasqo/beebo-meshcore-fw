@@ -433,11 +433,11 @@ public:
 #ifdef BEEBO_ROUTE_RETRY
   // beebo: route retry (kbase/ROUTE_RETRY.md). initRouteRetry() claims the
   // retry body store (PSRAM, once) and installs the hook; setRouteRetry()
-  // pushRouteRetry() applies the two settings, retry_no only while the repeater role is live.
+  // pushRouteRetry() applies the retry policy, only while the repeater role is live.
   void initRouteRetry();
-  void pushRouteRetry();   // apply the live role's retry_no/retry_cr (boot, reloadPrefs(), the two setters)
+  void pushRouteRetry();   // apply the live role's retry policy (boot, reloadPrefs(), the setters)
   bool sendRouteRetry(const uint8_t* raw, uint8_t len, uint8_t attempt);
-  uint8_t _route_retry_cr = 8;
+  uint8_t _route_retry = 0;   // the live RetryPolicy byte
 #endif
   void initMonRing();  // beebo: apply MonRing's real boot-known state (call after beebo.begin(), same position as before)
   void applyMonRingCaptureConfig();  // beebo: apply the real persisted event-capture preference -- call LAST in setup(), right after RLOG_ID_BOOT_COMPLETE (see initMonRing()'s own comment for why this is split out)
@@ -1524,8 +1524,7 @@ private:
     // BeeboBoardPrefs FEM RSSI offsets, role byte ignored like BOARD_NAME.
     PREFS_TLV_FEM_RSSI_OFS_LNA = 59,    // u32 (sign-extended int8 dB, -30..30)
     PREFS_TLV_FEM_RSSI_OFS_BYPASS = 60, // u32 (sign-extended int8 dB, -30..30)
-    PREFS_TLV_ROUTE_RETRY_NO = 61,      // u32 0..3, retries of a forward whose echo timed out; repeater slot only
-    PREFS_TLV_ROUTE_RETRY_CR = 62,      // u32 5..8, coding rate 4/x of a retry; repeater slot only
+    PREFS_TLV_ROUTE_RETRY = 61,         // u32 RetryPolicy byte (RetryPolicy.h): coding rates of the retries of a forward whose echo timed out; repeater slot only
     PREFS_TLV_ECHO_AT_TX = 63,          // u32 bool, echo slot starts at the send; repeater slot only
     PREFS_TLV_TRANSMIT = 64,            // u32 bool, 0 = the radio never sends (Dispatcher::checkSend() drops); per role
   };
@@ -1637,10 +1636,8 @@ private:
   static bool tlvSetRadioFemRxgain(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetRadioFemTxgain(Beebo* self, uint8_t role);
   static bool tlvSetRadioFemTxgain(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetRouteRetryNo(Beebo* self, uint8_t role);
-  static bool tlvSetRouteRetryNo(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetRouteRetryCr(Beebo* self, uint8_t role);
-  static bool tlvSetRouteRetryCr(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetRouteRetry(Beebo* self, uint8_t role);
+  static bool tlvSetRouteRetry(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetTransmit(Beebo* self, uint8_t role);
   static bool tlvSetTransmit(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetEchoAtTx(Beebo* self, uint8_t role);
@@ -2077,8 +2074,7 @@ private:
     return sw < 3 ? SETTING_TUNING_TRIAL_VALUES_LNA + sw
          : sw == TrialSequence::CAD ? SETTING_TUNING_TRIAL_VALUES_CAD
          : sw == TrialSequence::MULTI_ACKS ? SETTING_TUNING_TRIAL_VALUES_MULTIACKS
-         : sw == TrialSequence::RETRY_NO ? SETTING_TUNING_TRIAL_VALUES_RETRYNO
-         : sw == TrialSequence::RETRY_CR ? SETTING_TUNING_TRIAL_VALUES_RETRYCR
+         : sw == TrialSequence::RETRY ? SETTING_TUNING_TRIAL_VALUES_RETRY
          : sw == TrialSequence::ECHO_AT_TX ? SETTING_TUNING_TRIAL_VALUES_ECHOATTX
          : SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE + sw - 3;
   }

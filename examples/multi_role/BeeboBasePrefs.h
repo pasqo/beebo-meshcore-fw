@@ -46,12 +46,12 @@ struct BeeboBasePrefs {
                                  // rationale as radio_fem_rxgain above.
   int8_t tz_offset = 0;          // hours from UTC, -12..+14; stored for the app's CLI
                                  // (get/set tz.offset), no beebo consumer (no display).
-  uint8_t retry_no = 0;          // route retry (kbase/ROUTE_RETRY.md): retries of a forward whose echo
-                                 // timed out, 0..3, 0 = off. Repeater-role only: persisted and
-                                 // exposed for the repeater slot, the companion's stays 0.
-  uint8_t retry_cr = 8;          // coding rate 4/x (5..8) of a retry
+  uint8_t retry = 0;             // route retry (kbase/ROUTE_RETRY.md): a RetryPolicy byte, the coding
+                                 // rates of the retries of a forward whose echo timed out, 0 = off.
+                                 // Repeater-role only: persisted and exposed for the repeater slot,
+                                 // the companion's stays 0.
   uint8_t echo_at_tx = 0;        // 1: a flood's echo slot starts when it is sent, not when it is scheduled
-                                 // (kbase/ROUTE_RETRY.md). Repeater role only, like retry_no.
+                                 // (kbase/ROUTE_RETRY.md). Repeater role only, like retry.
   uint8_t cad_on = 0;            // companion's hardware CAD before TX; the repeater role
                                  // keeps ComPrefs::cad_enabled instead (see getCADEnabled()).
   uint8_t tx_disable = 0;        // 1: node.transmit off, Dispatcher::checkSend() drops every

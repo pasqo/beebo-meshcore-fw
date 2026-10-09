@@ -2036,7 +2036,7 @@ bool Beebo::sendRouteRetry(const uint8_t* raw, uint8_t len, uint8_t attempt) {
     releasePacket(pkt);
     return false;
   }
-  pkt->_tx_cr = _route_retry_cr;
+  pkt->_tx_cr = RetryPolicy::crAt(_route_retry, attempt);
   pkt->_tx_attempt = attempt;
   // beebo: the original forward's own priority (its hop count, see
   // Mesh::routeRecvPacket()): a retry that waits behind fresh traffic can reach
@@ -2062,20 +2062,20 @@ void Beebo::initRouteRetry() {
 
 // Retry applies to the repeater's forwards only; a companion never retries.
 void Beebo::pushRouteRetry() {
-  _route_retry_cr = _role_state->prefs.retry_cr;
-  ((SimpleMeshTables*)getTables())->setRetryNo(isRepeater() ? _role_state->prefs.retry_no : 0);
+  _route_retry = isRepeater() ? _role_state->prefs.retry : 0;
+  ((SimpleMeshTables*)getTables())->setRetryNo(RetryPolicy::count(_route_retry));
   ((SimpleMeshTables*)getTables())->setEchoAtTx(isRepeater() && _role_state->prefs.echo_at_tx);
 }
 
 // beebo: route retry settings, repeater slot only (the companion has none).
-uint32_t Beebo::tlvGetRouteRetryNo(Beebo* self, uint8_t role) {
-  return self->role_state_store[role].prefs.retry_no;
+uint32_t Beebo::tlvGetRouteRetry(Beebo* self, uint8_t role) {
+  return self->role_state_store[role].prefs.retry;
 }
-bool Beebo::tlvSetRouteRetryNo(Beebo* self, uint8_t role, uint32_t raw) {
-  if (role != NODE_ROLE_REPEATER || raw > ECHO_RETRY_NO_MAX) return false;
-  if (self->trialTouches(TrialSequence::RETRY_NO)) self->abortTrial(false);   // a manual change ends the trial first
+bool Beebo::tlvSetRouteRetry(Beebo* self, uint8_t role, uint32_t raw) {
+  if (role != NODE_ROLE_REPEATER || raw > 255 || !RetryPolicy::valid((uint8_t)raw)) return false;
+  if (self->trialTouches(TrialSequence::RETRY)) self->abortTrial(false);   // a manual change ends the trial first
   BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.retry_no = (uint8_t)raw;
+  slot.prefs.retry = (uint8_t)raw;
   if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
   self->pushRouteRetry();
   return true;
@@ -2098,18 +2098,6 @@ bool Beebo::tlvSetEchoAtTx(Beebo* self, uint8_t role, uint32_t raw) {
   if (self->trialTouches(TrialSequence::ECHO_AT_TX)) self->abortTrial(false);   // a manual change ends the trial first
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.echo_at_tx = (uint8_t)raw;
-  if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
-  self->pushRouteRetry();
-  return true;
-}
-uint32_t Beebo::tlvGetRouteRetryCr(Beebo* self, uint8_t role) {
-  return self->role_state_store[role].prefs.retry_cr;
-}
-bool Beebo::tlvSetRouteRetryCr(Beebo* self, uint8_t role, uint32_t raw) {
-  if (role != NODE_ROLE_REPEATER || raw < 5 || raw > 8) return false;
-  if (self->trialTouches(TrialSequence::RETRY_CR)) self->abortTrial(false);   // a manual change ends the trial first
-  BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.retry_cr = (uint8_t)raw;
   if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
   self->pushRouteRetry();
   return true;
@@ -2306,7 +2294,7 @@ uint8_t Beebo::trialParamId(int sw) {
     TUNING_FEM_LNA, TUNING_RX_BOOST, TUNING_CR, TUNING_AGC_RESET_INTERVAL,
     TUNING_INTERFERENCE_THRESHOLD, TUNING_RX_DELAY_BASE, TUNING_TX_DELAY_FACTOR,
     TUNING_DIRECT_TX_DELAY_FACTOR, TUNING_AIRTIME_FACTOR, TUNING_CAD, TUNING_MULTI_ACKS,
-    TUNING_RETRY_NO, TUNING_RETRY_CR, TUNING_ECHO_AT_TX };
+    TUNING_RETRY, TUNING_ECHO_AT_TX };
   return sw < 0 ? TUNING_COMBINED : ids[sw];
 }
 
@@ -2330,8 +2318,7 @@ uint8_t Beebo::trialSwitchStoredValue(int sw) const {
     case TrialSequence::DIRECT_TX_DELAY: return (uint8_t)lroundf(p.direct_tx_delay_factor * trialUnitsPerOne(sw));
     case TrialSequence::CAD: return p.cad_enabled;
     case TrialSequence::MULTI_ACKS: return p.multi_acks;
-    case TrialSequence::RETRY_NO: return p.retry_no;
-    case TrialSequence::RETRY_CR: return p.retry_cr;
+    case TrialSequence::RETRY: return p.retry;
     case TrialSequence::ECHO_AT_TX: return p.echo_at_tx;
     default: return (uint8_t)lroundf(p.airtime_factor * trialUnitsPerOne(sw));
   }
@@ -2366,12 +2353,7 @@ void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
       _radio->setCADEnabled(value != 0);
       break;
     case TrialSequence::MULTI_ACKS: p.multi_acks = value; break;
-    case TrialSequence::RETRY_NO: p.retry_no = value;
-#ifdef BEEBO_ROUTE_RETRY
-      pushRouteRetry();
-#endif
-      break;
-    case TrialSequence::RETRY_CR: p.retry_cr = value;
+    case TrialSequence::RETRY: p.retry = value;
 #ifdef BEEBO_ROUTE_RETRY
       pushRouteRetry();
 #endif
@@ -2520,11 +2502,6 @@ bool Beebo::startTrial(int sw) {
     emitTrialSkip(sw, TrialFSM::SKIPPED_NO_CONTROL);
     return false;
   }
-  if (sw == TrialSequence::RETRY_CR && trialSwitchStoredValue(TrialSequence::RETRY_NO) == 0) {   // no retries: the CR is never used
-    trialSwitchDone(sw);
-    emitTrialSkip(sw, TrialFSM::SKIPPED_NO_CONTROL);
-    return false;
-  }
   while (sw >= 0 && _trial_lists.v[sw].current() == trialSwitchStoredValue(sw)) {   // side B equals side A: nothing to compare
     emitTrialSkip(sw, TrialFSM::SKIPPED_SAME);
     if (!trialNextValue(sw)) return false;
@@ -2610,7 +2587,7 @@ void Beebo::trialPersistValue(int sw, uint8_t value) {
     PREFS_TLV_RADIO_FEM_RXGAIN, PREFS_TLV_RADIO_RXGAIN, PREFS_TLV_RADIO_CR,
     PREFS_TLV_AGC_RESET_INTERVAL, PREFS_TLV_INTERFERENCE_THRESHOLD, PREFS_TLV_RXDELAY,
     PREFS_TLV_TXDELAY_FACTOR, PREFS_TLV_DIRECT_TXDELAY_FACTOR, PREFS_TLV_AIRTIME,
-    PREFS_TLV_CAD, PREFS_TLV_MULTI_ACKS, PREFS_TLV_ROUTE_RETRY_NO, PREFS_TLV_ROUTE_RETRY_CR,
+    PREFS_TLV_CAD, PREFS_TLV_MULTI_ACKS, PREFS_TLV_ROUTE_RETRY,
     PREFS_TLV_ECHO_AT_TX };
   switch (sw) {
     case TrialSequence::LNA: tlvSetRadioFemRxgain(this, _board.role, value); break;
@@ -2624,8 +2601,7 @@ void Beebo::trialPersistValue(int sw, uint8_t value) {
     case TrialSequence::CAD: tlvSetCad(this, NODE_ROLE_REPEATER, value); break;
     case TrialSequence::MULTI_ACKS: tlvSetMultiAcks(this, NODE_ROLE_REPEATER, value); break;
 #ifdef BEEBO_ROUTE_RETRY
-    case TrialSequence::RETRY_NO: tlvSetRouteRetryNo(this, NODE_ROLE_REPEATER, value); break;
-    case TrialSequence::RETRY_CR: tlvSetRouteRetryCr(this, NODE_ROLE_REPEATER, value); break;
+    case TrialSequence::RETRY: tlvSetRouteRetry(this, NODE_ROLE_REPEATER, value); break;
     case TrialSequence::ECHO_AT_TX: tlvSetEchoAtTx(this, NODE_ROLE_REPEATER, value); break;
 #endif
     default: tlvSetAirtimeFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
@@ -9036,8 +9012,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       int sw = TrialSequence::byName(&key[22], &leaf);
       if (sw >= 0 && strcmp(leaf, "enable") == 0) sprintf(reply, "> %u", (unsigned)((_trial_switches >> sw) & 1u));
       else if (sw >= 0 && strcmp(leaf, "values") == 0) {
-        char list[4 * TrialSequence::MAX_VALUES];
-        _trial_lists.v[sw].format(list);
+        char list[8 * TrialSequence::MAX_VALUES];
+        _trial_lists.v[sw].format(sw, list);
         sprintf(reply, "> %s", list);
       }
       else sprintf(reply, "??: %s", key);
@@ -9516,11 +9492,11 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
           ok = setTrialSwitches((uint16_t)((_trial_switches & ~(1u << sw)) | (v << sw)), EVENT_SOURCE_TEXT_CLI);
         } else if (sw >= 0 && strncmp(leaf, "values ", 7) == 0) {
           uint8_t values[TrialSequence::MAX_VALUES];
-          int count = TrialSequence::parse(&leaf[7], values);
+          int count = TrialSequence::parse(sw, &leaf[7], values);
           ok = count > 0 && setTrialValues((uint8_t)sw, values, count, EVENT_SOURCE_TEXT_CLI);
           if (ok) {
-            char list[4 * TrialSequence::MAX_VALUES];
-            _trial_lists.v[sw].format(list);
+            char list[8 * TrialSequence::MAX_VALUES];
+            _trial_lists.v[sw].format(sw, list);
             sprintf(reply, "> %s", list);
             return;
           }
