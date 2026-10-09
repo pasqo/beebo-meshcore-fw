@@ -702,6 +702,35 @@ TEST_F(RetryFixture, RetrySlotReusedByRingWrap_DoesNotRetryStaleBody) {
     EXPECT_EQ(MAX_ECHO_HASHES, probe.calls);
 }
 
+TEST_F(RetryFixture, FullRing_ReusesAResolvedSlotBeforeEvictingAPendingOne) {
+    Packet ps[MAX_ECHO_HASHES + 1] = {};
+    for (int i = 0; i < MAX_ECHO_HASHES; i++) {
+        ps[i] = makeFloodPacket(0x40 + i);
+        ps[i]._retryable = 1;
+        t.markSeen(&ps[i]);
+        t.markSelfTx(&ps[i], i == 5 ? 0 : AIRTIME_MS);   // slot 5 has the shortest window
+    }
+    g_mock_millis += 800;
+    t.checkEchoTimeouts();
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());              // only slot 5 is over
+    ps[MAX_ECHO_HASHES] = makeFloodPacket(0x40 + MAX_ECHO_HASHES);
+    forward(ps[MAX_ECHO_HASHES]);                        // the ring is at slot 0, still pending: slot 5 is taken
+    EXPECT_EQ(0u, t.getEchoOverflowCount());
+    pastWindow();
+    EXPECT_EQ((uint32_t)MAX_ECHO_HASHES + 1, t.getEchoTimeoutCount());   // no pending packet lost its verdict
+}
+
+TEST_F(RetryFixture, FullRing_AllPending_EvictsTheOldest) {
+    for (int i = 0; i <= MAX_ECHO_HASHES; i++) {
+        Packet p = makeFloodPacket(0x60 + i);
+        forward(p);
+        g_mock_millis += 10;
+    }
+    EXPECT_EQ(1u, t.getEchoOverflowCount());
+    pastWindow();
+    EXPECT_EQ((uint32_t)MAX_ECHO_HASHES, t.getEchoTimeoutCount());       // the evicted one never got a verdict
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

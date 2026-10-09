@@ -277,14 +277,31 @@ public:
   // sent (noteTx()) with setEchoAtTx(): the window then measures the neighbor's
   // turnaround only, not our own retransmit delay and queue wait, and a packet
   // that is never sent never gets a slot.
+  // The slot a new generation takes: a never-used one, else the oldest one that
+  // already reached its verdict, else (all pending) the oldest pending one.
+  // Ties go to the slot after the last one taken.
+  int _pickSlot() const {
+    uint32_t now = millis();
+    int best = _echo_next_idx, best_class = -1;
+    uint32_t best_age = 0;
+    for (int n = 0; n < MAX_ECHO_HASHES; n++) {
+      int i = (_echo_next_idx + n) % MAX_ECHO_HASHES;
+      uint8_t f = _echo_flags[i];
+      int cls = !(f & ECHO_F_ACTIVE) ? 0 : (f & ECHO_F_RESOLVED) ? 1 : 2;
+      uint32_t age = now - _echo_time[i];
+      if (best_class < 0 || cls < best_class || (cls == best_class && cls > 0 && age > best_age)) {
+        best = i; best_class = cls; best_age = age;
+      }
+      if (cls == 0) break;
+    }
+    return best;
+  }
+
   void _startSlot(const mesh::Packet* packet, uint32_t pkt_airtime_millis) {
-    int idx = _echo_next_idx;
-    // if the slot we're about to
-    // reuse was assigned but never reached a verdict (not confirmed heard,
-    // not yet timed out by checkEchoTimeouts()), the ring wrapped faster
-    // than that generation's own echo window -- a real starvation event,
-    // not a silent no-op. Only possible if MAX_ECHO_HASHES self-tx
-    // events happen inside one generation's own echo timeout.
+    int idx = _pickSlot();
+    // every slot still waits for a verdict: the oldest is overwritten, a real
+    // starvation event (MAX_ECHO_HASHES self-tx events inside one generation's
+    // own echo timeout), not a silent no-op.
     if ((_echo_flags[idx] & ECHO_F_ACTIVE) && !(_echo_flags[idx] & ECHO_F_RESOLVED)) {
       _echo_overflow_count++;
       _emitEchoOverflowEvent(_echo_monring_hash[idx],
