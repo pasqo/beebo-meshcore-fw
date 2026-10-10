@@ -79,6 +79,24 @@ public:
     return logProduct(x);
   }
 
+  // Counting noise (variance of ln P) of one block with E routed attempts, C of
+  // them confirmed and R packets received: routed is Poisson on E, delivered
+  // binomial on E (variance (1 - p) / C) and received Poisson on R, treated as
+  // independent, each term scaled by its weight squared. For the default weights
+  // this is 1 / C. INFINITY when a weighted indicator has no count.
+  double countingNoise(double E, double C, double R) const {
+    double wr = weights[ROUTED] / 10.0, wd = weights[DELIVERED] / 10.0, wx = weights[RECEIVED] / 10.0;
+    double v = 0.0;
+    if (wr != 0.0) { if (E <= 0.0) return INFINITY; v += wr * wr / E; }
+    if (wd != 0.0) {
+      if (C <= 0.0) return INFINITY;
+      double q = E > C ? 1.0 - C / E : 0.0;
+      v += wd * wd * q / C;
+    }
+    if (wx != 0.0) { if (R <= 0.0) return INFINITY; v += wx * wx / R; }
+    return v;
+  }
+
   // P itself (tests, diagnostics); may overflow to inf for extreme weights.
   double trialValue(const EvalWindow::Result &r) const { return exp(trialLog(r)); }
 

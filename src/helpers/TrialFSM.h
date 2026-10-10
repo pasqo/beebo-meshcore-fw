@@ -72,8 +72,10 @@ public:
   enum State : uint8_t { IDLE, RUN, DONE };
   // SKIPPED_* are never produced by the FSM: Beebo::startTrial() reports a
   // switch it declined to run (see emitTrialSkip()) in a MON_TRIAL end record.
+  // SKIPPED_UNDERPOWERED: the planner found the node's packet rate too low for the
+  // schedule to reach the confidence and gain asked for (TrialPlanner.h).
   enum Outcome : uint8_t { NONE, KEEP_A, ADOPT_B, ABORTED, SKIPPED_SAME, SKIPPED_NO_CONTROL,
-                   ABORTED_GUARDRAIL, INCONCLUSIVE, ALIVE_A, ALIVE_B, ABORTED_IDLE, UNDECIDED };
+                   ABORTED_GUARDRAIL, INCONCLUSIVE, ALIVE_A, ALIVE_B, ABORTED_IDLE, UNDECIDED, SKIPPED_UNDERPOWERED };
                    // ABORTED: setting changed / tuner disabled
 
   static constexpr uint32_t MIN_LOOK_PAIRS = 3;       // fewest pairs a decision may rest on
@@ -91,6 +93,10 @@ public:
     uint8_t min_gain_pct = 5;    // smallest worthwhile relative gain, percent
     uint8_t min_rx_rate = MIN_RX_RATE;   // RX packets a minute an A B B A cycle must average, else the trial ends idle; 0 = never
     const Objective *objective = nullptr;   // per-block value; null = the default goodput weights
+    // Planned schedule: after each pair from MIN_LOOK_PAIRS on, project the standard
+    // error the full schedule would reach (se * sqrt(n / N)); when even that cannot
+    // put either bound past its threshold the trial ends INCONCLUSIVE.
+    bool futility = false;
   };
 
   // Two-sided Student-t critical value for `df` degrees of freedom at
@@ -225,6 +231,10 @@ public:
     }
 
     double g = valid ? objective().trialLog(r) : 0.0;   // ln of the objective
+    if (valid) {
+      double v = objective().countingNoise(r.exposure, r.ros_count, r.rx_valid);
+      if (isfinite(v)) { _sum_v += v; _nv++; }
+    }
     // heard or silent, but not invalidated: counts toward the dead-side and idle tests
     bool usable = valid || r.outcome == EVAL_INSUFFICIENT_DATA;
     uint32_t rx = usable ? r.rx_valid : 0;
@@ -275,13 +285,36 @@ public:
       int v = look(false);
       if (v > 0) return finish(ADOPT_B);
       if (v < 0) return finish(KEEP_A);
-      if (stable()) return finish(INCONCLUSIVE);
+      if (stable() || (_cfg.futility && futile())) return finish(INCONCLUSIVE);
     }
     if ((_idx & 3) == 0 && _cycle_usable && idleCycle()) return finish(ABORTED_IDLE);
     if (_idx >= _total) return decide();
     s.set_value = true;
     s.value = valueFor(_idx);
     return s;
+  }
+
+  // What the blocks measured about their own noise: the sample variance of the
+  // pair differences d and the mean counting noise v of a block (Objective::
+  // countingNoise() on its counts), over the pairs and blocks used. Their ratio
+  // var(d) / (2 v) is phi; var(d) / 2 - v is the block spread c.
+  struct Noise {
+    uint32_t pairs;
+    uint32_t blocks;
+    double var_d;
+    double mean_v;
+  };
+  Noise noise() const {
+    Noise z = {};
+    z.pairs = _n;
+    z.blocks = _nv;
+    if (_n >= 2) {
+      double mean = _sum_d / _n;
+      z.var_d = (_sum_d2 - _n * mean * mean) / (_n - 1);
+      if (z.var_d < 0.0) z.var_d = 0.0;
+    }
+    if (_nv) z.mean_v = _sum_v / _nv;
+    return z;
   }
 
   Stats stats() const {
@@ -311,6 +344,7 @@ private:
     _live_a = _live_b = _live_a_blocks = _live_b_blocks = 0;
     _cycle_rx = 0; _cycle_usable = true;
     _n = 0; _sum_d = _sum_d2 = _sum_rd = 0.0;
+    _sum_v = 0.0; _nv = 0;
     for (uint32_t i = 0; i < HIST; i++) _lo[i] = _hi[i] = 0.0;
     _heard_a = _heard_b = _marg_a = _marg_b = 0;
     _reach_a_n = _reach_b_n = 0;
@@ -383,6 +417,19 @@ private:
     return lo_max - lo_min < eps && hi_max - hi_min < eps;
   }
 
+  // Even the full schedule would not decide: its final interval, from the standard
+  // error now scaled to N pairs, still holds both 0 and the minimum gain for any
+  // mean within one current standard error of the one measured.
+  bool futile() const {
+    uint32_t total = _total / 2;
+    if (_n < MIN_LOOK_PAIRS || _n >= total) return false;
+    double mean = _sum_d / _n;
+    double se = stdErr();
+    double half = tCrit(total - 1, _cfg.alpha_pct) * se * sqrt((double)_n / total);
+    double g = log(1.0 + _cfg.min_gain_pct / 100.0);
+    return mean + se - half <= 0.0 && mean - se + half >= g;
+  }
+
   Step decide() {
     if (_n < MIN_LOOK_PAIRS) return finish(UNDECIDED);
     int v = look(true);
@@ -403,6 +450,8 @@ private:
   bool _prev_usable = false;
   uint32_t _prev_rx = 0;
   uint32_t _prev_ros = 0;
+  double _sum_v = 0;       // counting noise of the valid blocks, summed
+  uint32_t _nv = 0;
   double _sum_ros_d = 0;   // confirmed deliveries per hour, B - A, summed over pairs
   uint32_t _live_a = 0, _live_b = 0, _live_a_blocks = 0, _live_b_blocks = 0;   // dead-side test sums
   uint32_t _cycle_rx = 0;       // RX Valid in the current A B B A cycle

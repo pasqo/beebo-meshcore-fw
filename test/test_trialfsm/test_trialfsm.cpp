@@ -677,3 +677,113 @@ TEST(TrialFSM, ObjectiveWeightsChangeWhatTheTrialOptimizes) {
   ASSERT_TRUE(b.finished);
   EXPECT_EQ(TrialFSM::ADOPT_B, b.outcome);
 }
+
+namespace {
+
+// A block with explicit counts in a one hour window: `e` routed attempts, `c`
+// of them confirmed, `rx` heard.
+EvalWindow::Result counts(uint32_t e, uint32_t c, uint32_t rx = 10) {
+  EvalWindow::Result r = {};
+  r.measured = true;
+  r.outcome = EVAL_ACCEPTED;
+  r.window_ms = 3600000;
+  r.exposure = e;
+  r.ros_count = c;
+  r.ros_rate = c;
+  r.confirm_ratio = (uint16_t)(c * 10000 / e);
+  r.rx_valid = rx;
+  return r;
+}
+
+// Feed pairs where B's confirmed count is A's (100) times exp(d[i % nd]).
+TrialFSM::Step runD(TrialFSM &t, uint8_t original, int pairs, const double *d, int nd) {
+  TrialFSM::Step s = {};
+  for (int p = 0; p < pairs && !s.finished; p++) {
+    for (int k = 0; k < 2 && !s.finished; k++) {
+      bool is_a = t.currentValue() == original;
+      uint32_t c = is_a ? 100 : (uint32_t)lround(100 * exp(d[p % nd]));
+      s = t.onBlock(counts(200, c), 0, 0);
+    }
+  }
+  return s;
+}
+
+}  // namespace
+
+TEST(TrialFSM, NoiseIsThePairVarianceAndTheMeanCountingNoise) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  const double d[] = {0.30, -0.25, 0.20, -0.30, 0.35, -0.10};
+  runD(t, 1, 6, d, 6);
+  TrialFSM::Noise z = t.noise();
+  EXPECT_EQ(6u, z.pairs);
+  EXPECT_EQ(12u, z.blocks);
+  // Oracle from the same counts: ln(C_B / C_A) with the rounded B counts, v = 1 / C per block
+  double sum = 0, sum2 = 0, sum_v = 0;
+  for (int i = 0; i < 6; i++) {
+    uint32_t cb = (uint32_t)lround(100 * exp(d[i]));
+    double x = Objective().trialLog(counts(200, cb)) - Objective().trialLog(counts(200, 100));
+    sum += x; sum2 += x * x;
+    sum_v += 1.0 / 100 + 1.0 / cb;
+  }
+  double mean = sum / 6;
+  EXPECT_NEAR((sum2 - 6 * mean * mean) / 5, z.var_d, 1e-9);
+  EXPECT_NEAR(sum_v / 12, z.mean_v, 1e-9);
+}
+
+TEST(TrialFSM, NoiseSkipsBlocksThatCountedNothingConfirmed) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  t.onBlock(counts(200, 0), 0, 0);    // no confirmed delivery: no counting noise to take
+  t.onBlock(counts(200, 100), 0, 0);
+  TrialFSM::Noise z = t.noise();
+  EXPECT_EQ(1u, z.blocks);
+  EXPECT_NEAR(1.0 / 100, z.mean_v, 1e-12);
+}
+
+TEST(TrialFSM, NoiseFollowsTheWeights) {
+  Objective o;
+  o.weights[Objective::RECEIVED] = 10;
+  TrialFSM t;
+  TrialFSM::Config c = cfg(96);
+  c.objective = &o;
+  t.begin(c);
+  t.start(1);
+  t.onBlock(counts(200, 100, 400), 0, 0);
+  EXPECT_NEAR(1.0 / 100 + 1.0 / 400, t.noise().mean_v, 1e-12);
+}
+
+TEST(TrialFSM, FutilityEndsATrialThatCannotDecide) {
+  const double d[] = {0.4, -0.4};   // no mean, a wide spread: 30 planned pairs cannot reach a 5% bound
+  TrialFSM on, off;
+  TrialFSM::Config c = cfg(60);
+  c.futility = true;
+  on.begin(c);
+  on.start(1);
+  TrialFSM::Step s = runD(on, 1, 30, d, 2);
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::INCONCLUSIVE, s.outcome);
+  c.futility = false;
+  off.begin(c);
+  off.start(1);
+  runD(off, 1, 30, d, 2);
+  EXPECT_LT(on.stats().n_pairs, off.stats().n_pairs);   // the projection ends it before the schedule's own stop
+}
+
+TEST(TrialFSM, FutilityLeavesAReachableTrialRunning) {
+  const double d[] = {0.02, 0.0, 0.04, 0.02};   // small noise: a bound within the gain is reachable
+  TrialFSM t;
+  TrialFSM::Config c = cfg(200);
+  c.futility = true;
+  t.begin(c);
+  t.start(1);
+  TrialFSM::Step s = runD(t, 1, 6, d, 4);
+  EXPECT_FALSE(s.finished && s.outcome == TrialFSM::INCONCLUSIVE && t.stats().n_pairs < 6);
+}
+
+TEST(TrialFSM, UnderpoweredIsAnOutcomeAfterUndecided) {
+  EXPECT_EQ(11, TrialFSM::UNDECIDED);
+  EXPECT_EQ(12, TrialFSM::SKIPPED_UNDERPOWERED);
+}
