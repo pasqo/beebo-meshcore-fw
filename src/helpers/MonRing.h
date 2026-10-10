@@ -411,6 +411,7 @@ enum : uint8_t {
   SETTING_TUNING_TRIAL_START = 131,
   SETTING_TUNING_TRIAL_MIN_RX_RATE = 132,
   SETTING_TUNING_TRIAL_COMBINED = 137,
+  SETTING_TUNING_TRIAL_BLOCK_SPREAD_PCT = 138,
   // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
   SETTING_TUNING_SCORE_WEIGHT_BASE = 116,
 };
@@ -617,6 +618,8 @@ struct __attribute__((packed)) AdaptiveRecord {
 #define TRIAL_PHASE_BLOCK 1
 #define TRIAL_PHASE_END   2
 #define TRIAL_PHASE_PART  3   // one participant of a combined trial, right after its start record
+#define TRIAL_PHASE_PLAN  4   // what the planner worked from, right after the start record (or alone before a skip)
+#define TRIAL_PHASE_NOISE 5   // the noise the blocks measured, right before the end record
 // beebo: MON_TRIAL block flags (TrialBlockRecord.flags)
 #define TRIALF_MEASURED  0x01   // the block had enough data to count
 #define TRIALF_PAIRED    0x02   // this block completed a pair
@@ -651,6 +654,35 @@ struct __attribute__((packed)) TrialPartRecord {
   uint8_t  index;
   uint8_t  count;
   uint8_t  _rsvd[7];
+};
+// beebo: the planner's inputs and result (TrialPlanner.h), written for a trial
+// whose block_size_s or block_count is 0, after its start record, and alone
+// before the end record of a skipped_underpowered trial. Rates are per hour,
+// saturated. flags: bits 0-1 TrialPlanner::Status (0 ok, 1 no rate, 2 underpowered),
+// bit 2 settle guard on, bit 3 futility projection on.
+struct __attribute__((packed)) TrialPlanRecord {
+  uint8_t  kind;            // MON_TRIAL
+  uint16_t offset;
+  uint8_t  phase;           // TRIAL_PHASE_PLAN
+  uint8_t  flags;
+  uint8_t  spread_pct;      // block_spread_pct the plan used
+  uint16_t exposure_h;      // routed attempts per hour
+  uint16_t confirmed_h;     // confirmed deliveries per hour
+  uint16_t rx_h;            // valid packets received per hour
+  uint16_t pairs;           // pairs the plan called for (saturated)
+  uint16_t needed_h;        // underpowered: confirmed deliveries per hour that would fit (saturated)
+};
+// beebo: what a planned trial's blocks measured about their own noise: the
+// sample variance of the pair differences and the mean counting noise of a
+// block, x1e6 (saturated). var_d / (2 v) is phi; var_d / 2 - v the block spread c.
+struct __attribute__((packed)) TrialNoiseRecord {
+  uint8_t  kind;            // MON_TRIAL
+  uint16_t offset;
+  uint8_t  phase;           // TRIAL_PHASE_NOISE
+  uint16_t pairs;
+  uint16_t blocks;          // valid blocks the mean v is over
+  uint32_t var_d;
+  uint32_t mean_v;
 };
 // beebo: one closed block, scored. mean/lower/upper describe the paired ln score
 // difference B - A over the pairs so far, x1000 (saturated): the mean and the
@@ -869,6 +901,8 @@ union MonRecord {
   TrialBlockRecord trial_block;
   TrialEndRecord   trial_end;
   TrialPartRecord  trial_part;
+  TrialPlanRecord  trial_plan;
+  TrialNoiseRecord trial_noise;
   EvalRecordA eval_a;
   EvalRecordB eval_b;
   EvalRecordC eval_c;
@@ -891,6 +925,8 @@ static_assert(sizeof(TrialStartRecord) == 16, "TrialStartRecord must be 16 bytes
 static_assert(sizeof(TrialBlockRecord) == 16, "TrialBlockRecord must be 16 bytes");
 static_assert(sizeof(TrialEndRecord)   == 16, "TrialEndRecord must be 16 bytes");
 static_assert(sizeof(TrialPartRecord)  == 16, "TrialPartRecord must be 16 bytes");
+static_assert(sizeof(TrialPlanRecord)  == 16, "TrialPlanRecord must be 16 bytes");
+static_assert(sizeof(TrialNoiseRecord) == 16, "TrialNoiseRecord must be 16 bytes");
 static_assert(sizeof(EvalRecordA) == 16, "EvalRecordA must be 16 bytes");
 static_assert(sizeof(EvalRecordB) == 16, "EvalRecordB must be 16 bytes");
 static_assert(sizeof(EvalRecordC) == 16, "EvalRecordC must be 16 bytes");

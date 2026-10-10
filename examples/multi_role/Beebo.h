@@ -2008,6 +2008,7 @@ private:
   uint8_t _trial_block_spread_pct = 17;
   ExposureTracker _expo;                 // traffic rates for the planner, always running
   TrialPlanner::Plan _trial_plan;        // the plan of the trial running or about to start
+  bool _trial_planned = false;           // the running trial's schedule came from the planner
   bool _trial_underpowered = false;      // the sequence is holding for a planned schedule that does not fit
   bool _trial_settle_wait = false;       // a switching block's window waits for the settle guard
   unsigned long _trial_settle_until = 0;
@@ -2176,6 +2177,16 @@ private:
     objective.weights[idx] = v;
     return true;
   }
+  bool setTrialBlockSpreadPct(uint8_t v, uint8_t source) {
+    if (v > TRIAL_BLOCK_SPREAD_PCT_MAX) return false;
+    if (v != _trial_block_spread_pct) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCK_SPREAD_PCT, _trial_block_spread_pct, v, source);
+      abortTrial(false);
+      restartTrials();
+    }
+    _trial_block_spread_pct = v;
+    return true;
+  }
   bool setTrialBlockSizeS(uint16_t v, uint8_t source) {
     if (v > TRIAL_BLOCK_SIZE_S_MAX) return false;
     if (v != _trial_block_size_s) {
@@ -2230,6 +2241,8 @@ private:
   void emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Result& r, uint32_t pairs_before);
   void emitTrialEnd(int sw, const TrialFSM::Step& step);
   void emitTrialSkip(int sw, TrialFSM::Outcome outcome);
+  void emitTrialPlan(const TrialPlanner::Plan& plan);
+  void emitTrialNoise();
   uint16_t trialWindowId() const { return 0x8000 | trial.blockIndex(); }
   MonRing::QosStats tuningQosStats();
   // Open a fresh evaluation window from the current counters.

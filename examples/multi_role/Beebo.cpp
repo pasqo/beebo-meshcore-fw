@@ -2430,7 +2430,35 @@ void Beebo::emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Resu
   monring.appendTrial(rec, getRTCClock()->nowMillis());
 }
 
+void Beebo::emitTrialPlan(const TrialPlanner::Plan& plan) {
+  auto h16 = [](double per_s) { double h = per_s * 3600.0 + 0.5; return (uint16_t)(h > 65535.0 ? 65535.0 : h); };
+  TrialRates r = _expo.rates();
+  MonRecord rec{};
+  rec.trial_plan.phase = TRIAL_PHASE_PLAN;
+  rec.trial_plan.flags = (uint8_t)((plan.status & 3) | (plan.settle_s ? 4 : 0) | (plan.futility ? 8 : 0));
+  rec.trial_plan.spread_pct = _trial_block_spread_pct;
+  rec.trial_plan.exposure_h = h16(r.exposure);
+  rec.trial_plan.confirmed_h = h16(r.confirmed);
+  rec.trial_plan.rx_h = h16(r.rx);
+  rec.trial_plan.pairs = (uint16_t)(plan.pairs > 0xFFFF ? 0xFFFF : plan.pairs);
+  rec.trial_plan.needed_h = (uint16_t)(plan.needed_confirmed_h > 0xFFFF ? 0xFFFF : plan.needed_confirmed_h);
+  monring.appendTrial(rec, getRTCClock()->nowMillis());
+}
+
+void Beebo::emitTrialNoise() {
+  TrialFSM::Noise z = trial.noise();
+  auto x1e6 = [](double v) { double s = v * 1e6 + 0.5; return (uint32_t)(s > 4294967295.0 ? 4294967295.0 : s < 0 ? 0 : s); };
+  MonRecord rec{};
+  rec.trial_noise.phase = TRIAL_PHASE_NOISE;
+  rec.trial_noise.pairs = (uint16_t)(z.pairs > 0xFFFF ? 0xFFFF : z.pairs);
+  rec.trial_noise.blocks = (uint16_t)(z.blocks > 0xFFFF ? 0xFFFF : z.blocks);
+  rec.trial_noise.var_d = x1e6(z.var_d);
+  rec.trial_noise.mean_v = x1e6(z.mean_v);
+  monring.appendTrial(rec, getRTCClock()->nowMillis());
+}
+
 void Beebo::emitTrialEnd(int sw, const TrialFSM::Step& step) {
+  if (_trial_planned) emitTrialNoise();
   TrialFSM::Stats st = trial.stats();
   MonRecord rec{};
   rec.trial_end.phase = TRIAL_PHASE_END;
@@ -2495,6 +2523,7 @@ bool Beebo::startTrial(int sw) {
   }
   _trial_plan = plan;
   bool planned = _trial_block_size_s == 0 || _trial_block_count == 0;
+  _trial_planned = planned;
   TrialFSM::Config tc;
   tc.block_s = plan.block_s;
   tc.blocks = plan.blocks;
@@ -2516,6 +2545,7 @@ bool Beebo::startTrial(int sw) {
   wc.use_baseline = false;
   trial_window.begin(wc);
   emitTrialStart(sw, tc);
+  if (planned) emitTrialPlan(plan);
   _trial_settle_wait = false;
   openTrialWindow();
   return true;
@@ -2679,7 +2709,10 @@ bool Beebo::trialRateAllows(int sw) {
       _trial_underpowered = false;
       return true;
     }
-    if (!_trial_underpowered && plan.status == TrialPlanner::UNDERPOWERED) emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
+    if (!_trial_underpowered && plan.status == TrialPlanner::UNDERPOWERED) {
+      emitTrialPlan(plan);
+      emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
+    }
     _trial_underpowered = true;
     _trial_rate_check_at = futureMillis(60000);
     return false;
@@ -6165,6 +6198,13 @@ void Beebo::handleCmdFrame(size_t len) {
     bool ok = (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_CONFIDENCE) ? setTrialConfidence(sub[1], EVENT_SOURCE_BINARY)
                                                          : setTrialMinGain(sub[1], EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCK_SPREAD_PCT) {
+    uint32_t v = _trial_block_spread_pct;
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &v, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_SPREAD_PCT && sub_len >= 2) {
+    if (setTrialBlockSpreadPct(sub[1], EVENT_SOURCE_BINARY)) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_MIN_RX_RATE) {
     uint32_t v = _trial_min_rx_rate;
     out_frame[0] = RESP_CODE_OK;
@@ -9043,6 +9083,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       else sprintf(reply, "> %d", (int)objective.weights[idx]);
     } else if (strcmp(key, "tuning.trial.confidence_pct") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_confidence_pct);
+    } else if (strcmp(key, "tuning.trial.block_spread_pct") == 0) {
+      sprintf(reply, "> %u", (unsigned)_trial_block_spread_pct);
     } else if (strcmp(key, "tuning.trial.min_gain_pct") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_min_gain_pct);
     } else if (strcmp(key, "tuning.trial.min_rx_rate") == 0) {
@@ -9554,6 +9596,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       }
       else if (strncmp(k, "switches ", 9) == 0) ok = v >= 0 && v <= 0xFFFF && setTrialSwitches((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "confidence_pct ", 15) == 0) ok = v >= 0 && v <= 255 && setTrialConfidence((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "block_spread_pct ", 17) == 0) ok = v >= 0 && v <= 255 && setTrialBlockSpreadPct((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "min_gain_pct ", 9) == 0) ok = v >= 0 && v <= 255 && setTrialMinGain((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "min_rx_rate ", 12) == 0) ok = v >= 0 && v <= 255 && setTrialMinRxRate((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_size_s ", 13) == 0 || strncmp(k, "block_s ", 8) == 0)   // block_s: the old name
