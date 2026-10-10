@@ -2226,7 +2226,7 @@ void Beebo::loopTuning() {
     if (millisHasNowPassed(_trial_idle_until)) _trial_idle_hold = false;
     else pending = 0;
   }
-  if (pending && !trialRateAllows()) pending = 0;   // too little traffic to start a trial
+  if (pending && !trialRateAllows(_trial_combined ? (int)TRIAL_COMBINED : TrialSequence::nextSwitch(pending))) pending = 0;   // too little traffic to start a trial
   if (pending && adaptive_controller.idle()) {
     if (!_trial_seq_started) _trial_start_stored ? trialStartFromStored() : trialSetAllToA();
     pending = _trial_switches & ~_trial_done_mask;
@@ -2488,12 +2488,20 @@ bool Beebo::startTrial(int sw) {
     if (!trialNextValue(sw)) return false;
   }
   refreshObjectiveReference();
+  TrialPlanner::Plan plan = planTrial();
+  if (plan.status != TrialPlanner::OK) {   // the sequence holds in trialRateAllows(); a start here is a race
+    emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
+    return false;
+  }
+  _trial_plan = plan;
+  bool planned = _trial_block_size_s == 0 || _trial_block_count == 0;
   TrialFSM::Config tc;
-  tc.block_s = _trial_block_size_s;
-  tc.blocks = _trial_block_count;
+  tc.block_s = plan.block_s;
+  tc.blocks = plan.blocks;
   tc.alpha_pct = 100 - _trial_confidence_pct;   // TrialFSM works in error rate
   tc.min_gain_pct = _trial_min_gain_pct;
-  tc.min_rx_rate = _trial_min_rx_rate;
+  tc.min_rx_rate = planned ? 0 : _trial_min_rx_rate;   // a planned schedule replaces the idle stop
+  tc.futility = plan.futility;
   tc.objective = &objective;
   trial.begin(tc);
   if (sw == TRIAL_COMBINED) {
@@ -2504,10 +2512,16 @@ bool Beebo::startTrial(int sw) {
   }
   _trial_switch = (int8_t)sw;
   EvalWindow::Config wc;
-  wc.min_ms = wc.max_ms = (uint32_t)_trial_block_size_s * 1000u;
+  wc.min_ms = wc.max_ms = (uint32_t)plan.block_s * 1000u;
   wc.use_baseline = false;
   trial_window.begin(wc);
   emitTrialStart(sw, tc);
+  _trial_settle_wait = false;
+  openTrialWindow();
+  return true;
+}
+
+void Beebo::openTrialWindow() {
 #ifdef BEEBO_CPU_ACCOUNTING
   uint32_t cad_ms = getTxWaitCadMs();
 #else
@@ -2517,10 +2531,15 @@ bool Beebo::startTrial(int sw) {
                     monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                     radio_driver.getPacketsSent());
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
-  return true;
 }
 
 void Beebo::loopTrial() {
+  if (_trial_settle_wait) {   // the side just switched: its counts start after the guard
+    if (!millisHasNowPassed(_trial_settle_until)) return;
+    _trial_settle_wait = false;
+    openTrialWindow();
+    return;
+  }
   if (millisHasNowPassed(_next_util_sample_ms)) {
     _next_util_sample_ms = futureMillis(TUNING_UTIL_SAMPLE_MS);
     int used = BEEBO_PACKET_POOL_SIZE - _mgr->getFreeCount();
@@ -2551,11 +2570,14 @@ void Beebo::loopTrial() {
     finishTrial(step);
     return;
   }
-  if (step.set_value && step.value != live) applyTrialSide(sw, step.value);
-  NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
-  trial_window.open(millis(), tuningQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
-                    monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
-                    radio_driver.getPacketsSent());
+  bool switched = step.set_value && step.value != live;
+  if (switched) applyTrialSide(sw, step.value);
+  if (switched && _trial_plan.settle_s) {
+    _trial_settle_wait = true;
+    _trial_settle_until = futureMillis((uint32_t)_trial_plan.settle_s * 1000u);
+    return;
+  }
+  openTrialWindow();
 }
 
 void Beebo::trialPersistValue(int sw, uint8_t value) {
@@ -2622,11 +2644,46 @@ uint32_t Beebo::rxRatePerMin() {
 #endif
 }
 
+// The plan the next trial would run: the user's block_size_s / block_count where
+// set, the rest from the tracked traffic and the objective (TrialPlanner.h).
+TrialPlanner::Plan Beebo::planTrial() {
+  TrialPlanner::Input in;
+  in.rates = _expo.rates();
+  in.objective = &objective;
+  in.alpha_pct = 100 - _trial_confidence_pct;
+  in.min_gain_pct = _trial_min_gain_pct;
+  in.spread_pct = _trial_block_spread_pct;
+  in.block_s = _trial_block_size_s;
+  in.blocks = _trial_block_count;
+  return TrialPlanner::plan(in);
+}
+
+// Traffic rates for the planner, from the counters EvalWindow reads; run every
+// loop in the repeater role, trial or not, so a plan can start at once.
+void Beebo::trackExposure() {
+  MonRing::QosStats q = tuningQosStats();
+  _expo.poll(millis(), MonRing::computeQosExposure(q), MonRing::computeRos(q), radio_driver.getPacketsRecv());
+}
+
 // tuning.trial.min_rx_rate: whether the next trial may start (a running trial
 // ends idle on the same rate, TrialFSM). While the rate
 // is below the minimum the sequence waits, re-checking once a minute; each
 // change between waiting and running is logged (EVENT_TRIAL_RX_RATE).
-bool Beebo::trialRateAllows() {
+bool Beebo::trialRateAllows(int sw) {
+  if (_trial_block_size_s == 0 || _trial_block_count == 0) {   // planned schedule
+    _trial_rate_wait = false;
+    if (_trial_underpowered && !millisHasNowPassed(_trial_rate_check_at)) return false;
+    if (!_expo.ready()) return false;   // the tracker still fills
+    TrialPlanner::Plan plan = planTrial();
+    if (plan.status == TrialPlanner::OK) {
+      _trial_underpowered = false;
+      return true;
+    }
+    if (!_trial_underpowered && plan.status == TrialPlanner::UNDERPOWERED) emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
+    _trial_underpowered = true;
+    _trial_rate_check_at = futureMillis(60000);
+    return false;
+  }
   if (_trial_min_rx_rate == 0) {
     _trial_rate_wait = false;
     return true;
@@ -2674,6 +2731,7 @@ void Beebo::trialRevertAll(int sw) {
 
 void Beebo::finishTrial(const TrialFSM::Step& step) {
   int sw = _trial_switch;
+  _trial_settle_wait = false;
   emitTrialEnd(sw, step);
   trialRevertAll(sw);   // back to what was stored; a winner is stored below
   if (step.outcome == TrialFSM::ABORTED_IDLE) {   // the switch stays pending
@@ -2711,6 +2769,7 @@ void Beebo::finishTrial(const TrialFSM::Step& step) {
 
 void Beebo::abortTrial(bool mark_done) {
   if (!trialRunning()) return;
+  _trial_settle_wait = false;
   int sw = _trial_switch;
   TrialFSM::Step step = trial.abort();
   trialRevertAll(sw);   // back to what is stored
@@ -2723,6 +2782,7 @@ void Beebo::abortTrial(bool mark_done) {
 MonRing::QosStats Beebo::tuningQosStats() { return MonRing::QosStats{}; }
 void Beebo::openEvalWindow(uint16_t) {}
 void Beebo::loopTuning() {}
+void Beebo::trackExposure() {}
 void Beebo::abortTrial(bool) {}
 #endif
 
@@ -7632,6 +7692,7 @@ void Beebo::loop() {
   // ("set tuning.adaptive.enabled on"). Per-param live actuation (_adaptive_applied_mask,
   // default 0) is a separate, narrower opt-in on top of that -- every param
   // stays observe-only until its own bit is set.
+  if (isRepeater() && monring.allocated()) trackExposure();
   if (isRepeater() && (_adaptive_enabled || _trial_enabled) && monring.allocated()) loopTuning();
 #endif
 
@@ -9496,9 +9557,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       else if (strncmp(k, "min_gain_pct ", 9) == 0) ok = v >= 0 && v <= 255 && setTrialMinGain((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "min_rx_rate ", 12) == 0) ok = v >= 0 && v <= 255 && setTrialMinRxRate((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_size_s ", 13) == 0 || strncmp(k, "block_s ", 8) == 0)   // block_s: the old name
-        ok = v >= 1 && v <= 65535 && setTrialBlockSizeS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+        ok = v >= 0 && v <= 65535 && setTrialBlockSizeS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_count ", 12) == 0 || strncmp(k, "blocks ", 7) == 0)   // blocks: the old name
-        ok = v >= 2 && v <= 65535 && setTrialBlockCount((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+        ok = v >= 0 && v <= 65535 && setTrialBlockCount((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else { sprintf(reply, "ERR: unknown key: %s", key); return; }
       if (!ok) { strcpy(reply, "ERR: out of range"); return; }
       sprintf(reply, "> %ld", v);

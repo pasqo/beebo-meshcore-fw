@@ -5,6 +5,7 @@
 #include <helpers/MonRing.h>
 #include <helpers/AdaptiveController.h>
 #include <helpers/TrialFSM.h>
+#include <helpers/TrialPlanner.h>
 #include <helpers/TrafficInjector.h>
 #include <helpers/TrialSequence.h>
 #include <helpers/NeighborReach.h>
@@ -1994,8 +1995,22 @@ private:
   bool _trial_rate_wait = false;        // waiting for traffic, EVENT_TRIAL_RX_RATE logged
   uint32_t _trial_rate_check_at = 0;    // next check while waiting (once a minute)
   uint16_t _trial_switches = (1u << TrialSequence::NUM_SWITCHES) - 1;   // bit i = switch i (TrialSequence.h); all on, so enabling the trial runs the whole sequence
-  uint16_t _trial_block_size_s = 900;
-  uint16_t _trial_block_count = 16;
+  // tuning.trial.block_size_s / block_count: 0 = planned from the node's traffic
+  // (TrialPlanner.h, plans/TRIAL_AUTO_SCHEDULE.md); never overwritten by the plan,
+  // which goes only into the trial's config. Both nonzero is the fixed schedule.
+  static constexpr uint16_t TRIAL_BLOCK_SIZE_S_MAX = 3600;
+  static constexpr uint16_t TRIAL_BLOCK_COUNT_MAX = 1000;
+  uint16_t _trial_block_size_s = 0;
+  uint16_t _trial_block_count = 0;
+  // tuning.trial.block_spread_pct: the block spread the planner allows for (relative
+  // standard deviation of a block that a longer block does not average away).
+  static constexpr uint8_t TRIAL_BLOCK_SPREAD_PCT_MAX = 70;
+  uint8_t _trial_block_spread_pct = 17;
+  ExposureTracker _expo;                 // traffic rates for the planner, always running
+  TrialPlanner::Plan _trial_plan;        // the plan of the trial running or about to start
+  bool _trial_underpowered = false;      // the sequence is holding for a planned schedule that does not fit
+  bool _trial_settle_wait = false;       // a switching block's window waits for the settle guard
+  unsigned long _trial_settle_until = 0;
   bool _trial_seq_started = false;   // every selected switch has been set to its A
   uint16_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
   int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, 2 = coding rate, -1 = none running
@@ -2052,6 +2067,7 @@ private:
     _trial_idle_streak = false;
     _trial_idle_hold = false;
     _trial_rate_wait = false;
+    _trial_underpowered = false;
     for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_lists.v[i].restart();
   }
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
@@ -2161,7 +2177,7 @@ private:
     return true;
   }
   bool setTrialBlockSizeS(uint16_t v, uint8_t source) {
-    if (v == 0) return false;
+    if (v > TRIAL_BLOCK_SIZE_S_MAX) return false;
     if (v != _trial_block_size_s) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCK_SIZE_S, _trial_block_size_s, v, source);
       abortTrial(false);
@@ -2171,7 +2187,7 @@ private:
     return true;
   }
   bool setTrialBlockCount(uint16_t v, uint8_t source) {
-    if (v < 2) return false;
+    if (v == 1 || v > TRIAL_BLOCK_COUNT_MAX) return false;
     if (v != _trial_block_count) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCK_COUNT, _trial_block_count, v, source);
       abortTrial(false);
@@ -2204,7 +2220,10 @@ private:
   void trialSetAllToA();
   void trialStartFromStored();
   uint32_t rxRatePerMin();
-  bool trialRateAllows();
+  bool trialRateAllows(int sw);
+  TrialPlanner::Plan planTrial();
+  void trackExposure();
+  void openTrialWindow();
   void applyTrialSwitchLive(int sw, uint8_t value);
   void emitTrialStart(int sw, const TrialFSM::Config& tc);
   void emitTrialParts();
