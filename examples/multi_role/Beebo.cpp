@@ -2489,8 +2489,8 @@ bool Beebo::startTrial(int sw) {
   }
   refreshObjectiveReference();
   TrialFSM::Config tc;
-  tc.block_s = _trial_block_s;
-  tc.blocks = _trial_blocks;
+  tc.block_s = _trial_block_size_s;
+  tc.blocks = _trial_block_count;
   tc.alpha_pct = 100 - _trial_confidence_pct;   // TrialFSM works in error rate
   tc.min_gain_pct = _trial_min_gain_pct;
   tc.min_rx_rate = _trial_min_rx_rate;
@@ -2504,7 +2504,7 @@ bool Beebo::startTrial(int sw) {
   }
   _trial_switch = (int8_t)sw;
   EvalWindow::Config wc;
-  wc.min_ms = wc.max_ms = (uint32_t)_trial_block_s * 1000u;
+  wc.min_ms = wc.max_ms = (uint32_t)_trial_block_size_s * 1000u;
   wc.use_baseline = false;
   trial_window.begin(wc);
   emitTrialStart(sw, tc);
@@ -6072,21 +6072,21 @@ void Beebo::handleCmdFrame(size_t len) {
             : setAdaptiveWindowMaxS(v, EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_SWITCHES ||
-             sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCK_S ||
-             sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCKS) {
+             sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCK_SIZE_S ||
+             sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCK_COUNT) {
     // beebo: on-device RX front-end trial settings (RAM-only), see TrialFSM.h.
     uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_SWITCHES) ? _trial_switches
-               : (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCK_S) ? _trial_block_s : _trial_blocks;
+               : (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_BLOCK_SIZE_S) ? _trial_block_size_s : _trial_block_count;
     out_frame[0] = RESP_CODE_OK;
     memcpy(&out_frame[1], &v, 4);
     _serial->writeFrame(out_frame, 5);
   } else if ((sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_SWITCHES && sub_len >= 2) ||
-             ((sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_S ||
-               sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCKS) && sub_len >= 3)) {
+             ((sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_SIZE_S ||
+               sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_COUNT) && sub_len >= 3)) {
     uint16_t v = sub[1] | ((sub_len >= 3) ? ((uint16_t)sub[2] << 8) : 0);
     bool ok = (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_SWITCHES) ? setTrialSwitches(v, EVENT_SOURCE_BINARY)
-            : (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_S) ? setTrialBlockS(v, EVENT_SOURCE_BINARY)
-            : setTrialBlocks(v, EVENT_SOURCE_BINARY);
+            : (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_SIZE_S) ? setTrialBlockSizeS(v, EVENT_SOURCE_BINARY)
+            : setTrialBlockCount(v, EVENT_SOURCE_BINARY);
     if (ok) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_ENABLED) {
     out_frame[0] = RESP_CODE_OK;
@@ -9003,10 +9003,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         sprintf(reply, "> %s", list);
       }
       else sprintf(reply, "??: %s", key);
-    } else if (strcmp(key, "tuning.trial.block_s") == 0) {
-      sprintf(reply, "> %u", (unsigned)_trial_block_s);
-    } else if (strcmp(key, "tuning.trial.blocks") == 0) {
-      sprintf(reply, "> %u", (unsigned)_trial_blocks);
+    } else if (strcmp(key, "tuning.trial.block_size_s") == 0 || strcmp(key, "tuning.trial.block_s") == 0) {   // block_s: the old name
+      sprintf(reply, "> %u", (unsigned)_trial_block_size_s);
+    } else if (strcmp(key, "tuning.trial.block_count") == 0 || strcmp(key, "tuning.trial.blocks") == 0) {   // blocks: the old name
+      sprintf(reply, "> %u", (unsigned)_trial_block_count);
     } else {
 #if BEEBO_ENABLE_REPEATER_ROLE
       if (isRepeater()) { cli.handleCommand(sender_timestamp, command, reply); return; }
@@ -9495,8 +9495,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       else if (strncmp(k, "confidence_pct ", 15) == 0) ok = v >= 0 && v <= 255 && setTrialConfidence((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "min_gain_pct ", 9) == 0) ok = v >= 0 && v <= 255 && setTrialMinGain((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "min_rx_rate ", 12) == 0) ok = v >= 0 && v <= 255 && setTrialMinRxRate((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
-      else if (strncmp(k, "block_s ", 8) == 0) ok = v >= 1 && v <= 65535 && setTrialBlockS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
-      else if (strncmp(k, "blocks ", 7) == 0) ok = v >= 2 && v <= 65535 && setTrialBlocks((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "block_size_s ", 13) == 0 || strncmp(k, "block_s ", 8) == 0)   // block_s: the old name
+        ok = v >= 1 && v <= 65535 && setTrialBlockSizeS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "block_count ", 12) == 0 || strncmp(k, "blocks ", 7) == 0)   // blocks: the old name
+        ok = v >= 2 && v <= 65535 && setTrialBlockCount((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else { sprintf(reply, "ERR: unknown key: %s", key); return; }
       if (!ok) { strcpy(reply, "ERR: out of range"); return; }
       sprintf(reply, "> %ld", v);

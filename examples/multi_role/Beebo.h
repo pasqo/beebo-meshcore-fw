@@ -1994,8 +1994,8 @@ private:
   bool _trial_rate_wait = false;        // waiting for traffic, EVENT_TRIAL_RX_RATE logged
   uint32_t _trial_rate_check_at = 0;    // next check while waiting (once a minute)
   uint16_t _trial_switches = (1u << TrialSequence::NUM_SWITCHES) - 1;   // bit i = switch i (TrialSequence.h); all on, so enabling the trial runs the whole sequence
-  uint16_t _trial_block_s = 900;
-  uint16_t _trial_blocks = 16;
+  uint16_t _trial_block_size_s = 900;
+  uint16_t _trial_block_count = 16;
   bool _trial_seq_started = false;   // every selected switch has been set to its A
   uint16_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
   int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, 2 = coding rate, -1 = none running
@@ -2160,24 +2160,24 @@ private:
     objective.weights[idx] = v;
     return true;
   }
-  bool setTrialBlockS(uint16_t v, uint8_t source) {
+  bool setTrialBlockSizeS(uint16_t v, uint8_t source) {
     if (v == 0) return false;
-    if (v != _trial_block_s) {
-      appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCK_S, _trial_block_s, v, source);
+    if (v != _trial_block_size_s) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCK_SIZE_S, _trial_block_size_s, v, source);
       abortTrial(false);
       restartTrials();
     }
-    _trial_block_s = v;
+    _trial_block_size_s = v;
     return true;
   }
-  bool setTrialBlocks(uint16_t v, uint8_t source) {
+  bool setTrialBlockCount(uint16_t v, uint8_t source) {
     if (v < 2) return false;
-    if (v != _trial_blocks) {
-      appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCKS, _trial_blocks, v, source);
+    if (v != _trial_block_count) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_BLOCK_COUNT, _trial_block_count, v, source);
       abortTrial(false);
       restartTrials();
     }
-    _trial_blocks = v;
+    _trial_block_count = v;
     return true;
   }
   // Stop a running trial and put the switch back to its original value.
