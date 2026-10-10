@@ -34,13 +34,13 @@ public:
     return names[sw];
   }
 
-  // The switch index run i-th: the receive path (LNA, RX boost, AGC), then
+  // The switch index run i-th: the receive path (RX boost, LNA, AGC), then
   // channel-busy behavior (interference threshold, CAD), the link settings that
   // cost airtime (coding rate, multi acks, retry policy), then
   // the timing knobs.
   static int orderAt(int i) {
     static const uint8_t order[NUM_SWITCHES] = {
-      LNA, RX_BOOST, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, RETRY,
+      RX_BOOST, LNA, AGC, INTERFERENCE, CAD, CR, MULTI_ACKS, RETRY,
       RX_DELAY, TX_DELAY, DIRECT_TX_DELAY, AIRTIME };
     return order[i];
   }

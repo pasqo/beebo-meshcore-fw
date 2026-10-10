@@ -22,10 +22,10 @@ TEST(TrialSequence, RunOrderCoversEverySwitchOnce) {
     EXPECT_FALSE(seen[TrialSequence::orderAt(i)]);
     seen[TrialSequence::orderAt(i)] = true;
   }
-  // receive path first (the FEM LNA, the bigger lever, before RX boost), then
+  // receive path first (RX boost, then the FEM LNA), then
   // channel-busy behavior, coding rate, timing knobs
-  EXPECT_EQ(TrialSequence::LNA, TrialSequence::orderAt(0));
-  EXPECT_EQ(TrialSequence::RX_BOOST, TrialSequence::orderAt(1));
+  EXPECT_EQ(TrialSequence::RX_BOOST, TrialSequence::orderAt(0));
+  EXPECT_EQ(TrialSequence::LNA, TrialSequence::orderAt(1));
   EXPECT_EQ(TrialSequence::AGC, TrialSequence::orderAt(2));
   EXPECT_EQ(TrialSequence::INTERFERENCE, TrialSequence::orderAt(3));
   EXPECT_EQ(TrialSequence::CAD, TrialSequence::orderAt(4));   // channel-busy behavior
