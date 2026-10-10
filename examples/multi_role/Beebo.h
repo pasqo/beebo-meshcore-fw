@@ -1526,9 +1526,7 @@ private:
     PREFS_TLV_FEM_RSSI_OFS_LNA = 59,    // u32 (sign-extended int8 dB, -30..30)
     PREFS_TLV_FEM_RSSI_OFS_BYPASS = 60, // u32 (sign-extended int8 dB, -30..30)
     PREFS_TLV_ROUTE_RETRY = 61,         // u32 RetryPolicy byte (RetryPolicy.h): coding rates of the retries of a forward whose echo timed out; repeater slot only
-    PREFS_TLV_ECHO_AT_TX = 63,          // u32 bool, echo slot starts at the send; repeater slot only
     PREFS_TLV_TRANSMIT = 64,            // u32 bool, 0 = the radio never sends (Dispatcher::checkSend() drops); per role
-    PREFS_TLV_ECHO_FACTOR = 65,         // float, 1.0..20.0: airtimes in an echo window (SimpleMeshTables::setEchoFactor); repeater slot only
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
   // beebo: every accessor takes an explicit role, scoping the whole
@@ -1642,10 +1640,6 @@ private:
   static bool tlvSetRouteRetry(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetTransmit(Beebo* self, uint8_t role);
   static bool tlvSetTransmit(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetEchoAtTx(Beebo* self, uint8_t role);
-  static bool tlvSetEchoAtTx(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetEchoFactor(Beebo* self, uint8_t role);
-  static bool tlvSetEchoFactor(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetTzOffset(Beebo* self, uint8_t role);
   static bool tlvSetTzOffset(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetCad(Beebo* self, uint8_t role);
@@ -2084,8 +2078,6 @@ private:
          : sw == TrialSequence::CAD ? SETTING_TUNING_TRIAL_VALUES_CAD
          : sw == TrialSequence::MULTI_ACKS ? SETTING_TUNING_TRIAL_VALUES_MULTIACKS
          : sw == TrialSequence::RETRY ? SETTING_TUNING_TRIAL_VALUES_RETRY
-         : sw == TrialSequence::ECHO_AT_TX ? SETTING_TUNING_TRIAL_VALUES_ECHOATTX
-         : sw == TrialSequence::ECHO_FACTOR ? SETTING_TUNING_TRIAL_VALUES_ECHOFACTOR
          : SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE + sw - 3;
   }
   bool setTrialValues(uint8_t sw, const uint8_t* values, int count, uint8_t source) {

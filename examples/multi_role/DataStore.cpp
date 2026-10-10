@@ -569,16 +569,13 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
                 // for a file saved before this field existed.
                 if (file.available() >= (int)sizeof(_prefs.retry)) {
                   file.read((uint8_t *)&_prefs.retry, sizeof(_prefs.retry));
-                  // echo_at_tx -- tail-guarded the same way, defaulting to 0
-                  if (file.available() >= (int)sizeof(_prefs.echo_at_tx)) {
-                    file.read((uint8_t *)&_prefs.echo_at_tx, sizeof(_prefs.echo_at_tx));
+                  // one retired byte (it held echo_at_tx), skipped to keep the layout
+                  uint8_t retired;
+                  if (file.available() >= (int)sizeof(retired)) {
+                    file.read(&retired, sizeof(retired));
                     // tx_disable -- tail-guarded the same way, defaulting to 0 (transmit on)
                     if (file.available() >= (int)sizeof(_prefs.tx_disable)) {
                       file.read((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
-                      // echo_factor -- tail-guarded the same way, defaulting to 6.0
-                      if (file.available() >= (int)sizeof(_prefs.echo_factor)) {
-                        file.read((uint8_t *)&_prefs.echo_factor, sizeof(_prefs.echo_factor));
-                      }
                     }
                   }
                 }
@@ -666,9 +663,9 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     file.write((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_txgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_txgain));
     file.write((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
     file.write((uint8_t *)&_prefs.retry, sizeof(_prefs.retry));
-    file.write((uint8_t *)&_prefs.echo_at_tx, sizeof(_prefs.echo_at_tx));
+    const uint8_t retired = 0;   // the byte echo_at_tx held, kept so tx_disable stays where it was
+    file.write(&retired, sizeof(retired));
     file.write((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
-    file.write((uint8_t *)&_prefs.echo_factor, sizeof(_prefs.echo_factor));
 
     file.close();
   }

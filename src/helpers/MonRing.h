@@ -103,12 +103,12 @@ enum {
   // bandit -- they only appear in AdaptiveRecords, never in
   // AdaptiveController::specFor().
   TUNING_FEM_LNA, TUNING_RX_BOOST, TUNING_CR,
-  TUNING_CAD, TUNING_MULTI_ACKS, TUNING_RETRY, TUNING_ECHO_AT_TX,
+  TUNING_CAD, TUNING_MULTI_ACKS, TUNING_RETRY,
+  // id 12 is retired (it was the echo_at_tx switch); ids stay as they were in rings
+  TUNING_RETIRED_12,
   // beebo: a combined trial (several switches at once) carries this as its param;
   // the participants follow in TrialPartRecords.
   TUNING_COMBINED,
-  // a switch added after TUNING_COMBINED so the ids already in rings stay as they were
-  TUNING_ECHO_FACTOR,
 };
 
 // ---- EVENT types: what kind of thing an EventRecord reports, plus its own
@@ -407,12 +407,10 @@ enum : uint8_t {
   SETTING_TUNING_TRIAL_VALUES_EXTRA_BASE = 124,
   SETTING_TUNING_TRIAL_VALUES_CAD = 130, SETTING_TUNING_TRIAL_VALUES_MULTIACKS = 133,
   SETTING_TUNING_TRIAL_VALUES_RETRY = 134,
-  SETTING_TUNING_TRIAL_VALUES_ECHOATTX = 136,
   SETTING_TUNING_TRIAL_CONFIDENCE = 114, SETTING_TUNING_TRIAL_MIN_GAIN = 115,
   SETTING_TUNING_TRIAL_START = 131,
   SETTING_TUNING_TRIAL_MIN_RX_RATE = 132,
   SETTING_TUNING_TRIAL_COMBINED = 137,
-  SETTING_TUNING_TRIAL_VALUES_ECHOFACTOR = 138,
   // beebo: shared objective weights (Objective.h), one id per indicator, 116-123.
   SETTING_TUNING_SCORE_WEIGHT_BASE = 116,
 };

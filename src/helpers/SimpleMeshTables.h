@@ -39,8 +39,6 @@
 #define ECHO_TIMEOUT_BASE_MILLIS  500
 #define ECHO_PERHOP_FACTOR        6.0f
 #define ECHO_PERHOP_EXTRA_MILLIS  250
-#define ECHO_FACTOR_MIN           1.0f    // the range of the echo factor setting
-#define ECHO_FACTOR_MAX           20.0f
 
 // beebo: DoS/QoS audit follow-up -- a plain "any occupied-slot eviction"
 // counter fires on essentially every insert once the table has cycled once
@@ -133,8 +131,6 @@ class SimpleMeshTables : public mesh::MeshTables {
   uint8_t* _retry_store = nullptr;
   uint8_t _retry_len[MAX_ECHO_HASHES];
   uint8_t _retry_no = 0;
-  bool _echo_at_tx = false;  // setEchoAtTx(): slots start when the packet is sent, not when it is scheduled
-  float _echo_factor = ECHO_PERHOP_FACTOR;   // setEchoFactor(): airtimes the neighbor's turnaround may take
   uint8_t _waiting_tx = 0;   // slots with ECHO_F_WAIT_TX set, so noteTx() hashes only when one waits
   EchoRetryHook _retry_hook = nullptr;
   void* _retry_ctx = nullptr;
@@ -269,14 +265,13 @@ public:
       _self_tx_direct_count++;
       return;
     }
-    if (!_echo_at_tx) _startSlot(packet, pkt_airtime_millis);   // else noteTx() does it once the packet is on the air
+    // a flood's echo slot starts in noteTx(), once the packet is on the air
   }
 
   // beebo: a flood's echo slot -- hash, echo window and, for a forward, the retry
-  // copy. Starts at scheduling (markSelfTx()) by default, or when the packet is
-  // sent (noteTx()) with setEchoAtTx(): the window then measures the neighbor's
-  // turnaround only, not our own retransmit delay and queue wait, and a packet
-  // that is never sent never gets a slot.
+  // copy. Starts when the packet is sent (noteTx()): the window measures the
+  // neighbor's turnaround only, not our own retransmit delay and queue wait, and a
+  // packet that is never sent never gets a slot.
   // The slot a new generation takes: a never-used one, else the oldest one that
   // already reached its verdict, else (all pending) the oldest pending one.
   // Ties go to the slot after the last one taken.
@@ -316,12 +311,11 @@ public:
     // TX of the rebroadcast) -- see the comment above
     // ECHO_TIMEOUT_BASE_MILLIS for why the constants are a local copy
     // rather than a shared call.
-    // Upstream's one-hop baseline (500 + 250 ms) plus airtime * _echo_factor
-    // (default ECHO_PERHOP_FACTOR), in both modes: setEchoAtTx() only changes
-    // when the window starts. A measured capture needed a fixed part of about
-    // 700 ms, so the base is not left out for a window that starts at the send.
+    // Upstream's one-hop baseline: 500 + 250 ms plus airtime * ECHO_PERHOP_FACTOR.
+    // A measured capture needed a fixed part of about 700 ms, so the base is
+    // kept for a window that starts at the send.
     _echo_timeout[idx] = ECHO_TIMEOUT_BASE_MILLIS +
-        (uint32_t)(pkt_airtime_millis * _echo_factor + ECHO_PERHOP_EXTRA_MILLIS);
+        (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
     if (_echo_flags[idx] & ECHO_F_WAIT_TX) _waiting_tx--;   // its queued retry no longer has a slot to time
     // fresh generation; a forward keeps a copy and its retries_left starts at retry_no
@@ -336,9 +330,9 @@ public:
   }
 
   // beebo: the dispatcher finished a send (ok) or could not start it. For a first
-  // send with setEchoAtTx(), a sent flood gets its slot now. A retry (attempt > 0)
+  // send, a sent flood gets its slot now. A retry (attempt > 0)
   // has its slot already: its echo window starts now, whether it went out or not.
-  // Costs a hash only for a flood being sent in at-tx mode, or while a retry waits.
+  // Costs a hash only for a flood being sent, or while a retry waits.
   void noteTx(const mesh::Packet* packet, uint32_t pkt_airtime_millis, bool ok) {
     if (packet->_tx_attempt > 0) {
       if (_waiting_tx == 0) return;
@@ -351,17 +345,11 @@ public:
           _waiting_tx--;
         }
       }
-    } else if (_echo_at_tx && ok && !packet->isRouteDirect()) {
+    } else if (ok && !packet->isRouteDirect()) {
       _startSlot(packet, pkt_airtime_millis);
     }
   }
 
-  // The factor of the echo window (airtime * factor + margin); a slot keeps the
-  // window it was started with.
-  void setEchoFactor(float factor) { _echo_factor = factor; }
-  float getEchoFactor() const { return _echo_factor; }
-  void setEchoAtTx(bool on) { _echo_at_tx = on; }
-  bool getEchoAtTx() const { return _echo_at_tx; }
 
   // sweeps every ring slot for a
   // generation that's aged past its own per-packet echo timeout

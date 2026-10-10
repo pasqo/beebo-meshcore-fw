@@ -187,11 +187,17 @@ struct RetryFixture : public ::testing::Test {
         t.setRetryStore(store);
         t.setRetryHook(retryHook, &probe);
     }
-    // what Mesh::routeRecvPacket() does for a forwarded flood
-    void forward(Packet& p) {
+    // what Mesh::routeRecvPacket() does for a forwarded flood: scheduled, its slot starts at the send
+    void schedule(Packet& p) {
         p._retryable = 1;                      // Mesh::routeRecvPacket() marks a forward retryable
         t.markSeen(&p);
         t.markSelfTx(&p, AIRTIME_MS);
+    }
+    // the dispatcher reports the first send on the air
+    void sentOnAir(Packet& p) { t.noteTx(&p, AIRTIME_MS, true); }
+    void forward(Packet& p) {                  // scheduled and sent at once
+        schedule(p);
+        sentOnAir(p);
     }
     void pastWindow() {
         g_mock_millis += PAST_WINDOW_MS;
@@ -317,6 +323,7 @@ TEST_F(RetryFixture, NoStore_NeverRetries) {
     bare.markSeen(&p);
     p._retryable = 1;
     bare.markSelfTx(&p, AIRTIME_MS);
+    bare.noteTx(&p, AIRTIME_MS, true);
     g_mock_millis += PAST_WINDOW_MS;
     bare.checkEchoTimeouts();
     EXPECT_EQ(0, probe.calls);
@@ -384,19 +391,17 @@ TEST_F(EventFixture, VerdictEventsCarryTheWindow) {
     Packet heard = makeFloodPacket(0x34);
     forward(heard);
     EXPECT_TRUE(t.wasSeen(&heard));            // success: 500 + 100 * 6 + 250
-    t.setEchoFactor(9.0f);
     Packet lost = makeFloodPacket(0x35);
     t.setRetryNo(0);
     forward(lost);
-    pastWindow();                              // timeout at the new factor: 500 + 900 + 250
-    EXPECT_EQ((std::vector<int>{1350, 1650}), windows());
+    pastWindow();                              // timeout: 500 + 600 + 250
+    EXPECT_EQ((std::vector<int>{1350, 1350}), windows());
 }
 
 TEST_F(EventFixture, ARetryKeepsTheWindowOfItsFirstSend) {
     Packet p = makeFloodPacket(0x36);
     forward(p);
     pastWindow();
-    t.setEchoFactor(15.0f);                    // changed while the retry waits
     retrySent(p);
     pastWindow();
     retrySent(p);
@@ -488,7 +493,7 @@ TEST_F(RetryFixture, EchoOfTheFirstSendWhileTheRetryWaits_CountsSuccessForAttemp
 TEST_F(RetryFixture, NoteTx_IgnoresPacketsThatAreNotWaitingForTheirRetry) {
     t.setRetryNo(1);
     Packet p = makeFloodPacket(0x42);
-    forward(p);
+    schedule(p);
     t.noteTx(&p, AIRTIME_MS, true);           // the first send going out
     g_mock_millis += 1000;
     Packet other = makeFloodPacket(0x43);
@@ -498,20 +503,13 @@ TEST_F(RetryFixture, NoteTx_IgnoresPacketsThatAreNotWaitingForTheirRetry) {
     EXPECT_EQ(1, probe.calls);
 }
 
-// ── echo slot at transmission (setEchoAtTx) ─────────────────────────────────
+// ── echo slot at transmission ───────────────────────────────────────────────
 
-struct AtTxFixture : public RetryFixture {
-    void SetUp() override {
-        RetryFixture::SetUp();
-        t.setEchoAtTx(true);
-    }
-    // what the dispatcher reports once the first send is on the air
-    void sentOnAir(Packet& p) { t.noteTx(&p, AIRTIME_MS, true); }
-};
+struct AtTxFixture : public RetryFixture {};
 
 TEST_F(AtTxFixture, ScheduledForward_HasNoSlotUntilItIsSent) {
     Packet p = makeFloodPacket(0x50);
-    forward(p);                               // scheduled, still queued
+    schedule(p);                               // scheduled, still queued
     EXPECT_EQ(0u, t.getEchoAttemptCount());
     g_mock_millis += 3000;
     EXPECT_TRUE(t.wasSeen(&p));               // another repeater's forward, before ours went out
@@ -522,7 +520,7 @@ TEST_F(AtTxFixture, ScheduledForward_HasNoSlotUntilItIsSent) {
 
 TEST_F(AtTxFixture, SentForward_StartsItsWindowAtTheSend) {
     Packet p = makeFloodPacket(0x51);
-    forward(p);
+    schedule(p);
     g_mock_millis += 60000;                   // waited a minute in the queue
     sentOnAir(p);
     EXPECT_EQ(1u, t.getEchoAttemptCount());
@@ -533,7 +531,7 @@ TEST_F(AtTxFixture, SentForward_StartsItsWindowAtTheSend) {
 
 TEST_F(AtTxFixture, SentForward_UnansweredTimesOutOneWindowAfterTheSend) {
     Packet p = makeFloodPacket(0x52);
-    forward(p);
+    schedule(p);
     g_mock_millis += 60000;
     sentOnAir(p);
     g_mock_millis += 500;
@@ -543,66 +541,11 @@ TEST_F(AtTxFixture, SentForward_UnansweredTimesOutOneWindowAfterTheSend) {
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
 }
 
-// the window has the upstream one-hop baseline in both modes: 500 + airtime * 6 + 250 ms
-// (100 ms airtime here); echo_at_tx only changes when it starts
-TEST_F(AtTxFixture, WindowHasTheSameBaselineAsFromScheduling) {
+// the window has the upstream one-hop baseline: 500 + airtime * 6 + 250 ms (100 ms airtime here)
+TEST_F(AtTxFixture, WindowHasTheUpstreamOneHopBaseline) {
     Packet p = makeFloodPacket(0x58);
-    forward(p);
+    schedule(p);
     sentOnAir(p);
-    g_mock_millis += 1300;                     // 500 + 100 * 6 + 250 = 1350
-    t.checkEchoTimeouts();
-    EXPECT_EQ(0u, t.getEchoTimeoutCount());
-    g_mock_millis += 100;
-    t.checkEchoTimeouts();
-    EXPECT_EQ(1u, t.getEchoTimeoutCount());
-}
-
-// the factor is a setting (setEchoFactor): the window is airtime * factor + 250 ms from the send,
-// 500 ms more from scheduling. 100 ms airtime here.
-TEST_F(AtTxFixture, WindowFollowsTheEchoFactor) {
-    t.setEchoFactor(9.0f);
-    Packet p = makeFloodPacket(0x5A);
-    forward(p);
-    sentOnAir(p);
-    g_mock_millis += 1600;                     // 500 + 100 * 9 + 250 = 1650
-    t.checkEchoTimeouts();
-    EXPECT_EQ(0u, t.getEchoTimeoutCount());
-    g_mock_millis += 100;
-    t.checkEchoTimeouts();
-    EXPECT_EQ(1u, t.getEchoTimeoutCount());
-}
-
-TEST_F(RetryFixture, ScheduleTimeWindowFollowsTheEchoFactorToo) {
-    t.setEchoFactor(4.0f);
-    Packet p = makeFloodPacket(0x5B);
-    forward(p);
-    g_mock_millis += 1100;                     // 500 + 100 * 4 + 250 = 1150
-    t.checkEchoTimeouts();
-    EXPECT_EQ(0u, t.getEchoTimeoutCount());
-    g_mock_millis += 100;
-    t.checkEchoTimeouts();
-    EXPECT_EQ(1u, t.getEchoTimeoutCount());
-}
-
-TEST_F(AtTxFixture, EchoFactorDefaultsToSixAndKeepsWhatItWasSet) {
-    EXPECT_FLOAT_EQ(6.0f, t.getEchoFactor());
-    t.setEchoFactor(11.5f);
-    EXPECT_FLOAT_EQ(11.5f, t.getEchoFactor());
-}
-
-TEST_F(AtTxFixture, ALiveSlotKeepsTheWindowItWasStartedWith) {
-    Packet p = makeFloodPacket(0x5C);
-    forward(p);
-    sentOnAir(p);                              // started at factor 6: 1350 ms
-    t.setEchoFactor(20.0f);
-    g_mock_millis += 1400;
-    t.checkEchoTimeouts();
-    EXPECT_EQ(1u, t.getEchoTimeoutCount());
-}
-
-TEST_F(RetryFixture, ScheduleTimeWindowKeepsTheBase) {
-    Packet p = makeFloodPacket(0x59);
-    forward(p);
     g_mock_millis += 1300;                     // 500 + 100 * 6 + 250 = 1350
     t.checkEchoTimeouts();
     EXPECT_EQ(0u, t.getEchoTimeoutCount());
@@ -613,7 +556,7 @@ TEST_F(RetryFixture, ScheduleTimeWindowKeepsTheBase) {
 
 TEST_F(AtTxFixture, SendThatFailedToStart_NeverGetsASlot) {
     Packet p = makeFloodPacket(0x53);
-    forward(p);
+    schedule(p);
     t.noteTx(&p, AIRTIME_MS, false);
     pastWindow();
     EXPECT_EQ(0u, t.getEchoAttemptCount());
@@ -644,7 +587,7 @@ TEST_F(AtTxFixture, OriginatedFlood_IsTrackedButNeverRetried) {
 TEST_F(AtTxFixture, Forward_RetriedWithTheWindowStartingAtEachSend) {
     t.setRetryNo(1);
     Packet p = makeFloodPacket(0x56);
-    forward(p);
+    schedule(p);
     sentOnAir(p);
     pastWindow();                             // first send unanswered -> retry queued
     ASSERT_EQ(1, probe.calls);
@@ -658,19 +601,12 @@ TEST_F(AtTxFixture, Forward_RetriedWithTheWindowStartingAtEachSend) {
     EXPECT_EQ(1u, t.getEchoAttemptCount());   // one packet, however often retried
 }
 
-TEST_F(RetryFixture, ScheduleTimeSlot_IsTheDefault) {
-    Packet p = makeFloodPacket(0x57);
-    forward(p);                               // slot exists from scheduling
-    EXPECT_EQ(1u, t.getEchoAttemptCount());
-    t.noteTx(&p, AIRTIME_MS, true);           // the send changes nothing in this mode
-    EXPECT_EQ(1u, t.getEchoAttemptCount());
-}
-
 TEST_F(RetryFixture, SelfOriginatedFlood_NeverRetried) {
-    t.setRetryNo(1);                          // markSelfTx() alone: an advert or message we originated
+    t.setRetryNo(1);                          // not marked retryable: an advert or message we originated
     Packet p = makeFloodPacket(0x1B);
     t.markSeen(&p);
     t.markSelfTx(&p, AIRTIME_MS);
+    sentOnAir(p);
     pastWindow();
     EXPECT_EQ(0, probe.calls);
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
@@ -709,6 +645,7 @@ TEST_F(RetryFixture, FullRing_ReusesAResolvedSlotBeforeEvictingAPendingOne) {
         ps[i]._retryable = 1;
         t.markSeen(&ps[i]);
         t.markSelfTx(&ps[i], i == 5 ? 0 : AIRTIME_MS);   // slot 5 has the shortest window
+        t.noteTx(&ps[i], i == 5 ? 0 : AIRTIME_MS, true);
     }
     g_mock_millis += 800;
     t.checkEchoTimeouts();
