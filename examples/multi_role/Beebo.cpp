@@ -6179,7 +6179,8 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
   } else if (sub[0] == BEEBO_CMD_SET_TUNING_SCORE_WEIGHT && sub_len >= 3) {
-    if (setScoreWeight(sub[1], (int8_t)sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
+    if (scoreWeightLocked(sub[1], (int8_t)sub[2])) writeErrFrame(ERR_CODE_BAD_STATE);
+    else if (setScoreWeight(sub[1], (int8_t)sub[2], EVENT_SOURCE_BINARY)) writeOKFrame();
     else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_VALUES && sub_len >= 2) {
     if (sub[1] < TrialSequence::NUM_SWITCHES) {
@@ -9434,6 +9435,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       int idx = sp ? scoreIndex(&key[13], (int)(sp - &key[13])) : -1;
       long v = sp ? atol(sp + 1) : 0;
       if (idx < 0) { sprintf(reply, "ERR: unknown key: %s", key); return; }
+      if (v >= Objective::WEIGHT_MIN && v <= Objective::WEIGHT_MAX && scoreWeightLocked((uint8_t)idx, (int8_t)v)) {
+        strcpy(reply, "ERR: trial running"); return;
+      }
       if (v < Objective::WEIGHT_MIN || v > Objective::WEIGHT_MAX ||
           !setScoreWeight((uint8_t)idx, (int8_t)v, EVENT_SOURCE_TEXT_CLI)) {
         strcpy(reply, "ERR: expected -50 to 50"); return;

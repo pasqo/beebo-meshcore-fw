@@ -2138,9 +2138,14 @@ private:
     _trial_min_gain_pct = v;
     return true;
   }
+  // A running trial scores every block with the current weights, so a changed
+  // weight is refused while one runs (setting the value it already has is fine).
+  bool scoreWeightLocked(uint8_t idx, int8_t v) const {
+    return trialRunning() && idx < Objective::NUM_INDICATORS && v != objective.weights[idx];
+  }
   // Objective weight in tenths (Objective.h). The value scale changes under
-  // both tuners, so a change aborts a running trial and restarts the adaptive
-  // tuner's statistics.
+  // both tuners, so a change between trials makes every selected switch eligible
+  // again and restarts the adaptive tuner's statistics.
   bool setScoreWeight(uint8_t idx, int8_t v, uint8_t source) {
     if (idx >= Objective::NUM_INDICATORS || v < Objective::WEIGHT_MIN || v > Objective::WEIGHT_MAX) return false;
     if (v != objective.weights[idx]) {
