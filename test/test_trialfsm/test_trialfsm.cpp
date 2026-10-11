@@ -787,3 +787,98 @@ TEST(TrialFSM, UnderpoweredIsAnOutcomeAfterUndecided) {
   EXPECT_EQ(11, TrialFSM::UNDECIDED);
   EXPECT_EQ(12, TrialFSM::SKIPPED_UNDERPOWERED);
 }
+
+TEST(TrialFSM, ARatesAreTheLatestSideABlocksOnly) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  TrialRates r;
+  EXPECT_FALSE(t.aRates(r));
+  t.onBlock(counts(200, 100, 300), 0, 0);   // A, one hour window: 200, 100 and 300 per hour
+  ASSERT_TRUE(t.aRates(r));
+  EXPECT_NEAR(200.0 / 3600, r.exposure, 1e-9);
+  EXPECT_NEAR(100.0 / 3600, r.confirmed, 1e-9);
+  EXPECT_NEAR(300.0 / 3600, r.rx, 1e-9);
+  t.onBlock(counts(20, 10, 30), 0, 0);      // B: ignored
+  t.onBlock(counts(20, 10, 30), 0, 0);      // B
+  EXPECT_NEAR(100.0 / 3600, r.confirmed, 1e-9);
+  t.onBlock(counts(400, 300, 900), 0, 0);   // A again: the mean of the two A blocks
+  ASSERT_TRUE(t.aRates(r));
+  EXPECT_NEAR(300.0 / 3600 * 400 / 300 * 0 + 200.0 / 3600, r.confirmed, 1e-9);   // (100 + 300) / 2 h
+  EXPECT_NEAR(300.0 / 3600, r.exposure, 1e-9);                                  // (200 + 400) / 2 h
+}
+
+TEST(TrialFSM, ARatesKeepOnlyTheLastFour) {
+  TrialFSM t;
+  t.begin(cfg(400));
+  t.start(1);
+  // A blocks hold 10, 20, ..., 120 confirmed; B blocks swing wide so no decision ends the run
+  int a_n = 0;
+  for (int i = 0; i < 24; i++) {
+    bool a = t.currentValue() == 1;
+    TrialFSM::Step s = t.onBlock(a ? counts(200, 10 * ++a_n) : counts(200, (i / 2) % 2 ? 20 : 400), 0, 0);
+    ASSERT_FALSE(s.finished) << "block " << i;
+  }
+  TrialRates r;
+  ASSERT_TRUE(t.aRates(r));
+  EXPECT_NEAR((90 + 100 + 110 + 120) / 4.0, r.confirmed * 3600, 1e-6);   // the last four of 12 A blocks
+}
+
+TEST(TrialFSM, ARatesSkipUnmeasuredBlocks) {
+  TrialFSM t;
+  t.begin(cfg(96));
+  t.start(1);
+  t.onBlock(unmeasured(EVAL_INSUFFICIENT_DATA), 0, 0);
+  TrialRates r;
+  EXPECT_FALSE(t.aRates(r));
+}
+
+TEST(TrialFSM, SetTotalBlocksGrowsAndShrinksInWholeCycles) {
+  TrialFSM t;
+  t.begin(cfg(40));
+  t.start(1);
+  for (int i = 0; i < 4; i++) t.onBlock(counts(200, 100 + 7 * i), 0, 0);   // one cycle
+  EXPECT_EQ(40, t.totalBlocks());
+  EXPECT_FALSE(t.setTotalBlocks(90).finished);
+  EXPECT_EQ(92, t.totalBlocks());   // whole cycles
+  EXPECT_FALSE(t.setTotalBlocks(12).finished);
+  EXPECT_EQ(12, t.totalBlocks());
+}
+
+TEST(TrialFSM, SetTotalBlocksNeverEndsBeforeTheBlocksAlreadyRun) {
+  TrialFSM t;
+  t.begin(cfg(40));
+  t.start(1);
+  for (int i = 0; i < 8; i++) t.onBlock(counts(200, 100 + 11 * (i % 3)), 0, 0);   // two cycles
+  TrialFSM::Step s = t.setTotalBlocks(4);   // asks for less than has run
+  EXPECT_EQ(8, t.totalBlocks());
+  ASSERT_TRUE(s.finished);                  // the schedule is over: decided now
+  EXPECT_TRUE(s.outcome == TrialFSM::UNDECIDED || s.outcome == TrialFSM::KEEP_A || s.outcome == TrialFSM::ADOPT_B);
+  EXPECT_EQ(TrialFSM::DONE, t.state());
+}
+
+TEST(TrialFSM, SetTotalBlocksOutsideARunDoesNothing) {
+  TrialFSM t;
+  t.begin(cfg(40));
+  EXPECT_FALSE(t.setTotalBlocks(80).finished);
+  EXPECT_EQ(40, t.totalBlocks());
+}
+
+TEST(TrialFSM, ALongerScheduleTightensTheBoundsLess) {
+  // The look factor is sqrt(N / n): the same pairs under a larger N give wider bounds.
+  const double d[] = {0.02, 0.12, -0.05, 0.09, 0.0, 0.07};
+  TrialFSM small, big;
+  small.begin(cfg(40));
+  small.start(1);
+  big.begin(cfg(40));
+  big.start(1);
+  ASSERT_FALSE(runD(small, 1, 5, d, 6).finished);
+  ASSERT_FALSE(runD(big, 1, 5, d, 6).finished);
+  EXPECT_FALSE(big.setTotalBlocks(400).finished);
+  // one more pair under each, now with N = 20 against N = 100
+  runD(small, 1, 1, d, 6);
+  runD(big, 1, 1, d, 6);
+  auto ps = small.progress(), pb = big.progress();
+  ASSERT_TRUE(ps.bounds && pb.bounds);
+  EXPECT_GT(pb.upper - pb.lower, ps.upper - ps.lower);
+}

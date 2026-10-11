@@ -67,6 +67,13 @@
 // diagnostics; it does not enter the decision. Everything runs on the device:
 // no host input, running sums only (no per-pair history).
 //
+// Traffic counts per second: routed attempts, confirmed deliveries, packets received.
+struct TrialRates {
+  double exposure = 0;
+  double confirmed = 0;
+  double rx = 0;
+};
+
 class TrialFSM {
 public:
   enum State : uint8_t { IDLE, RUN, DONE };
@@ -230,6 +237,12 @@ public:
       else      { _heard_a += reach_heard; _marg_a += reach_marginal; _reach_a_n++; }
     }
 
+    if (valid && !is_b) {
+      uint32_t i = _a_next;
+      _a_e[i] = r.exposure; _a_c[i] = r.ros_count; _a_x[i] = r.rx_valid; _a_ms[i] = r.window_ms;
+      _a_next = (i + 1) % A_HISTORY;
+      if (_a_n < A_HISTORY) _a_n++;
+    }
     double g = valid ? objective().trialLog(r) : 0.0;   // ln of the objective
     if (valid) {
       double v = objective().countingNoise(r.exposure, r.ros_count, r.rx_valid);
@@ -317,6 +330,35 @@ public:
     return z;
   }
 
+  // The traffic rates of the latest A blocks (up to A_HISTORY measured ones), what
+  // the schedule can be re-planned from: side B changes the rates, side A is the
+  // stored value and does not carry the effect under test. false until one exists.
+  static constexpr uint32_t A_HISTORY = 4;
+  bool aRates(TrialRates &r) const {
+    double e = 0, c = 0, x = 0, ms = 0;
+    for (uint32_t i = 0; i < _a_n; i++) {
+      e += _a_e[i]; c += _a_c[i]; x += _a_x[i]; ms += _a_ms[i];
+    }
+    if (_a_n == 0 || ms <= 0) return false;
+    r.exposure = e * 1000.0 / ms;
+    r.confirmed = c * 1000.0 / ms;
+    r.rx = x * 1000.0 / ms;
+    return true;
+  }
+
+  // Re-plan: the schedule now ends after `blocks` (whole A B B A cycles, never
+  // before the blocks already run). A schedule that has already run its length
+  // is decided at once.
+  Step setTotalBlocks(uint16_t blocks) {
+    Step s = {};
+    if (_state != RUN) return s;
+    uint16_t n = (blocks + 3) & ~3u;
+    uint16_t floor = (_idx + 3) & ~3u;
+    _total = n < floor ? floor : n;
+    if (_idx >= _total) return decide();
+    return s;
+  }
+
   Stats stats() const {
     Stats st = {};
     st.n_pairs = _n;
@@ -345,6 +387,7 @@ private:
     _cycle_rx = 0; _cycle_usable = true;
     _n = 0; _sum_d = _sum_d2 = _sum_rd = 0.0;
     _sum_v = 0.0; _nv = 0;
+    _a_n = _a_next = 0;
     for (uint32_t i = 0; i < HIST; i++) _lo[i] = _hi[i] = 0.0;
     _heard_a = _heard_b = _marg_a = _marg_b = 0;
     _reach_a_n = _reach_b_n = 0;
@@ -450,6 +493,8 @@ private:
   bool _prev_usable = false;
   uint32_t _prev_rx = 0;
   uint32_t _prev_ros = 0;
+  uint32_t _a_e[A_HISTORY] = {}, _a_c[A_HISTORY] = {}, _a_x[A_HISTORY] = {}, _a_ms[A_HISTORY] = {};
+  uint32_t _a_n = 0, _a_next = 0;
   double _sum_v = 0;       // counting noise of the valid blocks, summed
   uint32_t _nv = 0;
   double _sum_ros_d = 0;   // confirmed deliveries per hour, B - A, summed over pairs

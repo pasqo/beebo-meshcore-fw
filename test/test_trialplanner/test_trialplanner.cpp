@@ -3,135 +3,103 @@
 
 namespace {
 
-constexpr uint32_t SLOT_MS = ExposureTracker::SLOT_S * 1000u;
-
-// Feed `n` slots of traffic: per slot `e` exposure, `c` confirmed, `r` rx.
-void feed(ExposureTracker &t, uint32_t &now, uint32_t &E, uint32_t &C, uint32_t &R,
-          int n, uint32_t e, uint32_t c, uint32_t r) {
-  for (int i = 0; i < n; i++) {
-    now += SLOT_MS;
-    E += e; C += c; R += r;
+// Steady traffic: `e`, `c`, `r` events per second for `secs` seconds, polled every second.
+void run(ExposureTracker &t, uint32_t &now, uint32_t &E, uint32_t &C, uint32_t &R,
+         int secs, double e, double c, double r) {
+  for (int i = 0; i < secs; i++) {
+    now += 1000;
+    // whole events: carry the fraction in the counters by rounding the running total
+    E = (uint32_t)((now / 1000.0) * e); C = (uint32_t)((now / 1000.0) * c); R = (uint32_t)((now / 1000.0) * r);
     t.poll(now, E, C, R);
   }
 }
 
-TEST(ExposureTracker, FirstPollOnlyBasesTheCounters) {
+TEST(ExposureTracker, NotReadyAtFirst) {
   ExposureTracker t;
   t.poll(1000, 500, 200, 900);
-  EXPECT_EQ(0, t.filled());
-  EXPECT_FALSE(t.ready());
-}
-
-TEST(ExposureTracker, ClosesASlotEveryThirtyMinutes) {
-  ExposureTracker t;
-  uint32_t now = 1000, E = 500, C = 200, R = 900;
-  t.poll(now, E, C, R);
-  now += SLOT_MS - 1;
-  t.poll(now, E + 10, C + 5, R + 20);
-  EXPECT_EQ(0, t.filled());
-  now += 1;
-  t.poll(now, E + 10, C + 5, R + 20);
-  EXPECT_EQ(1, t.filled());
-}
-
-TEST(ExposureTracker, NotReadyBeforeThePilotOrMinSlots) {
-  ExposureTracker t;
-  uint32_t now = 0, E = 0, C = 0, R = 0;
-  t.poll(now, E, C, R);
-  now += ExposureTracker::PILOT_S * 1000u - 1;   // plenty of traffic, but too early
-  t.poll(now, E + 100, C + 40, R + 300);
   EXPECT_FALSE(t.ready());
   EXPECT_EQ(0.0, t.rates().confirmed);
 }
 
-TEST(ExposureTracker, PilotNeedsConfirmedDeliveries) {
+TEST(ExposureTracker, NeedsTimeAndConfirmedDeliveries) {
   ExposureTracker t;
-  uint32_t now = 0;
-  t.poll(now, 0, 0, 0);
-  now += ExposureTracker::PILOT_S * 1000u;
-  t.poll(now, 100, ExposureTracker::PILOT_MIN_CONFIRMED - 1, 300);   // long enough, nothing heard
+  uint32_t now = 0, E = 0, C = 0, R = 0;
+  t.poll(now, E, C, R);
+  run(t, now, E, C, R, 20, 2.0, 1.0, 3.0);   // plenty heard, too early
   EXPECT_FALSE(t.ready());
-  t.poll(now, 100, ExposureTracker::PILOT_MIN_CONFIRMED, 300);
+  ExposureTracker u;
+  now = 0; E = C = R = 0;
+  u.poll(now, 0, 0, 0);
+  run(u, now, E, C, R, 120, 0.02, 0.01, 0.03);   // long enough, one confirmed delivery
+  EXPECT_FALSE(u.ready());
+  run(t, now, E, C, R, 40, 2.0, 1.0, 3.0);
+  EXPECT_TRUE(t.ready());   // 60 s, 60 confirmed
+}
+
+TEST(ExposureTracker, RatesAreTheCountsPerSecond) {
+  ExposureTracker t;
+  uint32_t now = 5000, E = 1000, C = 400, R = 3000;   // counters do not start at zero
+  t.poll(now, E, C, R);
+  for (int i = 0; i < 600; i++) {
+    now += 1000; E += 2; C += 1; R += 5;
+    t.poll(now, E, C, R);
+  }
+  ASSERT_TRUE(t.ready());
+  TrialRates r = t.rates();
+  EXPECT_NEAR(2.0, r.exposure, 1e-6);
+  EXPECT_NEAR(1.0, r.confirmed, 1e-6);
+  EXPECT_NEAR(5.0, r.rx, 1e-6);
+}
+
+TEST(ExposureTracker, RatesFollowTheTrafficOverHours) {
+  ExposureTracker t;
+  uint32_t now = 0, E = 0, C = 0, R = 0;
+  t.poll(now, E, C, R);
+  for (int i = 0; i < 6 * 3600; i++) {   // six hours busy, then three quiet
+    now += 1000; E += 2; C += 1; R += 3;
+    t.poll(now, E, C, R);
+  }
+  EXPECT_NEAR(1.0, t.rates().confirmed, 0.01);
+  for (int i = 0; i < 3 * 3600; i++) {
+    now += 1000; E += 1; C += 0 + (i % 10 == 0); R += 1;
+    t.poll(now, E, C, R);
+  }
+  double c = t.rates().confirmed;
+  EXPECT_LT(c, 0.45);   // moved most of the way to the quiet 0.1/s
+  EXPECT_GT(c, 0.1);    // but is not a snapshot
+}
+
+TEST(ExposureTracker, FoldsOncePerSecond) {
+  ExposureTracker t;
+  t.poll(0, 0, 0, 0);
+  for (uint32_t ms = 10; ms < 60000; ms += 10) t.poll(ms, ms / 10, ms / 20, ms / 5);
+  t.poll(60000, 6000, 3000, 12000);
   EXPECT_TRUE(t.ready());
+  EXPECT_NEAR(50.0, t.rates().confirmed, 1.0);   // 3000 in 60 s
 }
 
-TEST(ExposureTracker, PilotRatesAreTheCountsSinceTheStart) {
+TEST(ExposureTracker, CounterGoingBackwardsStartsOver) {
   ExposureTracker t;
-  uint32_t now = 5000;
-  t.poll(now, 1000, 400, 3000);   // counters do not start at zero
-  now += 600000;
-  t.poll(now, 1000 + 120, 400 + 60, 3000 + 300);
+  uint32_t now = 0, E = 0, C = 0, R = 0;
+  t.poll(now, E, C, R);
+  run(t, now, E, C, R, 300, 2.0, 1.0, 3.0);
   ASSERT_TRUE(t.ready());
-  EXPECT_EQ(0, t.filled());
-  TrialRates r = t.rates();
-  EXPECT_DOUBLE_EQ(120.0 / 600, r.exposure);
-  EXPECT_DOUBLE_EQ(60.0 / 600, r.confirmed);
-  EXPECT_DOUBLE_EQ(300.0 / 600, r.rx);
-}
-
-TEST(ExposureTracker, SlotsTakeOverFromThePilot) {
-  ExposureTracker t;
-  uint32_t now = 0, E = 0, C = 0, R = 0;
-  t.poll(now, E, C, R);
-  feed(t, now, E, C, R, ExposureTracker::MIN_SLOTS - 1, 100, 40, 300);
-  EXPECT_TRUE(t.ready());   // the pilot
-  feed(t, now, E, C, R, 1, 100, 40, 300);
-  EXPECT_EQ(ExposureTracker::MIN_SLOTS, t.filled());
-  EXPECT_DOUBLE_EQ(40.0 / 1800, t.rates().confirmed);   // from the slots now
-}
-
-TEST(ExposureTracker, RatesAreThePerSecondCountsOfTheLowQuantileSlot) {
-  ExposureTracker t;
-  uint32_t now = 0, E = 0, C = 0, R = 0;
-  t.poll(now, E, C, R);
-  // 8 slots, confirmed 10, 20, ..., 80; the 25th percentile rank is (8-1)*25/100 = 1: the 20 slot
-  for (int i = 1; i <= 8; i++) feed(t, now, E, C, R, 1, 100 * i, 10 * i, 1000 + i);
-  TrialRates r = t.rates();
-  EXPECT_DOUBLE_EQ(20.0 / 1800, r.confirmed);
-  EXPECT_DOUBLE_EQ(200.0 / 1800, r.exposure);   // the same slot's exposure
-  EXPECT_DOUBLE_EQ(1002.0 / 1800, r.rx);
-}
-
-TEST(ExposureTracker, RingKeepsTheLastDay) {
-  ExposureTracker t;
-  uint32_t now = 0, E = 0, C = 0, R = 0;
-  t.poll(now, E, C, R);
-  feed(t, now, E, C, R, ExposureTracker::SLOTS, 10, 1, 10);   // old, quiet
-  feed(t, now, E, C, R, ExposureTracker::SLOTS, 100, 50, 100);   // a day of busier slots replaces them
-  EXPECT_EQ(ExposureTracker::SLOTS, t.filled());
-  EXPECT_DOUBLE_EQ(50.0 / 1800, t.rates().confirmed);
-}
-
-TEST(ExposureTracker, CounterGoingBackwardsClears) {
-  ExposureTracker t;
-  uint32_t now = 0, E = 0, C = 0, R = 0;
-  t.poll(now, E, C, R);
-  feed(t, now, E, C, R, 5, 100, 40, 300);
-  ASSERT_TRUE(t.ready());
-  now += SLOT_MS;
+  now += 1000;
   t.poll(now, 3, 1, 2);   // device-side reset
-  EXPECT_EQ(0, t.filled());
   EXPECT_FALSE(t.ready());
   E = 3; C = 1; R = 2;
-  feed(t, now, E, C, R, 2, 100, 40, 300);   // slots count again from the new base
+  for (int i = 0; i < 120; i++) { now += 1000; E += 2; C += 1; R += 3; t.poll(now, E, C, R); }
   EXPECT_TRUE(t.ready());
-}
-
-TEST(ExposureTracker, SlotCountsSaturate) {
-  ExposureTracker t;
-  uint32_t now = 0, E = 0, C = 0, R = 0;
-  t.poll(now, E, C, R);
-  feed(t, now, E, C, R, 2, 200000, 100000, 300000);
-  EXPECT_DOUBLE_EQ(65535.0 / 1800, t.rates().confirmed);
+  EXPECT_NEAR(1.0, t.rates().confirmed, 1e-6);
 }
 
 TEST(ExposureTracker, ResetForgetsEverything) {
   ExposureTracker t;
   uint32_t now = 0, E = 0, C = 0, R = 0;
   t.poll(now, E, C, R);
-  feed(t, now, E, C, R, 4, 100, 40, 300);
+  run(t, now, E, C, R, 300, 2.0, 1.0, 3.0);
   t.reset();
-  EXPECT_EQ(0, t.filled());
+  EXPECT_FALSE(t.ready());
 }
 
 // A node with a given confirmed rate (per second) and a confirm ratio p, rx = 1.5 x exposure.
@@ -300,6 +268,52 @@ TEST(TrialPlanner, WeightsEnterThroughTheCountingNoise) {
   TrialPlanner::Plan q = TrialPlanner::plan(in);
   double rx = 1.5 * 0.1 / 0.5;
   EXPECT_NEAR(5.0 + 1.0 / rx, q.v * q.block_s, 1e-6);
+}
+
+TEST(TrialPlanner, ReplanKeepsTheBlockAndFollowsTheARates) {
+  TrialPlanner::Input in = input(0.1);
+  TrialPlanner::Plan first = TrialPlanner::plan(in);   // 500 s blocks
+  ASSERT_EQ(500, first.block_s);
+  TrialPlanner::Plan p;
+  // traffic as planned: the same schedule
+  ASSERT_TRUE(TrialPlanner::replan(in, in.rates, first.block_s, p));
+  EXPECT_EQ(first.blocks, p.blocks);
+  EXPECT_EQ(500, p.block_s);
+  // half the confirmed rate: blocks of 500 s now hold 25 deliveries, v doubles, more pairs
+  TrialPlanner::Input half = input(0.05);
+  ASSERT_TRUE(TrialPlanner::replan(in, half.rates, first.block_s, p));
+  EXPECT_GT(p.blocks, first.blocks);
+  EXPECT_EQ(500, p.block_s);
+  // busier: fewer
+  TrialPlanner::Input busy = input(0.4);
+  ASSERT_TRUE(TrialPlanner::replan(in, busy.rates, first.block_s, p));
+  EXPECT_LT(p.blocks, first.blocks);
+}
+
+TEST(TrialPlanner, ReplanGrowsUpToTheCapThenIsUnderpowered) {
+  TrialPlanner::Input in = input(0.1);
+  TrialPlanner::Input slow = input(0.0005);
+  TrialPlanner::Plan p;
+  ASSERT_TRUE(TrialPlanner::replan(in, slow.rates, 500, p));
+  EXPECT_EQ(TrialPlanner::UNDERPOWERED, p.status);
+  uint32_t cap = TrialPlanner::MAX_TRIAL_S / (500 + TrialPlanner::SETTLE_S);
+  EXPECT_EQ(cap & ~3u, p.blocks);   // the most the cap allows, whole cycles
+  EXPECT_LE((uint64_t)p.blocks * (500 + TrialPlanner::SETTLE_S), TrialPlanner::MAX_TRIAL_S);
+}
+
+TEST(TrialPlanner, ReplanWithoutConfirmedDeliveriesSaysNothing) {
+  TrialPlanner::Input in = input(0.1);
+  TrialRates none;
+  TrialPlanner::Plan p;
+  EXPECT_FALSE(TrialPlanner::replan(in, none, 500, p));
+}
+
+TEST(TrialPlanner, ReplanIgnoresAFixedBlockCountOfTheInput) {
+  TrialPlanner::Input in = input(0.1);
+  in.blocks = 16;   // the caller does not replan a fixed count; replan itself always plans
+  TrialPlanner::Plan p;
+  ASSERT_TRUE(TrialPlanner::replan(in, in.rates, 500, p));
+  EXPECT_NE(16, p.blocks);
 }
 
 TEST(Objective, CountingNoiseOfTheDefaultWeightsIsOneOverConfirmed) {

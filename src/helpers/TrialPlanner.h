@@ -9,8 +9,7 @@
 // TRIAL_AUTO_SCHEDULE.md). Pure logic, no hardware, no allocation.
 //
 // ExposureTracker: what the node's traffic looks like, from the same counters
-// EvalWindow reads, kept in a static ring of 30 minute slots so a plan can start
-// at any time and a quiet hour does not set the rates.
+// EvalWindow reads, so a plan can start at any time.
 //
 // TrialPlanner: from those rates and the objective's weights, the block length
 // and the number of blocks a trial needs so its confidence bound can reach
@@ -20,100 +19,58 @@
 //   P = 2 t^2 (v + c) / g^2        (t = Student-t at the confidence, g = ln(1 + min gain))
 // A node whose rates cannot get there inside MAX_TRIAL_S is underpowered.
 
-// Traffic counters, per second.
-struct TrialRates {
-  double exposure = 0;    // routed attempts
-  double confirmed = 0;   // confirmed deliveries
-  double rx = 0;          // valid packets received
-};
-
+// The node's recent traffic, from the counters EvalWindow reads: counts and
+// elapsed time decayed with the time constant TAU_S, so the rates follow the
+// traffic of the last few hours and a node that just booted has them as soon as
+// it has seen MIN_CONFIRMED confirmed deliveries over MIN_S.
 class ExposureTracker {
 public:
-  static constexpr uint32_t SLOT_S = 1800;
-  static constexpr uint8_t SLOTS = 48;        // 24 h
-  static constexpr uint8_t MIN_SLOTS = 2;     // slots before rates() come from them
-  // Until then the counts since the tracker started are the rates, once it has
-  // run PILOT_S and seen PILOT_MIN_CONFIRMED confirmed deliveries, so a node that
-  // just booted can plan its first trial within minutes.
-  static constexpr uint32_t PILOT_S = 600;
-  static constexpr uint32_t PILOT_MIN_CONFIRMED = 5;
-  static constexpr uint8_t QUANTILE_PCT = 25; // the slot ranked this far up by confirmed count
+  static constexpr double TAU_S = 7200.0;
+  static constexpr double MIN_S = 30.0;
+  static constexpr double MIN_CONFIRMED = 5.0;
+  static constexpr uint32_t STEP_MS = 1000;   // counters are folded in once a second
 
   // Feed the lifetime counters every loop tick. A counter that went backwards
-  // (device-side reset) clears the ring.
+  // (device-side reset) starts over from these values.
   void poll(uint32_t now_ms, uint32_t exposure, uint32_t confirmed, uint32_t rx) {
     if (!_started) {
-      rebase(now_ms, exposure, confirmed, rx);
-      _first_ms = now_ms; _first_e = exposure; _first_c = confirmed; _first_r = rx;
-      _now_ms = now_ms; _now_e = exposure; _now_c = confirmed; _now_r = rx;
+      _started = true;
+      _t = now_ms; _e = exposure; _c = confirmed; _r = rx;
       return;
     }
-    _now_ms = now_ms; _now_e = exposure; _now_c = confirmed; _now_r = rx;
-    uint32_t d_e = exposure - _e0, d_c = confirmed - _c0, d_r = rx - _r0;
+    uint32_t d_e = exposure - _e, d_c = confirmed - _c, d_r = rx - _r;
     if (d_e > 0x80000000u || d_c > 0x80000000u || d_r > 0x80000000u) {
       reset();
-      poll(now_ms, exposure, confirmed, rx);   // starts over from these counters
+      poll(now_ms, exposure, confirmed, rx);
       return;
     }
-    if (now_ms - _t0 < SLOT_S * 1000u) return;
-    Slot &s = _slots[_next];
-    s.exposure = sat16(d_e);
-    s.confirmed = sat16(d_c);
-    s.rx = sat16(d_r);
-    _next = (uint8_t)((_next + 1) % SLOTS);
-    if (_filled < SLOTS) _filled++;
-    rebase(now_ms, exposure, confirmed, rx);
+    uint32_t dt = now_ms - _t;
+    if (dt < STEP_MS) return;
+    double s = dt / 1000.0, k = exp(-s / TAU_S);
+    _sec = _sec * k + s;
+    _exposure = _exposure * k + d_e;
+    _confirmed = _confirmed * k + d_c;
+    _rx = _rx * k + d_r;
+    _t = now_ms; _e = exposure; _c = confirmed; _r = rx;
   }
 
-  void reset() { _started = false; _next = 0; _filled = 0; }
-  uint8_t filled() const { return _filled; }
-  bool ready() const { return _filled >= MIN_SLOTS || pilotReady(); }
+  void reset() { _started = false; _sec = _exposure = _confirmed = _rx = 0; }
+  bool ready() const { return _sec >= MIN_S && _confirmed >= MIN_CONFIRMED; }
 
-  // The slot at the low quantile of the confirmed count, as per-second rates:
-  // a quiet part of the day, with its own exposure and rx so the confirm ratio
-  // stays consistent. Before MIN_SLOTS slots exist, the rates since the tracker
-  // started. Zeros until ready().
+  // Per-second rates; zeros until ready().
   TrialRates rates() const {
     TrialRates r;
-    if (_filled < MIN_SLOTS) {
-      if (!pilotReady()) return r;
-      double s = (uint32_t)(_now_ms - _first_ms) / 1000.0;
-      r.exposure = (_now_e - _first_e) / s;
-      r.confirmed = (_now_c - _first_c) / s;
-      r.rx = (_now_r - _first_r) / s;
-      return r;
-    }
-    uint8_t idx[SLOTS];
-    for (uint8_t i = 0; i < _filled; i++) idx[i] = i;
-    for (uint8_t i = 1; i < _filled; i++) {   // insertion sort by confirmed count
-      uint8_t k = idx[i];
-      int j = i - 1;
-      while (j >= 0 && _slots[idx[j]].confirmed > _slots[k].confirmed) { idx[j + 1] = idx[j]; j--; }
-      idx[j + 1] = k;
-    }
-    const Slot &s = _slots[idx[(uint32_t)(_filled - 1) * QUANTILE_PCT / 100]];
-    r.exposure = (double)s.exposure / SLOT_S;
-    r.confirmed = (double)s.confirmed / SLOT_S;
-    r.rx = (double)s.rx / SLOT_S;
+    if (!ready()) return r;
+    r.exposure = _exposure / _sec;
+    r.confirmed = _confirmed / _sec;
+    r.rx = _rx / _sec;
     return r;
   }
 
 private:
-  bool pilotReady() const {
-    return _started && (uint32_t)(_now_ms - _first_ms) >= PILOT_S * 1000u &&
-           (uint32_t)(_now_c - _first_c) >= PILOT_MIN_CONFIRMED;
-  }
-  struct Slot { uint16_t exposure = 0, confirmed = 0, rx = 0; };
-  static uint16_t sat16(uint32_t v) { return (uint16_t)(v > 0xFFFF ? 0xFFFF : v); }
-  void rebase(uint32_t now_ms, uint32_t e, uint32_t c, uint32_t r) {
-    _started = true; _t0 = now_ms; _e0 = e; _c0 = c; _r0 = r;
-  }
-  Slot _slots[SLOTS];
-  uint8_t _next = 0, _filled = 0;
   bool _started = false;
-  uint32_t _t0 = 0, _e0 = 0, _c0 = 0, _r0 = 0;
-  uint32_t _first_ms = 0, _first_e = 0, _first_c = 0, _first_r = 0;   // counters when the tracker started
-  uint32_t _now_ms = 0, _now_e = 0, _now_c = 0, _now_r = 0;           // the latest poll
+  uint32_t _t = 0, _e = 0, _c = 0, _r = 0;       // counters at the last fold
+  double _sec = 0, _exposure = 0, _confirmed = 0, _rx = 0;   // decayed sums
 };
 
 class TrialPlanner {
@@ -197,6 +154,18 @@ public:
     p.status = OK;
     p.blocks = (uint16_t)blocks;
     return p;
+  }
+
+  // The schedule of a running trial from the traffic rates of its latest A blocks
+  // (TrialFSM::aRates()), its block length unchanged: the blocks it needs now, up
+  // to the cap (UNDERPOWERED then, with the capped blocks). false when the A
+  // blocks show no confirmed deliveries, which says nothing to plan from.
+  static bool replan(Input in, const TrialRates &a_rates, uint16_t block_s, Plan &out) {
+    in.rates = a_rates;
+    in.block_s = block_s;
+    in.blocks = 0;
+    out = plan(in);
+    return out.status != NO_RATE;
   }
 
   // Whole ABBA cycles of pairs for one block's counting noise v.
