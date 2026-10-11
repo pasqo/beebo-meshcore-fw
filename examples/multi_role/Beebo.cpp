@@ -2436,7 +2436,7 @@ void Beebo::emitTrialPlan(const TrialPlanner::Plan& plan, const TrialRates& r, b
   rec.trial_plan.phase = TRIAL_PHASE_PLAN;
   rec.trial_plan.flags = (uint8_t)((plan.status & 3) | (plan.settle_s ? 4 : 0) | (plan.futility ? 8 : 0) | (replan ? 16 : 0) |
                                   (_trial_block_size_s == 0 ? 32 : 0));   // bit 5: the block size follows the traffic
-  rec.trial_plan.spread_pct = _trial_block_spread_pct;
+  rec.trial_plan.spread_pct = plan.spread_pct;   // the spread the plan used: the setting, or a running trial's blend
   rec.trial_plan.exposure_h = h16(r.exposure);
   rec.trial_plan.confirmed_h = h16(r.confirmed);
   rec.trial_plan.rx_h = h16(r.rx);
@@ -2573,7 +2573,9 @@ void Beebo::openTrialWindow() {
 // latest A blocks (side B changes the rates). With block_size_s auto the next
 // cycle's four blocks take the length that holds the planned counts at that rate
 // (all four alike, so the pairs stay balanced); with block_count auto the pairs
-// grow or shrink to the noise, up to the cap on the trial's length.
+// grow or shrink to the noise, up to the cap on the trial's length. The block spread
+// it plans with starts at block_spread_pct and moves toward what the trial's own
+// pairs show (TrialPlanner::blendSpread), so the pairs needed move up or down.
 bool Beebo::replanTrial() {
   TrialRates a;
   if (!(_trial_replan || _trial_adapt) || !trial.aRates(a)) return false;
@@ -2582,6 +2584,7 @@ bool Beebo::replanTrial() {
   in.alpha_pct = 100 - _trial_confidence_pct;
   in.min_gain_pct = _trial_min_gain_pct;
   in.spread_pct = _trial_block_spread_pct;
+  in.spread_c = TrialPlanner::blendSpread(_trial_block_spread_pct, trial.noise());   // the setting is the starting guess
   in.elapsed_s = (uint32_t)((millis() - _trial_start_ms) / 1000UL);
   in.blocks_run = trial.blockIndex();
   TrialPlanner::Plan plan;

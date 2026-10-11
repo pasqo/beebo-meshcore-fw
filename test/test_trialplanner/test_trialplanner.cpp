@@ -362,6 +362,38 @@ TEST(TrialPlanner, ReplanCapCountsTheTimeAlreadySpent) {
   EXPECT_EQ(40u, p.blocks);
 }
 
+TEST(TrialPlanner, BlendedSpreadStartsAtTheSettingAndMovesWithThePairs) {
+  TrialFSM::Noise z = {};
+  // too few pairs: the setting
+  z.pairs = 3; z.blocks = 6; z.var_d = 1.0; z.mean_v = 0.02;
+  EXPECT_NEAR(TrialPlanner::spreadC(17), TrialPlanner::blendSpread(17, z), 1e-12);
+  // 10 pairs seeing c = 0.1 against a prior of 0.0289: half way
+  z.pairs = 10; z.blocks = 20; z.var_d = 2 * (0.02 + 0.1); z.mean_v = 0.02;
+  EXPECT_NEAR((0.0289 + 0.1) / 2, TrialPlanner::blendSpread(17, z), 1e-9);
+  // 90 pairs: the data dominate
+  z.pairs = 90; z.blocks = 180;
+  EXPECT_NEAR((10 * 0.0289 + 90 * 0.1) / 100, TrialPlanner::blendSpread(17, z), 1e-9);
+  // quieter than counting noise alone: c = 0, the blend moves down
+  z.var_d = 2 * 0.01;
+  EXPECT_NEAR(10 * 0.0289 / 100, TrialPlanner::blendSpread(17, z), 1e-9);
+}
+
+TEST(TrialPlanner, ReplanPlansWithTheBlendedSpread) {
+  TrialPlanner::Input in = input(0.1);
+  TrialPlanner::Plan base = TrialPlanner::plan(in);
+  EXPECT_EQ(17, base.spread_pct);
+  TrialPlanner::Plan p;
+  in.spread_c = 0.09;   // 30%: noisier than the setting
+  ASSERT_TRUE(TrialPlanner::replan(in, in.rates, 500, false, p));
+  EXPECT_EQ(30, p.spread_pct);
+  EXPECT_GT(p.blocks, base.blocks);
+  in.spread_c = 0.0;   // counting noise alone: fewer
+  ASSERT_TRUE(TrialPlanner::replan(in, in.rates, 500, false, p));
+  EXPECT_EQ(0, p.spread_pct);
+  EXPECT_LT(p.blocks, base.blocks);
+  EXPECT_EQ(255, TrialPlanner::spreadPct(100.0));   // saturated
+}
+
 TEST(Objective, CountingNoiseOfTheDefaultWeightsIsOneOverConfirmed) {
   Objective o;
   EXPECT_NEAR(1.0 / 40, o.countingNoise(100, 40, 250), 1e-12);

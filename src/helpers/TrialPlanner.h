@@ -90,6 +90,7 @@ public:
     uint8_t alpha_pct = 5;                  // error rate, 1 / 5 / 10
     uint8_t min_gain_pct = 5;
     uint8_t spread_pct = 17;                // relative std dev of a block the length does not average away
+    double spread_c = -1;                   // >= 0: the block spread c itself (a running trial's estimate), over spread_pct
     uint16_t block_s = 0;                   // 0 = plan it
     uint16_t blocks = 0;                    // 0 = plan it
     uint32_t elapsed_s = 0;                 // a running trial: seconds and blocks already spent,
@@ -104,6 +105,7 @@ public:
     uint16_t blocks = 0;
     uint8_t settle_s = 0;
     bool futility = false;          // the planner chose the pairs: project the final precision
+    uint8_t spread_pct = 0;         // the block spread the plan used, sqrt(c) in percent (saturated)
     uint32_t pairs = 0;             // the pairs the counting noise and spread call for
     double v = 0;                   // counting noise of one block at the plan's rates
     uint32_t needed_confirmed_h = 0;   // UNDERPOWERED: confirmed deliveries per hour that would fit
@@ -111,6 +113,23 @@ public:
 
   // `c` for a block spread in percent.
   static double spreadC(uint8_t pct) { double s = pct / 100.0; return s * s; }
+  static double spreadOf(const Input &in) { return in.spread_c >= 0 ? in.spread_c : spreadC(in.spread_pct); }
+  static uint8_t spreadPct(double c) { double p = sqrt(c) * 100.0 + 0.5; return p > 255.0 ? 255 : (uint8_t)p; }
+
+  // A running trial's block spread: the setting's `prior_pct` as the starting guess,
+  // moved toward what the trial's own pairs show. c = var(d) / 2 - v (the variance of
+  // a block less its counting noise) from MIN_ESTIMATE_PAIRS pairs on, weighted by
+  // its pairs against PRIOR_PAIRS for the prior. The variance of d is taken around
+  // its mean, so the estimate does not depend on the effect under test. Returns c.
+  static constexpr uint32_t MIN_ESTIMATE_PAIRS = 4;
+  static constexpr uint32_t PRIOR_PAIRS = 10;
+  static double blendSpread(uint8_t prior_pct, const TrialFSM::Noise &z) {
+    double prior = spreadC(prior_pct);
+    if (z.pairs < MIN_ESTIMATE_PAIRS || z.blocks == 0) return prior;
+    double seen = z.var_d / 2.0 - z.mean_v;
+    if (seen < 0) seen = 0;
+    return (PRIOR_PAIRS * prior + z.pairs * seen) / (PRIOR_PAIRS + z.pairs);
+  }
 
   static Plan plan(const Input &in) {
     static const Objective defaults;
@@ -136,6 +155,7 @@ public:
     p.block_s = (uint16_t)T;
     p.settle_s = T >= SETTLE_MIN_BLOCK_S ? SETTLE_S : 0;
     p.v = a / T;
+    p.spread_pct = spreadPct(spreadOf(in));
     p.pairs = pairsFor(p.v, in);
     uint32_t span = T + p.settle_s;
     uint32_t left_s = in.elapsed_s >= MAX_TRIAL_S ? 0 : MAX_TRIAL_S - in.elapsed_s;
@@ -185,7 +205,7 @@ public:
   // Whole ABBA cycles of pairs for one block's counting noise v.
   static uint32_t pairsFor(double v, const Input &in) {
     double g = log(1.0 + in.min_gain_pct / 100.0);
-    double var = v + spreadC(in.spread_pct);
+    double var = v + spreadOf(in);
     double t = TrialFSM::tCrit(120, in.alpha_pct);
     uint32_t pairs = MIN_PAIRS;
     for (int i = 0; i < 4; i++) {   // t depends on the pairs it gives
@@ -202,7 +222,7 @@ private:
   static uint32_t neededConfirmedPerHour(const TrialRates &r, double v, uint32_t pairs_max, const Input &in) {
     double g = log(1.0 + in.min_gain_pct / 100.0);
     double t = TrialFSM::tCrit(pairs_max > 1 ? pairs_max - 1 : 1, in.alpha_pct);
-    double v_ok = pairs_max * g * g / (2.0 * t * t) - spreadC(in.spread_pct);
+    double v_ok = pairs_max * g * g / (2.0 * t * t) - spreadOf(in);
     if (v_ok <= 0) return UINT32_MAX;   // the block spread alone is too much
     double need = r.confirmed * 3600.0 * v / v_ok;
     return need > 4e9 ? UINT32_MAX : (uint32_t)ceil(need);
