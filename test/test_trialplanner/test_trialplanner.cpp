@@ -276,17 +276,17 @@ TEST(TrialPlanner, ReplanKeepsTheBlockAndFollowsTheARates) {
   ASSERT_EQ(500, first.block_s);
   TrialPlanner::Plan p;
   // traffic as planned: the same schedule
-  ASSERT_TRUE(TrialPlanner::replan(in, in.rates, first.block_s, p));
+  ASSERT_TRUE(TrialPlanner::replan(in, in.rates, first.block_s, false, p));
   EXPECT_EQ(first.blocks, p.blocks);
   EXPECT_EQ(500, p.block_s);
   // half the confirmed rate: blocks of 500 s now hold 25 deliveries, v doubles, more pairs
   TrialPlanner::Input half = input(0.05);
-  ASSERT_TRUE(TrialPlanner::replan(in, half.rates, first.block_s, p));
+  ASSERT_TRUE(TrialPlanner::replan(in, half.rates, first.block_s, false, p));
   EXPECT_GT(p.blocks, first.blocks);
   EXPECT_EQ(500, p.block_s);
   // busier: fewer
   TrialPlanner::Input busy = input(0.4);
-  ASSERT_TRUE(TrialPlanner::replan(in, busy.rates, first.block_s, p));
+  ASSERT_TRUE(TrialPlanner::replan(in, busy.rates, first.block_s, false, p));
   EXPECT_LT(p.blocks, first.blocks);
 }
 
@@ -294,7 +294,7 @@ TEST(TrialPlanner, ReplanGrowsUpToTheCapThenIsUnderpowered) {
   TrialPlanner::Input in = input(0.1);
   TrialPlanner::Input slow = input(0.0005);
   TrialPlanner::Plan p;
-  ASSERT_TRUE(TrialPlanner::replan(in, slow.rates, 500, p));
+  ASSERT_TRUE(TrialPlanner::replan(in, slow.rates, 500, false, p));
   EXPECT_EQ(TrialPlanner::UNDERPOWERED, p.status);
   uint32_t cap = TrialPlanner::MAX_TRIAL_S / (500 + TrialPlanner::SETTLE_S);
   EXPECT_EQ(cap & ~3u, p.blocks);   // the most the cap allows, whole cycles
@@ -305,15 +305,61 @@ TEST(TrialPlanner, ReplanWithoutConfirmedDeliveriesSaysNothing) {
   TrialPlanner::Input in = input(0.1);
   TrialRates none;
   TrialPlanner::Plan p;
-  EXPECT_FALSE(TrialPlanner::replan(in, none, 500, p));
+  EXPECT_FALSE(TrialPlanner::replan(in, none, 500, false, p));
 }
 
 TEST(TrialPlanner, ReplanIgnoresAFixedBlockCountOfTheInput) {
   TrialPlanner::Input in = input(0.1);
   in.blocks = 16;   // the caller does not replan a fixed count; replan itself always plans
   TrialPlanner::Plan p;
-  ASSERT_TRUE(TrialPlanner::replan(in, in.rates, 500, p));
+  ASSERT_TRUE(TrialPlanner::replan(in, in.rates, 500, false, p));
   EXPECT_NE(16, p.blocks);
+}
+
+TEST(TrialPlanner, AdaptiveReplanKeepsTheCountsPerBlockAndSoThePairs) {
+  TrialPlanner::Input in = input(0.1);
+  TrialPlanner::Plan first = TrialPlanner::plan(in);   // 500 s blocks, 50 counts
+  TrialPlanner::Plan p;
+  // four times the traffic: blocks a quarter as long, the same noise, the same pairs
+  ASSERT_TRUE(TrialPlanner::replan(in, input(0.4).rates, first.block_s, true, p));
+  EXPECT_EQ(125, p.block_s);
+  EXPECT_NEAR(first.v, p.v, 1e-9);
+  EXPECT_EQ(first.blocks, p.blocks);
+  // 70% of the rate: longer blocks, the same noise and pairs
+  ASSERT_TRUE(TrialPlanner::replan(in, input(0.07).rates, first.block_s, true, p));
+  EXPECT_EQ(715, p.block_s);
+  EXPECT_EQ(first.blocks, p.blocks);
+  // so slow that the block hits its ceiling: the noise is higher and the cap binds
+  ASSERT_TRUE(TrialPlanner::replan(in, input(0.01).rates, first.block_s, true, p));
+  EXPECT_EQ(TrialPlanner::MAX_BLOCK_S, p.block_s);
+  EXPECT_EQ(TrialPlanner::UNDERPOWERED, p.status);
+}
+
+TEST(TrialPlanner, AdaptiveReplanMovesTheBlockOnlyByTheStep) {
+  TrialPlanner::Input in = input(0.1);
+  TrialPlanner::Plan p;
+  // 10% off: inside the step, the length stays and so does the schedule
+  ASSERT_TRUE(TrialPlanner::replan(in, input(0.11).rates, 500, true, p));
+  EXPECT_EQ(500, p.block_s);
+  // 20% off: it moves
+  ASSERT_TRUE(TrialPlanner::replan(in, input(0.125).rates, 500, true, p));
+  EXPECT_EQ(400, p.block_s);
+  // not adaptive: never
+  ASSERT_TRUE(TrialPlanner::replan(in, input(0.4).rates, 500, false, p));
+  EXPECT_EQ(500, p.block_s);
+}
+
+TEST(TrialPlanner, ReplanCapCountsTheTimeAlreadySpent) {
+  TrialPlanner::Input in = input(0.1);
+  in.elapsed_s = TrialPlanner::MAX_TRIAL_S - 5100;   // 5100 s left
+  in.blocks_run = 40;
+  TrialPlanner::Plan p;
+  ASSERT_TRUE(TrialPlanner::replan(in, input(0.0005).rates, 500, false, p));
+  EXPECT_EQ(TrialPlanner::UNDERPOWERED, p.status);
+  EXPECT_EQ((40u + 5100u / (500 + TrialPlanner::SETTLE_S)) & ~3u, p.blocks);
+  in.elapsed_s = TrialPlanner::MAX_TRIAL_S + 10;   // out of time: the schedule ends where it is
+  ASSERT_TRUE(TrialPlanner::replan(in, input(0.0005).rates, 500, false, p));
+  EXPECT_EQ(40u, p.blocks);
 }
 
 TEST(Objective, CountingNoiseOfTheDefaultWeightsIsOneOverConfirmed) {

@@ -864,6 +864,14 @@ TEST(TrialFSM, SetTotalBlocksOutsideARunDoesNothing) {
   EXPECT_EQ(40, t.totalBlocks());
 }
 
+TEST(TrialFSM, SetBlockSecondsChangesTheLengthTheIdleStopUses) {
+  TrialFSM t;
+  t.begin(cfgRate(40, 600, 5));
+  EXPECT_EQ(600, t.blockSeconds());
+  t.setBlockSeconds(150);
+  EXPECT_EQ(150, t.blockSeconds());
+}
+
 TEST(TrialFSM, ALongerScheduleTightensTheBoundsLess) {
   // The look factor is sqrt(N / n): the same pairs under a larger N give wider bounds.
   const double d[] = {0.02, 0.12, -0.05, 0.09, 0.0, 0.07};

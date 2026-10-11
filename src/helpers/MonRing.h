@@ -659,7 +659,9 @@ struct __attribute__((packed)) TrialPartRecord {
 // whose block_size_s or block_count is 0, after its start record, and alone
 // before the end record of a skipped_underpowered trial. Rates are per hour,
 // saturated. flags: bits 0-1 TrialPlanner::Status (0 ok, 1 no rate, 2 underpowered),
-// bit 2 settle guard on, bit 3 futility projection on.
+// bit 2 settle guard on, bit 3 futility projection on, bit 4 a re-plan (after an
+// A B B A cycle; `pairs` is the schedule then and `needed_h` the block length in
+// seconds it set), bit 5 the block size follows the traffic (block_size_s auto).
 struct __attribute__((packed)) TrialPlanRecord {
   uint8_t  kind;            // MON_TRIAL
   uint16_t offset;

@@ -192,6 +192,7 @@ public:
   uint16_t blockIndex() const { return _idx; }
   uint16_t totalBlocks() const { return _total; }
   uint16_t blockSeconds() const { return _cfg.block_s; }
+  void setBlockSeconds(uint16_t s) { _cfg.block_s = s; }   // the next cycle's blocks, set at a cycle boundary
   // The cycle just closed heard fewer than min_rx_rate packets a minute (4 blocks).
   bool idleCycle() const {
     return (uint64_t)_cycle_rx * 60 < (uint64_t)_cfg.min_rx_rate * 4 * _cfg.block_s;

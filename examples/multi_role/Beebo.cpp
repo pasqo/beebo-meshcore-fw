@@ -2434,14 +2434,17 @@ void Beebo::emitTrialPlan(const TrialPlanner::Plan& plan, const TrialRates& r, b
   auto h16 = [](double per_s) { double h = per_s * 3600.0 + 0.5; return (uint16_t)(h > 65535.0 ? 65535.0 : h); };
   MonRecord rec{};
   rec.trial_plan.phase = TRIAL_PHASE_PLAN;
-  rec.trial_plan.flags = (uint8_t)((plan.status & 3) | (plan.settle_s ? 4 : 0) | (plan.futility ? 8 : 0) | (replan ? 16 : 0));
+  rec.trial_plan.flags = (uint8_t)((plan.status & 3) | (plan.settle_s ? 4 : 0) | (plan.futility ? 8 : 0) | (replan ? 16 : 0) |
+                                  (_trial_block_size_s == 0 ? 32 : 0));   // bit 5: the block size follows the traffic
   rec.trial_plan.spread_pct = _trial_block_spread_pct;
   rec.trial_plan.exposure_h = h16(r.exposure);
   rec.trial_plan.confirmed_h = h16(r.confirmed);
   rec.trial_plan.rx_h = h16(r.rx);
   uint32_t pairs = replan ? blocks / 2 : plan.pairs;   // a re-plan logs the schedule it set
   rec.trial_plan.pairs = (uint16_t)(pairs > 0xFFFF ? 0xFFFF : pairs);
-  rec.trial_plan.needed_h = (uint16_t)(plan.needed_confirmed_h > 0xFFFF ? 0xFFFF : plan.needed_confirmed_h);
+  // underpowered: the confirmed deliveries per hour that would fit; a re-plan: the block length it set
+  uint32_t last = replan ? plan.block_s : plan.needed_confirmed_h;
+  rec.trial_plan.needed_h = (uint16_t)(last > 0xFFFF ? 0xFFFF : last);
   monring.appendTrial(rec, getRTCClock()->nowMillis());
 }
 
@@ -2546,6 +2549,8 @@ bool Beebo::startTrial(int sw) {
   trial_window.begin(wc);
   emitTrialStart(sw, tc);
   _trial_replan = _trial_block_count == 0;
+  _trial_adapt = _trial_block_size_s == 0;
+  _trial_start_ms = millis();
   if (planned) emitTrialPlan(plan, _expo.rates(), false, 0);
   _trial_settle_wait = false;
   openTrialWindow();
@@ -2564,20 +2569,35 @@ void Beebo::openTrialWindow() {
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
 }
 
-// After every A B B A cycle of a trial whose block count is auto: plan again from
-// the traffic of the latest A blocks (side B changes the rates), with the block
-// length unchanged, and grow or shrink the schedule to it, up to the cap.
+// After every A B B A cycle of a planned trial: plan again from the traffic of the
+// latest A blocks (side B changes the rates). With block_size_s auto the next
+// cycle's four blocks take the length that holds the planned counts at that rate
+// (all four alike, so the pairs stay balanced); with block_count auto the pairs
+// grow or shrink to the noise, up to the cap on the trial's length.
 bool Beebo::replanTrial() {
   TrialRates a;
-  if (!_trial_replan || !trial.aRates(a)) return false;
+  if (!(_trial_replan || _trial_adapt) || !trial.aRates(a)) return false;
   TrialPlanner::Input in;
   in.objective = &objective;
   in.alpha_pct = 100 - _trial_confidence_pct;
   in.min_gain_pct = _trial_min_gain_pct;
   in.spread_pct = _trial_block_spread_pct;
+  in.elapsed_s = (uint32_t)((millis() - _trial_start_ms) / 1000UL);
+  in.blocks_run = trial.blockIndex();
   TrialPlanner::Plan plan;
-  if (!TrialPlanner::replan(in, a, trial.blockSeconds(), plan) || plan.blocks == trial.totalBlocks()) return false;
-  TrialFSM::Step step = trial.setTotalBlocks(plan.blocks);
+  if (!TrialPlanner::replan(in, a, trial.blockSeconds(), _trial_adapt, plan)) return false;
+  bool moved = _trial_adapt && plan.block_s != trial.blockSeconds();
+  bool grown = _trial_replan && plan.blocks != trial.totalBlocks();
+  if (!moved && !grown) return false;
+  if (moved) {
+    trial.setBlockSeconds(plan.block_s);
+    EvalWindow::Config wc;
+    wc.min_ms = wc.max_ms = (uint32_t)plan.block_s * 1000u;
+    wc.use_baseline = false;
+    trial_window.setConfig(wc);   // no window is open between blocks
+  }
+  TrialFSM::Step step = {};
+  if (_trial_replan) step = trial.setTotalBlocks(plan.blocks);
   emitTrialPlan(plan, a, true, trial.totalBlocks());
   if (!step.finished) return false;
   finishTrial(step);

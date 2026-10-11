@@ -92,6 +92,8 @@ public:
     uint8_t spread_pct = 17;                // relative std dev of a block the length does not average away
     uint16_t block_s = 0;                   // 0 = plan it
     uint16_t blocks = 0;                    // 0 = plan it
+    uint32_t elapsed_s = 0;                 // a running trial: seconds and blocks already spent,
+    uint32_t blocks_run = 0;                //   so the cap on its length counts them
   };
 
   enum Status : uint8_t { OK, NO_RATE, UNDERPOWERED };
@@ -136,7 +138,8 @@ public:
     p.v = a / T;
     p.pairs = pairsFor(p.v, in);
     uint32_t span = T + p.settle_s;
-    uint32_t cap = MAX_TRIAL_S / span;
+    uint32_t left_s = in.elapsed_s >= MAX_TRIAL_S ? 0 : MAX_TRIAL_S - in.elapsed_s;
+    uint32_t cap = in.blocks_run + left_s / span;
     if (cap > MAX_BLOCKS) cap = MAX_BLOCKS;
     if (fixed_blocks) {   // the user chose the length: no feasibility check
       p.status = OK;
@@ -157,14 +160,25 @@ public:
   }
 
   // The schedule of a running trial from the traffic rates of its latest A blocks
-  // (TrialFSM::aRates()), its block length unchanged: the blocks it needs now, up
-  // to the cap (UNDERPOWERED then, with the capped blocks). false when the A
-  // blocks show no confirmed deliveries, which says nothing to plan from.
-  static bool replan(Input in, const TrialRates &a_rates, uint16_t block_s, Plan &out) {
+  // (TrialFSM::aRates()): the blocks it needs now, up to the cap (UNDERPOWERED
+  // then, with the capped blocks). `adapt`: the block length follows the rates too,
+  // so a block keeps about MIN_BLOCK_N counts as the traffic changes; it moves only
+  // when the length for these rates is STEP_PCT or more away from the current one,
+  // so a noisy rate does not change it every cycle. false when the A blocks show no
+  // confirmed deliveries, which says nothing to plan from.
+  static constexpr uint32_t STEP_PCT = 15;
+  static bool replan(Input in, const TrialRates &a_rates, uint16_t block_s, bool adapt, Plan &out) {
     in.rates = a_rates;
-    in.block_s = block_s;
     in.blocks = 0;
+    in.block_s = adapt ? 0 : block_s;
     out = plan(in);
+    if (adapt && out.status != NO_RATE) {
+      uint32_t d = out.block_s > block_s ? out.block_s - block_s : block_s - out.block_s;
+      if (d * 100 < (uint32_t)block_s * STEP_PCT) {   // close enough: keep the length
+        in.block_s = block_s;
+        out = plan(in);
+      }
+    }
     return out.status != NO_RATE;
   }
 

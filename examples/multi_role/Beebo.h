@@ -2008,7 +2008,9 @@ private:
   uint8_t _trial_block_spread_pct = 17;
   ExposureTracker _expo;                 // traffic rates for the planner, always running
   TrialPlanner::Plan _trial_plan;        // the plan of the trial running or about to start
-  bool _trial_replan = false;            // the block count is auto: the schedule follows the A blocks' traffic
+  bool _trial_replan = false;            // the block count is auto: the pairs follow the A blocks' noise
+  bool _trial_adapt = false;             // the block size is auto: each A B B A cycle's blocks follow the A blocks' rate
+  unsigned long _trial_start_ms = 0;     // when the running trial started, for the cap on its length
   bool _trial_planned = false;           // the running trial's schedule came from the planner
   bool _trial_underpowered = false;      // the sequence is holding for a planned schedule that does not fit
   bool _trial_settle_wait = false;       // a switching block's window waits for the settle guard
@@ -2242,7 +2244,7 @@ private:
   void emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Result& r, uint32_t pairs_before);
   void emitTrialEnd(int sw, const TrialFSM::Step& step);
   void emitTrialSkip(int sw, TrialFSM::Outcome outcome);
-  void emitTrialPlan(const TrialPlanner::Plan& plan, const TrialRates& rates, bool replan, uint16_t blocks);
+  void emitTrialPlan(const TrialPlanner::Plan& plan, const TrialRates& rates, bool replan, uint16_t blocks);   // a re-plan logs the schedule it set (blocks, plan.block_s)
   bool replanTrial();   // after an A B B A cycle; true when the trial ended
   void emitTrialNoise();
   uint16_t trialWindowId() const { return 0x8000 | trial.blockIndex(); }
