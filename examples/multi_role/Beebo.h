@@ -1988,11 +1988,11 @@ private:
   // value, the last winner; false (list) = the sequence first stores each
   // list's first value (trialSetAllToA()).
   bool _trial_start_stored = true;
-  // tuning.trial.min_rx_rate: the next trial starts only while the node hears
+  // tuning.trial.min_pkt_rate: the next trial starts only while the node hears
   // at least this many RX packets a minute, and a running trial ends idle when
   // an A B B A cycle averages less (0 = no minimum, no idle stop).
-  uint8_t _trial_min_rx_rate = TrialFSM::MIN_RX_RATE;
-  bool _trial_rate_wait = false;        // waiting for traffic, EVENT_TRIAL_RX_RATE logged
+  uint8_t _trial_min_pkt_rate = TrialFSM::MIN_PKT_RATE;
+  bool _trial_rate_wait = false;        // waiting for traffic, EVENT_TRIAL_PKT_RATE logged
   uint32_t _trial_rate_check_at = 0;    // next check while waiting (once a minute)
   uint16_t _trial_switches = (1u << TrialSequence::NUM_SWITCHES) - 1;   // bit i = switch i (TrialSequence.h); all on, so enabling the trial runs the whole sequence
   // tuning.trial.block_size_s / block_count: 0 = planned from the node's traffic
@@ -2122,12 +2122,12 @@ private:
     _trial_confidence_pct = v;
     return true;
   }
-  bool setTrialMinRxRate(uint8_t v, uint8_t source) {
-    if (v != _trial_min_rx_rate) {
-      appendSettingChangedEvent(SETTING_TUNING_TRIAL_MIN_RX_RATE, _trial_min_rx_rate, v, source);
+  bool setTrialMinPktRate(uint8_t v, uint8_t source) {
+    if (v != _trial_min_pkt_rate) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_MIN_PKT_RATE, _trial_min_pkt_rate, v, source);
       _trial_rate_check_at = millis();   // re-check now, not a minute later
     }
-    _trial_min_rx_rate = v;
+    _trial_min_pkt_rate = v;
     return true;
   }
   bool setTrialStartStored(bool stored, uint8_t source) {
@@ -2233,7 +2233,6 @@ private:
   // Start of a sequence: every selected switch set to its A (list first value).
   void trialSetAllToA();
   void trialStartFromStored();
-  uint32_t rxRatePerMin();
   bool trialRateAllows(int sw);
   TrialPlanner::Plan planTrial();
   void trackExposure();

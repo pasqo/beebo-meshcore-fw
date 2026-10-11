@@ -394,6 +394,20 @@ TEST(TrialPlanner, ReplanPlansWithTheBlendedSpread) {
   EXPECT_EQ(255, TrialPlanner::spreadPct(100.0));   // saturated
 }
 
+TEST(TrialPlanner, CountsPerMinuteAreTheScoresOwnEvents) {
+  TrialPlanner::Input in = input(0.1);   // 0.1 confirmed per second, exposure 0.2, rx 0.3
+  EXPECT_NEAR(6.0, TrialPlanner::countsPerMin(in.rates), 1e-9);   // the default score: confirmed
+  Objective routed;
+  routed.weights[Objective::DELIVERED] = 0;
+  EXPECT_NEAR(12.0, TrialPlanner::countsPerMin(in.rates, &routed), 1e-9);
+  Objective rx;
+  rx.weights[Objective::ROUTED] = 0;
+  rx.weights[Objective::DELIVERED] = 0;
+  rx.weights[Objective::RECEIVED] = 10;
+  EXPECT_NEAR(18.0, TrialPlanner::countsPerMin(in.rates, &rx), 1e-9);
+  EXPECT_EQ(0.0, TrialPlanner::countsPerMin(TrialRates()));       // no rates
+}
+
 TEST(Objective, CountingNoiseOfTheDefaultWeightsIsOneOverConfirmed) {
   Objective o;
   EXPECT_NEAR(1.0 / 40, o.countingNoise(100, 40, 250), 1e-12);

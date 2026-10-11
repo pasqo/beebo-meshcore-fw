@@ -32,6 +32,8 @@ EvalWindow::Result heard(uint32_t rx) {
   }
   EvalWindow::Result r = blk(100);
   r.rx_valid = rx;
+  r.exposure = rx;       // every packet heard is a routed, confirmed one: the score's
+  r.ros_count = rx;      // counts (1 / counting noise) equal the packets heard
   return r;
 }
 
@@ -53,12 +55,12 @@ EvalWindow::Result unmeasured(uint8_t outcome, uint8_t flags = 0) {
   return r;
 }
 
-// min_rx_rate 0: the idle stop is off unless a test turns it on.
+// min_pkt_rate 0: the idle stop is off unless a test turns it on.
 TrialFSM::Config cfg(uint16_t blocks) {
   TrialFSM::Config c;
   c.block_s = 1800;
   c.blocks = blocks;
-  c.min_rx_rate = 0;
+  c.min_pkt_rate = 0;
   return c;
 }
 
@@ -67,7 +69,7 @@ TrialFSM::Config cfg(uint16_t blocks) {
 TrialFSM::Config cfgRate(uint16_t blocks, uint16_t block_s, uint8_t rate) {
   TrialFSM::Config c = cfg(blocks);
   c.block_s = block_s;
-  c.min_rx_rate = rate;
+  c.min_pkt_rate = rate;
   return c;
 }
 
@@ -265,7 +267,7 @@ TEST(TrialFSM, InvalidatedBlocksDoNotCountAsDead) {
 
 TEST(TrialFSM, AQuietCycleEndsTheTrialIdle) {
   TrialFSM t;
-  t.begin(cfgRate(96, 60, 1));   // a cycle is 4 minutes: it must hear 4 packets
+  t.begin(cfgRate(96, 60, 1));   // a cycle is 4 minutes: it must count 4 events
   t.start(1);
   t.onBlock(heard(0), 0, 0);
   t.onBlock(heard(1), 0, 0);
@@ -307,7 +309,45 @@ TEST(TrialFSM, TheIdleThresholdScalesWithTheBlockLength) {
   }
 }
 
-TEST(TrialFSM, MinRxRateZeroTurnsTheIdleStopOff) {
+TEST(TrialFSM, TheIdleStopCountsTheScoresEventsNotThePacketsHeard) {
+  // plenty of packets heard but no confirmed delivery: nothing for the default score to count
+  {
+    TrialFSM t;
+    t.begin(cfgRate(96, 60, 1));
+    t.start(1);
+    TrialFSM::Step s = {};
+    for (int i = 0; i < 4 && !s.finished; i++) {
+      EvalWindow::Result r = blk(100);
+      r.rx_valid = 500;
+      r.ros_count = 0;
+      s = t.onBlock(r, 0, 0);
+    }
+    ASSERT_TRUE(s.finished);
+    EXPECT_EQ(TrialFSM::ABORTED_IDLE, s.outcome);
+  }
+  // a received-only score counts the packets heard
+  {
+    Objective rx;
+    rx.weights[Objective::ROUTED] = 0;
+    rx.weights[Objective::DELIVERED] = 0;
+    rx.weights[Objective::RECEIVED] = 10;
+    TrialFSM::Config c = cfgRate(96, 60, 1);
+    c.objective = &rx;
+    TrialFSM t;
+    t.begin(c);
+    t.start(1);
+    TrialFSM::Step s = {};
+    for (int i = 0; i < 4 && !s.finished; i++) {
+      EvalWindow::Result r = blk(100);
+      r.rx_valid = 5;
+      r.ros_count = 0;
+      s = t.onBlock(r, 0, 0);
+    }
+    EXPECT_FALSE(s.finished);   // 20 counts in 4 minutes: 5 a minute against a floor of 1
+  }
+}
+
+TEST(TrialFSM, MinPktRateZeroTurnsTheIdleStopOff) {
   TrialFSM t;
   t.begin(cfg(8));
   t.start(1);

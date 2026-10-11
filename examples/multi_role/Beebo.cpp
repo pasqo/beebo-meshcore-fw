@@ -2387,7 +2387,7 @@ void Beebo::emitTrialStart(int sw, const TrialFSM::Config& tc) {
   r.trial_start.blocks = trial.totalBlocks();
   r.trial_start.confidence_pct = 100 - tc.alpha_pct;
   r.trial_start.min_gain_pct = tc.min_gain_pct;
-  r.trial_start.min_rx_rate = tc.min_rx_rate;
+  r.trial_start.min_pkt_rate = tc.min_pkt_rate;
   float ref = objective.volumeReference;
   r.trial_start.volume_ref = (uint16_t)(ref > 65535.0f ? 65535.0f : ref + 0.5f);
   monring.appendTrial(r, getRTCClock()->nowMillis());
@@ -2532,7 +2532,7 @@ bool Beebo::startTrial(int sw) {
   tc.blocks = plan.blocks;
   tc.alpha_pct = 100 - _trial_confidence_pct;   // TrialFSM works in error rate
   tc.min_gain_pct = _trial_min_gain_pct;
-  tc.min_rx_rate = planned ? 0 : _trial_min_rx_rate;   // a planned schedule replaces the idle stop
+  tc.min_pkt_rate = _trial_min_pkt_rate;   // the idle stop, on the score's counts
   tc.futility = plan.futility;
   tc.objective = &objective;
   trial.begin(tc);
@@ -2709,16 +2709,6 @@ void Beebo::trialStartFromStored() {
   _trial_seq_started = true;
 }
 
-// RX packets per minute: the moving 60 s sum GET_COUNTER_RATES reports as
-// rx_packets (scaled to a minute until 60 s of history exist).
-uint32_t Beebo::rxRatePerMin() {
-#ifdef BEEBO_CPU_ACCOUNTING
-  return _rate_sum[0] * RATE_SLOTS / (_rate_filled ? _rate_filled : 1);
-#else
-  return UINT32_MAX;   // no rate on this build: never wait
-#endif
-}
-
 // The plan the next trial would run: the user's block_size_s / block_count where
 // set, the rest from the tracked traffic and the objective (TrialPlanner.h).
 TrialPlanner::Plan Beebo::planTrial() {
@@ -2740,47 +2730,52 @@ void Beebo::trackExposure() {
   _expo.poll(millis(), MonRing::computeQosExposure(q), MonRing::computeRos(q), radio_driver.getPacketsRecv());
 }
 
-// tuning.trial.min_rx_rate: whether the next trial may start (a running trial
-// ends idle on the same rate, TrialFSM). While the rate
-// is below the minimum the sequence waits, re-checking once a minute; each
-// change between waiting and running is logged (EVENT_TRIAL_RX_RATE).
+// tuning.trial.min_pkt_rate: whether the next trial may start, on the score's own
+// counts a minute from the traffic tracker (a running trial ends idle on the same
+// rate, TrialFSM). While the rate is below the minimum the sequence waits,
+// re-checking once a minute; each change between waiting and running is logged
+// (EVENT_TRIAL_PKT_RATE). A planned schedule must also fit (TrialPlanner).
 bool Beebo::trialRateAllows(int sw) {
-  if (_trial_block_size_s == 0 || _trial_block_count == 0) {   // planned schedule
-    _trial_rate_wait = false;
-    if (_trial_underpowered && !millisHasNowPassed(_trial_rate_check_at)) return false;
-    if (!_expo.ready()) return false;   // the tracker still fills
-    TrialPlanner::Plan plan = planTrial();
-    if (plan.status == TrialPlanner::OK) {
-      _trial_underpowered = false;
-      return true;
-    }
-    if (!_trial_underpowered && plan.status == TrialPlanner::UNDERPOWERED) {
-      emitTrialPlan(plan, _expo.rates(), false, 0);
-      emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
-    }
-    _trial_underpowered = true;
-    _trial_rate_check_at = futureMillis(60000);
-    return false;
-  }
-  if (_trial_min_rx_rate == 0) {
+  bool planned = _trial_block_size_s == 0 || _trial_block_count == 0;
+  if ((_trial_rate_wait || _trial_underpowered) && !millisHasNowPassed(_trial_rate_check_at)) return false;
+  if (!planned && _trial_min_pkt_rate == 0) {
     _trial_rate_wait = false;
     return true;
   }
-  if (_trial_rate_wait && !millisHasNowPassed(_trial_rate_check_at)) return false;
-  uint32_t rate = rxRatePerMin();
-  bool wait = rate < _trial_min_rx_rate;
-  if (wait != _trial_rate_wait && monring.enabled() && monring.allocated()) {
-    EventRecord rec{};
-    rec.event_type = EVENT_TRIAL_RX_RATE;
-    rec.data[0] = wait ? 1 : 0;
-    uint16_t r16 = (uint16_t)(rate > 0xFFFF ? 0xFFFF : rate);
-    memcpy(&rec.data[1], &r16, 2);
-    rec.data[3] = _trial_min_rx_rate;
-    monring.appendEvent(rec, getRTCClock()->nowMillis());
+  if (_trial_min_pkt_rate) {
+    double rate = _expo.ready() ? TrialPlanner::countsPerMin(_expo.rates(), &objective) : 0.0;   // nothing counted yet: below any minimum
+    bool wait = rate < _trial_min_pkt_rate;
+    if (wait != _trial_rate_wait && monring.enabled() && monring.allocated()) {
+      EventRecord rec{};
+      rec.event_type = EVENT_TRIAL_PKT_RATE;
+      rec.data[0] = wait ? 1 : 0;
+      uint16_t r16 = (uint16_t)(rate > 65535.0 ? 65535 : (uint32_t)rate);
+      memcpy(&rec.data[1], &r16, 2);
+      rec.data[3] = _trial_min_pkt_rate;
+      monring.appendEvent(rec, getRTCClock()->nowMillis());
+    }
+    _trial_rate_wait = wait;
+    if (wait) {
+      _trial_rate_check_at = futureMillis(60000);
+      return false;
+    }
+  } else {
+    _trial_rate_wait = false;
   }
-  _trial_rate_wait = wait;
-  if (wait) _trial_rate_check_at = futureMillis(60000);
-  return !wait;
+  if (!planned) return true;
+  if (!_expo.ready()) return false;   // the tracker still fills
+  TrialPlanner::Plan plan = planTrial();
+  if (plan.status == TrialPlanner::OK) {
+    _trial_underpowered = false;
+    return true;
+  }
+  if (!_trial_underpowered && plan.status == TrialPlanner::UNDERPOWERED) {
+    emitTrialPlan(plan, _expo.rates(), false, 0);
+    emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
+  }
+  _trial_underpowered = true;
+  _trial_rate_check_at = futureMillis(60000);
+  return false;
 }
 
 void Beebo::trialDoneAll() {
@@ -6259,13 +6254,19 @@ void Beebo::handleCmdFrame(size_t len) {
     out_frame[0] = RESP_CODE_OK;
     memcpy(&out_frame[1], &v, 4);
     _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_MIN_RX_RATE) {
-    uint32_t v = _trial_min_rx_rate;
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_COUNT_RATE) {
+    uint32_t v = 0xFFFFFFFFu;   // the tracker is not ready
+    if (_expo.ready()) v = (uint32_t)(TrialPlanner::countsPerMin(_expo.rates(), &objective) * 10.0 + 0.5);
     out_frame[0] = RESP_CODE_OK;
     memcpy(&out_frame[1], &v, 4);
     _serial->writeFrame(out_frame, 5);
-  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_MIN_RX_RATE && sub_len >= 2) {
-    setTrialMinRxRate(sub[1], EVENT_SOURCE_BINARY);
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_MIN_PKT_RATE) {
+    uint32_t v = _trial_min_pkt_rate;
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &v, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_MIN_PKT_RATE && sub_len >= 2) {
+    setTrialMinPktRate(sub[1], EVENT_SOURCE_BINARY);
     writeOKFrame();
   } else if (sub[0] == BEEBO_CMD_SEND_CHANNEL_MSG_HOPS && sub_len >= 8) {
     // [idx:1][max_hops:1][timestamp:4][text] -- CMD_SEND_CHANNEL_TXT_MSG with
@@ -9141,8 +9142,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_trial_block_spread_pct);
     } else if (strcmp(key, "tuning.trial.min_gain_pct") == 0) {
       sprintf(reply, "> %u", (unsigned)_trial_min_gain_pct);
-    } else if (strcmp(key, "tuning.trial.min_rx_rate") == 0) {
-      sprintf(reply, "> %u", (unsigned)_trial_min_rx_rate);
+    } else if (strcmp(key, "tuning.trial.min_pkt_rate") == 0 || strcmp(key, "tuning.trial.min_rx_rate") == 0) {   // min_rx_rate: the old name
+      sprintf(reply, "> %u", (unsigned)_trial_min_pkt_rate);
     } else if (strcmp(key, "tuning.trial.start") == 0) {
       sprintf(reply, "> %s", _trial_start_stored ? "stored" : "list");
     } else if (strcmp(key, "tuning.trial.combined") == 0) {
@@ -9652,7 +9653,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       else if (strncmp(k, "confidence_pct ", 15) == 0) ok = v >= 0 && v <= 255 && setTrialConfidence((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_spread_pct ", 17) == 0) ok = v >= 0 && v <= 255 && setTrialBlockSpreadPct((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "min_gain_pct ", 9) == 0) ok = v >= 0 && v <= 255 && setTrialMinGain((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
-      else if (strncmp(k, "min_rx_rate ", 12) == 0) ok = v >= 0 && v <= 255 && setTrialMinRxRate((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
+      else if (strncmp(k, "min_pkt_rate ", 13) == 0 || strncmp(k, "min_rx_rate ", 12) == 0)   // min_rx_rate: the old name
+        ok = v >= 0 && v <= 255 && setTrialMinPktRate((uint8_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_size_s ", 13) == 0 || strncmp(k, "block_s ", 8) == 0)   // block_s: the old name
         ok = v >= 0 && v <= 65535 && setTrialBlockSizeS((uint16_t)v, EVENT_SOURCE_TEXT_CLI);
       else if (strncmp(k, "block_count ", 12) == 0 || strncmp(k, "blocks ", 7) == 0)   // blocks: the old name

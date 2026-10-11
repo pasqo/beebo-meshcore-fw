@@ -111,6 +111,17 @@ public:
     uint32_t needed_confirmed_h = 0;   // UNDERPOWERED: confirmed deliveries per hour that would fit
   };
 
+  // The score's own events per minute at these rates: the counts whose Poisson noise
+  // sets a block's noise (the confirmed deliveries for the default score, the routed
+  // attempts for a routed-only one, the received packets for a received-only one).
+  // 0 without rates or when a weighted indicator has no count.
+  static double countsPerMin(const TrialRates &r, const Objective *objective = nullptr) {
+    static const Objective defaults;
+    const Objective &obj = objective ? *objective : defaults;
+    double a = obj.countingNoise(r.exposure, r.confirmed, r.rx);
+    return isfinite(a) && a > 0 ? 60.0 / a : 0.0;
+  }
+
   // `c` for a block spread in percent.
   static double spreadC(uint8_t pct) { double s = pct / 100.0; return s * s; }
   static double spreadOf(const Input &in) { return in.spread_c >= 0 ? in.spread_c : spreadC(in.spread_pct); }

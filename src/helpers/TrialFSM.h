@@ -58,10 +58,11 @@
 // (pairs in the schedule), the stronger side wins: ALIVE_A keeps A, ALIVE_B
 // adopts B.
 //
-// After every A B B A cycle: idle. An average below Config.min_rx_rate packets a
+// After every A B B A cycle: idle. An average below Config.min_pkt_rate counts a
 // minute over the whole cycle (both sides, no invalidated block) ends the trial
-// ABORTED_IDLE: the channel is too quiet to decide anything. The caller
-// retries the switch later.
+// ABORTED_IDLE: the channel is too quiet to decide anything. The counts are the
+// score's own, those whose noise sets a block's (1 / countingNoise(): the confirmed
+// deliveries for the default weights). The caller retries the switch later.
 //
 // Reach (neighbors heard / marginal) is averaged per value (A, B) for
 // diagnostics; it does not enter the decision. Everything runs on the device:
@@ -91,14 +92,14 @@ public:
   static constexpr uint32_t ALIVE_CAP = 8;            // RX Valid counted per block by the dead-side test
   static constexpr uint32_t ALIVE_RATIO = 4;          // the weaker side at most 1/ALIVE_RATIO of the stronger
   static constexpr uint32_t ALIVE_MIN_BLOCKS = 2;     // blocks the stronger side heard something in
-  static constexpr uint8_t  MIN_RX_RATE = 5;          // default Config.min_rx_rate
+  static constexpr uint8_t  MIN_PKT_RATE = 5;          // default Config.min_pkt_rate, counts a minute
 
   struct Config {
     uint16_t block_s = 1800;
     uint16_t blocks = 96;
     uint8_t alpha_pct = 5;   // overall error rate: 1, 5 or 10 (other values use 5)
     uint8_t min_gain_pct = 5;    // smallest worthwhile relative gain, percent
-    uint8_t min_rx_rate = MIN_RX_RATE;   // RX packets a minute an A B B A cycle must average, else the trial ends idle; 0 = never
+    uint8_t min_pkt_rate = MIN_PKT_RATE;   // the score's counts a minute an A B B A cycle must average, else the trial ends idle; 0 = never
     const Objective *objective = nullptr;   // per-block value; null = the default goodput weights
     // Planned schedule: after each pair from MIN_LOOK_PAIRS on, project the standard
     // error the full schedule would reach (se * sqrt(n / N)); when even that cannot
@@ -193,9 +194,9 @@ public:
   uint16_t totalBlocks() const { return _total; }
   uint16_t blockSeconds() const { return _cfg.block_s; }
   void setBlockSeconds(uint16_t s) { _cfg.block_s = s; }   // the next cycle's blocks, set at a cycle boundary
-  // The cycle just closed heard fewer than min_rx_rate packets a minute (4 blocks).
+  // The cycle just closed counted fewer than min_pkt_rate events a minute (4 blocks).
   bool idleCycle() const {
-    return (uint64_t)_cycle_rx * 60 < (uint64_t)_cfg.min_rx_rate * 4 * _cfg.block_s;
+    return _cycle_counts * 60.0 < (double)_cfg.min_pkt_rate * 4.0 * _cfg.block_s;
   }
   uint8_t original() const { return _orig; }
   uint8_t alternative() const { return _alt; }
@@ -252,8 +253,11 @@ public:
     // heard or silent, but not invalidated: counts toward the dead-side and idle tests
     bool usable = valid || r.outcome == EVAL_INSUFFICIENT_DATA;
     uint32_t rx = usable ? r.rx_valid : 0;
-    if ((_idx & 3) == 0) { _cycle_rx = 0; _cycle_usable = true; }
-    _cycle_rx += rx;
+    if ((_idx & 3) == 0) { _cycle_counts = 0; _cycle_usable = true; }
+    if (usable) {   // the score's own counts in the block: 1 / its counting noise
+      double nv = objective().countingNoise(r.exposure, r.ros_count, r.rx_valid);
+      if (isfinite(nv) && nv > 0) _cycle_counts += 1.0 / nv;
+    }
     _cycle_usable = _cycle_usable && usable;
     bool pair_added = false;
     bool pair_done = false;
@@ -385,7 +389,7 @@ private:
     _prev_valid = false; _prev_is_b = false; _prev_g = 0; _prev_ratio = 0;
     _prev_usable = false; _prev_rx = 0; _prev_ros = 0; _sum_ros_d = 0.0;
     _live_a = _live_b = _live_a_blocks = _live_b_blocks = 0;
-    _cycle_rx = 0; _cycle_usable = true;
+    _cycle_counts = 0; _cycle_usable = true;
     _n = 0; _sum_d = _sum_d2 = _sum_rd = 0.0;
     _sum_v = 0.0; _nv = 0;
     _a_n = _a_next = 0;
@@ -500,7 +504,7 @@ private:
   uint32_t _nv = 0;
   double _sum_ros_d = 0;   // confirmed deliveries per hour, B - A, summed over pairs
   uint32_t _live_a = 0, _live_b = 0, _live_a_blocks = 0, _live_b_blocks = 0;   // dead-side test sums
-  uint32_t _cycle_rx = 0;       // RX Valid in the current A B B A cycle
+  double _cycle_counts = 0;     // the score's counts in the current A B B A cycle
   bool _cycle_usable = true;    // no invalidated block in it so far
   uint32_t _n = 0;
   double _sum_d = 0, _sum_d2 = 0, _sum_rd = 0;
