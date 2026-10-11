@@ -34,15 +34,50 @@ TEST(ExposureTracker, ClosesASlotEveryThirtyMinutes) {
   EXPECT_EQ(1, t.filled());
 }
 
-TEST(ExposureTracker, NotReadyUntilMinSlots) {
+TEST(ExposureTracker, NotReadyBeforeThePilotOrMinSlots) {
+  ExposureTracker t;
+  uint32_t now = 0, E = 0, C = 0, R = 0;
+  t.poll(now, E, C, R);
+  now += ExposureTracker::PILOT_S * 1000u - 1;   // plenty of traffic, but too early
+  t.poll(now, E + 100, C + 40, R + 300);
+  EXPECT_FALSE(t.ready());
+  EXPECT_EQ(0.0, t.rates().confirmed);
+}
+
+TEST(ExposureTracker, PilotNeedsConfirmedDeliveries) {
+  ExposureTracker t;
+  uint32_t now = 0;
+  t.poll(now, 0, 0, 0);
+  now += ExposureTracker::PILOT_S * 1000u;
+  t.poll(now, 100, ExposureTracker::PILOT_MIN_CONFIRMED - 1, 300);   // long enough, nothing heard
+  EXPECT_FALSE(t.ready());
+  t.poll(now, 100, ExposureTracker::PILOT_MIN_CONFIRMED, 300);
+  EXPECT_TRUE(t.ready());
+}
+
+TEST(ExposureTracker, PilotRatesAreTheCountsSinceTheStart) {
+  ExposureTracker t;
+  uint32_t now = 5000;
+  t.poll(now, 1000, 400, 3000);   // counters do not start at zero
+  now += 600000;
+  t.poll(now, 1000 + 120, 400 + 60, 3000 + 300);
+  ASSERT_TRUE(t.ready());
+  EXPECT_EQ(0, t.filled());
+  TrialRates r = t.rates();
+  EXPECT_DOUBLE_EQ(120.0 / 600, r.exposure);
+  EXPECT_DOUBLE_EQ(60.0 / 600, r.confirmed);
+  EXPECT_DOUBLE_EQ(300.0 / 600, r.rx);
+}
+
+TEST(ExposureTracker, SlotsTakeOverFromThePilot) {
   ExposureTracker t;
   uint32_t now = 0, E = 0, C = 0, R = 0;
   t.poll(now, E, C, R);
   feed(t, now, E, C, R, ExposureTracker::MIN_SLOTS - 1, 100, 40, 300);
-  EXPECT_FALSE(t.ready());
-  EXPECT_EQ(0.0, t.rates().confirmed);
+  EXPECT_TRUE(t.ready());   // the pilot
   feed(t, now, E, C, R, 1, 100, 40, 300);
-  EXPECT_TRUE(t.ready());
+  EXPECT_EQ(ExposureTracker::MIN_SLOTS, t.filled());
+  EXPECT_DOUBLE_EQ(40.0 / 1800, t.rates().confirmed);   // from the slots now
 }
 
 TEST(ExposureTracker, RatesAreThePerSecondCountsOfTheLowQuantileSlot) {

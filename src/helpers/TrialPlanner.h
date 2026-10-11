@@ -31,17 +31,28 @@ class ExposureTracker {
 public:
   static constexpr uint32_t SLOT_S = 1800;
   static constexpr uint8_t SLOTS = 48;        // 24 h
-  static constexpr uint8_t MIN_SLOTS = 2;     // slots before rates() is trusted
+  static constexpr uint8_t MIN_SLOTS = 2;     // slots before rates() come from them
+  // Until then the counts since the tracker started are the rates, once it has
+  // run PILOT_S and seen PILOT_MIN_CONFIRMED confirmed deliveries, so a node that
+  // just booted can plan its first trial within minutes.
+  static constexpr uint32_t PILOT_S = 600;
+  static constexpr uint32_t PILOT_MIN_CONFIRMED = 5;
   static constexpr uint8_t QUANTILE_PCT = 25; // the slot ranked this far up by confirmed count
 
   // Feed the lifetime counters every loop tick. A counter that went backwards
   // (device-side reset) clears the ring.
   void poll(uint32_t now_ms, uint32_t exposure, uint32_t confirmed, uint32_t rx) {
-    if (!_started) { rebase(now_ms, exposure, confirmed, rx); return; }
+    if (!_started) {
+      rebase(now_ms, exposure, confirmed, rx);
+      _first_ms = now_ms; _first_e = exposure; _first_c = confirmed; _first_r = rx;
+      _now_ms = now_ms; _now_e = exposure; _now_c = confirmed; _now_r = rx;
+      return;
+    }
+    _now_ms = now_ms; _now_e = exposure; _now_c = confirmed; _now_r = rx;
     uint32_t d_e = exposure - _e0, d_c = confirmed - _c0, d_r = rx - _r0;
     if (d_e > 0x80000000u || d_c > 0x80000000u || d_r > 0x80000000u) {
       reset();
-      rebase(now_ms, exposure, confirmed, rx);
+      poll(now_ms, exposure, confirmed, rx);   // starts over from these counters
       return;
     }
     if (now_ms - _t0 < SLOT_S * 1000u) return;
@@ -56,14 +67,22 @@ public:
 
   void reset() { _started = false; _next = 0; _filled = 0; }
   uint8_t filled() const { return _filled; }
-  bool ready() const { return _filled >= MIN_SLOTS; }
+  bool ready() const { return _filled >= MIN_SLOTS || pilotReady(); }
 
   // The slot at the low quantile of the confirmed count, as per-second rates:
   // a quiet part of the day, with its own exposure and rx so the confirm ratio
-  // stays consistent. Zeros until ready().
+  // stays consistent. Before MIN_SLOTS slots exist, the rates since the tracker
+  // started. Zeros until ready().
   TrialRates rates() const {
     TrialRates r;
-    if (!ready()) return r;
+    if (_filled < MIN_SLOTS) {
+      if (!pilotReady()) return r;
+      double s = (uint32_t)(_now_ms - _first_ms) / 1000.0;
+      r.exposure = (_now_e - _first_e) / s;
+      r.confirmed = (_now_c - _first_c) / s;
+      r.rx = (_now_r - _first_r) / s;
+      return r;
+    }
     uint8_t idx[SLOTS];
     for (uint8_t i = 0; i < _filled; i++) idx[i] = i;
     for (uint8_t i = 1; i < _filled; i++) {   // insertion sort by confirmed count
@@ -80,6 +99,10 @@ public:
   }
 
 private:
+  bool pilotReady() const {
+    return _started && (uint32_t)(_now_ms - _first_ms) >= PILOT_S * 1000u &&
+           (uint32_t)(_now_c - _first_c) >= PILOT_MIN_CONFIRMED;
+  }
   struct Slot { uint16_t exposure = 0, confirmed = 0, rx = 0; };
   static uint16_t sat16(uint32_t v) { return (uint16_t)(v > 0xFFFF ? 0xFFFF : v); }
   void rebase(uint32_t now_ms, uint32_t e, uint32_t c, uint32_t r) {
@@ -89,6 +112,8 @@ private:
   uint8_t _next = 0, _filled = 0;
   bool _started = false;
   uint32_t _t0 = 0, _e0 = 0, _c0 = 0, _r0 = 0;
+  uint32_t _first_ms = 0, _first_e = 0, _first_c = 0, _first_r = 0;   // counters when the tracker started
+  uint32_t _now_ms = 0, _now_e = 0, _now_c = 0, _now_r = 0;           // the latest poll
 };
 
 class TrialPlanner {
