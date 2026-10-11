@@ -6227,6 +6227,15 @@ void Beebo::handleCmdFrame(size_t len) {
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_BLOCK_SPREAD_PCT && sub_len >= 2) {
     if (setTrialBlockSpreadPct(sub[1], EVENT_SOURCE_BINARY)) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_PLAN) {
+    uint32_t v = 3;   // collecting
+    if (_expo.ready() || (_trial_block_size_s && _trial_block_count)) {
+      TrialPlanner::Plan plan = planTrial();
+      v = (uint32_t)(plan.status & 3) | ((uint32_t)(plan.block_s & 0xFFF) << 2) | ((uint32_t)(plan.blocks & 0x3FF) << 14);
+    }
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &v, 4);
+    _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_MIN_RX_RATE) {
     uint32_t v = _trial_min_rx_rate;
     out_frame[0] = RESP_CODE_OK;
