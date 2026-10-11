@@ -105,6 +105,7 @@ TEST(ExposureTracker, ResetForgetsEverything) {
 // A node with a given confirmed rate (per second) and a confirm ratio p, rx = 1.5 x exposure.
 TrialPlanner::Input input(double conf_rate, double p = 0.5) {
   TrialPlanner::Input in;
+  in.spread_pct = 17;   // the cases below were worked out at 17% (c = 0.0289)
   in.rates.confirmed = conf_rate;
   in.rates.exposure = conf_rate / p;
   in.rates.rx = 1.5 * conf_rate / p;
@@ -176,20 +177,26 @@ TEST(TrialPlanner, LargerGainOrLowerConfidenceNeedsFewerPairs) {
 
 TEST(TrialPlanner, BlockSpreadSetsThePairs) {
   TrialPlanner::Input in = input(0.1);
-  in.spread_pct = 0;
+  in.spread_c = 0.0;   // counting noise alone
   uint32_t none = TrialPlanner::plan(in).pairs;
+  in.spread_c = -1;
   in.spread_pct = 10;
   uint32_t ten = TrialPlanner::plan(in).pairs;
   in.spread_pct = 17;
   uint32_t seventeen = TrialPlanner::plan(in).pairs;
   EXPECT_LT(none, ten);
   EXPECT_LT(ten, seventeen);
+  in.spread_pct = 0;   // no override: the built-in start, c = 0.02 (14%)
+  TrialPlanner::Plan built_in = TrialPlanner::plan(in);
+  EXPECT_EQ(14, built_in.spread_pct);
+  EXPECT_LT(ten, built_in.pairs);
+  EXPECT_LT(built_in.pairs, seventeen);
 }
 
 TEST(TrialPlanner, AtLeastOneCycleOfPairsAboveTheLookMinimum) {
   TrialPlanner::Input in = input(0.1);
   in.min_gain_pct = 50;
-  in.spread_pct = 0;
+  in.spread_c = 0.0;
   in.alpha_pct = 10;
   TrialPlanner::Plan p = TrialPlanner::plan(in);
   EXPECT_GE(p.pairs, TrialPlanner::MIN_PAIRS);
@@ -367,15 +374,19 @@ TEST(TrialPlanner, BlendedSpreadStartsAtTheSettingAndMovesWithThePairs) {
   // too few pairs: the setting
   z.pairs = 3; z.blocks = 6; z.var_d = 1.0; z.mean_v = 0.02;
   EXPECT_NEAR(TrialPlanner::spreadC(17), TrialPlanner::blendSpread(17, z), 1e-12);
-  // 10 pairs seeing c = 0.1 against a prior of 0.0289: half way
-  z.pairs = 10; z.blocks = 20; z.var_d = 2 * (0.02 + 0.1); z.mean_v = 0.02;
-  EXPECT_NEAR((0.0289 + 0.1) / 2, TrialPlanner::blendSpread(17, z), 1e-9);
+  // 3 pairs of weight for the prior: 3 pairs seeing c = 0.1 against 0.0289 is half way
+  z.pairs = 3; z.blocks = 6;
+  EXPECT_NEAR(TrialPlanner::spreadC(17), TrialPlanner::blendSpread(17, z), 1e-12);   // under 4 pairs: the prior
+  z.pairs = 6; z.blocks = 12; z.var_d = 2 * (0.02 + 0.1); z.mean_v = 0.02;
+  EXPECT_NEAR((3 * 0.0289 + 6 * 0.1) / 9, TrialPlanner::blendSpread(17, z), 1e-9);
   // 90 pairs: the data dominate
   z.pairs = 90; z.blocks = 180;
-  EXPECT_NEAR((10 * 0.0289 + 90 * 0.1) / 100, TrialPlanner::blendSpread(17, z), 1e-9);
+  EXPECT_NEAR((3 * 0.0289 + 90 * 0.1) / 93, TrialPlanner::blendSpread(17, z), 1e-9);
   // quieter than counting noise alone: c = 0, the blend moves down
   z.var_d = 2 * 0.01;
-  EXPECT_NEAR(10 * 0.0289 / 100, TrialPlanner::blendSpread(17, z), 1e-9);
+  EXPECT_NEAR(3 * 0.0289 / 93, TrialPlanner::blendSpread(17, z), 1e-9);
+  // no override: the built-in start, c = 0.02
+  EXPECT_NEAR(0.02, TrialPlanner::blendSpread(0, TrialFSM::Noise{}), 1e-12);
 }
 
 TEST(TrialPlanner, ReplanPlansWithTheBlendedSpread) {

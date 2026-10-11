@@ -89,7 +89,7 @@ public:
     const Objective *objective = nullptr;   // null = default weights
     uint8_t alpha_pct = 5;                  // error rate, 1 / 5 / 10
     uint8_t min_gain_pct = 5;
-    uint8_t spread_pct = 17;                // relative std dev of a block the length does not average away
+    uint8_t spread_pct = 0;                 // block_spread_pct: 0 = START_SPREAD_C, else the start override (percent)
     double spread_c = -1;                   // >= 0: the block spread c itself (a running trial's estimate), over spread_pct
     uint16_t block_s = 0;                   // 0 = plan it
     uint16_t blocks = 0;                    // 0 = plan it
@@ -124,7 +124,12 @@ public:
 
   // `c` for a block spread in percent.
   static double spreadC(uint8_t pct) { double s = pct / 100.0; return s * s; }
-  static double spreadOf(const Input &in) { return in.spread_c >= 0 ? in.spread_c : spreadC(in.spread_pct); }
+  // The block spread a trial's first plan starts from: c = 0.02, the 14% the field
+  // trials pooled to; a running trial moves it (blendSpread). block_spread_pct is an
+  // advanced override of it, 0 = this.
+  static constexpr double START_SPREAD_C = 0.02;
+  static double startSpread(uint8_t override_pct) { return override_pct ? spreadC(override_pct) : START_SPREAD_C; }
+  static double spreadOf(const Input &in) { return in.spread_c >= 0 ? in.spread_c : startSpread(in.spread_pct); }
   static uint8_t spreadPct(double c) { double p = sqrt(c) * 100.0 + 0.5; return p > 255.0 ? 255 : (uint8_t)p; }
 
   // A running trial's block spread: the setting's `prior_pct` as the starting guess,
@@ -133,9 +138,9 @@ public:
   // its pairs against PRIOR_PAIRS for the prior. The variance of d is taken around
   // its mean, so the estimate does not depend on the effect under test. Returns c.
   static constexpr uint32_t MIN_ESTIMATE_PAIRS = 4;
-  static constexpr uint32_t PRIOR_PAIRS = 10;
+  static constexpr uint32_t PRIOR_PAIRS = 3;
   static double blendSpread(uint8_t prior_pct, const TrialFSM::Noise &z) {
-    double prior = spreadC(prior_pct);
+    double prior = startSpread(prior_pct);
     if (z.pairs < MIN_ESTIMATE_PAIRS || z.blocks == 0) return prior;
     double seen = z.var_d / 2.0 - z.mean_v;
     if (seen < 0) seen = 0;

@@ -2002,10 +2002,12 @@ private:
   static constexpr uint16_t TRIAL_BLOCK_COUNT_MAX = 1000;
   uint16_t _trial_block_size_s = 0;
   uint16_t _trial_block_count = 0;
-  // tuning.trial.block_spread_pct: the block spread the planner allows for (relative
-  // standard deviation of a block that a longer block does not average away).
+  // tuning.trial.block_spread_pct: an advanced override of the block spread a trial's
+  // first plan starts from (relative standard deviation of a block that a longer
+  // block does not average away); 0 = TrialPlanner::START_SPREAD_C. A running trial
+  // moves it toward what its own pairs show.
   static constexpr uint8_t TRIAL_BLOCK_SPREAD_PCT_MAX = 70;
-  uint8_t _trial_block_spread_pct = 17;
+  uint8_t _trial_block_spread_pct = 0;
   ExposureTracker _expo;                 // traffic rates for the planner, always running
   TrialPlanner::Plan _trial_plan;        // the plan of the trial running or about to start
   bool _trial_replan = false;            // the block count is auto: the pairs follow the A blocks' noise
