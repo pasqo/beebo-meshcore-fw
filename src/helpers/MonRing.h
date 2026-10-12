@@ -534,7 +534,12 @@ enum { TXR_OK = 0, TXR_TIMEOUT = 1 };
 // a wildly wrong (and much smaller) elapsed time. `base + offset` must be
 // gated on this version: `abi_version < 3` means `base + offset` (seconds
 // arithmetic), `>= 3` means `base*1000 + offset` (milliseconds).
-#define MONRING_ABI_VERSION 3
+// 4: RxRecord's last byte (reserved, always zero) became `ext`. RXREC_EXT_PREV_US:
+// the hop BEFORE the last one in the path is our own hash, i.e. this reception is a
+// neighbor's relay of a packet WE transmitted (an echo, or a repeat of our send that
+// came back through that neighbor). Zero is ambiguous on a capture before 4.
+#define MONRING_ABI_VERSION 4
+#define RXREC_EXT_PREV_US  0x01
 
 // ---- the union members (each exactly 16 bytes, packed, kind at byte 0) -----
 struct __attribute__((packed)) SyncRecord {
@@ -553,7 +558,7 @@ struct __attribute__((packed)) RxRecord {
   uint8_t  flags;       // nbr_len(b0-1) | hops(b2-7)
   uint8_t  disp;        // endpoint(b0-3) | routing(b4-5) | distill(b6) | rsvd(b7)
   uint8_t  nbr[3];      // last-hop hash = immediate neighbor (nbr_len valid)
-  uint8_t  _rsvd;
+  uint8_t  ext;         // RXREC_EXT_* (ABI >= 4; reserved, always zero before)
 };
 struct __attribute__((packed)) TxRecord {
   uint8_t  kind;        // MON_TX

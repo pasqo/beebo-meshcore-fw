@@ -332,6 +332,10 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
           uint8_t nlen = hash_size < 3 ? hash_size : 3;
           memcpy(rec.nbr, raw + off + path_bytes - nlen, nlen);
           rec.flags |= (nlen & RXREC_FLAG_NBRLEN_MASK);
+          // the hop before the last one is our own hash: this is a neighbor's relay of
+          // a packet we transmitted (the second-to-last path hash, full hash_size)
+          if (hops >= 2 && self_id.isHashMatch(raw + off + path_bytes - 2 * hash_size, hash_size))
+            rec.ext |= RXREC_EXT_PREV_US;
           // beebo: whoever transmitted the last hop to us is a genuine direct
           // RF neighbor, regardless of how many hops the packet has
           // traveled overall or what it's carrying -- this is the dominant
@@ -453,6 +457,7 @@ void Beebo::onPacketCaptured(mesh::Packet* pkt) {
     pkt->_rx_header = _rx_stage.header;
     pkt->_rx_rssi = _rx_stage.rssi;
     pkt->_rx_flags = _rx_stage.flags;
+    pkt->_rx_ext = _rx_stage.ext;
     memcpy(pkt->_rx_nbr, _rx_stage.nbr, sizeof(pkt->_rx_nbr));
     pkt->_rx_disp = _rx_stage.disp;
   }
@@ -493,6 +498,7 @@ void Beebo::onPacketDisposed(mesh::Packet* pkt) {
     rec.rssi = pkt->_rx_rssi;
     rec.header = pkt->_rx_header;  // NOT pkt->header -- see Packet.h's _rx_header comment
     rec.flags = pkt->_rx_flags;
+    rec.ext = pkt->_rx_ext;
     rec.disp = pkt->_rx_disp;
     memcpy(rec.nbr, pkt->_rx_nbr, sizeof(rec.nbr));
     monring.appendRx(rec, pkt->_rx_time);

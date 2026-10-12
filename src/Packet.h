@@ -76,6 +76,7 @@ public:
   int8_t   _rx_rssi;    // dBm at capture, for the ring record (independent of MSG_INCLUDE_RSSI)
   uint8_t  _rx_flags;   // nbr_len bits (see MonRing.h RXREC_FLAG_*)
   uint8_t  _rx_nbr[3];  // last-hop neighbour hash
+  uint8_t  _rx_ext;     // RXREC_EXT_* bits (see MonRing.h)
   uint8_t  _rx_disp;    // accumulated disposition axis bits (see MonRing.h)
   bool     _rx_logged;  // true if logRxRaw actually distilled/staged this capture
 #endif
