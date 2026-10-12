@@ -419,6 +419,28 @@ TEST(TrialPlanner, CountsPerMinuteAreTheScoresOwnEvents) {
   EXPECT_EQ(0.0, TrialPlanner::countsPerMin(TrialRates()));       // no rates
 }
 
+TEST(TrialPlanner, CountsPerMinuteDoNotMoveWithAUniformWeightScale) {
+  TrialPlanner::Input in = input(0.1);
+  Objective twice;   // every weight doubled: the score moves twice as much per change
+  twice.weights[Objective::ROUTED] = 20;
+  twice.weights[Objective::DELIVERED] = 20;
+  EXPECT_NEAR(TrialPlanner::countsPerMin(in.rates), TrialPlanner::countsPerMin(in.rates, &twice), 1e-9);
+  Objective half;
+  half.weights[Objective::ROUTED] = 5;
+  half.weights[Objective::DELIVERED] = 5;
+  EXPECT_NEAR(6.0, TrialPlanner::countsPerMin(in.rates, &half), 1e-9);
+  // a mix keeps its proportions: routed 10 with received 20, the largest weight squared is 4
+  Objective mix;
+  mix.weights[Objective::DELIVERED] = 0;
+  mix.weights[Objective::RECEIVED] = 20;
+  double a = 1.0 / 0.2 + 4.0 / 0.3;   // wr^2 / E + wx^2 / R, E = 0.2 and R = 0.3 a second
+  EXPECT_NEAR(60.0 * 4.0 / a, TrialPlanner::countsPerMin(in.rates, &mix), 1e-9);
+  EXPECT_EQ(1.0, Objective().maxWeightSq());
+  Objective none;
+  for (int i = 0; i < Objective::NUM_INDICATORS; i++) none.weights[i] = 0;
+  EXPECT_EQ(0.0, TrialPlanner::countsPerMin(in.rates, &none));
+}
+
 TEST(Objective, CountingNoiseOfTheDefaultWeightsIsOneOverConfirmed) {
   Objective o;
   EXPECT_NEAR(1.0 / 40, o.countingNoise(100, 40, 250), 1e-12);

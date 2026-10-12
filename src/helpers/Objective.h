@@ -97,6 +97,18 @@ public:
     return v;
   }
 
+  // The largest weight squared, (max |weight| / 10)^2: what a uniform change of the
+  // weights multiplies the counting noise by. Dividing a score's counts by it makes a
+  // rate that reads in plain events a minute at any weight scale (1 for weight 10).
+  double maxWeightSq() const {
+    double m = 0.0;
+    for (int i = 0; i < NUM_INDICATORS; i++) {
+      double w = (weights[i] < 0 ? -weights[i] : weights[i]) / 10.0;
+      if (w > m) m = w;
+    }
+    return m * m;
+  }
+
   // P itself (tests, diagnostics); may overflow to inf for extreme weights.
   double trialValue(const EvalWindow::Result &r) const { return exp(trialLog(r)); }
 

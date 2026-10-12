@@ -61,8 +61,8 @@
 // After every A B B A cycle: idle. An average below Config.min_pkt_rate counts a
 // minute over the whole cycle (both sides, no invalidated block) ends the trial
 // ABORTED_IDLE: the channel is too quiet to decide anything. The counts are the
-// score's own, those whose noise sets a block's (1 / countingNoise(): the confirmed
-// deliveries for the default weights). The caller retries the switch later.
+// score's own, those whose noise sets a block's (the largest weight squared over
+// countingNoise(): the confirmed deliveries for the default weights). The caller retries the switch later.
 //
 // Reach (neighbors heard / marginal) is averaged per value (A, B) for
 // diagnostics; it does not enter the decision. Everything runs on the device:
@@ -256,7 +256,7 @@ public:
     if ((_idx & 3) == 0) { _cycle_counts = 0; _cycle_usable = true; }
     if (usable) {   // the score's own counts in the block: 1 / its counting noise
       double nv = objective().countingNoise(r.exposure, r.ros_count, r.rx_valid);
-      if (isfinite(nv) && nv > 0) _cycle_counts += 1.0 / nv;
+      if (isfinite(nv) && nv > 0) _cycle_counts += objective().maxWeightSq() / nv;   // plain events, as in countsPerMin
     }
     _cycle_usable = _cycle_usable && usable;
     bool pair_added = false;

@@ -114,12 +114,14 @@ public:
   // The score's own events per minute at these rates: the counts whose Poisson noise
   // sets a block's noise (the confirmed deliveries for the default score, the routed
   // attempts for a routed-only one, the received packets for a received-only one).
-  // 0 without rates or when a weighted indicator has no count.
+  // Normalized by the largest weight squared so a uniform weight scale does not move
+  // it: it reads in plain events a minute at any scale. 0 without rates or when a
+  // weighted indicator has no count.
   static double countsPerMin(const TrialRates &r, const Objective *objective = nullptr) {
     static const Objective defaults;
     const Objective &obj = objective ? *objective : defaults;
     double a = obj.countingNoise(r.exposure, r.confirmed, r.rx);
-    return isfinite(a) && a > 0 ? 60.0 / a : 0.0;
+    return isfinite(a) && a > 0 ? 60.0 * obj.maxWeightSq() / a : 0.0;
   }
 
   // `c` for a block spread in percent.

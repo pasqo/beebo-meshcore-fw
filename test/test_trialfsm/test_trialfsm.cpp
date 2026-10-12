@@ -347,6 +347,22 @@ TEST(TrialFSM, TheIdleStopCountsTheScoresEventsNotThePacketsHeard) {
   }
 }
 
+TEST(TrialFSM, TheIdleStopDoesNotMoveWithAUniformWeightScale) {
+  Objective twice;
+  twice.weights[Objective::ROUTED] = 20;
+  twice.weights[Objective::DELIVERED] = 20;
+  for (int blocks_heard = 3; blocks_heard <= 4; blocks_heard++) {
+    TrialFSM::Config c = cfgRate(96, 60, 1);   // a cycle of 4 minutes must count 4 events
+    c.objective = &twice;
+    TrialFSM t;
+    t.begin(c);
+    t.start(1);
+    TrialFSM::Step s = {};
+    for (int i = 0; i < 4 && !s.finished; i++) s = t.onBlock(heard(i < blocks_heard ? 1 : 0), 0, 0);
+    EXPECT_EQ(blocks_heard == 3, s.finished && s.outcome == TrialFSM::ABORTED_IDLE);   // 3 events: idle, 4: not
+  }
+}
+
 TEST(TrialFSM, MinPktRateZeroTurnsTheIdleStopOff) {
   TrialFSM t;
   t.begin(cfg(8));
