@@ -52,17 +52,18 @@
 // _echo_time above -- RTC-second resolution was tried first and found
 // far too coarse for real duplicate-detection timescales), against a
 // configurable window (_dedup_window_ms, NodePrefs.dedup_window_ms)
-// defaulting to 10s -- most duplicate arrivals in practice are fast,
-// near-immediate multi-path echoes, so 10s already covers the common case
+// defaulting to 30s (a captured node saw duplicates up to 25s late; the same window is how
+// long a repeat of our own send still counts as its echo, see _findRecentEchoSlot()) -- most duplicate arrivals in practice are fast,
+// near-immediate multi-path echoes, so 10s already covers the common case, the rest is a tail
 // without flagging every routine wrap as "live". Independent of the
 // echo ring's per-packet echo timeout above (this gates
 // _dedup_evicted_count stats on the general hash table, not self-tx
 // resolution).
 // DEDUP_WINDOW_MAX_MS is the separate upper bound `beebo settings
 // */routing.dedup_window` can be configured up to -- deliberately not tied
-// to the default, so a 10s default doesn't also cap how far a real
+// to the default, so the default doesn't also cap how far a real
 // deployment can widen the window if its traffic pattern warrants it.
-#define DEDUP_LIVE_WINDOW_MS_DEFAULT 10000UL
+#define DEDUP_LIVE_WINDOW_MS_DEFAULT 30000UL
 #define DEDUP_WINDOW_MAX_MS 60000UL
 
 // beebo: _echo_flags bits. CONFIRMED: already counted toward echo_success_count
@@ -404,7 +405,7 @@ public:
   // counting entirely (markSeen() below only counts/logs when the window is
   // nonzero), not a "reset to default" sentinel. Range validation
   // ([0, DEDUP_WINDOW_MAX_MS]) is the caller's job (Beebo.cpp's
-  // SET_DEDUP_WINDOW/tlvSetRepeaterDedupWindow); this just stores whatever
+  // SET_SEEN_WINDOW/tlvSetSeenWindow); this just stores whatever
   // it's given.
   void setDedupWindowMs(uint32_t ms) {
     _dedup_window_ms = ms;

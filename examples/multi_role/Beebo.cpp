@@ -1758,7 +1758,7 @@ void Beebo::clampRadioPrefs() {
   // counting entirely, see SimpleMeshTables.h's setDedupWindowMs()
   // comment), so a device that's never explicitly configured it (0 from
   // NodePrefs' zero-fill) simply boots with it disabled. Explicit range
-  // validation lives in the SET_DEDUP_WINDOW command handler instead.
+  // validation lives in the SET_SEEN_WINDOW command handler instead.
 }
 
 // beebo: DoS/QoS audit follow-up -- SimpleMeshTables caches its dedup window

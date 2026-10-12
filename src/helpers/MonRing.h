@@ -390,9 +390,9 @@ enum : uint8_t {
   // PrefsTlvKey/ComPrefs equivalent (same shape as idle_margin_ms/
   // batt_sample_*, none of which are TLV-registered either), so its own ID
   // here, same as the three above. The repeater copy reuses
-  // PREFS_TLV_REPEATER_DEDUP_WINDOW (20) instead, per this enum's own
+  // PREFS_TLV_SEEN_WINDOW (20) instead, per this enum's own
   // comment -- it IS TLV-registered.
-  SETTING_DEDUP_WINDOW = 103,
+  SETTING_SEEN_WINDOW = 103,
   // beebo: tuning evaluation-window rule (EvalWindow::Config), RAM-only.
   SETTING_ADAPTIVE_WINDOW_MIN_S = 105,
   SETTING_ADAPTIVE_WINDOW_MAX_S = 106,

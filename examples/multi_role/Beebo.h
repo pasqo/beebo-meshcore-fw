@@ -1389,15 +1389,15 @@ private:
     // shared NodePrefs-shaped copy of. _role_state->prefs already has these
     // bytes (same struct as role_state_store[role].prefs, see
     // PROTOCOL_AND_SETTINGS_STORAGE.md's "critical trap" section) -- no new
-    // storage, just a role-explicit accessor. GET/SET_DEDUP_WINDOW (a
+    // storage, just a role-explicit accessor. GET/SET_SEEN_WINDOW (a
     // separate, still-live opcode) also reaches this same storage when its
     // implicit live role matches, but logs its own distinct
-    // SETTING_DEDUP_WINDOW MonRing audit key (103) rather than this one
+    // SETTING_SEEN_WINDOW MonRing audit key (103) rather than this one
     // (20) -- kept as a separate opcode specifically to preserve that
     // audit-log distinction, not because the storage differs.
     PREFS_TLV_RXDELAY = 18,   // rx_delay_base (offset 80) -- see Beebo.h's _role_state->prefs.rx_delay_base comment
     PREFS_TLV_AIRTIME = 19,   // airtime_factor (offset 0) -- see Beebo.h's _role_state->prefs.airtime_factor comment
-    PREFS_TLV_DEDUP_WINDOW = 20,  // dedup_window_ms -- see BeeboRepeaterPrefs.h
+    PREFS_TLV_SEEN_WINDOW = 20,  // dedup_window_ms -- see BeeboRepeaterPrefs.h
     PREFS_TLV_MULTI_ACKS = 21,
     PREFS_TLV_PATH_HASH_MODE = 22,
     PREFS_TLV_LAT = 23,   // fixed-point *1e6 in an int32
@@ -1621,8 +1621,8 @@ private:
   static bool tlvSetRxDelayBase(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetAirtimeFactor(Beebo* self, uint8_t role);
   static bool tlvSetAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw);
-  static uint32_t tlvGetDedupWindow(Beebo* self, uint8_t role);
-  static bool tlvSetDedupWindow(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetSeenWindow(Beebo* self, uint8_t role);
+  static bool tlvSetSeenWindow(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetMultiAcks(Beebo* self, uint8_t role);
   static bool tlvSetMultiAcks(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetPathHashMode(Beebo* self, uint8_t role);

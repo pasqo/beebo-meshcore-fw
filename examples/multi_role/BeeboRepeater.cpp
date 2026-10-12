@@ -219,7 +219,7 @@ bool Beebo::tlvSetAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
   // beebo: updateAdvertTimer() reads _role_state->prefs (the LIVE role) --
   // a genuine restart when repeater is live, a harmless no-op re-apply of
   // the live (non-repeater) role's own unrelated advert_interval otherwise,
-  // same reasoning as tlvSetDedupWindow's pushActiveDedupWindow()
+  // same reasoning as tlvSetSeenWindow's pushActiveDedupWindow()
   // call above.
   self->updateAdvertTimer();
 #endif
@@ -399,14 +399,14 @@ bool Beebo::tlvSetAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw) {
 // unconditionally, so it's a harmless no-op re-apply of the live role's
 // already-current value when this write targets a non-live repeater slot,
 // and a genuine re-apply when repeater is the one that's live.
-uint32_t Beebo::tlvGetDedupWindow(Beebo* self, uint8_t role) {
+uint32_t Beebo::tlvGetSeenWindow(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   return self->role_state_store[role].prefs.dedup_window_ms;
 #else
   return 0;
 #endif
 }
-bool Beebo::tlvSetDedupWindow(Beebo* self, uint8_t role, uint32_t raw) {
+bool Beebo::tlvSetSeenWindow(Beebo* self, uint8_t role, uint32_t raw) {
   if (raw > DEDUP_WINDOW_MAX_MS) return false;
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: MON_SETTING, reusing this field's own PrefsTlvKey (20) as the
@@ -415,7 +415,7 @@ bool Beebo::tlvSetDedupWindow(Beebo* self, uint8_t role, uint32_t raw) {
   // entry point uniformly, same as node_role's own appendSettingChangedEvent
   // call living inside requestNodeRoleSwitch() rather than each of its callers.
   BeeboRoleState& slot = self->role_state_store[role];
-  self->appendSettingChangedEvent(PREFS_TLV_DEDUP_WINDOW,
+  self->appendSettingChangedEvent(PREFS_TLV_SEEN_WINDOW,
                                    slot.prefs.dedup_window_ms, raw, EVENT_SOURCE_BINARY);
   slot.prefs.dedup_window_ms = raw;
   persistRoleSlot(self, role, slot);
@@ -550,7 +550,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_MONRING_CONFIG,         TLV_U32,    tlvGetMonringConfig,   tlvSetMonringConfig,   nullptr, nullptr },
   { PREFS_TLV_RXDELAY,       TLV_FLOAT,  tlvGetRxDelayBase,   tlvSetRxDelayBase,   nullptr, nullptr },
   { PREFS_TLV_AIRTIME,       TLV_FLOAT,  tlvGetAirtimeFactor, tlvSetAirtimeFactor, nullptr, nullptr },
-  { PREFS_TLV_DEDUP_WINDOW,  TLV_U32,    tlvGetDedupWindow,   tlvSetDedupWindow,   nullptr, nullptr },
+  { PREFS_TLV_SEEN_WINDOW,  TLV_U32,    tlvGetSeenWindow,   tlvSetSeenWindow,   nullptr, nullptr },
   { PREFS_TLV_MULTI_ACKS,     TLV_U32,    tlvGetMultiAcks,     tlvSetMultiAcks,     nullptr, nullptr },
   { PREFS_TLV_PATH_HASH_MODE, TLV_U32,    tlvGetPathHashMode,  tlvSetPathHashMode,  nullptr, nullptr },
   { PREFS_TLV_LAT,            TLV_U32,    tlvGetLat,           tlvSetLat,           nullptr, nullptr },
