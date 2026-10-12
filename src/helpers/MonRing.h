@@ -300,6 +300,10 @@ enum : uint8_t {
   //                the verdict judges: 0 = the first send, n = the nth retry
   //                (TxRecord.attempt of the MON_TX record it belongs to).
   //                A retry in flight emits no verdict for the attempt before it.
+  //   data[0]    = (EVENT_ECHO_SUCCESS) 0 path not checked (older firmware), 1 the repeat
+  //                carried our sent path plus one hash (a neighbor that heard our
+  //                transmission), 2 it did not. A success whose age is past its window
+  //                is a late echo (credited only with 1, within the seen window).
   //   data[10:12] = (EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT) the echo window in ms
   //                (u16 LE, 0xFFFF at most) the slot ran with: 0 in a ring
   //                written before the firmware logged it, 0 for the ACK events
@@ -348,6 +352,12 @@ enum : uint8_t {
   //   data[1:5]  = pkt_hash (u32 LE) -- Packet::calculateMonRingHash()
   //   data[5:12] = reserved
   EVENT_TX_SUPPRESSED = 28,
+  // A repeat of a send that already timed out unconfirmed, inside the seen window
+  // (SimpleMeshTables::_findLateEchoSlot()) that was NOT its echo: it did not carry
+  // our sent path plus one hash, so a repeater that never heard us relayed it by
+  // another route. Not credited; once per send. data[1:5] pkt_hash, [5:9] age_ms
+  // since the send, [9] attempt, [10:12] the echo window in ms.
+  EVENT_ECHO_OTHER = 29,
 };
 
 // ---- TXCONFIRM_*: verdict enum used ONLY for internal bookkeeping now

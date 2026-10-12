@@ -480,14 +480,32 @@ TEST_F(RetryFixture, QueuedRetry_HasNoWindowUntilItIsSent) {
 TEST_F(RetryFixture, EchoOfTheFirstSendWhileTheRetryWaits_CountsSuccessForAttemptZero) {
     t.setRetryNo(1);
     Packet p = makeFloodPacket(0x41);
+    p.path[0] = 0x11; p.path[1] = 0x22; p.path_len = 2;   // forwarded: our hash is last
     forward(p);
     pastWindow();                             // retry queued, not sent
     g_mock_millis += 5000;
-    EXPECT_TRUE(t.wasSeen(&p));               // a late echo of the first send
+    Packet echo = p;
+    echo.path[2] = 0x33; echo.path_len = 3;   // a neighbor that heard our transmission relayed it
+    EXPECT_TRUE(t.wasSeen(&echo));            // a late echo of the first send
     EXPECT_EQ(1u, t.getEchoSuccessCount());
     EXPECT_EQ(0u, t.getEchoTimeoutCount());
     t.checkEchoTimeouts();
     EXPECT_EQ(0u, t.getEchoTimeoutCount());
+}
+
+TEST_F(RetryFixture, RepeatOfTheFirstSendWhileTheRetryWaits_FromAnotherRouteIsNotAnEcho) {
+    t.setRetryNo(1);
+    Packet p = makeFloodPacket(0x44);
+    p.path[0] = 0x11; p.path[1] = 0x22; p.path_len = 2;
+    forward(p);
+    pastWindow();                             // retry queued, not sent
+    g_mock_millis += 2000;
+    Packet other = p;
+    other.path[0] = 0x77; other.path[2] = 0x33; other.path_len = 3;   // a route that did not go through us
+    EXPECT_TRUE(t.wasSeen(&other));
+    EXPECT_EQ(0u, t.getEchoSuccessCount());
+    t.checkEchoTimeouts();
+    EXPECT_EQ(0u, t.getEchoSuccessCount());   // the retry still goes out
 }
 
 TEST_F(RetryFixture, NoteTx_IgnoresPacketsThatAreNotWaitingForTheirRetry) {
@@ -671,4 +689,127 @@ TEST_F(RetryFixture, FullRing_AllPending_EvictsTheOldest) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// ── echo attribution: only a repeat that carries our sent path is our echo ──
+
+namespace {
+// a flood forwarded by us with the path [0x11, 0x22]: our hash is the last entry
+Packet sentWithPath(uint8_t seed) {
+    Packet p = makeFloodPacket(seed);
+    p.path[0] = 0x11; p.path[1] = 0x22;
+    p.path_len = 2;
+    return p;
+}
+// what a repeater (hash `who`) rebroadcasts after hearing it
+Packet rebroadcastBy(const Packet& sent, uint8_t who) {
+    Packet r = sent;
+    r.path[r.path_len++] = who;
+    return r;
+}
+}
+
+struct AttributionFixture : public EventFixture {
+    bool seen(Packet p) { return t.wasSeen(&p); }
+    std::vector<MonRecord> events(int type) {
+        MonRecord out[16];
+        uint32_t returned = 0;
+        ring.serialize(reinterpret_cast<uint8_t*>(out), sizeof(out), 0, &returned);
+        std::vector<MonRecord> v;
+        for (uint32_t i = 0; i < returned; i++)
+            if (out[i].kind == MON_EVENT && out[i].event.event_type == type) v.push_back(out[i]);
+        return v;
+    }
+    void SetUp() override { EventFixture::SetUp(); t.setRetryNo(0); }
+};
+
+TEST_F(AttributionFixture, OnTimeEchoesAreMarkedByTheirPath) {
+    Packet a = sentWithPath(0x40), b = sentWithPath(0x41);
+    forward(a);
+    forward(b);
+    EXPECT_TRUE(seen(rebroadcastBy(a, 0x33)));      // a neighbor that heard our transmission
+    Packet other = b;
+    other.path[0] = 0x55;                                 // a repeat that reached us by another route
+    other.path[2] = 0x33; other.path_len = 3;
+    EXPECT_TRUE(t.wasSeen(&other));
+    auto ok = events(EVENT_ECHO_SUCCESS);
+    ASSERT_EQ(2u, ok.size());
+    EXPECT_EQ(ECHO_PATH_OURS, ok[0].event.data[0]);
+    EXPECT_EQ(ECHO_PATH_OTHER, ok[1].event.data[0]);
+    EXPECT_EQ(2u, t.getEchoSuccessCount());               // on time: credited as before
+}
+
+TEST_F(AttributionFixture, ALateEchoIsCreditedOnlyWithOurPath) {
+    Packet p = sentWithPath(0x42);
+    forward(p);
+    pastWindow();
+    g_mock_millis += 9000;                                // 11 s after the send, inside the 30 s seen window
+    EXPECT_TRUE(seen(rebroadcastBy(p, 0x33)));
+    EXPECT_EQ(1u, t.getEchoSuccessCount());
+    auto ok = events(EVENT_ECHO_SUCCESS);
+    ASSERT_EQ(1u, ok.size());
+    uint32_t age;
+    memcpy(&age, &ok[0].event.data[5], 4);
+    EXPECT_GT(age, 1350u);                                // past its window: a late echo
+    EXPECT_EQ(ECHO_PATH_OURS, ok[0].event.data[0]);
+    EXPECT_TRUE(seen(rebroadcastBy(p, 0x34)));      // a second neighbor's echo of the same send
+    EXPECT_EQ(1u, t.getEchoSuccessCount());               // one credit per send
+}
+
+TEST_F(AttributionFixture, ALateRepeatFromAnotherRouteIsReportedNotCredited) {
+    Packet p = sentWithPath(0x43);
+    forward(p);
+    pastWindow();
+    Packet other = p;
+    other.path[0] = 0x66;                                 // a route that did not go through us
+    other.path[1] = 0x77;
+    other.path[2] = 0x33; other.path_len = 3;
+    g_mock_millis += 3000;
+    EXPECT_TRUE(t.wasSeen(&other));
+    EXPECT_TRUE(t.wasSeen(&other));
+    EXPECT_EQ(0u, t.getEchoSuccessCount());
+    auto o = events(EVENT_ECHO_OTHER);
+    ASSERT_EQ(1u, o.size());                              // once per send
+    uint32_t age;
+    memcpy(&age, &o[0].event.data[5], 4);
+    EXPECT_GT(age, 1350u);
+    Packet longer = p;                                    // our path but two more hashes: not a direct neighbor's echo
+    longer.path[2] = 0x33; longer.path[3] = 0x44; longer.path_len = 4;
+    EXPECT_TRUE(t.wasSeen(&longer));
+    EXPECT_EQ(0u, t.getEchoSuccessCount());
+}
+
+TEST_F(AttributionFixture, APathWithAnotherHashSizeIsNotOurEcho) {
+    Packet p = sentWithPath(0x44);
+    forward(p);
+    pastWindow();
+    Packet two = p;                                       // 2-byte hashes: the same bytes mean something else
+    two.path_len = (1 << 6) | 3;
+    two.path[2] = 0x33; two.path[3] = 0x01;
+    g_mock_millis += 1000;
+    EXPECT_TRUE(t.wasSeen(&two));
+    EXPECT_EQ(0u, t.getEchoSuccessCount());
+}
+
+TEST_F(AttributionFixture, ALateEchoBeyondTheSeenWindowOrWithItOffIsNotCredited) {
+    Packet p = sentWithPath(0x45), q = sentWithPath(0x46);
+    forward(p);
+    pastWindow();
+    g_mock_millis += 30000;                               // 32 s: past the 30 s seen window
+    EXPECT_TRUE(seen(rebroadcastBy(p, 0x33)));
+    EXPECT_EQ(0u, t.getEchoSuccessCount());
+    t.setDedupWindowMs(0);
+    forward(q);
+    pastWindow();
+    EXPECT_TRUE(seen(rebroadcastBy(q, 0x33)));
+    EXPECT_EQ(0u, t.getEchoSuccessCount());               // 0 = no late credit
+}
+
+TEST_F(AttributionFixture, ASmallSeenWindowNeverShortensTheEchoWindow) {
+    t.setDedupWindowMs(100);
+    Packet p = sentWithPath(0x47);
+    forward(p);
+    g_mock_millis += 1000;                                // inside the 1350 ms echo window
+    EXPECT_TRUE(seen(rebroadcastBy(p, 0x33)));
+    EXPECT_EQ(1u, t.getEchoSuccessCount());
 }

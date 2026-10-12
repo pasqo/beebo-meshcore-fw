@@ -81,6 +81,9 @@
 #define ECHO_F_SENT_SHIFT    5
 #define ECHO_F_COUNT_MASK    0x03
 #define ECHO_RETRY_NO_MAX    3
+// data[0] of EVENT_ECHO_SUCCESS: did the repeat carry our path?
+#define ECHO_PATH_OURS       1
+#define ECHO_PATH_OTHER      2
 
 // beebo: sends one retry of a forward whose echo timed out. raw/len is the
 // packet as it was forwarded, attempt 1..ECHO_RETRY_NO_MAX. Returns false if it
@@ -125,6 +128,14 @@ class SimpleMeshTables : public mesh::MeshTables {
   // to reference the origin MON_TX record (and, for a confirmed echo, the
   // MON_RX record of the specific packet that confirmed it too).
   uint32_t _echo_monring_hash[MAX_ECHO_HASHES];
+  // beebo: the path the slot's packet was sent with (our own hash last): a neighbor's
+  // rebroadcast of OUR transmission carries it as an exact prefix plus its own hash, a
+  // repeat that reached us by another route does not. _echo_path_len is the packet's
+  // path_len byte (hash size and count), _echo_path_dig an FNV-1a digest of the path.
+  // _echo_other: a late repeat that was not ours was already reported for the slot.
+  uint32_t _echo_path_dig[MAX_ECHO_HASHES];
+  uint8_t _echo_path_len[MAX_ECHO_HASHES];
+  uint8_t _echo_other[MAX_ECHO_HASHES];
   int _echo_next_idx;
   // beebo: route retry. _retry_store is MAX_ECHO_HASHES * MAX_TRANS_UNIT bytes
   // owned by the caller (PSRAM, allocated once), one raw packet per echo slot;
@@ -173,6 +184,39 @@ class SimpleMeshTables : public mesh::MeshTables {
     return -1;
   }
 
+  static uint32_t _pathDigest(const uint8_t* path, uint8_t path_len) {
+    uint32_t h = 2166136261u ^ path_len;
+    int bytes = (path_len & 63) * ((path_len >> 6) + 1);
+    for (int i = 0; i < bytes; i++) h = (h ^ path[i]) * 16777619u;
+    return h;
+  }
+
+  // Is this duplicate the rebroadcast of the packet slot `i` sent? Its path is ours
+  // plus exactly one more hash, of the same size: the repeater that heard our
+  // transmission appended itself. A repeat by another route has a different path.
+  bool _isEchoOf(int i, const mesh::Packet* dup) const {
+    uint8_t n = _echo_path_len[i] & 63, sz = (_echo_path_len[i] >> 6) + 1;
+    if (dup->getPathHashSize() != sz || dup->getPathHashCount() != n + 1) return false;
+    uint8_t first[MAX_PATH_SIZE];
+    memcpy(first, dup->path, (size_t)n * sz);
+    return _pathDigest(first, _echo_path_len[i]) == _echo_path_dig[i];
+  }
+
+  // A send that timed out unconfirmed still has its slot until it is reused: the slot
+  // whose hash matches, resolved without an echo, up to the seen window past its send
+  // (never less than its echo window), or -1.
+  int _findLateEchoSlot(const uint8_t* hash) const {
+    uint32_t now = millis();
+    for (int i = 0; i < MAX_ECHO_HASHES; i++) {
+      uint8_t f = _echo_flags[i];
+      if (!(f & ECHO_F_RESOLVED) || (f & ECHO_F_CONFIRMED)) continue;
+      if (memcmp(hash, _echo_hashes[i], MAX_HASH_SIZE) != 0) continue;
+      uint32_t age = now - _echo_time[i];
+      if (age <= _echo_timeout[i] || age <= _dedup_window_ms) return i;
+    }
+    return -1;
+  }
+
   // see MonRing.h's
   // EVENT_ECHO_SUCCESS/EVENT_ECHO_TIMEOUT comment for the data[] layout.
   // SUCCESS/TIMEOUT only -- OVERFLOW goes through _emitEchoOverflowEvent()
@@ -180,7 +224,7 @@ class SimpleMeshTables : public mesh::MeshTables {
   // separate event type). No-op if setMonRing() was never called (e.g.
   // native unit tests construct this class directly).
   void _emitEchoEvent(uint8_t verdict, uint32_t pkt_hash, uint32_t age_ms, uint8_t attempt,
-                      uint32_t window_ms) {
+                      uint32_t window_ms, uint8_t path_check = 0) {
     if (_monring == nullptr || _rtc == nullptr) return;
     EventRecord rec;
     memset(&rec, 0, sizeof(rec));
@@ -190,6 +234,7 @@ class SimpleMeshTables : public mesh::MeshTables {
     rec.data[9] = attempt;   // which transmission this judges: 0 first send, n the nth retry
     uint16_t window = window_ms > 0xFFFF ? 0xFFFF : (uint16_t)window_ms;
     memcpy(&rec.data[10], &window, 2);   // the echo window the slot ran with
+    rec.data[0] = path_check;            // 0 not checked, 1 the repeat carried our path, 2 it did not
     // beebo: MonRing::appendEvent()'s `now_ms` is an already-resolved
     // absolute epoch-ms instant -- _rtc->nowMillis() (RTCClock::
     // nowMillis(), MeshCore.h), the one canonical function for "what time
@@ -203,6 +248,23 @@ class SimpleMeshTables : public mesh::MeshTables {
     // boot-relative millis() reading would be just as wrong a second time
     // over, in the other direction -- MonRing no longer re-anchors `now`
     // itself at all (see _ensureSync()'s own comment, MonRing.h).
+    _monring->appendEvent(rec, _rtc->nowMillis());
+  }
+
+  // beebo: a repeat of a timed-out send inside the seen window that was NOT its
+  // echo (another route's rebroadcast): reported once per slot, not credited.
+  void _emitEchoOtherEvent(int slot) {
+    if (_monring == nullptr || _rtc == nullptr) return;
+    EventRecord rec;
+    memset(&rec, 0, sizeof(rec));
+    rec.event_type = EVENT_ECHO_OTHER;
+    uint32_t age = millis() - _echo_time[slot];
+    uint8_t attempt = (_echo_flags[slot] >> ECHO_F_SENT_SHIFT) & ECHO_F_COUNT_MASK;
+    uint16_t window = _echo_timeout[slot] > 0xFFFF ? 0xFFFF : (uint16_t)_echo_timeout[slot];
+    memcpy(&rec.data[1], &_echo_monring_hash[slot], 4);
+    memcpy(&rec.data[5], &age, 4);
+    rec.data[9] = attempt;
+    memcpy(&rec.data[10], &window, 2);
     _monring->appendEvent(rec, _rtc->nowMillis());
   }
 
@@ -244,6 +306,9 @@ public:
     memset(_retry_len, 0, sizeof(_retry_len));
     _waiting_tx = 0;
     memset(_echo_monring_hash, 0, sizeof(_echo_monring_hash));
+    memset(_echo_path_dig, 0, sizeof(_echo_path_dig));
+    memset(_echo_path_len, 0, sizeof(_echo_path_len));
+    memset(_echo_other, 0, sizeof(_echo_other));
     _echo_next_idx = 0;
     _echo_success_count = 0;
     _echo_timeout_count = 0;
@@ -318,6 +383,9 @@ public:
     _echo_timeout[idx] = ECHO_TIMEOUT_BASE_MILLIS +
         (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
+    _echo_path_len[idx] = (uint8_t)packet->path_len;
+    _echo_path_dig[idx] = _pathDigest(packet->path, (uint8_t)packet->path_len);
+    _echo_other[idx] = 0;
     if (_echo_flags[idx] & ECHO_F_WAIT_TX) _waiting_tx--;   // its queued retry no longer has a slot to time
     // fresh generation; a forward keeps a copy and its retries_left starts at retry_no
     uint8_t left = 0;
@@ -444,17 +512,33 @@ public:
         // making it an unbounded echo-multiplicity count instead of a
         // proper 0/1-per-attempt rate comparable to ack_success_count.
         int slot = _findRecentEchoSlot(hash);
+        // late: the echo window already ran out, whether the send was given up on (a
+        // slot reused only later) or its retry is still queued
+        bool late = slot >= 0 && (_echo_flags[slot] & ECHO_F_WAIT_TX);
+        if (slot < 0) {
+          slot = _findLateEchoSlot(hash);
+          late = slot >= 0;
+        }
         if (slot >= 0 && !(_echo_flags[slot] & ECHO_F_CONFIRMED)) {
-          // a retry still queued has not been sent: this echo answers the send before it
-          uint8_t attempt = (_echo_flags[slot] >> ECHO_F_SENT_SHIFT) & ECHO_F_COUNT_MASK;
-          if (_echo_flags[slot] & ECHO_F_WAIT_TX) {
-            attempt--;
-            _waiting_tx--;
+          bool ours = _isEchoOf(slot, packet);
+          if (!late || ours) {
+            // a retry still queued has not been sent: this echo answers the send before it
+            uint8_t attempt = (_echo_flags[slot] >> ECHO_F_SENT_SHIFT) & ECHO_F_COUNT_MASK;
+            if (_echo_flags[slot] & ECHO_F_WAIT_TX) {
+              attempt--;
+              _waiting_tx--;
+            }
+            _echo_flags[slot] = (_echo_flags[slot] & ~ECHO_F_WAIT_TX) | ECHO_F_CONFIRMED | ECHO_F_RESOLVED;
+            _echo_success_count++;
+            _emitEchoEvent(TXCONFIRM_SUCCESS, _echo_monring_hash[slot],
+                           millis() - _echo_time[slot], attempt, _echo_timeout[slot],
+                           ours ? ECHO_PATH_OURS : ECHO_PATH_OTHER);
+          } else if (!_echo_other[slot]) {
+            // a repeat after the window is the echo only if the neighbor that sent it
+            // heard OUR transmission; from another route it is reported, not credited
+            _echo_other[slot] = 1;
+            _emitEchoOtherEvent(slot);
           }
-          _echo_flags[slot] = (_echo_flags[slot] & ~ECHO_F_WAIT_TX) | ECHO_F_CONFIRMED | ECHO_F_RESOLVED;
-          _echo_success_count++;
-          _emitEchoEvent(TXCONFIRM_SUCCESS, _echo_monring_hash[slot],
-                            millis() - _echo_time[slot], attempt, _echo_timeout[slot]);
         }
         return true;
       }
