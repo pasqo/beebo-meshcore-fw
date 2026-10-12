@@ -303,10 +303,35 @@ TEST(TrialFSM, TheIdleThresholdScalesWithTheBlockLength) {
     t.onBlock(heard(100), 0, 0);
     t.onBlock(heard(100), 0, 0);
     t.onBlock(heard(100), 0, 0);
-    TrialFSM::Step s = t.onBlock(heard(99), 0, 0);   // 399
+    TrialFSM::Step s = t.onBlock(heard(39), 0, 0);   // 339: below 400 less 3 sigma (60)
     ASSERT_TRUE(s.finished);
     EXPECT_EQ(TrialFSM::ABORTED_IDLE, s.outcome);
   }
+  {
+    TrialFSM t;
+    t.begin(cfgRate(96, 600, 10));
+    t.start(1);
+    t.onBlock(heard(100), 0, 0);
+    t.onBlock(heard(100), 0, 0);
+    t.onBlock(heard(100), 0, 0);
+    EXPECT_FALSE(t.onBlock(heard(40), 0, 0).finished);   // 340: inside the counting noise
+  }
+}
+
+TEST(TrialFSM, ANodeAtTheFloorIsNotIdleByChance) {
+  // 4.9 events a minute against a floor of 5, four blocks of 612 s: 196 events where
+  // 204 would be exactly the floor; counts vary by about 14, so this is not idle
+  TrialFSM t;
+  t.begin(cfgRate(96, 612, 5));
+  t.start(1);
+  TrialFSM::Step s = runHeard(t, 1, 4, 49, 49);
+  EXPECT_FALSE(s.finished);
+  TrialFSM q;
+  q.begin(cfgRate(96, 612, 5));
+  q.start(1);
+  s = runHeard(q, 1, 4, 37, 37);   // 148 events: 3.6 a minute, clearly below
+  ASSERT_TRUE(s.finished);
+  EXPECT_EQ(TrialFSM::ABORTED_IDLE, s.outcome);
 }
 
 TEST(TrialFSM, TheIdleStopCountsTheScoresEventsNotThePacketsHeard) {
@@ -351,7 +376,7 @@ TEST(TrialFSM, TheIdleStopDoesNotMoveWithAUniformWeightScale) {
   Objective twice;
   twice.weights[Objective::ROUTED] = 20;
   twice.weights[Objective::DELIVERED] = 20;
-  for (int blocks_heard = 3; blocks_heard <= 4; blocks_heard++) {
+  for (int blocks_heard = 1; blocks_heard <= 2; blocks_heard++) {
     TrialFSM::Config c = cfgRate(96, 60, 1);   // a cycle of 4 minutes must count 4 events
     c.objective = &twice;
     TrialFSM t;
@@ -359,7 +384,27 @@ TEST(TrialFSM, TheIdleStopDoesNotMoveWithAUniformWeightScale) {
     t.start(1);
     TrialFSM::Step s = {};
     for (int i = 0; i < 4 && !s.finished; i++) s = t.onBlock(heard(i < blocks_heard ? 1 : 0), 0, 0);
-    EXPECT_EQ(blocks_heard == 3, s.finished && s.outcome == TrialFSM::ABORTED_IDLE);   // 3 events: idle, 4: not
+    EXPECT_EQ(blocks_heard == 1, s.finished && s.outcome == TrialFSM::ABORTED_IDLE);   // 1 event is below 4 less half, 2 is not
+  }
+}
+
+TEST(TrialFSM, APlannedScheduleEndsIdleOnlyOnASilentCycle) {
+  TrialFSM::Config c = cfg(96);   // no floor: min_pkt_rate 0
+  c.idle_if_silent = true;
+  {
+    TrialFSM t;
+    t.begin(c);
+    t.start(1);
+    TrialFSM::Step s = runHeard(t, 1, 4, 1, 0);   // a slow channel: one event in two blocks, nothing in two
+    EXPECT_FALSE(s.finished);
+  }
+  {
+    TrialFSM t;
+    t.begin(c);
+    t.start(1);
+    TrialFSM::Step s = runHeard(t, 1, 4, 0, 0);   // nothing at all in the cycle
+    ASSERT_TRUE(s.finished);
+    EXPECT_EQ(TrialFSM::ABORTED_IDLE, s.outcome);
   }
 }
 

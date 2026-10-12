@@ -2532,7 +2532,8 @@ bool Beebo::startTrial(int sw) {
   tc.blocks = plan.blocks;
   tc.alpha_pct = 100 - _trial_confidence_pct;   // TrialFSM works in error rate
   tc.min_gain_pct = _trial_min_gain_pct;
-  tc.min_pkt_rate = _trial_min_pkt_rate;   // the idle stop, on the score's counts
+  tc.min_pkt_rate = planned ? 0 : _trial_min_pkt_rate;   // a planned schedule adapts to any rate: no floor,
+  tc.idle_if_silent = planned;                           // it ends idle only on a cycle that counted nothing
   tc.futility = plan.futility;
   tc.objective = &objective;
   trial.begin(tc);
@@ -2730,52 +2731,50 @@ void Beebo::trackExposure() {
   _expo.poll(millis(), MonRing::computeQosExposure(q), MonRing::computeRos(q), radio_driver.getPacketsRecv());
 }
 
-// tuning.trial.min_pkt_rate: whether the next trial may start, on the score's own
-// counts a minute from the traffic tracker (a running trial ends idle on the same
-// rate, TrialFSM). While the rate is below the minimum the sequence waits,
-// re-checking once a minute; each change between waiting and running is logged
-// (EVENT_TRIAL_PKT_RATE). A planned schedule must also fit (TrialPlanner).
+// tuning.trial.min_pkt_rate: whether the next trial may start. A fixed schedule
+// (both block settings set) starts only while the score's own counts a minute
+// (TrialPlanner::countsPerMin(), from the traffic tracker; none yet counts as 0) are
+// at least the minimum, re-checking once a minute and logging EVENT_TRIAL_PKT_RATE on
+// each change between waiting and running; a running one ends idle on the same rate
+// (TrialFSM). A planned schedule has no floor: it adapts to the rate and holds only
+// while the tracker is not ready or the plan does not fit (TrialPlanner).
 bool Beebo::trialRateAllows(int sw) {
   bool planned = _trial_block_size_s == 0 || _trial_block_count == 0;
   if ((_trial_rate_wait || _trial_underpowered) && !millisHasNowPassed(_trial_rate_check_at)) return false;
-  if (!planned && _trial_min_pkt_rate == 0) {
+  if (planned) {
+    _trial_rate_wait = false;
+    if (!_expo.ready()) return false;   // the tracker still fills
+    TrialPlanner::Plan plan = planTrial();
+    if (plan.status == TrialPlanner::OK) {
+      _trial_underpowered = false;
+      return true;
+    }
+    if (!_trial_underpowered && plan.status == TrialPlanner::UNDERPOWERED) {
+      emitTrialPlan(plan, _expo.rates(), false, 0);
+      emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
+    }
+    _trial_underpowered = true;
+    _trial_rate_check_at = futureMillis(60000);
+    return false;
+  }
+  if (_trial_min_pkt_rate == 0) {
     _trial_rate_wait = false;
     return true;
   }
-  if (_trial_min_pkt_rate) {
-    double rate = _expo.ready() ? TrialPlanner::countsPerMin(_expo.rates(), &objective) : 0.0;   // nothing counted yet: below any minimum
-    bool wait = rate < _trial_min_pkt_rate;
-    if (wait != _trial_rate_wait && monring.enabled() && monring.allocated()) {
-      EventRecord rec{};
-      rec.event_type = EVENT_TRIAL_PKT_RATE;
-      rec.data[0] = wait ? 1 : 0;
-      uint16_t r16 = (uint16_t)(rate > 65535.0 ? 65535 : (uint32_t)rate);
-      memcpy(&rec.data[1], &r16, 2);
-      rec.data[3] = _trial_min_pkt_rate;
-      monring.appendEvent(rec, getRTCClock()->nowMillis());
-    }
-    _trial_rate_wait = wait;
-    if (wait) {
-      _trial_rate_check_at = futureMillis(60000);
-      return false;
-    }
-  } else {
-    _trial_rate_wait = false;
+  double rate = _expo.ready() ? TrialPlanner::countsPerMin(_expo.rates(), &objective) : 0.0;   // nothing counted yet: below any minimum
+  bool wait = rate < _trial_min_pkt_rate;
+  if (wait != _trial_rate_wait && monring.enabled() && monring.allocated()) {
+    EventRecord rec{};
+    rec.event_type = EVENT_TRIAL_PKT_RATE;
+    rec.data[0] = wait ? 1 : 0;
+    uint16_t r16 = (uint16_t)(rate > 65535.0 ? 65535 : (uint32_t)rate);
+    memcpy(&rec.data[1], &r16, 2);
+    rec.data[3] = _trial_min_pkt_rate;
+    monring.appendEvent(rec, getRTCClock()->nowMillis());
   }
-  if (!planned) return true;
-  if (!_expo.ready()) return false;   // the tracker still fills
-  TrialPlanner::Plan plan = planTrial();
-  if (plan.status == TrialPlanner::OK) {
-    _trial_underpowered = false;
-    return true;
-  }
-  if (!_trial_underpowered && plan.status == TrialPlanner::UNDERPOWERED) {
-    emitTrialPlan(plan, _expo.rates(), false, 0);
-    emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
-  }
-  _trial_underpowered = true;
-  _trial_rate_check_at = futureMillis(60000);
-  return false;
+  _trial_rate_wait = wait;
+  if (wait) _trial_rate_check_at = futureMillis(60000);
+  return !wait;
 }
 
 void Beebo::trialDoneAll() {

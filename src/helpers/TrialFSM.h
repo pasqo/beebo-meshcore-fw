@@ -58,9 +58,9 @@
 // (pairs in the schedule), the stronger side wins: ALIVE_A keeps A, ALIVE_B
 // adopts B.
 //
-// After every A B B A cycle: idle. An average below Config.min_pkt_rate counts a
-// minute over the whole cycle (both sides, no invalidated block) ends the trial
-// ABORTED_IDLE: the channel is too quiet to decide anything. The counts are the
+// After every A B B A cycle: idle. An average clearly below Config.min_pkt_rate
+// counts a minute over the whole cycle (both sides, no invalidated block; see
+// idleCycle() for how far below) ends the trial ABORTED_IDLE: the channel is too quiet to decide anything. The counts are the
 // score's own, those whose noise sets a block's (the largest weight squared over
 // countingNoise(): the confirmed deliveries for the default weights). The caller retries the switch later.
 //
@@ -105,6 +105,9 @@ public:
     // error the full schedule would reach (se * sqrt(n / N)); when even that cannot
     // put either bound past its threshold the trial ends INCONCLUSIVE.
     bool futility = false;
+    // A planned schedule adapts to any rate and has no floor: it ends idle only when a
+    // whole cycle counted nothing at all (a dead channel, not a slow one).
+    bool idle_if_silent = false;
   };
 
   // Two-sided Student-t critical value for `df` degrees of freedom at
@@ -194,9 +197,18 @@ public:
   uint16_t totalBlocks() const { return _total; }
   uint16_t blockSeconds() const { return _cfg.block_s; }
   void setBlockSeconds(uint16_t s) { _cfg.block_s = s; }   // the next cycle's blocks, set at a cycle boundary
-  // The cycle just closed counted fewer than min_pkt_rate events a minute (4 blocks).
+  // The cycle just closed counted clearly fewer than min_pkt_rate events a minute (4
+  // blocks). Counts are Poisson: a cycle at exactly the floor's rate holds F events
+  // give or take sqrt(F), so a node near the floor would fall below it half the time.
+  // Idle is IDLE_SIGMAS standard deviations below F (never more than half of F, so a
+  // short cycle with few events still ends idle when it hears little).
+  static constexpr double IDLE_SIGMAS = 3.0;
   bool idleCycle() const {
-    return _cycle_counts * 60.0 < (double)_cfg.min_pkt_rate * 4.0 * _cfg.block_s;
+    if (_cfg.idle_if_silent && _cycle_counts <= 0.0) return true;
+    double f = (double)_cfg.min_pkt_rate * 4.0 * _cfg.block_s / 60.0;   // events at the floor
+    double tol = IDLE_SIGMAS * sqrt(f);
+    if (tol > f / 2.0) tol = f / 2.0;
+    return _cycle_counts < f - tol;
   }
   uint8_t original() const { return _orig; }
   uint8_t alternative() const { return _alt; }
