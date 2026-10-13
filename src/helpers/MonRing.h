@@ -536,10 +536,12 @@ enum { TXR_OK = 0, TXR_TIMEOUT = 1 };
 // arithmetic), `>= 3` means `base*1000 + offset` (milliseconds).
 // 4: RxRecord's last byte (reserved, always zero) became `ext`. RXREC_EXT_PREV_US:
 // the hop BEFORE the last one in the path is our own hash, i.e. this reception is a
-// neighbor's relay of a packet WE transmitted (an echo, or a repeat of our send that
-// came back through that neighbor). Zero is ambiguous on a capture before 4.
+// neighbor's direct relay of a packet WE transmitted (an echo). RXREC_EXT_VIA_US: our
+// hash is earlier in the path, so the packet went through us and was relayed by more
+// than one repeater since. Zero is ambiguous on a capture before 4.
 #define MONRING_ABI_VERSION 4
-#define RXREC_EXT_PREV_US  0x01
+#define RXREC_EXT_PREV_US  0x01   // direct: the hop before the last is our hash (the neighbor relayed our transmission)
+#define RXREC_EXT_VIA_US   0x02   // not direct: our hash is further back in the path (more repeaters relayed it since)
 
 // ---- the union members (each exactly 16 bytes, packed, kind at byte 0) -----
 struct __attribute__((packed)) SyncRecord {

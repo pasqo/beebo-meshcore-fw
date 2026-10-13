@@ -336,6 +336,13 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
           // a packet we transmitted (the second-to-last path hash, full hash_size)
           if (hops >= 2 && self_id.isHashMatch(raw + off + path_bytes - 2 * hash_size, hash_size))
             rec.ext |= RXREC_EXT_PREV_US;
+          // ... or further back: relayed through more repeaters since our transmission
+          for (int k = 0; k + 2 < hops; k++) {
+            if (self_id.isHashMatch(raw + off + k * hash_size, hash_size)) {
+              rec.ext |= RXREC_EXT_VIA_US;
+              break;
+            }
+          }
           // beebo: whoever transmitted the last hop to us is a genuine direct
           // RF neighbor, regardless of how many hops the packet has
           // traveled overall or what it's carrying -- this is the dominant
