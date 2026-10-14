@@ -2871,6 +2871,7 @@ void Beebo::openEvalWindow(uint16_t) {}
 void Beebo::loopTuning() {}
 void Beebo::trackExposure() {}
 void Beebo::abortTrial(bool) {}
+TrialPlanner::Plan Beebo::planTrial() { return TrialPlanner::Plan{}; }   // NO_RATE: no trials without the repeater role
 #endif
 
 // beebo: applies the real persisted event-capture preference, correcting
