@@ -9119,6 +9119,14 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
 #else
       strcpy(reply, "ERR: not supported");
 #endif
+    } else if (strcmp(key, "monring.config") == 0) {
+      // beebo: the repeater slot's persisted monring_config word, hex (capture mask in the low
+      // byte, bit 8 rx path mode -- MON_CFG_RX_PATH); PREFS_TLV_MONRING_CONFIG is the binary twin
+#if BEEBO_ENABLE_REPEATER_ROLE
+      sprintf(reply, "> %X", (unsigned)tlvGetMonringConfig(this, NODE_ROLE_REPEATER));
+#else
+      strcpy(reply, "ERR: not supported");
+#endif
     } else if (strcmp(key, "tuning.adaptive.enabled") == 0) {
       // beebo: Phase A dynamic-tuning optimizer on/off switch -- RAM-only
       // (see _adaptive_enabled's declaration), so this always reads back "off"
@@ -9568,6 +9576,19 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       tlvSetFloodMax(this, NODE_ROLE_REPEATER, v);
       flushDirtyPrefs();
       sprintf(reply, "> %d", (uint32_t)v);
+#else
+      strcpy(reply, "ERR: not supported");
+#endif
+    } else if (memcmp(key, "monring.config ", 15) == 0) {
+#if BEEBO_ENABLE_REPEATER_ROLE
+      char* end = nullptr;
+      unsigned long v = strtoul(&key[15], &end, 16);
+      if (end == &key[15] || *end != 0) {
+        strcpy(reply, "ERR: expected hex");
+      } else {
+        tlvSetMonringConfig(this, NODE_ROLE_REPEATER, (uint32_t)v);
+        strcpy(reply, "OK");
+      }
 #else
       strcpy(reply, "ERR: not supported");
 #endif
