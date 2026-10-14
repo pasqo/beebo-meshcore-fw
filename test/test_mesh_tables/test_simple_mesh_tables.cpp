@@ -175,7 +175,7 @@ bool retryHook(void* ctx, const uint8_t* raw, uint8_t len, uint8_t attempt) {
 }
 
 const uint32_t AIRTIME_MS = 100;
-// ECHO_TIMEOUT_BASE_MILLIS + airtime * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS = 5000
+// ECHO_TIMEOUT_BASE_MILLIS + airtime * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS = 5100
 const uint32_t PAST_WINDOW_MS = 6000;
 
 struct RetryFixture : public ::testing::Test {
@@ -390,12 +390,12 @@ TEST_F(EventFixture, VerdictEventsCarryTheWindow) {
     };
     Packet heard = makeFloodPacket(0x34);
     forward(heard);
-    EXPECT_TRUE(t.wasSeen(&heard));            // success: 500 + 100 * 6 + 250
+    EXPECT_TRUE(t.wasSeen(&heard));            // success: 4500 + 100 * 6
     Packet lost = makeFloodPacket(0x35);
     t.setRetryNo(0);
     forward(lost);
-    pastWindow();                              // timeout: 500 + 600 + 250
-    EXPECT_EQ((std::vector<int>{5000, 5000}), windows());
+    pastWindow();                              // timeout: 4500 + 600
+    EXPECT_EQ((std::vector<int>{5100, 5100}), windows());
 }
 
 TEST_F(EventFixture, ARetryKeepsTheWindowOfItsFirstSend) {
@@ -413,7 +413,7 @@ TEST_F(EventFixture, ARetryKeepsTheWindowOfItsFirstSend) {
         if (out[i].kind == MON_EVENT && out[i].event.event_type == EVENT_ECHO_TIMEOUT) {
             uint16_t v;
             memcpy(&v, &out[i].event.data[10], 2);
-            EXPECT_EQ(5000, v);
+            EXPECT_EQ(5100, v);
         }
     }
 }
@@ -559,12 +559,12 @@ TEST_F(AtTxFixture, SentForward_UnansweredTimesOutOneWindowAfterTheSend) {
     EXPECT_EQ(1u, t.getEchoTimeoutCount());
 }
 
-// the window is 4500 ms + airtime * 5 (100 ms airtime here)
-TEST_F(AtTxFixture, WindowIsFourPointFiveSecondsPlusFiveAirtimes) {
+// the window is 4500 ms + airtime * 6 (100 ms airtime here)
+TEST_F(AtTxFixture, WindowIsFourPointFiveSecondsPlusSixAirtimes) {
     Packet p = makeFloodPacket(0x58);
     schedule(p);
     sentOnAir(p);
-    g_mock_millis += 4950;                     // 4500 + 100 * 5 = 5000
+    g_mock_millis += 5050;                     // 4500 + 100 * 6 = 5100
     t.checkEchoTimeouts();
     EXPECT_EQ(0u, t.getEchoTimeoutCount());
     g_mock_millis += 100;
@@ -665,7 +665,7 @@ TEST_F(RetryFixture, FullRing_ReusesAResolvedSlotBeforeEvictingAPendingOne) {
         t.markSelfTx(&ps[i], i == 5 ? 0 : AIRTIME_MS);   // slot 5 has the shortest window
         t.noteTx(&ps[i], i == 5 ? 0 : AIRTIME_MS, true);
     }
-    g_mock_millis += 4700;                               // slot 5 runs 4500 ms, the others 5000 ms
+    g_mock_millis += 4700;                               // slot 5 runs 4500 ms, the others 5100 ms
     t.checkEchoTimeouts();
     EXPECT_EQ(1u, t.getEchoTimeoutCount());              // only slot 5 is over
     ps[MAX_ECHO_HASHES] = makeFloodPacket(0x40 + MAX_ECHO_HASHES);
@@ -750,7 +750,7 @@ TEST_F(AttributionFixture, ALateEchoIsCreditedOnlyWithOurPath) {
     ASSERT_EQ(1u, ok.size());
     uint32_t age;
     memcpy(&age, &ok[0].event.data[5], 4);
-    EXPECT_GT(age, 5000u);                                // past its window: a late echo
+    EXPECT_GT(age, 5100u);                                // past its window: a late echo
     EXPECT_EQ(ECHO_PATH_OURS, ok[0].event.data[0]);
     EXPECT_TRUE(seen(rebroadcastBy(p, 0x34)));      // a second neighbor's echo of the same send
     EXPECT_EQ(1u, t.getEchoSuccessCount());               // one credit per send
@@ -772,7 +772,7 @@ TEST_F(AttributionFixture, ALateRepeatFromAnotherRouteIsReportedNotCredited) {
     ASSERT_EQ(1u, o.size());                              // once per send
     uint32_t age;
     memcpy(&age, &o[0].event.data[5], 4);
-    EXPECT_GT(age, 5000u);
+    EXPECT_GT(age, 5100u);
     Packet longer = p;                                    // our path but two more hashes: not a direct neighbor's echo
     longer.path[2] = 0x33; longer.path[3] = 0x44; longer.path_len = 4;
     EXPECT_TRUE(t.wasSeen(&longer));
@@ -809,7 +809,7 @@ TEST_F(AttributionFixture, ASmallSeenWindowNeverShortensTheEchoWindow) {
     t.setDedupWindowMs(100);
     Packet p = sentWithPath(0x47);
     forward(p);
-    g_mock_millis += 1000;                                // inside the 5000 ms echo window
+    g_mock_millis += 1000;                                // inside the 5100 ms echo window
     EXPECT_TRUE(seen(rebroadcastBy(p, 0x33)));
     EXPECT_EQ(1u, t.getEchoSuccessCount());
 }

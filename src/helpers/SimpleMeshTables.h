@@ -33,7 +33,7 @@
 // visible here.
 #define MAX_ECHO_HASHES           16
 #define ECHO_TIMEOUT_BASE_MILLIS  4500
-#define ECHO_PERHOP_FACTOR        5.0f
+#define ECHO_PERHOP_FACTOR        6.0f
 #define ECHO_PERHOP_EXTRA_MILLIS  0
 
 // beebo: DoS/QoS audit follow-up -- a plain "any occupied-slot eviction"
@@ -373,9 +373,9 @@ public:
     // TX of the rebroadcast) -- see the comment above
     // ECHO_TIMEOUT_BASE_MILLIS for why the constants are a local copy
     // rather than a shared call.
-    // Window = 4500 ms + 5 x airtime, from the send: `analyze latency` fits the echo
-    // delays of a measured capture to base + factor x airtime (about 4.4 s + 4.9 x airtime
-    // covers 99%), and these constants are rounded from that fit.
+    // Window = 4500 ms + 6 x airtime, from the send: `analyze latency` fits the echo
+    // delays of a measured capture to base + factor x airtime (about 4.4 s + 5.6 x airtime
+    // covers 99%), and these constants are rounded up from that fit.
     _echo_timeout[idx] = ECHO_TIMEOUT_BASE_MILLIS +
         (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
