@@ -1980,6 +1980,86 @@ TEST(TxRecordLayout, AttemptAndCrFillTheReservedBytes) {
     EXPECT_EQ(16u, sizeof(TxRecord));
 }
 
+// beebo: rx path mode -- nbr[3] holds the last three hops, one byte each, last hop first.
+TEST(RxPathPack, LastThreeHopsOneByteEachLastHopFirst) {
+  const uint8_t path[] = {0x01, 0x02, 0x03, 0x04, 0x05};   // 1-byte hashes, 5 hops, 0x05 the neighbor
+  RxRecord rx = makeRx();
+  rx.flags = 5 << RXREC_FLAG_HOPS_SHIFT;
+  rxPackPath(rx, path, 5, 1);
+  EXPECT_EQ(0x05, rx.nbr[0]);
+  EXPECT_EQ(0x04, rx.nbr[1]);
+  EXPECT_EQ(0x03, rx.nbr[2]);
+  EXPECT_EQ(3, rx.flags & RXREC_FLAG_NBRLEN_MASK);
+  EXPECT_EQ(5, (rx.flags & RXREC_FLAG_HOPS_MASK) >> RXREC_FLAG_HOPS_SHIFT);   // the hop count is untouched
+  EXPECT_TRUE(rx.ext & RXREC_EXT_PATH1);
+}
+
+TEST(RxPathPack, FewerHopsThanThreeLeavesTheRestZero) {
+  const uint8_t path[] = {0xAA, 0xBB};
+  RxRecord rx = makeRx();
+  rxPackPath(rx, path, 2, 1);
+  EXPECT_EQ(0xBB, rx.nbr[0]);
+  EXPECT_EQ(0xAA, rx.nbr[1]);
+  EXPECT_EQ(0, rx.nbr[2]);
+  EXPECT_EQ(2, rx.flags & RXREC_FLAG_NBRLEN_MASK);
+  rxPackPath(rx, path, 1, 1);
+  EXPECT_EQ(0xAA, rx.nbr[0]);
+  EXPECT_EQ(1, rx.flags & RXREC_FLAG_NBRLEN_MASK);
+  EXPECT_EQ(0, rx.nbr[1]);
+}
+
+TEST(RxPathPack, WiderHashesKeepTheirFirstByte) {
+  const uint8_t path2[] = {0x11, 0x12, 0x21, 0x22, 0x31, 0x32};   // 2-byte hashes
+  RxRecord rx = makeRx();
+  rxPackPath(rx, path2, 3, 2);
+  EXPECT_EQ(0x31, rx.nbr[0]);
+  EXPECT_EQ(0x21, rx.nbr[1]);
+  EXPECT_EQ(0x11, rx.nbr[2]);
+  const uint8_t path3[] = {0x11, 0x12, 0x13, 0x21, 0x22, 0x23};   // 3-byte hashes
+  rx = makeRx();
+  rxPackPath(rx, path3, 2, 3);
+  EXPECT_EQ(0x21, rx.nbr[0]);
+  EXPECT_EQ(0x11, rx.nbr[1]);
+}
+
+TEST(RxPathPack, ReplacesTheNeighborLengthAndKeepsTheOtherExtBits) {
+  const uint8_t path[] = {0x01, 0x02};
+  RxRecord rx = makeRx();
+  rx.flags = (2 << RXREC_FLAG_HOPS_SHIFT) | 1;   // a nbr_len of 1 from the neighbor mode
+  rx.ext = RXREC_EXT_PREV_US | RXREC_EXT_VIA_US;
+  rxPackPath(rx, path, 2, 1);
+  EXPECT_EQ(2, rx.flags & RXREC_FLAG_NBRLEN_MASK);
+  EXPECT_EQ(RXREC_EXT_PREV_US | RXREC_EXT_VIA_US | RXREC_EXT_PATH1, rx.ext);
+}
+
+TEST(RxPathPack, NoHopsLeavesTheRecordAlone) {
+  RxRecord rx = makeRx();
+  rx.nbr[0] = 0x77; rx.flags = 1;
+  rxPackPath(rx, nullptr, 0, 1);
+  EXPECT_EQ(0x77, rx.nbr[0]);
+  EXPECT_EQ(1, rx.flags & RXREC_FLAG_NBRLEN_MASK);
+  EXPECT_FALSE(rx.ext & RXREC_EXT_PATH1);
+}
+
+TEST(MonRing, RxPathModeIsOffByDefaultAndSettable) {
+  RingFixture<8> f;
+  EXPECT_FALSE(f.ring.rxPathMode());
+  f.ring.setRxPathMode(true);
+  EXPECT_TRUE(f.ring.rxPathMode());
+  f.ring.setRxPathMode(false);
+  EXPECT_FALSE(f.ring.rxPathMode());
+}
+
+TEST(MonRing, ApplyConfigTakesTheCaptureByteAndTheRxPathBit) {
+  RingFixture<8> f;
+  f.ring.applyConfig(MON_CAP_RX | MON_CAP_ENABLED | MON_CFG_RX_PATH);
+  EXPECT_EQ(MON_CAP_RX | MON_CAP_ENABLED, f.ring.config());   // the path bit is not a capture bit
+  EXPECT_TRUE(f.ring.rxPathMode());
+  f.ring.applyConfig(MON_CAP_RX | MON_CAP_ENABLED);
+  EXPECT_FALSE(f.ring.rxPathMode());
+  EXPECT_EQ(0x100u, (uint32_t)MON_CFG_RX_PATH);
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

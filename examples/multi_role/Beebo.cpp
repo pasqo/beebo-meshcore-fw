@@ -352,6 +352,8 @@ void Beebo::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
           // rec.nbr display field above is limited to.
           putNeighbor(raw + off + path_bytes - hash_size, hash_size, 0,
                        (int8_t)(snr * 4), 0xFF, NULL, 0, 0);
+          // path mode: the last three hops instead of the neighbor identity
+          if (monring.rxPathMode()) rxPackPath(rec, raw + off, hops, hash_size);
         }
 
         off += path_bytes;
@@ -2129,7 +2131,7 @@ void Beebo::initMonRing() {
     // have event capture off) is applied afterward by
     // applyMonRingCaptureConfig(), called last in setup() once every boot
     // marker has already landed in the ring.
-    monring.setConfig(_role_state->prefs.monring_config | MON_CAP_EVENT);
+    monring.applyConfig(_role_state->prefs.monring_config | MON_CAP_EVENT);
     monring.setEventTypeMask(_role_state->prefs.monring_event_mask);  // apply persisted per-event-type capture mask
     monring.setLiveSink(&pushMlogFrame);  // MLOG live relay
     profile_log.setEnabled(_role_state->prefs.profile_enabled);  // apply persisted ProfileLog enable gate
@@ -2878,7 +2880,7 @@ void Beebo::abortTrial(bool) {}
 // the user actually configured (which may be off).
 void Beebo::applyMonRingCaptureConfig() {
   if (!monring.allocated()) return;
-  monring.setConfig(_role_state->prefs.monring_config);
+  monring.applyConfig(_role_state->prefs.monring_config);
 }
 
 // beebo: snapshot the current radio config into a RadioRecord. Shared by the
@@ -3728,9 +3730,9 @@ uint32_t Beebo::tlvGetMonringConfig(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetMonringConfig(Beebo* self, uint8_t role, uint32_t raw) {
   BeeboRoleState& slot = self->role_state_store[role];
-  slot.prefs.monring_config = (uint8_t)raw;
+  slot.prefs.monring_config = raw & (0xFFu | MON_CFG_RX_PATH);
   if (role == self->_board.role) {
-    self->monring.setConfig(slot.prefs.monring_config);
+    self->monring.applyConfig(slot.prefs.monring_config);
     self->savePrefs();
   } else {
     persistRoleSlot(self, role, slot);
@@ -6524,14 +6526,14 @@ void Beebo::handleCmdFrame(size_t len) {
     switch (sub[1]) {
       case 0:
         _role_state->prefs.monring_config &= ~MON_CAP_ENABLED;
-        monring.setConfig(_role_state->prefs.monring_config);
+        monring.applyConfig(_role_state->prefs.monring_config);
         // beebo: the per-role dirty-routing pattern -- same rationale
         // as tlvSetMonringConfig above.
         savePrefs();
         break;
       case 1:
         _role_state->prefs.monring_config |= MON_CAP_ENABLED;
-        monring.setConfig(_role_state->prefs.monring_config);
+        monring.applyConfig(_role_state->prefs.monring_config);
         savePrefs();
         break;
       case 2: {

@@ -438,6 +438,9 @@ enum : uint8_t {
 #define MON_CAP_EVENT   0x40
 #define MON_CAP_ALL     (MON_CAP_RX | MON_CAP_TX | MON_CAP_RADIO | MON_CAP_ENV | MON_CAP_BATT | MON_CAP_TUNING | MON_CAP_EVENT)
 #define MON_CAP_ENABLED 0x80
+// beebo: bit 8 of the persisted monring_config word (prefs.monring_config is 32 bits, the capture
+// mask above is its low byte): rx path mode, see RXREC_EXT_PATH1. Not a capture bit.
+#define MON_CFG_RX_PATH 0x100
 
 // ---- RX flags byte: nbr_len + hop count (rx-gain moved to the RADIO record)
 // hops mirrors Packet::getPathHashCount() exactly (0-63, same 6-bit width),
@@ -542,6 +545,10 @@ enum { TXR_OK = 0, TXR_TIMEOUT = 1 };
 #define MONRING_ABI_VERSION 4
 #define RXREC_EXT_PREV_US  0x01   // direct: the hop before the last is our hash (the neighbor relayed our transmission)
 #define RXREC_EXT_VIA_US   0x02   // not direct: our hash is further back in the path (more repeaters relayed it since)
+// rx path mode: nbr[] holds the last up-to-3 hops of the path (last hop first, the first byte of
+// each hash), nbr_len counts them. Set per record, so a record says how to read itself; only on
+// a reception with hops > 0 (a zero-hop one keeps the identity taken from its payload in nbr[]).
+#define RXREC_EXT_PATH1    0x04
 
 // ---- the union members (each exactly 16 bytes, packed, kind at byte 0) -----
 struct __attribute__((packed)) SyncRecord {
@@ -562,6 +569,17 @@ struct __attribute__((packed)) RxRecord {
   uint8_t  nbr[3];      // last-hop hash = immediate neighbor (nbr_len valid)
   uint8_t  ext;         // RXREC_EXT_* (ABI >= 4; reserved, always zero before)
 };
+// beebo: rx path mode (RXREC_EXT_PATH1). PATH is the packet's path, HOPS hashes of HASH_SIZE
+// bytes each, oldest first. Replaces the neighbor identity nbr[]/nbr_len of REC with the last
+// three hops, one byte each (the first byte of the hash), the last hop in nbr[0].
+inline void rxPackPath(RxRecord &rec, const uint8_t *path, uint8_t hops, uint8_t hash_size) {
+  if (hops == 0 || path == nullptr || hash_size == 0) return;
+  uint8_t n = hops < 3 ? hops : 3;
+  memset(rec.nbr, 0, sizeof(rec.nbr));
+  for (uint8_t i = 0; i < n; i++) rec.nbr[i] = path[(size_t)(hops - 1 - i) * hash_size];
+  rec.flags = (rec.flags & ~RXREC_FLAG_NBRLEN_MASK) | (n & RXREC_FLAG_NBRLEN_MASK);
+  rec.ext |= RXREC_EXT_PATH1;
+}
 struct __attribute__((packed)) TxRecord {
   uint8_t  kind;        // MON_TX
   uint16_t offset;
@@ -1052,6 +1070,7 @@ private:
   // whatever byte it already had persisted; new bits are never retroactively
   // ORed in for existing devices (`beebo settings monitor.<kind>` must be
   // turned on explicitly after such an upgrade).
+  bool      _rx_path_mode = false;   // see setRxPathMode()
   uint8_t   _config = (MON_CAP_ALL & ~MON_CAP_ENV & ~MON_CAP_TUNING) | MON_CAP_ENABLED;  // persisted enable + per-kind capture mask
   // beebo: per-EVENT_TYPE capture mask, bit N = EVENT_* id N, 1=captured --
   // a second, finer filter UNDER MON_CAP_EVENT (that bit still gates MON_EVENT
@@ -1432,8 +1451,13 @@ public:
 
   bool     allocated() const { return _buf != nullptr; }
   void     setConfig(uint8_t c) { _config = c; }
+  // beebo: the whole persisted monring_config word: the capture mask and the rx path bit
+  void     applyConfig(uint32_t c) { _config = (uint8_t)c; _rx_path_mode = (c & MON_CFG_RX_PATH) != 0; }
   uint8_t  config() const { return _config; }
   bool     enabled() const { return _config & MON_CAP_ENABLED; }
+  // beebo: rx path mode (RXREC_EXT_PATH1): off = nbr[] is the last-hop neighbor identity. Runtime only.
+  void     setRxPathMode(bool on) { _rx_path_mode = on; }
+  bool     rxPathMode() const { return _rx_path_mode; }
   void     setEventTypeMask(uint32_t m) { _event_type_mask = m; }
   uint32_t eventTypeMask() const { return _event_type_mask; }
   uint32_t capacity() const { return _cap; }
