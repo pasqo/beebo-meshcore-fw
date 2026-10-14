@@ -24,21 +24,17 @@
 // real flood-convergence timescales -- an open question flagged in the plan
 // doc. The echo window itself is NOT a flat constant (a 60s, then 5s guess
 // were both tried and both wrong) -- it's computed per self-tx, from that
-// packet's own estimated airtime, the same physical quantity
-// BaseChatMesh::calcDirectTimeoutMillisFor() uses for the ack side. The two
-// cases are the same shape of round trip: our TX -> neighbor receives ->
-// neighbor's CSMA backoff -> neighbor transmits (rebroadcast or ack) -> we
-// receive it. ECHO_TIMEOUT_BASE_MILLIS/ECHO_PERHOP_FACTOR/
-// ECHO_PERHOP_EXTRA_MILLIS mirror Beebo.h's SEND_TIMEOUT_BASE_MILLIS/
-// DIRECT_SEND_PERHOP_FACTOR/DIRECT_SEND_PERHOP_EXTRA_MILLIS values
-// (single-hop case, i.e. path_hash_count+1 == 1) rather than reusing them
-// directly -- this is core library code (src/helpers/), Beebo.h's
-// constants live in the app layer (examples/multi_role/) and aren't
+// packet's own estimated airtime: ECHO_TIMEOUT_BASE_MILLIS +
+// airtime * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS. The round trip is: our
+// TX -> neighbor receives -> neighbor's CSMA backoff -> neighbor transmits (rebroadcast)
+// -> we receive it. The constants are a local copy, not Beebo.h's
+// SEND_TIMEOUT_BASE_MILLIS values for the ack side: this is core library code
+// (src/helpers/), those live in the app layer (examples/multi_role/) and aren't
 // visible here.
 #define MAX_ECHO_HASHES           16
-#define ECHO_TIMEOUT_BASE_MILLIS  500
-#define ECHO_PERHOP_FACTOR        6.0f
-#define ECHO_PERHOP_EXTRA_MILLIS  250
+#define ECHO_TIMEOUT_BASE_MILLIS  4500
+#define ECHO_PERHOP_FACTOR        5.0f
+#define ECHO_PERHOP_EXTRA_MILLIS  0
 
 // beebo: DoS/QoS audit follow-up -- a plain "any occupied-slot eviction"
 // counter fires on essentially every insert once the table has cycled once
@@ -377,9 +373,9 @@ public:
     // TX of the rebroadcast) -- see the comment above
     // ECHO_TIMEOUT_BASE_MILLIS for why the constants are a local copy
     // rather than a shared call.
-    // Upstream's one-hop baseline: 500 + 250 ms plus airtime * ECHO_PERHOP_FACTOR.
-    // A measured capture needed a fixed part of about 700 ms, so the base is
-    // kept for a window that starts at the send.
+    // Window = 4500 ms + 5 x airtime, from the send: `analyze latency` fits the echo
+    // delays of a measured capture to base + factor x airtime (about 4.4 s + 4.9 x airtime
+    // covers 99%), and these constants are rounded from that fit.
     _echo_timeout[idx] = ECHO_TIMEOUT_BASE_MILLIS +
         (uint32_t)(pkt_airtime_millis * ECHO_PERHOP_FACTOR + ECHO_PERHOP_EXTRA_MILLIS);
     _echo_monring_hash[idx] = packet->calculateMonRingHash();
