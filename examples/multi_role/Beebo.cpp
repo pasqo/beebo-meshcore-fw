@@ -2538,8 +2538,7 @@ bool Beebo::startTrial(int sw) {
   }
   refreshObjectiveReference();
   TrialPlanner::Plan plan = planTrial();
-  if (plan.status != TrialPlanner::OK) {   // the sequence holds in trialRateAllows(); a start here is a race
-    emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
+  if (plan.status == TrialPlanner::NO_RATE) {   // the sequence holds in trialRateAllows(); a start here is a race
     return false;
   }
   _trial_plan = plan;
@@ -2570,7 +2569,7 @@ bool Beebo::startTrial(int sw) {
   _trial_replan = _trial_block_count == 0;
   _trial_adapt = _trial_block_size_s == 0;
   _trial_start_ms = millis();
-  if (planned) emitTrialPlan(plan, _expo.rates(), false, 0);
+  if (planned) emitTrialPlan(plan, _expo.rates(&objective), false, 0);
   _trial_settle_wait = false;
   openTrialWindow();
   return true;
@@ -2732,7 +2731,7 @@ void Beebo::trialStartFromStored() {
 // set, the rest from the tracked traffic and the objective (TrialPlanner.h).
 TrialPlanner::Plan Beebo::planTrial() {
   TrialPlanner::Input in;
-  in.rates = _expo.rates();
+  in.rates = _expo.rates(&objective);
   in.objective = &objective;
   in.alpha_pct = 100 - _trial_confidence_pct;
   in.min_gain_pct = _trial_min_gain_pct;
@@ -2755,31 +2754,21 @@ void Beebo::trackExposure() {
 // at least the minimum, re-checking once a minute and logging EVENT_TRIAL_PKT_RATE on
 // each change between waiting and running; a running one ends idle on the same rate
 // (TrialFSM). A planned schedule has no floor: it adapts to the rate and holds only
-// while the tracker is not ready or the plan does not fit (TrialPlanner).
+// while the tracker has no counts for the score; a schedule that does not
+// fit the cap runs capped (TrialPlanner UNDERPOWERED).
 bool Beebo::trialRateAllows(int sw) {
   bool planned = _trial_block_size_s == 0 || _trial_block_count == 0;
-  if ((_trial_rate_wait || _trial_underpowered) && !millisHasNowPassed(_trial_rate_check_at)) return false;
+  if (_trial_rate_wait && !millisHasNowPassed(_trial_rate_check_at)) return false;
   if (planned) {
     _trial_rate_wait = false;
-    if (!_expo.ready()) return false;   // the tracker still fills
-    TrialPlanner::Plan plan = planTrial();
-    if (plan.status == TrialPlanner::OK) {
-      _trial_underpowered = false;
-      return true;
-    }
-    if (!_trial_underpowered && plan.status == TrialPlanner::UNDERPOWERED) {
-      emitTrialPlan(plan, _expo.rates(), false, 0);
-      emitTrialSkip(sw, TrialFSM::SKIPPED_UNDERPOWERED);
-    }
-    _trial_underpowered = true;
-    _trial_rate_check_at = futureMillis(60000);
-    return false;
+    if (!_expo.ready(&objective)) return false;   // the tracker still fills
+    return planTrial().status != TrialPlanner::NO_RATE;   // an underpowered plan runs capped
   }
   if (_trial_min_pkt_rate == 0) {
     _trial_rate_wait = false;
     return true;
   }
-  double rate = _expo.ready() ? TrialPlanner::countsPerMin(_expo.rates(), &objective) : 0.0;   // nothing counted yet: below any minimum
+  double rate = _expo.ready(&objective) ? TrialPlanner::countsPerMin(_expo.rates(&objective), &objective) : 0.0;   // nothing counted yet: below any minimum
   bool wait = rate < _trial_min_pkt_rate;
   if (wait != _trial_rate_wait && monring.enabled() && monring.allocated()) {
     EventRecord rec{};
@@ -6273,7 +6262,7 @@ void Beebo::handleCmdFrame(size_t len) {
     if (setTrialBlockSpreadPct(sub[1], EVENT_SOURCE_BINARY)) writeOKFrame(); else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_PLAN) {
     uint32_t v = 3;   // collecting
-    if (_expo.ready() || (_trial_block_size_s && _trial_block_count)) {
+    if (_expo.ready(&objective) || (_trial_block_size_s && _trial_block_count)) {
       TrialPlanner::Plan plan = planTrial();
       v = (uint32_t)(plan.status & 3) | ((uint32_t)(plan.block_s & 0xFFF) << 2) | ((uint32_t)(plan.blocks & 0x3FF) << 14);
     }
@@ -6282,7 +6271,7 @@ void Beebo::handleCmdFrame(size_t len) {
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_COUNT_RATE) {
     uint32_t v = 0xFFFFFFFFu;   // the tracker is not ready
-    if (_expo.ready()) v = (uint32_t)(TrialPlanner::countsPerMin(_expo.rates(), &objective) * 10.0 + 0.5);
+    if (_expo.ready(&objective)) v = (uint32_t)(TrialPlanner::countsPerMin(_expo.rates(&objective), &objective) * 10.0 + 0.5);
     out_frame[0] = RESP_CODE_OK;
     memcpy(&out_frame[1], &v, 4);
     _serial->writeFrame(out_frame, 5);

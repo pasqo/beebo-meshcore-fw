@@ -22,7 +22,7 @@
 // The node's recent traffic, from the counters EvalWindow reads: counts and
 // elapsed time decayed with the time constant TAU_S, so the rates follow the
 // traffic of the last few hours and a node that just booted has them as soon as
-// it has seen MIN_CONFIRMED confirmed deliveries over MIN_S.
+// it has seen MIN_CONFIRMED events of each indicator its score weights over MIN_S.
 class ExposureTracker {
 public:
   static constexpr double TAU_S = 7200.0;
@@ -55,12 +55,27 @@ public:
   }
 
   void reset() { _started = false; _sec = _exposure = _confirmed = _rx = 0; }
-  bool ready() const { return _sec >= MIN_S && _confirmed >= MIN_CONFIRMED; }
+  // Ready once MIN_S seconds are seen and every indicator the score weights has at
+  // least MIN_CONFIRMED events (routed attempts, confirmed deliveries, received
+  // packets), so a received-only score needs no confirmed delivery. No weight: never.
+  bool ready(const Objective *objective = nullptr) const {
+    static const Objective defaults;
+    const Objective &obj = objective ? *objective : defaults;
+    if (_sec < MIN_S) return false;
+    bool any = false;
+    for (int i = 0; i < Objective::NUM_INDICATORS; i++) {
+      if (obj.weights[i] == 0) continue;
+      double n = i == Objective::ROUTED ? _exposure : i == Objective::DELIVERED ? _confirmed : _rx;
+      if (n < MIN_CONFIRMED) return false;
+      any = true;
+    }
+    return any;
+  }
 
   // Per-second rates; zeros until ready().
-  TrialRates rates() const {
+  TrialRates rates(const Objective *objective = nullptr) const {
     TrialRates r;
-    if (!ready()) return r;
+    if (!ready(objective)) return r;
     r.exposure = _exposure / _sec;
     r.confirmed = _confirmed / _sec;
     r.rx = _rx / _sec;
@@ -161,7 +176,6 @@ public:
       return p;
     }
     const TrialRates &r = in.rates;
-    if (r.exposure <= 0 || r.confirmed <= 0) return p;   // NO_RATE
     // v for a block of T seconds is a / T.
     double a = obj.countingNoise(r.exposure, r.confirmed, r.rx);
     if (!isfinite(a) || a <= 0) return p;

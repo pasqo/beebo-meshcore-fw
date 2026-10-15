@@ -2017,7 +2017,6 @@ private:
   bool _trial_adapt = false;             // the block size is auto: each A B B A cycle's blocks follow the A blocks' rate
   unsigned long _trial_start_ms = 0;     // when the running trial started, for the cap on its length
   bool _trial_planned = false;           // the running trial's schedule came from the planner
-  bool _trial_underpowered = false;      // the sequence is holding for a planned schedule that does not fit
   bool _trial_settle_wait = false;       // a switching block's window waits for the settle guard
   unsigned long _trial_settle_until = 0;
   bool _trial_seq_started = false;   // every selected switch has been set to its A
@@ -2076,7 +2075,6 @@ private:
     _trial_idle_streak = false;
     _trial_idle_hold = false;
     _trial_rate_wait = false;
-    _trial_underpowered = false;
     for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_lists.v[i].restart();
   }
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }

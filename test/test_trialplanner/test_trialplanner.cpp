@@ -36,6 +36,27 @@ TEST(ExposureTracker, NeedsTimeAndConfirmedDeliveries) {
   EXPECT_TRUE(t.ready());   // 60 s, 60 confirmed
 }
 
+TEST(ExposureTracker, ReadyOnTheIndicatorsTheScoreWeights) {
+  uint32_t now = 0, E = 0, C = 0, R = 0;
+  ExposureTracker t;
+  t.poll(now, 0, 0, 0);
+  run(t, now, E, C, R, 120, 0.0, 0.0, 1.0);   // packets heard, nothing of ours routed or confirmed
+  Objective rx_only;
+  rx_only.weights[Objective::ROUTED] = 0;
+  rx_only.weights[Objective::DELIVERED] = 0;
+  rx_only.weights[Objective::RECEIVED] = 10;
+  EXPECT_FALSE(t.ready());                       // the default score needs confirmed deliveries
+  EXPECT_TRUE(t.ready(&rx_only));
+  EXPECT_NEAR(1.0, t.rates(&rx_only).rx, 1e-6);
+  EXPECT_EQ(0.0, t.rates().rx);
+  Objective mixed = rx_only;
+  mixed.weights[Objective::ROUTED] = 10;
+  EXPECT_FALSE(t.ready(&mixed));                 // every weighted indicator must have counts
+  Objective none = rx_only;
+  none.weights[Objective::RECEIVED] = 0;
+  EXPECT_FALSE(t.ready(&none));                  // no weight, no rate
+}
+
 TEST(ExposureTracker, RatesAreTheCountsPerSecond) {
   ExposureTracker t;
   uint32_t now = 5000, E = 1000, C = 400, R = 3000;   // counters do not start at zero
@@ -130,6 +151,19 @@ TEST(TrialPlanner, NoRateWhenNothingWasConfirmed) {
   in = input(0.01);
   in.rates.exposure = 0;
   EXPECT_EQ(TrialPlanner::NO_RATE, TrialPlanner::plan(in).status);
+}
+
+TEST(TrialPlanner, ReceivedOnlyScorePlansWithoutConfirmedDeliveries) {
+  Objective rx_only;
+  rx_only.weights[Objective::ROUTED] = 0;
+  rx_only.weights[Objective::DELIVERED] = 0;
+  rx_only.weights[Objective::RECEIVED] = 10;
+  TrialPlanner::Input in = input(0.0);
+  in.objective = &rx_only;
+  in.rates.rx = 0.5;
+  TrialPlanner::Plan p = TrialPlanner::plan(in);
+  EXPECT_NE(TrialPlanner::NO_RATE, p.status);
+  EXPECT_EQ(100, p.block_s);   // 50 received packets at 0.5 per second
 }
 
 TEST(TrialPlanner, BlockHoldsMinBlockNConfirmedDeliveries) {
