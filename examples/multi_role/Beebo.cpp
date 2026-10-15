@@ -2179,6 +2179,9 @@ void Beebo::initMonRing() {
   _route_start_us = _cpu_window_start_us;
   _route_wait_airtime0_ms = getTxWaitAirtimeMs();
   _route_wait_cad0_ms = getTxWaitCadMs();
+  _route_wait_cad_frame0_ms = getTxWaitCadFrameMs();
+  _route_wait_cad_rssi0_ms = getTxWaitCadRssiMs();
+  _route_cad_verdicts0 = getTxCadVerdicts();
 #ifdef RX_DISPOSITION
   _route_wait_relay0_ms = getRxWaitMs();
 #endif
@@ -2949,6 +2952,14 @@ void Beebo::ensureFirstEnvSample() {
 }
 
 #ifdef BEEBO_CPU_ACCOUNTING
+void Beebo::computeLiveCadSplit(uint8_t &frame, uint8_t &rssi, uint8_t &verdicts) {
+  uint32_t total_ms = getTxWaitCadMs() - _route_wait_cad0_ms;
+  frame = MonRing::computeShare255(getTxWaitCadFrameMs() - _route_wait_cad_frame0_ms, total_ms);
+  rssi = MonRing::computeShare255(getTxWaitCadRssiMs() - _route_wait_cad_rssi0_ms, total_ms);
+  if ((uint16_t)frame + rssi > 255) rssi = 255 - frame;   // each share rounds on its own
+  verdicts = MonRing::satU8(getTxCadVerdicts() - _route_cad_verdicts0);
+}
+
 void Beebo::computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
                                   uint16_t &tx_wait_airtime, uint16_t &tx_wait_cad,
                                   uint16_t &rx_wait_relay) {
@@ -7761,10 +7772,14 @@ void Beebo::loop() {
     route.tx_wait_airtime = tx_wait_airtime;
     route.tx_wait_cad = tx_wait_cad;
     route.rx_wait_relay = rx_wait_relay;
+    computeLiveCadSplit(route.tx_wait_cad_frame, route.tx_wait_cad_rssi, route.tx_cad_verdicts);
     monring.appendRoute(route, getRTCClock()->nowMillis());
     _rx_route_us = _tx_route_us = 0;
     _route_wait_airtime0_ms = getTxWaitAirtimeMs();
     _route_wait_cad0_ms = getTxWaitCadMs();
+    _route_wait_cad_frame0_ms = getTxWaitCadFrameMs();
+    _route_wait_cad_rssi0_ms = getTxWaitCadRssiMs();
+    _route_cad_verdicts0 = getTxCadVerdicts();
 #ifdef RX_DISPOSITION
     _route_wait_relay0_ms = getRxWaitMs();
 #endif

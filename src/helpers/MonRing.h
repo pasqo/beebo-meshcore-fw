@@ -893,7 +893,9 @@ struct __attribute__((packed)) RouteRecord {
   uint16_t tx_busy;              // 0-10000
   uint16_t tx_wait_airtime;      // 0-10000, duty-cycle/airtime-budget throttle
   uint16_t tx_wait_cad;          // 0-10000, CAD-busy portion
-  uint8_t  _rsvd[3];
+  uint8_t  tx_wait_cad_frame;    // 0-255 share of tx_wait_cad spent behind a frame in progress
+  uint8_t  tx_wait_cad_rssi;     // 0-255 share of tx_wait_cad spent behind the RSSI check
+  uint8_t  tx_cad_verdicts;      // busy verdicts in the window, saturating at 255
 };
 
 // RLOG's own (type, detail) event folded into MonRing -- reuses MonRing's SYNC/
@@ -2117,6 +2119,17 @@ public:
     lx_busy = (uint16_t)lx;
     sys_busy = (uint16_t)sys;
   }
+
+  // beebo: part of total as a 0-255 share (rounded, clamped), for
+  // RouteRecord's tx_wait_cad_frame/_rssi. The hardware CAD share is the
+  // remainder 255 - frame - rssi, so it is not stored. total == 0 yields 0.
+  static uint8_t computeShare255(uint32_t part, uint32_t total) {
+    if (total == 0) return 0;
+    uint64_t share = ((uint64_t)part * 255 + total / 2) / total;
+    return (uint8_t)(share > 255 ? 255 : share);
+  }
+
+  static uint8_t satU8(uint32_t v) { return (uint8_t)(v > 255 ? 255 : v); }
 
   // beebo: one busy-time accumulator (micros(), over one RouteRecord
   // report window) -> 0-10000 pct of that window (computeQos's precision

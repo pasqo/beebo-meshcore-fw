@@ -18,6 +18,9 @@ protected:
   uint32_t n_recv, n_sent, n_recv_errors;
   int16_t _noise_floor, _threshold;
   bool _cad_enabled;
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint8_t _busy_reason = mesh::BUSY_NONE;   // why the last isReceiving() was true
+#endif
   uint16_t _num_floor_samples;
   int32_t _floor_sample_sum;
   uint8_t _preamble_sf;
@@ -61,10 +64,18 @@ public:
   bool isChannelActive();
 
   bool isReceiving() override {
-    if (isReceivingPacket()) return true;
+    if (isReceivingPacket()) {
+#ifdef BEEBO_CPU_ACCOUNTING
+      _busy_reason = mesh::BUSY_FRAME;
+#endif
+      return true;
+    }
 
     return isChannelActive();
   }
+#ifdef BEEBO_CPU_ACCOUNTING
+  uint8_t getBusyReason() const override { return _busy_reason; }
+#endif
 
   virtual void setParams(float freq, float bw, uint8_t sf, uint8_t cr) = 0;
   uint32_t getRngSeed();

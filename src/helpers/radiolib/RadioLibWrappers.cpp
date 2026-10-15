@@ -236,7 +236,12 @@ int16_t RadioLibWrapper::performChannelScan() {
 
 bool RadioLibWrapper::isChannelActive() {
   // int.thresh: RSSI-based interference detection (relative to noise floor)
-  if (_threshold != 0 && getCurrentRSSI() > _noise_floor + _threshold) return true;
+  if (_threshold != 0 && getCurrentRSSI() > _noise_floor + _threshold) {
+#ifdef BEEBO_CPU_ACCOUNTING
+    _busy_reason = mesh::BUSY_RSSI;
+#endif
+    return true;
+  }
 
   // cad: hardware channel activity detection
   if (_cad_enabled) {
@@ -246,7 +251,12 @@ bool RadioLibWrapper::isChannelActive() {
     // try to read a non-existent packet and count a spurious recv error.
     state = STATE_IDLE;
     startRecv();
-    if (result != RADIOLIB_CHANNEL_FREE) return true;
+    if (result != RADIOLIB_CHANNEL_FREE) {
+#ifdef BEEBO_CPU_ACCOUNTING
+      _busy_reason = mesh::BUSY_HW;
+#endif
+      return true;
+    }
   }
 
   return false;

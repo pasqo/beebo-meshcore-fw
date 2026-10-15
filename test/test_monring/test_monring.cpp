@@ -1381,6 +1381,35 @@ TEST(MonRing, ComputeRoutePctOverBudgetClampsAtMax) {
   EXPECT_EQ(10000, MonRing::computeRoutePct(90000000, 60000000));
 }
 
+TEST(MonRing, ComputeShare255HalfIsRounded) {
+  // 50 of 100 ms -> 127.5 rounds to 128.
+  EXPECT_EQ(128, MonRing::computeShare255(50, 100));
+}
+
+TEST(MonRing, ComputeShare255ZeroTotalIsZeroNotDivByZero) {
+  EXPECT_EQ(0, MonRing::computeShare255(50, 0));
+}
+
+TEST(MonRing, ComputeShare255WholeIsMax) {
+  EXPECT_EQ(255, MonRing::computeShare255(100, 100));
+}
+
+TEST(MonRing, ComputeShare255OverTotalClampsAtMax) {
+  EXPECT_EQ(255, MonRing::computeShare255(300, 100));
+}
+
+TEST(MonRing, ComputeShare255NoWrapOnLargeCounts) {
+  // part * 255 overflows uint32 if computed naively
+  EXPECT_EQ(128, MonRing::computeShare255(2147483648u, 4294967295u));
+}
+
+TEST(MonRing, SatU8CapsAt255) {
+  EXPECT_EQ(0, MonRing::satU8(0));
+  EXPECT_EQ(254, MonRing::satU8(254));
+  EXPECT_EQ(255, MonRing::satU8(255));
+  EXPECT_EQ(255, MonRing::satU8(100000));
+}
+
 RouteRecord makeRoute(uint16_t rx_busy = 1234, uint16_t tx_busy = 567,
                       uint16_t tx_wait_airtime = 8901, uint16_t tx_wait_cad = 234) {
   RouteRecord route{};
@@ -1388,6 +1417,9 @@ RouteRecord makeRoute(uint16_t rx_busy = 1234, uint16_t tx_busy = 567,
   route.tx_busy = tx_busy;
   route.tx_wait_airtime = tx_wait_airtime;
   route.tx_wait_cad = tx_wait_cad;
+  route.tx_wait_cad_frame = 100;
+  route.tx_wait_cad_rssi = 20;
+  route.tx_cad_verdicts = 77;
   return route;
 }
 
@@ -1405,6 +1437,9 @@ TEST(MonRing, AppendRouteRoundTripsAllFields) {
   EXPECT_EQ(567, out[0].route.tx_busy);
   EXPECT_EQ(8901, out[0].route.tx_wait_airtime);
   EXPECT_EQ(234, out[0].route.tx_wait_cad);
+  EXPECT_EQ(100, out[0].route.tx_wait_cad_frame);
+  EXPECT_EQ(20, out[0].route.tx_wait_cad_rssi);
+  EXPECT_EQ(77, out[0].route.tx_cad_verdicts);
   EXPECT_EQ(1u, f.ring.routeCount());
 }
 

@@ -98,6 +98,9 @@ void Dispatcher::loop() {
         tx_budget_ms -= t;
       }
 
+#ifdef BEEBO_CPU_ACCOUNTING
+      cad_src = BUSY_NONE;   // next_tx_time below is not a busy verdict's backoff
+#endif
       if (tx_budget_ms < MIN_TX_BUDGET_RESERVE_MS) {
         float duty_cycle = 1.0f / (1.0f + getAirtimeBudgetFactor());
         unsigned long needed = MIN_TX_BUDGET_RESERVE_MS - tx_budget_ms;
@@ -355,6 +358,7 @@ void Dispatcher::checkSend() {
     next_tx_time = futureMillis((unsigned long)(needed / duty_cycle));
 #ifdef BEEBO_CPU_ACCOUNTING
     tx_wait_airtime_ms += dt_ms;
+    cad_src = BUSY_NONE;
 #endif
     return;
   }
@@ -362,6 +366,7 @@ void Dispatcher::checkSend() {
   if (!millisHasNowPassed(next_tx_time)) {
 #ifdef BEEBO_CPU_ACCOUNTING
     tx_wait_cad_ms += dt_ms;
+    addCadWait(cad_src, dt_ms);
 #endif
     return;
   }
@@ -382,6 +387,9 @@ void Dispatcher::checkSend() {
       next_tx_time = futureMillis(getCADFailRetryDelay());
 #ifdef BEEBO_CPU_ACCOUNTING
       tx_wait_cad_ms += dt_ms;
+      cad_src = _radio->getBusyReason();
+      tx_cad_verdicts++;
+      addCadWait(cad_src, dt_ms);
 #endif
       return;
     }

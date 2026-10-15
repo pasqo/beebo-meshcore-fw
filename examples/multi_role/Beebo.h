@@ -1918,6 +1918,9 @@ private:
   void computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
                              uint16_t &tx_wait_airtime, uint16_t &tx_wait_cad,
                              uint16_t &rx_wait_relay);
+  // beebo: the tx_wait_cad split and verdict count over the current route
+  // window (RouteRecord::tx_wait_cad_frame/_rssi/tx_cad_verdicts). Non-destructive.
+  void computeLiveCadSplit(uint8_t &frame, uint8_t &rssi, uint8_t &verdicts);
   // Base/work split of busy disabled -- doubtful diagnostic value
   // for the added complexity/fragility. calibrateBaseCosts() body is
   // commented out in Beebo.cpp; not called from begin() anymore.
@@ -2460,6 +2463,7 @@ private:
   // tier above, EVENT_ROUTE_STATS and the eval windows each snapshot-diff them.
   uint32_t _route_start_us = 0;        // start of the current 1-minute route window
   uint32_t _route_wait_airtime0_ms = 0, _route_wait_cad0_ms = 0, _route_wait_relay0_ms = 0;  // Dispatcher accumulators at that start
+  uint32_t _route_wait_cad_frame0_ms = 0, _route_wait_cad_rssi0_ms = 0, _route_cad_verdicts0 = 0;  // same for the cad split
   unsigned long _next_route_ms = 0;
 
   // EVENT_ROUTE_STATS interval state: counter baselines at the interval start

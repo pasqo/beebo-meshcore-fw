@@ -19,6 +19,15 @@ public:
 /**
  * \brief  Abstraction of this device's packet radio.
 */
+#ifdef BEEBO_CPU_ACCOUNTING
+enum BusyReason : uint8_t {
+  BUSY_NONE  = 0,
+  BUSY_FRAME = 1,   // a frame is in progress (preamble or valid header)
+  BUSY_RSSI  = 2,   // RSSI over noise floor + interference_threshold
+  BUSY_HW    = 3,   // hardware CAD scan
+};
+#endif
+
 class Radio {
 public:
   virtual void begin() { }
@@ -86,6 +95,14 @@ public:
    * \returns  true if the radio is currently mid-receive of a packet.
   */
   virtual bool isReceiving() { return false; }
+
+#ifdef BEEBO_CPU_ACCOUNTING
+  /**
+   * \returns  why the last isReceiving() call returned true (BUSY_*), for the
+   *           tx_wait_cad split. Meaningless after a false result.
+  */
+  virtual uint8_t getBusyReason() const { return BUSY_NONE; }
+#endif
 
   virtual float getLastRSSI() const { return 0; }
   virtual float getLastSNR() const { return 0; }
@@ -190,6 +207,11 @@ class Dispatcher {
   // exec's micros()-scale busy time).
   uint32_t tx_wait_airtime_ms;  // duty-cycle/airtime-budget throttle portion
   uint32_t tx_wait_cad_ms;      // CAD-busy portion
+  // tx_wait_cad_ms split by the check that said busy (the rest is hw); a backoff
+  // pass is charged to the source of the verdict that set it
+  uint32_t tx_wait_cad_frame_ms, tx_wait_cad_rssi_ms, tx_wait_cad_hw_ms;
+  uint32_t tx_cad_verdicts;     // busy verdicts, one per deferred send
+  uint8_t  cad_src;             // BusyReason of the verdict behind next_tx_time, BUSY_NONE if not a verdict
   unsigned long last_checksend_ms;  // wall-clock of the previous checkSend() call, for the dt slice above
 #ifdef RX_DISPOSITION
   // beebo: rx_wait_relay's accumulator -- how much a delayed flood-relay's
@@ -202,6 +224,13 @@ class Dispatcher {
 
   void processRecvPacket(Packet* pkt);
   void updateTxBudget();
+#ifdef BEEBO_CPU_ACCOUNTING
+  void addCadWait(uint8_t src, uint32_t dt_ms) {
+    if (src == BUSY_FRAME) tx_wait_cad_frame_ms += dt_ms;
+    else if (src == BUSY_RSSI) tx_wait_cad_rssi_ms += dt_ms;
+    else if (src == BUSY_HW) tx_wait_cad_hw_ms += dt_ms;
+  }
+#endif
 
 protected:
   PacketManager* _mgr;
@@ -229,6 +258,9 @@ protected:
     tx_busy_us = 0;
     tx_wait_airtime_ms = 0;
     tx_wait_cad_ms = 0;
+    tx_wait_cad_frame_ms = tx_wait_cad_rssi_ms = tx_wait_cad_hw_ms = 0;
+    tx_cad_verdicts = 0;
+    cad_src = BUSY_NONE;
     last_checksend_ms = ms.getMillis();
 #ifdef RX_DISPOSITION
     rx_wait_ms = 0;
@@ -332,6 +364,10 @@ public:
 
   uint32_t getTxWaitAirtimeMs() const { return tx_wait_airtime_ms; }
   uint32_t getTxWaitCadMs() const { return tx_wait_cad_ms; }
+  uint32_t getTxWaitCadFrameMs() const { return tx_wait_cad_frame_ms; }
+  uint32_t getTxWaitCadRssiMs() const { return tx_wait_cad_rssi_ms; }
+  uint32_t getTxWaitCadHwMs() const { return tx_wait_cad_hw_ms; }
+  uint32_t getTxCadVerdicts() const { return tx_cad_verdicts; }
 #ifdef RX_DISPOSITION
   uint32_t getRxWaitMs() const { return rx_wait_ms; }
 #endif
