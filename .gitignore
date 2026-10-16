@@ -31,3 +31,10 @@ gatto
 
 # Generated measurement artifacts (meshcore-cli measure/tx_cw)
 assets/
+
+# pioarduino hybrid compile (custom_sdkconfig) output
+/.dummy/
+/managed_components/
+/dependencies.lock
+/CMakeLists.txt
+/sdkconfig.*
