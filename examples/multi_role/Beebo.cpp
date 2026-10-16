@@ -2514,6 +2514,7 @@ bool Beebo::startTrial(int sw) {
   if (sw == TRIAL_COMBINED) {
     uint8_t stored[TrialSequence::NUM_SWITCHES];
     for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) stored[i] = trialSwitchStoredValue(i);
+    TrialSequence::skipStored(_trial_lists, stored, _trial_switches & ~_trial_done_mask);
     _trial_part_mask = TrialSequence::participants(_trial_lists, stored, _trial_switches & ~_trial_done_mask,
                                                    board.canControlLoRaFemLna());
     if (TrialSequence::countBits(_trial_part_mask) < 2) {   // nothing to combine

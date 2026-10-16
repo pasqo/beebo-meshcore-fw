@@ -215,6 +215,16 @@ public:
     return n;
   }
 
+  // Combined trial from the stored values (`start stored`): a list sits at its first
+  // value, which is the stored one for a default list, so B moves on to the first
+  // challenger that differs. Without it every B equals A and nothing takes part.
+  static void skipStored(Lists& lists, const uint8_t* stored, uint16_t pending) {
+    for (int i = 0; i < NUM_SWITCHES; i++) {
+      if (!(pending & (1u << i))) continue;
+      while (lists.v[i].current() == stored[i] && lists.v[i].advance()) {}
+    }
+  }
+
   // Combined trial: the switches of `pending` that take part. Side A is the
   // stored value, side B the list's current challenger. A switch takes part when
   // B differs from A; the FEM LNA needs `fem_lna` (a controllable LNA).

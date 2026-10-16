@@ -291,6 +291,23 @@ TEST(TrialSequence, ParticipantsSkipLnaWithoutFemControl) {
   EXPECT_EQ(0, p.run(bit(TrialSequence::LNA), false));
 }
 
+TEST(TrialSequence, CombinedStartFromStoredSkipsAValueEqualToStored) {
+  // start stored: every list sits at its first value, which is the stored one for a
+  // default list ("0,1" stored 0). B is then the first challenger that differs.
+  Part p;
+  const uint16_t both = bit(TrialSequence::RX_BOOST) | bit(TrialSequence::LNA);
+  EXPECT_EQ(0, p.run(both));                                  // B = 0 = A on both: nothing to combine
+  TrialSequence::skipStored(p.lists, p.stored, both);
+  EXPECT_EQ(both, p.run(both));
+  EXPECT_EQ(1, p.lists.v[TrialSequence::LNA].current());
+  // a challenger that already differs stays; a switch not pending is untouched
+  Part q;
+  q.stored[TrialSequence::CAD] = 1;
+  TrialSequence::skipStored(q.lists, q.stored, bit(TrialSequence::CAD));
+  EXPECT_EQ(0, q.lists.v[TrialSequence::CAD].pos);            // B = 0 differs from stored 1
+  EXPECT_EQ(0, q.lists.v[TrialSequence::MULTI_ACKS].pos);     // not pending
+}
+
 TEST(TrialSequence, ParticipantCount) {
   EXPECT_EQ(0, TrialSequence::countBits(0));
   EXPECT_EQ(3, TrialSequence::countBits(bit(0) | bit(5) | bit(12)));
