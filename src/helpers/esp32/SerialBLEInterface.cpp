@@ -91,9 +91,15 @@ void SerialBLEInterface::initRadio() {
   // Create the BLE Characteristics. NimBLE ignores setAccessPermissions();
   // the property flags carry the security requirement (authenticated, i.e.
   // MITM, encryption) and the CCCD is added automatically for NOTIFY.
+  // BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC makes the CCCD write itself wait for
+  // encryption. Without it the app's subscription succeeds before a fresh
+  // pairing finishes, so it sends its first command and starts its ~5 s
+  // timeout while the user is still typing the PIN ("Failed to fetch device
+  // info"); with it, the app's setup stalls until the link is encrypted.
   pTxCharacteristic = pService->createCharacteristic(
     CHARACTERISTIC_UUID_TX,
     BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_READ_AUTHEN | BLECharacteristic::PROPERTY_NOTIFY
+    | BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC
   );
   pTxCharacteristic->setCallbacks(this);
 
