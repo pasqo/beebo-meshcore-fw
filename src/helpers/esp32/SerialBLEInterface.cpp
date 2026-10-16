@@ -1,4 +1,5 @@
 #include "SerialBLEInterface.h"
+#ifndef BEEBO_BLE_STUB
 #include "esp_mac.h"
 #include "../DebugLog.h"
 
@@ -586,3 +587,5 @@ void SerialBLEInterface::requestHealthSample() {
   DLOGL(DLOG_ID_BLE_HEALTH, "heap=%uKB", heap_kb);
   _requestRssiReadIfIdle();
 }
+
+#endif // BEEBO_BLE_STUB

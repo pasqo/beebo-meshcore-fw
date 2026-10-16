@@ -2,6 +2,34 @@
 
 #include "../BaseSerialInterface.h"
 #include <string.h>
+
+#ifdef BEEBO_BLE_STUB
+// No-op BLE: Arduino-ESP32 3.x ships NimBLE only, and the Bluedroid-based
+// implementation below does not build against it. Same public API, never
+// connects. Remove once the NimBLE port lands.
+class SerialBLEInterface : public BaseSerialInterface {
+  bool _isEnabled = false;
+  uint8_t _local_bda[6] = {0};
+
+public:
+  void begin(const char* prefix, char* name, uint32_t pin_code) {}
+  void setPinCode(uint32_t pin_code) {}
+  void initRadio() {}
+  void deinitRadio() {}
+  void enable() override { _isEnabled = true; }
+  void disable() override { _isEnabled = false; }
+  bool isEnabled() const override { return _isEnabled; }
+  const uint8_t* getLocalAddress() const { return _local_bda; }
+  bool isConnected() const override { return false; }
+  bool isWriteBusy() const override { return false; }
+  size_t writeFrame(const uint8_t src[], size_t len) override { return 0; }
+  size_t checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) override { return 0; }
+  uint32_t getSendQueueFullCount() const { return 0; }
+  uint32_t getRecvQueueFullCount() const { return 0; }
+  void requestHealthSample() {}
+  int8_t getLastRssi() const { return 127; }
+};
+#else
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -209,6 +237,8 @@ public:
   // completed). Backs node.ble.rssi (PREFS_TLV_BLE_RSSI, read-only).
   int8_t getLastRssi() const { return _rssi_cache; }
 };
+
+#endif // BEEBO_BLE_STUB
 
 #if BLE_DEBUG_LOGGING && ARDUINO
   #include <Arduino.h>

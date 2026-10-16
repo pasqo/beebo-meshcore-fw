@@ -61,7 +61,6 @@ public:
   #ifdef PIN_VBAT_READ
     // battery read support
     pinMode(PIN_VBAT_READ, INPUT);
-    adcAttachPin(PIN_VBAT_READ);
   #endif
 
   #ifdef P_LORA_TX_LED
