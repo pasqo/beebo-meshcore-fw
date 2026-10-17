@@ -162,6 +162,7 @@ public:
 
   bool isWriteBusy() const override;
   bool txDrained() const override;
+  uint32_t connectGraceMs() const override { return 3000; }
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) override;
 

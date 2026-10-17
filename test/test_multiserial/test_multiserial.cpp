@@ -15,6 +15,7 @@ public:
   bool enabled = true;
   bool connected = true;
   bool drained = true;      // txDrained(): the last write has left the radio
+  uint32_t grace_ms = 300;  // connectGraceMs()
   int resets = 0;           // resetParserState() -- also what drops a BLE/TCP link
   int enables = 0;
   std::deque<uint8_t> frames;   // one byte per frame, enough to tell them apart
@@ -25,7 +26,8 @@ public:
   bool isConnected() const override { return connected; }
   bool isWriteBusy() const override { return false; }
   bool txDrained() const override { return drained; }
-  void resetParserState() override { resets++; }
+  uint32_t connectGraceMs() const override { return grace_ms; }
+  void resetParserState() override { resets++; connected = false; }   // the peer is dropped
   size_t writeFrame(const uint8_t[], size_t len) override { return len; }
   size_t checkRecvFrame(uint8_t dest[], size_t, RecvFrameType* type) override {
     if (frames.empty()) return 0;
@@ -145,6 +147,58 @@ TEST_F(MultiSerial, AForcedDisableStillWinsOverClosing) {
   multi.disable();
   tick();
   EXPECT_FALSE(multi.isEnabled());
+}
+
+// A peer that connected but has not sent a frame yet is evicted once its
+// transport's own grace has passed (a stray connect), not before.
+class MultiSerialIdle : public ::testing::Test {
+protected:
+  void SetUp() override {
+    g_mock_millis = 1000;
+    multi.addInterface(&ble, nullptr, nullptr, true, RLOG_ID_XPORT_BLE);
+    multi.addInterface(&tcp, nullptr, nullptr, true, RLOG_ID_XPORT_TCP);
+    multi.enable();
+    tick();   // DISABLED -> IDLE
+  }
+  void tick() { multi.checkRecvFrame(dest, sizeof(dest)); }
+  // Poll every 10 ms for ms milliseconds, as the main loop does.
+  void run(uint32_t ms) {
+    for (uint32_t t = 0; t < ms; t += 10) { g_mock_millis += 10; tick(); }
+  }
+
+  FakeTransport ble, tcp;
+  MultiSerialInterface multi;
+  uint8_t dest[MAX_FRAME_SIZE];
+};
+
+TEST_F(MultiSerialIdle, ASilentPeerIsEvictedAfterTheDefaultGrace) {
+  tcp.connected = true;
+  tick();   // grace starts
+  run(250);
+  EXPECT_EQ(0, tcp.resets);
+  run(100);
+  EXPECT_EQ(1, tcp.resets);
+}
+
+TEST_F(MultiSerialIdle, ATransportWithALongerGraceIsNotEvictedBeforeIt) {
+  ble.grace_ms = 3000;
+  ble.connected = true;
+  tick();
+  run(2900);
+  EXPECT_EQ(0, ble.resets);   // a BLE central needs 200-350 ms to send its first frame
+  run(200);
+  EXPECT_EQ(1, ble.resets);
+}
+
+TEST_F(MultiSerialIdle, ALatePeerWithinItsGraceStillWinsTheSession) {
+  ble.grace_ms = 3000;
+  ble.connected = true;
+  tick();
+  run(500);                       // past the default 300 ms
+  ble.frames.push_back(0x01);     // APP_START arrives
+  tick();
+  EXPECT_FALSE(multi.isSessionIdle());
+  EXPECT_EQ(0, ble.resets);
 }
 
 }  // namespace

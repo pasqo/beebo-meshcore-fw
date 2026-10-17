@@ -434,7 +434,7 @@ public:
 
         // Poll every enabled transport; first frame wins and locks in.
         // Whichever ones don't produce that frame still get evicted once
-        // they've been connected past CONNECT_GRACE_MS with nothing to show
+        // they've been connected past connectGraceMs() with nothing to show
         // for it, so a genuinely stray connect gets rejected even with no
         // session owner yet -- except USB (n is already known 0 here), see
         // pollAndEvictIfConnected()'s own comment on why isConnected() is
@@ -635,10 +635,9 @@ private:
   // immediately after a clean disconnect can otherwise get
   // APP_SESSION_EVICTED with no APP_START in between.
   uint32_t _connected_since_ms[MULTI_TRANSPORT_MAX] = {0};
-  static const uint32_t CONNECT_GRACE_MS = 300;
 
   // True only once transportConnected(i) has held continuously for at
-  // least CONNECT_GRACE_MS -- see _connected_since_ms's own comment.
+  // least the transport's connectGraceMs() -- see _connected_since_ms's own comment.
   // Resets the timestamp to 0 the instant the transport reports
   // disconnected, so a later connect starts counting from zero again
   // rather than from a stale earlier timestamp.
@@ -646,7 +645,7 @@ private:
     if (!transportConnected(i)) { _connected_since_ms[i] = 0; return false; }
     uint32_t now = millis();
     if (_connected_since_ms[i] == 0) _connected_since_ms[i] = now;
-    return now - _connected_since_ms[i] >= CONNECT_GRACE_MS;
+    return now - _connected_since_ms[i] >= _transports[i].iface->connectGraceMs();
   }
 };
 

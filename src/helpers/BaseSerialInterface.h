@@ -123,6 +123,11 @@ public:
   // before it goes out loses the reply. MultiSerialInterface's CLOSING
   // state waits on this before it ends a session.
   virtual bool txDrained() const { return true; }
+  // beebo: how long a peer may stay connected without sending its first
+  // frame before MultiSerialInterface evicts it as a stray. It has to cover
+  // the transport's own connect-to-first-frame latency: a BLE central
+  // (BlueZ) needs 200-350 ms after link-up.
+  virtual uint32_t connectGraceMs() const { return 300; }
   virtual bool isWriteBusy() const = 0;
   virtual size_t writeFrame(const uint8_t src[], size_t len) = 0;
 
