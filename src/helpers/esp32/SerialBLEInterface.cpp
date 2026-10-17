@@ -352,6 +352,23 @@ bool SerialBLEInterface::isWriteBusy() const {
     || send_queue_len >= FRAME_QUEUE_SIZE - 1;
 }
 
+// beebo: ble_gatts_notify_custom() only hands the frame to the controller; it
+// goes out at the next connection event, and an ATT write response queued
+// just before it waits for the same event. Dropping the link earlier loses
+// both (the central's write fails with a GATT "Unlikely Error"). So the
+// transport is drained once nothing is queued and two connection events
+// (counting the peripheral latency) have passed since the last send.
+bool SerialBLEInterface::txDrained() const {
+  if (send_queue_len > 0 || _notify_pending) return false;
+  if (!deviceConnected) return true;
+  uint32_t wait_ms = 100;   // conn params unknown: a typical few intervals
+  ble_gap_conn_desc desc;
+  if (ble_gap_conn_find(last_conn_id, &desc) == 0) {
+    wait_ms = 2u * (desc.conn_latency + 1u) * desc.conn_itvl * 5u / 4u + 10u;   // itvl is in 1.25 ms units
+  }
+  return millis() - _last_write >= wait_ms;
+}
+
 size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[], size_t max_len, RecvFrameType* type) {
   // Drain actual GATT link events captured in the BT-task callbacks into the
   // ring (main-loop context, so the ring stays single-writer).

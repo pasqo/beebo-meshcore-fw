@@ -117,6 +117,12 @@ public:
   // over-sized frame. Equals MAX_FRAME_SIZE for everyone when BULK_XFER is off.
   virtual size_t getMaxSendFrameSize() const { return MAX_FRAME_SIZE; }
 
+  // beebo: true once everything handed to writeFrame() has left the device.
+  // isWriteBusy() only says the next frame can be queued; on BLE a queued
+  // notify still waits for a connection event, and dropping the link
+  // before it goes out loses the reply. MultiSerialInterface's CLOSING
+  // state waits on this before it ends a session.
+  virtual bool txDrained() const { return true; }
   virtual bool isWriteBusy() const = 0;
   virtual size_t writeFrame(const uint8_t src[], size_t len) = 0;
 

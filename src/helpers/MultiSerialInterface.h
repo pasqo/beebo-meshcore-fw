@@ -63,21 +63,24 @@ class MultiSerialInterface : public BaseSerialInterface {
   // sub-transport's real link power (driveBtp()/driveUsb() own that
   // independently), so this is a session-scope fact, not a link-scope one.
   //
-  // No fourth "disconnect pending" state: unlike BTP_BLE_OFF_WAIT/
-  // BTP_TCP_BACKOFF (Beebo.h), which can persist for many ticks waiting on
-  // a real condition/timer, a disconnect request always resolves on the
-  // very next tick (Beebo.cpp already guards disconnectActive() behind
-  // !isWriteBusy()) -- never observable as the current state between two
-  // ticks, so it's a same-tick input (REQ_DISCONNECT below), not a state.
+  // SESSION_CLOSING is the graceful half of REQ_DISCONNECT: the owner's reply
+  // to CMD_APP_DISCONNECT is already queued, and release() drops the link
+  // (resetParserState()). A transport whose write queue is not the wire
+  // (BLE: a queued notify and the ATT write response wait for the next
+  // connection event) would lose that reply, so the session waits in
+  // CLOSING until the owner's txDrained(), its link is gone, or
+  // CLOSING_TIMEOUT_MS has passed. No new commands are taken meanwhile.
   enum SessionState : uint8_t {
     SESSION_DISABLED,   // the known init state -- no transport serviced, no session possible
     SESSION_IDLE,        // enabled, no locked transport -- poll every enabled link for a first frame
     SESSION_ACTIVE,       // one link locked -- poll it for real app frames; poll every
                            // OTHER enabled link too, and actively evict it if it reports
                            // itself connected (never hand it real frames, never lock in)
+    SESSION_CLOSING,      // owner asked to disconnect -- wait for its tx to drain, then release
   };
   SessionState _state = SESSION_DISABLED;
-  int _active = -1;   // accompanying data (which transport), valid only while SESSION_ACTIVE
+  int _active = -1;   // accompanying data (which transport), valid while SESSION_ACTIVE/CLOSING
+  uint32_t _closing_since_ms = 0;
   // beebo: fires once, the first checkRecvFrame() call, to log _state's
   // boot value under RLOG_ID_XSESSION_INIT.
   bool _state_logged_init = false;
@@ -183,7 +186,7 @@ class MultiSerialInterface : public BaseSerialInterface {
   }
 
   // Call only from checkRecvFrame()'s switch, from SESSION_IDLE/
-  // SESSION_ACTIVE (never SESSION_DISABLED -- already a no-op there).
+  // SESSION_ACTIVE/SESSION_CLOSING (never SESSION_DISABLED -- already a no-op there).
   // Forceful, immediate teardown -- no graceful release() bookkeeping (no
   // END_* log, no discardStaleRx(), no sibling re-enable): matches
   // disable()'s own deliberately forceful semantics. Returns SESSION_DISABLED
@@ -208,6 +211,8 @@ class MultiSerialInterface : public BaseSerialInterface {
   }
 
 public:
+  static const uint32_t CLOSING_TIMEOUT_MS = 250;
+
   void addInterface(BaseSerialInterface* iface, ConnectedFn connected_fn = nullptr,
                     PowerFn power_fn = nullptr, bool exclusive = true, uint8_t type = 0) {
     if (_count < MULTI_TRANSPORT_MAX) {
@@ -511,8 +516,13 @@ public:
         // keeps delivering frames with no idle gap.
         if (_pending_request == REQ_DISCONNECT) {
           _pending_request = REQ_NONE;
-          next = release(owner, RLOG_ID_APP_SESSION_END_DISCONNECT);
           _disconnect_since_ms = 0;
+          if (_transports[owner].iface->txDrained()) {
+            next = release(owner, RLOG_ID_APP_SESSION_END_DISCONNECT);
+          } else {
+            _closing_since_ms = millis() ? millis() : 1;
+            next = SESSION_CLOSING;
+          }
           break;
         }
 
@@ -558,6 +568,24 @@ public:
               result == 0 ? type : nullptr,
               debug_len);
           if (forwarded && result == 0) result = debug_len;
+        }
+        break;
+      }
+
+      case SESSION_CLOSING: {
+        int owner = _active;
+        if (_pending_request == REQ_DISABLE) {
+          _pending_request = REQ_NONE;
+          next = forceDisable();
+          break;
+        }
+        _pending_request = REQ_NONE;   // ENABLE (already enabled) / DISCONNECT (already closing)
+        // Anything the owner still delivers is trailing noise after
+        // CMD_APP_DISCONNECT -- not read, so no new command starts.
+        if (!transportConnected(owner) || _transports[owner].iface->txDrained()
+            || millis() - _closing_since_ms >= CLOSING_TIMEOUT_MS) {
+          next = release(owner, RLOG_ID_APP_SESSION_END_DISCONNECT);
+          _closing_since_ms = 0;
         }
         break;
       }
