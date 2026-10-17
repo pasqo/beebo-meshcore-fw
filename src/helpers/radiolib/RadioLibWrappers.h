@@ -18,6 +18,7 @@ protected:
   uint32_t n_recv, n_sent, n_recv_errors;
   int16_t _noise_floor, _threshold;
   bool _cad_enabled;
+  int16_t _rx_start_err = 0;   // last startReceive() result, see getRxStartError()
 #ifdef BEEBO_CPU_ACCOUNTING
   uint8_t _busy_reason = mesh::BUSY_NONE;   // why the last isReceiving() was true
 #endif
@@ -61,6 +62,7 @@ public:
   bool isSendComplete() override;
   void onSendFinished() override;
   bool isInRecvMode() const override;
+  int16_t getRxStartError() const override { return _rx_start_err; }
   bool isChannelActive();
 
   bool isReceiving() override {

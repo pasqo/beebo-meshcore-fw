@@ -146,6 +146,7 @@ void RadioLibWrapper::startRecv() {
   _radio->standby(); // without this LR2021 can throw -706 when calling startReceive after hardware CAD when side detectors are enabled
   #endif
   int err = _radio->startReceive();
+  _rx_start_err = err;
   if (err == RADIOLIB_ERR_NONE) {
     state = STATE_RX;
   } else {
@@ -188,6 +189,7 @@ int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
 
   if (state != STATE_RX) {
     int err = _radio->startReceive();
+    _rx_start_err = err;
     if (err == RADIOLIB_ERR_NONE) {
       state = STATE_RX;
     } else {

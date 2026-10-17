@@ -92,6 +92,13 @@ public:
   virtual bool isInRecvMode() const = 0;
 
   /**
+   * \returns  the error code of the last attempt to start reception (0 = it
+   *           worked); recorded with the rx-start-timeout event, since the
+   *           radio stays out of Rx mode exactly while this is nonzero.
+  */
+  virtual int16_t getRxStartError() const { return 0; }
+
+  /**
    * \returns  true if the radio is currently mid-receive of a packet.
   */
   virtual bool isReceiving() { return false; }

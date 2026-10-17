@@ -82,6 +82,10 @@ void Dispatcher::loop() {
   if (!is_recv && _ms->getMillis() - radio_nonrx_start > 8000) {   // radio has not been in Rx mode for 8 seconds!
     _err_flags |= ERR_EVENT_STARTRX_TIMEOUT;
     logFaultEvent(ERR_EVENT_STARTRX_TIMEOUT);
+    // beebo: report once per 8 s, not once per loop() (about 1.4 kHz, which
+    // filled the whole MonRing in under a minute): restart the interval, so
+    // a radio that stays out of Rx is reported again after another 8 s.
+    radio_nonrx_start = _ms->getMillis();
   }
 
   if (outbound) {  // waiting for outbound send to be completed

@@ -3053,7 +3053,7 @@ void Beebo::applyAdaptiveDecision(uint8_t param_id, int16_t value) {
   }
 }
 
-// beebo: Dispatcher.h hook override -- fires immediately, every single
+// beebo: Dispatcher.h hook override -- fires immediately, every
 // occurrence of an ERR_EVENT_* condition (not just the first; _err_flags
 // itself is still sticky/one-shot for `beebo report`'s "Active Faults"
 // check, but the MonRing event trail now records every recurrence with its
@@ -3075,6 +3075,10 @@ void Beebo::logFaultEvent(uint16_t bit) {
   EventRecord rec{};
   rec.event_type = event_type;
   memcpy(&rec.data[0], cumulative, 4);
+  if (bit == ERR_EVENT_STARTRX_TIMEOUT) {   // why the radio is not in Rx: startReceive()'s error code (int16)
+    int16_t rx_err = radio_driver.getRxStartError();
+    memcpy(&rec.data[4], &rx_err, 2);
+  }
   monring.appendEvent(rec, getRTCClock()->nowMillis());
 #endif
 }
