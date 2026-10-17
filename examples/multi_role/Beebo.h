@@ -2532,7 +2532,10 @@ private:
 
     bool isChannelMsg() const;
   };
-  Frame offline_queue[OFFLINE_QUEUE_SIZE];
+  // beebo: OFFLINE_QUEUE_SIZE frames (45 kB at 256) of messages waiting for an app.
+  // Cold path, so allocated once in begin() from PSRAM instead of sitting in
+  // internal RAM as part of this object; null if that fails (messages dropped).
+  Frame* offline_queue;
 #endif
   int offline_queue_len; // stays 0 (never incremented) when companion is compiled out
 

@@ -155,6 +155,7 @@ bool Beebo::Frame::isChannelMsg() const {
 }
 
 void Beebo::addToOfflineQueue(const uint8_t frame[], int len) {
+  if (offline_queue == nullptr) return;   // begin() could not allocate the queue
   if (offline_queue_len >= OFFLINE_QUEUE_SIZE) {
     MESH_DEBUG_PRINTLN("WARN: offline_queue is full!");
     int pos = 0;
@@ -1121,6 +1122,9 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   _iter_started = false;
   _pending_disconnect = false;
   offline_queue_len = 0;
+#if BEEBO_ENABLE_COMPANION_ROLE
+  offline_queue = nullptr;
+#endif
   app_target_ver = 0;
   _app_max_tx = MAX_FRAME_SIZE;
   _app_stream = false;
@@ -1388,6 +1392,10 @@ void Beebo::loadRoleState(uint8_t role) {
 
 void Beebo::begin() {
   Mesh::begin();
+
+#if BEEBO_ENABLE_COMPANION_ROLE
+  offline_queue = (Frame *)heap_caps_malloc(sizeof(Frame) * OFFLINE_QUEUE_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#endif
 
   // beebo: BeeboBoardPrefs's own file (role/board_password/board_name,
   // and as of BOARD_BATTERY_PREFS.md the seven battery/ADC fields).
