@@ -1482,6 +1482,12 @@ public:
   // happened first. If DLOG/RLOG's replay was never active to begin with
   // (nothing to wait for), this fires on the very next tick.
   void requestMlogReplay() { _mlog_replay_pending = true; }
+  // beebo: drops an unfinished replay (and a not-yet-started one). Without
+  // this, disabling MLOG mid-walk leaves _mlog_replay_active set: the next
+  // enable resumes the old backlog even when it asked for NO_REPLAY, and
+  // live pushes stay suppressed (see the _mlog_replay_active gate in the
+  // live path) until the stale walk finishes.
+  void cancelMlogReplay() { _mlog_replay_active = false; _mlog_replay_pending = false; }
   bool mlogReplayPending() const { return _mlog_replay_pending; }
 
   // MLOG replay-on-enable mirrors DebugLog::beginReplay()/replayStep()'s own paced-not-a-burst

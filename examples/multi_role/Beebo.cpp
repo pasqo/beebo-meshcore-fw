@@ -6844,10 +6844,11 @@ void Beebo::handleCmdFrame(size_t len) {
       if (mlog_enabling && !debug_log.isMlogEnabled()) {
         debug_log.setSessionMlogEnabled(true);
         if (!no_replay) monring.requestMlogReplay();
-        else monring.seedMlogStartRefs();   // beebo: no backlog walk, but still seed the time anchor (same as the raw USB path)
+        else { monring.cancelMlogReplay(); monring.seedMlogStartRefs(); }   // beebo: no backlog walk, but still seed the time anchor (same as the raw USB path)
       } else {
         debug_log.setSessionMlogEnabled(mlog_enabling);
       }
+      if (!debug_log.isMlogEnabled()) monring.cancelMlogReplay();
       writeOKFrame();
     }
   } else if (sub[0] == BEEBO_CMD_RUN_SELF_COMMAND && sub_len >= 1) {
@@ -6987,10 +6988,11 @@ void Beebo::checkSerialInterface() {
       if (mlog_enabling && !debug_log.isMlogEnabled()) {
         debug_log.setUsbMlogEnabled(true);
         if (!no_replay) monring.requestMlogReplay();
-        else monring.seedMlogStartRefs();   // beebo: no backlog walk, but still seed the time anchor
+        else { monring.cancelMlogReplay(); monring.seedMlogStartRefs(); }   // beebo: no backlog walk, but still seed the time anchor
       } else {
         debug_log.setUsbMlogEnabled(mlog_enabling);
       }
+      if (!debug_log.isMlogEnabled()) monring.cancelMlogReplay();
       // beebo: ack every raw sub-frame the instant it's processed -- see
       // BEEBO_RESP_RAW_ACK's own protocol.yaml desc. Bypasses _serial's
       // session arbitration (writes straight to usb_interface, via
@@ -8155,6 +8157,16 @@ void Beebo::driveBtp(bool ble_on, bool tcp_on, bool creds_changed,
     case BTP_TCP_BACKOFF:
       if (!tcp_on || creds_changed) {
         next = session_live_on_tcp ? BTP_TCP_OFF_WAIT : teardownTcpThen_(ble_on, tcp_on);
+      } else if (got_ip) {
+        // beebo: the STA's own auto-reconnect got an IP during the backoff.
+        // Take it as the new link instead of calling WiFi.begin() when the
+        // backoff ends: begin() on a connected STA disassociates first
+        // (Arduino-ESP32 3.x; reason 8 ASSOC_LEAVE), which lands here as a
+        // fresh disconnect and repeats every backoff period, dropping any
+        // TCP session in between.
+        wifi_interface.rebind();
+        _last_wifi_health_sample_ms = millis() - WIFI_HEALTH_SAMPLE_MS;
+        next = BTP_TCP_UP;
       } else if (backoff_elapsed) {
         // beebo: only place a lost TCP connection is ever retried. Gated
         // on elapsed time, not on WiFi.status() (ambiguous between
