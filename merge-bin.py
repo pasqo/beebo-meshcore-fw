@@ -23,20 +23,20 @@ def merge_bin_action(source, target, env):
             '"$OBJCOPY"',
             "--chip",
             board_config.get("build.mcu", "esp32"),
-            "merge_bin",
+            "merge-bin",
             "-o",
             merged_bin,
             # beebo: the platform's own bootloader image is built with this
             # helper's mode (dio for a qio board: the ROM reads the second
             # stage in dio and the bootloader switches flash to qio itself).
-            # merge_bin rewrites the bootloader header at 0x0 with this
+            # merge-bin rewrites the bootloader header at 0x0 with this
             # value, so passing the board's raw qio makes the ROM read the
             # bootloader in qio and the chip boot-loops on TG0WDT resets.
-            "--flash_mode",
+            "--flash-mode",
             "${__get_board_flash_mode(__env__)}",
-            "--flash_freq",
+            "--flash-freq",
             "${__get_board_f_flash(__env__)}",
-            "--flash_size",
+            "--flash-size",
             board_config.get("upload.flash_size", "4MB"),
             *flash_images,
         ]
