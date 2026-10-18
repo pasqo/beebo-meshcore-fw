@@ -13,6 +13,7 @@
 
 #include "Beebo.h"
 #include "BeeboProtocol.h"
+#include "CliCommand.h"
 #include <helpers/DebugLog.h>
 
 #if BEEBO_ENABLE_COMPANION_ROLE
@@ -333,6 +334,25 @@ void Beebo::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32
   queueMessage(from, TXT_TYPE_CLI_DATA, pkt, sender_timestamp, NULL, 0, text);
 }
 
+void Beebo::onCLICommandRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
+                             const char *text, char *reply) {
+  if (!isCompanion()) return;
+  markConnectionActive(from);
+  refreshNeighborFromContact(from, pkt);
+  if (from.isRemoteCLIAllowed()) {
+    char command[MAX_TEXT_LEN + 1];
+    StrHelper::strncpy(command, text, sizeof(command));
+    char prefix[4];
+    char* body = splitCliPrefix(command, prefix);
+    size_t prefix_len = strlen(prefix);
+    memcpy(reply, prefix, prefix_len);
+    reply[prefix_len] = 0;
+    handleCommand(sender_timestamp, body, reply + prefix_len);
+  } else {
+    queueMessage(from, TXT_TYPE_CLI_COMMAND, pkt, sender_timestamp, NULL, 0, text);
+  }
+}
+
 void Beebo::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                                  const uint8_t *sender_prefix, const char *text) {
   markConnectionActive(from);
@@ -467,6 +487,7 @@ uint8_t Beebo::onContactRequest(const ContactInfo &contact, uint32_t sender_time
   return 0; // unknown
 }
 void Beebo::onContactResponse(const ContactInfo &contact, const uint8_t *data, uint8_t len) {
+  if (len < 4) return;
   uint32_t tag;
   memcpy(&tag, data, 4);
 
@@ -515,7 +536,7 @@ void Beebo::onContactResponse(const ContactInfo &contact, const uint8_t *data, u
     memcpy(&out_frame[i], &data[4], len - 4);
     i += (len - 4);
     _serial->writeFrame(out_frame, i);
-  } else if (len > 4 && tag == pending_telemetry) {  // check for matching response tag
+  } else if (len > 4 && pending_telemetry != 0 && tag == pending_telemetry) {  // check for matching response tag
     pending_telemetry = 0;
 
     int i = 0;
@@ -526,7 +547,7 @@ void Beebo::onContactResponse(const ContactInfo &contact, const uint8_t *data, u
     memcpy(&out_frame[i], &data[4], len - 4);
     i += (len - 4);
     _serial->writeFrame(out_frame, i);
-  } else if (len > 4 && tag == pending_req) {  // check for matching response tag
+  } else if (len > 4 && pending_req != 0 && tag == pending_req) {  // check for matching response tag
     pending_req = 0;
 
     int i = 0;
@@ -536,6 +557,13 @@ void Beebo::onContactResponse(const ContactInfo &contact, const uint8_t *data, u
     i += 4;
     memcpy(&out_frame[i], &data[4], len - 4);
     i += (len - 4);
+    _serial->writeFrame(out_frame, i);
+  } else {
+    int i = 0;
+    out_frame[i++] = PUSH_CODE_BINARY_RESPONSE;
+    out_frame[i++] = 0; // reserved
+    memcpy(&out_frame[i], data, len); // include the tag for app correlation
+    i += len;
     _serial->writeFrame(out_frame, i);
   }
 }

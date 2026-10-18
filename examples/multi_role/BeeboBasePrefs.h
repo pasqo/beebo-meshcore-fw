@@ -55,4 +55,8 @@ struct BeeboBasePrefs {
   uint8_t tx_disable = 0;        // 1: node.transmit off, Dispatcher::checkSend() drops every
                                  // outbound packet unsent (txAllowed()). Inverted so a file
                                  // saved before this field existed reads as transmit on.
+  uint8_t comp_interference_threshold = 0;
+  uint8_t comp_agc_reset_interval = 0; // upstream units: four seconds
+  float comp_tx_delay_factor = 0.5f;
+  float comp_direct_tx_delay_factor = 0.2f;
 };

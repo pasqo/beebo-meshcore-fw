@@ -24,7 +24,7 @@ struct BeeboAbi {
 // unused since classifyBattTrend()/radioIsIdle() always use the compiled
 // BATT_FULL_MV/IDLE_MARGIN_MS macros -- see BattTrend.h).
 #define BOARD_PREFS_VERSION     2
-#define COMPANION_PREFS_VERSION 2
+#define COMPANION_PREFS_VERSION 3
 // 3: /beebo_repeater's ComPrefs fold-in switched from a raw sizeof(ComPrefs)
 // struct blob to explicit field-by-field read/write (DataStore.cpp's
 // loadBeeboRepeaterPrefs()/saveBeeboRepeaterPrefs()) -- upstream's

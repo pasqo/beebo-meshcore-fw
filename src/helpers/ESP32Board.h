@@ -15,6 +15,7 @@
 #include "soc/rtc.h"
 #include "esp_system.h"
 #include <driver/rtc_io.h>
+#include <helpers/KeyValueStore.h>
 
 // beebo: opt-in (-D BEEBO_RTC_PERSIST) persistence of the RTC across a true
 // power cycle (ESP_RST_POWERON), where settimeofday()'s state is lost. Soft
@@ -76,6 +77,8 @@ public:
     Wire.begin();
   #endif    
   }
+
+  void attachDynamicPrefs(KeyValueStore* prefs) { }  // no-op
 
   // Temperature from ESP32 MCU
   float getMCUTemperature() override {
@@ -249,6 +252,11 @@ public:
   }
 };
 
+static RTC_NOINIT_ATTR uint32_t _rtc_backup_time;
+static RTC_NOINIT_ATTR uint32_t _rtc_backup_magic;
+#define RTC_BACKUP_MAGIC  0xAA55CC33
+#define RTC_TIME_MIN      1772323200  // 1 Mar 2026
+
 class ESP32RTCClock : public mesh::RTCClock {
 public:
   ESP32RTCClock() { }
@@ -273,56 +281,46 @@ public:
 
   void begin() {
     esp_reset_reason_t reason = esp_reset_reason();
-    // beebo: esp_reset_reason() reports ESP_RST_POWERON for both a genuine
-    // cold power-on (RTC domain power lost, time() reads ~0) and, on some
-    // hardware, an EN/RST-button toggle that leaves the RTC domain powered
-    // (time() still holds whatever was last set) -- there's no way to tell
-    // these apart from the reset reason alone. Whether an RST-button press
-    // on *this* board actually falls into the second case is still being
-    // verified on real hardware as of 2026-09-12 (RLOG_ID_CLOCK_RTC below
-    // exists specifically to get direct evidence, since a client watching
-    // --debug has no independent way to know what time() held here without
-    // it). Guards against the case it does apply -- only falls back to
-    // NVS/the fixed date when the live clock doesn't already look
-    // plausible (i.e. this really was a cold boot).
+#ifdef BEEBO_RTC_PERSIST
+    // Prefer a live IDF clock, then RTC no-init backup, then NVS. A true
+    // power loss clears the RTC backup; a software reset can lose system time.
     time_t live_now;
     time(&live_now);
     _pending_clock_rtc_log = true;
     _pending_clock_rtc_value = (uint32_t)live_now;
-    bool live_clock_plausible = (uint32_t)live_now > RTC_FALLBACK_EPOCH;
-    if (reason == ESP_RST_POWERON && !live_clock_plausible) {
-      struct timeval tv;
-      // beebo: recover the timestamp saved by reboot() so a power cycle
-      // only loses however long the boot itself took, not the RTC state --
-      // falls back to a fixed recent-past date (matching plain upstream
-      // behavior) when nothing has been persisted yet, including whenever
-      // BEEBO_RTC_PERSIST is off (getRebootRTCTime() returns 0 in that case).
-      uint32_t saved_ts = getRebootRTCTime();
-      tv.tv_sec = saved_ts != 0 ? saved_ts : RTC_FALLBACK_EPOCH;
-      tv.tv_usec = 0;
-      settimeofday(&tv, NULL);
-      // beebo: deferred -- this runs before MonRing's sink exists. detail =
-      // what was actually applied (tv.tv_sec), so a client can tell a
-      // genuine cold boot (this event present, likely stale) apart from an
-      // RST-button press where the live clock was trusted instead (no
-      // CLOCK_NVM_PULL logged this boot at all).
+    if (reason == ESP_RST_DEEPSLEEP || (uint32_t)live_now > RTC_FALLBACK_EPOCH) {
+      _pending_clock_src = CLOCK_SRC_RTC;
+      return;
+    }
+    bool backup_valid = _rtc_backup_magic == RTC_BACKUP_MAGIC &&
+                        _rtc_backup_time > RTC_TIME_MIN;
+    uint32_t saved_ts = backup_valid ? 0 : getRebootRTCTime();
+    uint32_t restore_ts = backup_valid ? _rtc_backup_time :
+                          (saved_ts != 0 ? saved_ts : RTC_FALLBACK_EPOCH);
+    struct timeval tv = { (time_t)restore_ts, 0 };
+    settimeofday(&tv, NULL);
+    if (backup_valid) {
+      _pending_clock_src = CLOCK_SRC_RTC;
+    } else {
       _pending_nvm_pull_log = true;
-      _pending_nvm_pull_value = (uint32_t)tv.tv_sec;
-      // beebo: deferred alongside CLOCK_NVM_PULL, logged next to CLOCK_SET
-      // at the same point (see Beebo::startMonRing()) -- distinguishes a
-      // genuine NVS restore from the fixed-date fallback used on a device
-      // that's never persisted anything yet (saved_ts == 0, whether that's
-      // because nothing was ever saved or because BEEBO_RTC_PERSIST is off).
+      _pending_nvm_pull_value = restore_ts;
       _pending_clock_src = saved_ts != 0 ? CLOCK_SRC_NVM : CLOCK_SRC_FALLBACK;
     }
-    // beebo: ESP_RST_UNKNOWN covers an esptool flash; ESP_RST_SW covers an
-    // ordinary reboot() (esp_restart()); a plausible-live-clock
-    // ESP_RST_POWERON covers an RST-button toggle (see above) -- the RTC
-    // counter survives all three intact (never powered down).
-    else if (reason == ESP_RST_UNKNOWN || reason == ESP_RST_SW ||
-             (reason == ESP_RST_POWERON && live_clock_plausible)) {
-      _pending_clock_src = CLOCK_SRC_RTC;
+#else
+    if (reason == ESP_RST_DEEPSLEEP) {
+      return;  // ESP-IDF preserves system time across deep sleep
     }
+    // All other resets (power-on, crash, WDT, brownout) lose system time.
+    // Restore from RTC backup if valid, otherwise use hardcoded seed.
+    struct timeval tv;
+    if (_rtc_backup_magic == RTC_BACKUP_MAGIC && _rtc_backup_time > RTC_TIME_MIN) {
+      tv.tv_sec = _rtc_backup_time;
+    } else {
+      tv.tv_sec = RTC_TIME_MIN;
+    }
+    tv.tv_usec = 0;
+    settimeofday(&tv, NULL);
+#endif
   }
   uint32_t getCurrentTime() override {
     time_t _now;
@@ -334,6 +332,16 @@ public:
     tv.tv_sec = time;
     tv.tv_usec = 0;
     settimeofday(&tv, NULL);
+    _rtc_backup_time = time;
+    _rtc_backup_magic = RTC_BACKUP_MAGIC;
+  }
+  void tick() override {
+    time_t now;
+    time(&now);
+    if (now > RTC_TIME_MIN && (uint32_t)now != _rtc_backup_time) {
+      _rtc_backup_time = (uint32_t)now;
+      _rtc_backup_magic = RTC_BACKUP_MAGIC;
+    }
   }
 
   // One atomic gettimeofday()/settimeofday() call each, straight to

@@ -47,7 +47,7 @@
 #include <helpers/ArduinoHelpers.h>
 #include <helpers/BaseSerialInterface.h>
 #include <helpers/esp32/SerialBLEInterface.h>
-#include <helpers/esp32/SerialWifiInterface.h>
+#include <helpers/wifi/SerialWifiInterface.h>
 #include <helpers/MultiSerialInterface.h>
 #include <helpers/DualModeSerialInterface.h> // beebo: dual-mode, not plain ArduinoSerialInterface (see usb_interface's own comment)
 
@@ -279,6 +279,7 @@ static_assert(USB_TX_BUFFER_SIZE >= 2 * (MAX_SEND_FRAME_SIZE + 3), "USB TX buffe
 // same values as examples/simple_repeater/MyMesh.cpp.
 #define TXT_ACK_DELAY                   200
 #define CLI_REPLY_DELAY_MILLIS          600
+#define CLI_REPLY_CAP                   4096  // handleCommand() reply scratch (cli_reply)
 
 // beebo: multi_role repeater-role forwarding gate (allowPacketForward) --
 // same values as src/helpers/CommonCLI.h's LOOP_DETECT_* (not included
@@ -617,6 +618,8 @@ protected:
                      const char *text) override;
   void onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                          const char *text) override;
+  void onCLICommandRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
+                        const char *text, char *reply) override;
   void onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                            const uint8_t *sender_prefix, const char *text) override;
   void onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
@@ -1156,6 +1159,8 @@ private:
   // own /beebo_board file, own dirty bit, untouched by any role-switch
   // handoff.
   BeeboBoardPrefs _board;
+  bool _role_selection_pending = false;
+  uint8_t _upstream_role = NODE_ROLE_LIVE; // valid /prefs.json schema, or unknown
   bool _board_dirty = false;
   // beebo: plain live reads of _board.role, not a cached bool -- a prior
   // version of this cached (_is_repeater/_is_companion, written by
@@ -1230,7 +1235,7 @@ private:
   NodeRoleSwitchResult requestNodeRoleSwitch(uint8_t role, uint8_t source) {
     if (role != NODE_ROLE_COMPANION && role != NODE_ROLE_REPEATER) return NODE_ROLE_SWITCH_ERR_ARG;
     if (!isNodeRoleBuiltIn(role)) return NODE_ROLE_SWITCH_ERR_BUILTIN;
-    if (role == _board.role) return NODE_ROLE_SWITCH_NOOP;
+    if (role == _board.role && !_role_selection_pending) return NODE_ROLE_SWITCH_NOOP;
     // beebo: refuse mid-OTA/mid-bulk-transfer -- both carry state
     // (ota_partition/ota_handle, _monread/_statread's cursor) a reboot has
     // no way to preserve; better to reject and let the caller retry once
@@ -1246,6 +1251,19 @@ private:
       if (isCompanion()) saveContacts();
       dirty_contacts_expiry = 0;
     }
+    if (_role_selection_pending) {
+      // The temporary companion identity is only a placeholder. Assign the
+      // upstream identity to the role explicitly chosen by the operator.
+      File marker = _store->getPrimaryFS()->open("/beebo_role_pending", "w", true);
+      if (marker) {
+        marker.write(role);
+        marker.close();
+      }
+      mesh::LocalIdentity upstream_id;
+      if (_store->loadMainIdentity(upstream_id)) {
+        _store->saveRoleIdentity(role, upstream_id);
+      }
+    }
     _board.role = role;
     // beebo: unconditional, bypassing _save_prefs/batch policy (like
     // commitPrefs()) -- the new role must survive the reboot regardless of
@@ -1255,6 +1273,10 @@ private:
     // new role while _role_state still points at the outgoing role's slot
     // -- writing that combination would corrupt the new role's prefs file.
     _store->saveBeeboBoardPrefs(_board);
+    if (_role_selection_pending) {
+      _store->removeFile("/beebo_role_pending");
+      _role_selection_pending = false;
+    }
     _board_dirty = false;
     return NODE_ROLE_SWITCH_REBOOTING;
   }
@@ -2513,6 +2535,10 @@ private:
 
   uint8_t cmd_frame[OTA_FRAME_SIZE + 1];  // large enough for OTA frames on WiFi/USB
   uint8_t out_frame[MAX_SEND_FRAME_SIZE + 1];  // beebo: grows under BULK_XFER; else == MAX_FRAME_SIZE+1
+  // beebo: PSRAM scratch every local handleCommand() entry point writes its reply into
+  // (CLI_REPLY_CAP bytes, same capacity as the remote CLI reply in BaseChatMesh.cpp);
+  // the wire copy is clamped with cliReplyLen().
+  char* cli_reply;
   CayenneLPP telemetry;
 
   // beebo: per-session bulk-transfer state (negotiated via CMD_SET_XFER_CAPS).

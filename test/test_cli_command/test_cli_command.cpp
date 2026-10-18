@@ -46,6 +46,20 @@ TEST(CliCommand, EmptyText) {
   EXPECT_STREQ(prefix, "");
 }
 
+TEST(CliCommand, ReplyLenIsTheStringLengthWhenItFits) {
+  EXPECT_EQ(cliReplyLen("OK", 16, 100), 2u);
+  EXPECT_EQ(cliReplyLen("", 16, 100), 0u);
+}
+
+TEST(CliCommand, ReplyLenIsClampedToTheFrameRoom) {
+  EXPECT_EQ(cliReplyLen("0123456789", 16, 4), 4u);
+}
+
+TEST(CliCommand, ReplyLenNeverReadsPastTheBuffer) {
+  const char unterminated[4] = {'a', 'b', 'c', 'd'};
+  EXPECT_EQ(cliReplyLen(unterminated, sizeof(unterminated), 100), 4u);
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {

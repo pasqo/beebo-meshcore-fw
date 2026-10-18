@@ -184,6 +184,7 @@ static uint32_t _floatBits(float v) { uint32_t b; memcpy(&b, &v, 4); return b; }
 static float _bitsFloat(uint32_t b) { float v; memcpy(&v, &b, 4); return v; }
 
 uint32_t Beebo::tlvGetAgcResetInterval(Beebo* self, uint8_t role) {
+  if (role == NODE_ROLE_COMPANION) return ((uint32_t)self->role_state_store[role].prefs.comp_agc_reset_interval) * 4;
 #if BEEBO_ENABLE_REPEATER_ROLE
   return ((uint32_t)self->role_state_store[role].prefs.agc_reset_interval) * 4;
 #else
@@ -196,6 +197,8 @@ bool Beebo::tlvSetAgcResetInterval(Beebo* self, uint8_t role, uint32_t raw) {
   // max representable is 255*4=1020s. Reject out of range instead of
   // silently wrapping, same convention as tlvSetLoopDetect's raw > 3 check.
   if (raw / 4 > 255) return false;
+  if (role == NODE_ROLE_COMPANION)
+    return persistScalarField(self, role, self->role_state_store[role].prefs.comp_agc_reset_interval, raw / 4);
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.agc_reset_interval, raw / 4);
 #endif
@@ -227,6 +230,7 @@ bool Beebo::tlvSetAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
 }
 
 uint32_t Beebo::tlvGetTxDelayFactor(Beebo* self, uint8_t role) {
+  if (role == NODE_ROLE_COMPANION) return _floatBits(self->role_state_store[role].prefs.comp_tx_delay_factor);
 #if BEEBO_ENABLE_REPEATER_ROLE
   return _floatBits(self->role_state_store[role].prefs.tx_delay_factor);
 #else
@@ -235,6 +239,8 @@ uint32_t Beebo::tlvGetTxDelayFactor(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
   if (self->trialTouches(TrialSequence::TX_DELAY)) self->abortTrial(false);   // a manual change ends the trial first
+  if (role == NODE_ROLE_COMPANION)
+    return persistScalarField(self, role, self->role_state_store[role].prefs.comp_tx_delay_factor, _bitsFloat(raw));
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.tx_delay_factor, _bitsFloat(raw));
 #endif
@@ -242,6 +248,7 @@ bool Beebo::tlvSetTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
 }
 
 uint32_t Beebo::tlvGetDirectTxDelayFactor(Beebo* self, uint8_t role) {
+  if (role == NODE_ROLE_COMPANION) return _floatBits(self->role_state_store[role].prefs.comp_direct_tx_delay_factor);
 #if BEEBO_ENABLE_REPEATER_ROLE
   return _floatBits(self->role_state_store[role].prefs.direct_tx_delay_factor);
 #else
@@ -250,6 +257,8 @@ uint32_t Beebo::tlvGetDirectTxDelayFactor(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetDirectTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
   if (self->trialTouches(TrialSequence::DIRECT_TX_DELAY)) self->abortTrial(false);   // a manual change ends the trial first
+  if (role == NODE_ROLE_COMPANION)
+    return persistScalarField(self, role, self->role_state_store[role].prefs.comp_direct_tx_delay_factor, _bitsFloat(raw));
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.direct_tx_delay_factor, _bitsFloat(raw));
 #endif
@@ -305,6 +314,7 @@ bool Beebo::tlvSetFloodAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
 }
 
 uint32_t Beebo::tlvGetInterferenceThreshold(Beebo* self, uint8_t role) {
+  if (role == NODE_ROLE_COMPANION) return self->role_state_store[role].prefs.comp_interference_threshold;
 #if BEEBO_ENABLE_REPEATER_ROLE
   return self->role_state_store[role].prefs.interference_threshold;
 #else
@@ -313,6 +323,8 @@ uint32_t Beebo::tlvGetInterferenceThreshold(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetInterferenceThreshold(Beebo* self, uint8_t role, uint32_t raw) {
   if (self->trialTouches(TrialSequence::INTERFERENCE)) self->abortTrial(false);   // a manual change ends the trial first
+  if (role == NODE_ROLE_COMPANION)
+    return persistScalarField(self, role, self->role_state_store[role].prefs.comp_interference_threshold, raw > 9 ? 9 : raw);
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.interference_threshold, raw > 9 ? 9 : raw);
 #endif

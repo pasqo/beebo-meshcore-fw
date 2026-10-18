@@ -185,7 +185,7 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
     file.read((uint8_t *)&_prefs.tcp_enabled, sizeof(_prefs.tcp_enabled));                         // 130
     file.read((uint8_t *)&_prefs.usb_enabled, sizeof(_prefs.usb_enabled));                         // 131
     file.read((uint8_t *)&_prefs.monring_config, sizeof(_prefs.monring_config));                   // 132
-    if (_abi.companion_prefs_version < COMPANION_PREFS_VERSION) {
+    if (_abi.companion_prefs_version < 2) {
       // Legacy layout only -- role/adc_multiplier/adc_resolution_bits/
       // batt_present/batt_sample_period_secs/batt_sample_window_secs used
       // to be echoed here from `_board`, purely as a one-time migration
@@ -238,7 +238,7 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
       file.read((uint8_t *)&_prefs.autoadd_max_hops, sizeof(_prefs.autoadd_max_hops));
       file.read((uint8_t *)_prefs.default_scope_name, sizeof(_prefs.default_scope_name));
       file.read((uint8_t *)_prefs.default_scope_key, sizeof(_prefs.default_scope_key));
-      if (_abi.companion_prefs_version < COMPANION_PREFS_VERSION) {
+      if (_abi.companion_prefs_version < 2) {
         // Legacy layout only -- board_password/board_name were echoed
         // here too; same one-time-seed rationale as the block above.  An
         // already-migrated file from before these fields existed ends
@@ -274,6 +274,14 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
               // tx_disable -- tail-guarded the same way, defaulting to 0 (transmit on)
               if (file.available() >= (int)sizeof(_prefs.tx_disable)) {
                 file.read((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
+                if (file.available() >= (int)(sizeof(_prefs.comp_interference_threshold) +
+                    sizeof(_prefs.comp_agc_reset_interval) + sizeof(_prefs.comp_tx_delay_factor) +
+                    sizeof(_prefs.comp_direct_tx_delay_factor))) {
+                  file.read((uint8_t *)&_prefs.comp_interference_threshold, sizeof(_prefs.comp_interference_threshold));
+                  file.read((uint8_t *)&_prefs.comp_agc_reset_interval, sizeof(_prefs.comp_agc_reset_interval));
+                  file.read((uint8_t *)&_prefs.comp_tx_delay_factor, sizeof(_prefs.comp_tx_delay_factor));
+                  file.read((uint8_t *)&_prefs.comp_direct_tx_delay_factor, sizeof(_prefs.comp_direct_tx_delay_factor));
+                }
               }
             }
           }
@@ -335,6 +343,10 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.tz_offset, sizeof(_prefs.tz_offset));
     file.write((uint8_t *)&_prefs.cad_on, sizeof(_prefs.cad_on));
     file.write((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
+    file.write((uint8_t *)&_prefs.comp_interference_threshold, sizeof(_prefs.comp_interference_threshold));
+    file.write((uint8_t *)&_prefs.comp_agc_reset_interval, sizeof(_prefs.comp_agc_reset_interval));
+    file.write((uint8_t *)&_prefs.comp_tx_delay_factor, sizeof(_prefs.comp_tx_delay_factor));
+    file.write((uint8_t *)&_prefs.comp_direct_tx_delay_factor, sizeof(_prefs.comp_direct_tx_delay_factor));
 
     file.close();
   }

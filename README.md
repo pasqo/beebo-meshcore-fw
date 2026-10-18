@@ -55,3 +55,47 @@ By the way, Beebo 🐈 is the name of one of my cats 😄!
 ## License
 
 MeshCore is open-source software released under the MIT License.
+## 🛠 Hardware Compatibility
+
+MeshCore is designed for devices listed in the [MeshCore Flasher](https://meshcore.io/flasher)
+
+## Contributing
+
+Please submit PR's using 'dev' as the base branch!
+For minor changes just submit your PR and we'll try to review it, but for anything more 'impactful' please open an Issue first and start a discussion. It is better to sound out what it is you want to achieve first, and try to come to a consensus on what the best approach is, especially when it impacts the structure or architecture of this codebase.
+
+Here are some general principles you should try to adhere to:
+* Keep it simple. Please, don't think like a high-level lang programmer. Think embedded, and keep code concise, without any unnecessary layers.
+* No dynamic memory allocation, except during setup/begin functions.
+* Use the same brace and indenting style that's in the core source modules. (A .clang-format is probably going to be added soon, but please do NOT retroactively re-format existing code. This just creates unnecessary diffs that make finding problems harder)
+
+Help us prioritize! Please react with thumbs-up to issues/PRs you care about most. We look at reaction counts when planning work.
+
+### Running unit tests
+
+To run unit tests, run the following command:
+
+```bash
+pio test --environment native --verbose
+```
+
+## Road-Map / To-Do
+
+There are a number of fairly major features in the pipeline, with no particular time-frames attached yet. In very rough chronological order:
+- [X] Companion radio: UI redesign
+- [X] Repeater + Room Server: add ACL's (like Sensor Node has)
+- [X] Standardise Bridge mode for repeaters
+- [ ] Repeater/Bridge: Standardise the Transport Codes for zoning/filtering
+- [X] Core + Repeater: enhanced zero-hop neighbour discovery
+- [ ] Core: round-trip manual path support
+- [ ] Companion + Apps: support for multiple sub-meshes (and 'off-grid' client repeat mode)
+- [ ] Core + Apps: support for LZW message compression
+- [ ] Core: dynamic CR (Coding Rate) for weak vs strong hops
+- [ ] Core: new framework for hosting multiple virtual nodes on one physical device
+- [ ] V2 protocol spec: discussion and consensus around V2 packet protocol, including path hashes, new encryption specs, etc
+
+## 📞 Get Support
+
+- Report bugs and request features on the [GitHub Issues](https://github.com/meshcore-dev/meshcore/issues) page.
+- Find additional guides and components on [my site](https://buymeacoffee.com/ripplebiz).
+- Join [MeshCore Discord](https://meshcore.gg) to chat with the developers and get help from the community.

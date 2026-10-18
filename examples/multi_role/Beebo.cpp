@@ -1,4 +1,8 @@
 #include "Beebo.h"
+#include <helpers/UpstreamRoleProbe.h>
+#define NodePrefs UpstreamCompanionPrefs
+#include "../companion_radio/NodePrefs.h"
+#undef NodePrefs
 
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
@@ -17,6 +21,48 @@
 #if defined(ESP32)
 #include <WiFi.h>
 #endif
+
+class BeeboCompanionRadioCLI : public CommonRadioPrefs {
+  BeeboPrefs& p;
+protected:
+  void structure() override {}
+public:
+  explicit BeeboCompanionRadioCLI(BeeboPrefs& prefs) : p(prefs) {}
+  float getFreq() const override { return p.freq; }
+  void setFreq(float v) override { p.freq = v; markDirty(); }
+  float getBandwidth() const override { return p.bw; }
+  void setBandwidth(float v) override { p.bw = v; markDirty(); }
+  uint8_t getSpreadFactor() const override { return p.sf; }
+  void setSpreadFactor(uint8_t v) override { p.sf = v; markDirty(); }
+  uint8_t getCodingRate() const override { return p.cr; }
+  void setCodingRate(uint8_t v) override { p.cr = v; markDirty(); }
+  float getAirtimeFactor() const override { return p.airtime_factor; }
+  void setAirtimeFactor(float v) override { p.airtime_factor = v; markDirty(); }
+  bool isCadEnabled() const override { return p.cad_on != 0; }
+  void setCadEnabled(bool v) override { p.cad_on = v; markDirty(); }
+  uint8_t getIntThresh() const override { return p.comp_interference_threshold; }
+  void setIntThresh(uint8_t v) override { p.comp_interference_threshold = v; markDirty(); }
+  uint8_t getRxGain() const override { return p.rx_boosted_gain; }
+  void setRxGain(uint8_t v) override { p.rx_boosted_gain = v; markDirty(); }
+  uint8_t getTxPower() const override { return p.tx_power_dbm; }
+  void setTxPower(uint8_t v) override { p.tx_power_dbm = v; markDirty(); }
+  float getRxDelay() const override { return p.rx_delay_base; }
+  void setRxDelay(float v) override { p.rx_delay_base = v; markDirty(); }
+  uint16_t getAgcResetInt() const override { return (uint16_t)p.comp_agc_reset_interval * 4; }
+  void setAgcResetInt(uint16_t v) override { p.comp_agc_reset_interval = v / 4; markDirty(); }
+  uint8_t getHashMode() const override { return p.path_hash_mode; }
+  void setHashMode(uint8_t v) override { p.path_hash_mode = v; markDirty(); }
+  uint8_t getMultiAcks() const override { return p.multi_acks; }
+  void setMultiAcks(uint8_t v) override { p.multi_acks = v; markDirty(); }
+  float getFloodTxDelay() const override { return p.comp_tx_delay_factor; }
+  void setFloodTxDelay(float v) override { p.comp_tx_delay_factor = v; markDirty(); }
+  float getDirectTxDelay() const override { return p.comp_direct_tx_delay_factor; }
+  void setDirectTxDelay(float v) override { p.comp_direct_tx_delay_factor = v; markDirty(); }
+  uint8_t getFEMRxGain() const override { return p.BeeboBasePrefs::radio_fem_rxgain; }
+  void setFEMRxGain(uint8_t v) override { p.BeeboBasePrefs::radio_fem_rxgain = v; markDirty(); }
+  uint8_t getFEMTxGain() const override { return p.BeeboBasePrefs::radio_fem_txgain; }
+  void setFEMTxGain(uint8_t v) override { p.BeeboBasePrefs::radio_fem_txgain = v; markDirty(); }
+};
 
 // beebo: monitor ring sizing. This board has only ~2 MB PSRAM total (NOT the
 // 16 MB flash). Fixed 1MiB claimed as early as possible in setup() (see
@@ -214,7 +260,7 @@ int Beebo::getInterferenceThreshold() const {
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (isRepeater()) return _role_state->prefs.interference_threshold;
 #endif
-  return 0;
+  return _role_state->prefs.comp_interference_threshold;
 }
 
 // beebo: the repeater role keeps its CAD setting in ComPrefs::cad_enabled, the
@@ -234,7 +280,7 @@ int Beebo::getAGCResetInterval() const {
 #if BEEBO_ENABLE_REPEATER_ROLE
   if (isRepeater()) return ((int)_role_state->prefs.agc_reset_interval) * 4000;  // milliseconds
 #endif
-  return 0;
+  return ((int)_role_state->prefs.comp_agc_reset_interval) * 4000;
 }
 
 // beebo: rx_delay_base is one of the 14 SharedPrefs fields (see
@@ -254,18 +300,18 @@ int Beebo::calcRxDelay(float score, uint32_t air_time) const {
 // unchanged.
 uint32_t Beebo::getRetransmitDelay(const mesh::Packet *packet) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  float factor = isRepeater() ? _role_state->prefs.tx_delay_factor : 0.5f;
+  float factor = isRepeater() ? _role_state->prefs.tx_delay_factor : _role_state->prefs.comp_tx_delay_factor;
 #else
-  float factor = 0.5f;
+  float factor = _role_state->prefs.comp_tx_delay_factor;
 #endif
   uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * factor);
   return getRNG()->nextInt(0, 5*t + 1);
 }
 uint32_t Beebo::getDirectRetransmitDelay(const mesh::Packet *packet) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-  float factor = isRepeater() ? _role_state->prefs.direct_tx_delay_factor : 0.2f;
+  float factor = isRepeater() ? _role_state->prefs.direct_tx_delay_factor : _role_state->prefs.comp_direct_tx_delay_factor;
 #else
-  float factor = 0.2f;
+  float factor = _role_state->prefs.comp_direct_tx_delay_factor;
 #endif
   uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * factor);
   return getRNG()->nextInt(0, 5*t + 1);
@@ -982,6 +1028,12 @@ void Beebo::onControlDataRecv(mesh::Packet *packet) {
 #endif
   bool discover_req_ok = ctl_type == CTL_TYPE_NODE_DISCOVER_REQ
       && packet->payload_len >= 6 && fwd_ok && discover_limiter.allow(getRTCClock()->getCurrentTime());
+#if BEEBO_ENABLE_REPEATER_ROLE
+  if (isRepeater() && _role_state->prefs.advert_interval == 0 &&
+      _role_state->prefs.flood_advert_interval == 0) {
+    discover_req_ok = false;
+  }
+#endif
   if (discover_req_ok) {
     int j = 1;
     uint8_t filter = packet->payload[j++];
@@ -1168,6 +1220,8 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
 #endif
   _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain = 0; // LNA disabled by default
   _role_state->prefs.BeeboBasePrefs::radio_fem_txgain = 0; // PA gain disabled by default
+  _role_state->prefs.comp_tx_delay_factor = 0.5f;
+  _role_state->prefs.comp_direct_tx_delay_factor = 0.2f;
   _role_state->prefs.ble_enabled = 1;      // BLE transport on by default
   _role_state->prefs.tcp_enabled = 0;      // WiFi/TCP transport off by default (no creds initially)
   _role_state->prefs.usb_enabled = 1;      // USB companion transport on by default (lets a fresh node be configured over USB before BLE/WiFi are set up)
@@ -1257,7 +1311,7 @@ mesh::LocalIdentity Beebo::generateFreshIdentity() {
 void Beebo::loadIdentityForRole(uint8_t role) {
   mesh::LocalIdentity& id = role_state_store[role].identity;
   if (_store->loadRoleIdentity(role, id)) return;
-  if (role == _board.role && _store->migrateLegacyIdentity(role, id)) return;
+  if (!_role_selection_pending && role == _board.role && _store->migrateLegacyIdentity(role, id)) return;
   id = generateFreshIdentity();
   _store->saveRoleIdentity(role, id);
 }
@@ -1283,10 +1337,69 @@ void Beebo::loadRoleState(uint8_t role) {
       // this node ever ran stock firmware, else the same
       // ADVERT_NAME/pubkey-hex/DEFAULT_FLOOD_SCOPE_NAME defaults as before.
       FILESYSTEM* fs = _store->getPrimaryFS();
+      bool seeded_json = false;
+      if (_upstream_role == NODE_ROLE_COMPANION && fs->exists("/prefs.json")) {
+        File file = fs->open("/prefs.json", "r");
+        if (file) {
+          UpstreamCompanionPrefs upstream;
+          seeded_json = upstream.loadSerial(file);
+          file.close();
+          if (seeded_json) {
+            BeeboPrefs& p = slot.prefs;
+            StrHelper::strncpy(p.node_name, upstream.node_name, sizeof(p.node_name));
+            sensors.node_lat = upstream.node_lat;
+            sensors.node_lon = upstream.node_lon;
+            p.node_lat = upstream.node_lat;
+            p.node_lon = upstream.node_lon;
+            p.freq = upstream.freq;
+            p.bw = upstream.bw;
+            p.sf = upstream.sf;
+            p.cr = upstream.cr;
+            p.tx_power_dbm = upstream.tx_power_dbm;
+            p.airtime_factor = upstream.airtime_factor;
+            p.rx_delay_base = upstream.rx_delay_base;
+            p.rx_boosted_gain = upstream.rx_boosted_gain;
+            p.path_hash_mode = upstream.path_hash_mode;
+            p.multi_acks = upstream.multi_acks;
+            p.cad_on = upstream.cad_enabled;
+            p.comp_interference_threshold = upstream.interference_threshold;
+            p.comp_agc_reset_interval = upstream.agc_reset_interval;
+            p.comp_tx_delay_factor = upstream.tx_delay_factor;
+            p.comp_direct_tx_delay_factor = upstream.direct_tx_delay_factor;
+            p.BeeboBasePrefs::radio_fem_rxgain = upstream.radio_fem_rxgain;
+            p.BeeboBasePrefs::radio_fem_txgain = upstream.radio_fem_txgain;
+            char custom_fem[8] = {0};
+            if (upstream.getCustom()->getByKey("fem_rxgain", custom_fem, sizeof(custom_fem) - 1) &&
+                (strcmp(custom_fem, "0") == 0 || strcmp(custom_fem, "1") == 0)) {
+              p.BeeboBasePrefs::radio_fem_rxgain = custom_fem[0] - '0';
+            }
+            p.gps_enabled = upstream.gps_enabled;
+            p.gps_interval = upstream.gps_interval;
+            p.advert_loc_policy = upstream.advert_loc_policy;
+            p.ble_pin = upstream.ble_pin;
+            p.buzzer_quiet = upstream.buzzer_quiet;
+            p.manual_add_contacts = upstream.manual_add_contacts;
+            p.autoadd_config = upstream.autoadd_config;
+            p.autoadd_max_hops = upstream.autoadd_max_hops;
+            p.telemetry_mode_base = upstream.telemetry_mode_base;
+            p.telemetry_mode_loc = upstream.telemetry_mode_loc;
+            p.telemetry_mode_env = upstream.telemetry_mode_env;
+            p.client_repeat = upstream.isRepeatEn() ? 1 : 0;
+            p.tz_offset = upstream.tz_offset;
+            memcpy(p.default_scope_name, upstream.default_scope_name, sizeof(p.default_scope_name));
+            memcpy(p.default_scope_key, upstream.default_scope_key, sizeof(p.default_scope_key));
+#ifdef ENABLE_WIFI_INTERFACE
+            StrHelper::strncpy(p.wifi_ssid, upstream.wifi_ssid, sizeof(p.wifi_ssid));
+            StrHelper::strncpy(p.wifi_pwd, upstream.wifi_pwd, sizeof(p.wifi_pwd));
+            p.tcp_enabled = upstream.wifi_enabled;
+#endif
+          }
+        }
+      }
       bool had_legacy = fs->exists("/new_prefs") || fs->exists("/node_prefs");
-      if (had_legacy) {
+      if (!seeded_json && had_legacy) {
         _store->loadLegacyNodePrefs(slot.prefs, sensors.node_lat, sensors.node_lon);
-      } else {
+      } else if (!seeded_json) {
 #ifdef ADVERT_NAME
         strcpy(slot.prefs.node_name, ADVERT_NAME);
 #else
@@ -1313,6 +1426,7 @@ void Beebo::loadRoleState(uint8_t role) {
   }
 #if BEEBO_ENABLE_REPEATER_ROLE
   else if (role == NODE_ROLE_REPEATER) {
+    slot.prefs.loop_detect = LOOP_DETECT_MINIMAL;
     // beebo: load the repeater-role admin login
     // table. Separate file (/s_contacts, ClientACL.cpp), no interaction
     // with /new_prefs's OTA-continuity story. Keyed on this role's own
@@ -1369,9 +1483,18 @@ void Beebo::loadRoleState(uint8_t role) {
     bool beebo_repeater_existed = _store->loadBeeboRepeaterPrefs(slot.prefs, _board);
     if (!beebo_repeater_existed) {
       FILESYSTEM* fs = _store->getPrimaryFS();
-      if (fs->exists("/com_prefs") || fs->exists("/prefs.json")) {
+      if (_upstream_role != NODE_ROLE_COMPANION &&
+          (fs->exists("/com_prefs") ||
+           (_upstream_role == NODE_ROLE_REPEATER && fs->exists("/prefs.json")))) {
         cli.setPrefs(&slot.prefs);
         cli.loadPrefs(fs);
+        slot.prefs.BeeboBasePrefs::radio_fem_rxgain = slot.prefs.ComPrefs::radio_fem_rxgain;
+        slot.prefs.BeeboBasePrefs::radio_fem_txgain = slot.prefs.ComPrefs::radio_fem_txgain;
+        char custom_fem[8] = {0};
+        if (slot.prefs.getCustom()->getByKey("fem_rxgain", custom_fem, sizeof(custom_fem) - 1) &&
+            (strcmp(custom_fem, "0") == 0 || strcmp(custom_fem, "1") == 0)) {
+          slot.prefs.BeeboBasePrefs::radio_fem_rxgain = custom_fem[0] - '0';
+        }
       }
       // beebo: rx_delay_base/airtime_factor need no explicit seed here --
       // they're SharedPrefs fields (NodePrefs.h), one physical storage slot
@@ -1393,6 +1516,8 @@ void Beebo::loadRoleState(uint8_t role) {
 void Beebo::begin() {
   Mesh::begin();
 
+  cli_reply = (char *)heap_caps_malloc(CLI_REPLY_CAP, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
 #if BEEBO_ENABLE_COMPANION_ROLE
   offline_queue = (Frame *)heap_caps_malloc(sizeof(Frame) * OFFLINE_QUEUE_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #endif
@@ -1408,27 +1533,62 @@ void Beebo::begin() {
   // below (after both roles' own files have loaded) for why the persist
   // has to wait until then rather than happening right here.
   bool board_existed = _store->loadBeeboBoardPrefs(_board);
-
-  // beebo: PER_ROLE_IDENTITY -- true first boot under this role (neither
-  // role has its own identity file yet). Detect a role carried over from
-  // pre-multi_role firmware via its role-exclusive files, so reflashing
-  // beebo on top of an existing simple_repeater/companion_radio node keeps
-  // operating as that role instead of silently defaulting to companion --
-  // /s_contacts is repeater-only (ClientACL), /contacts3 and /channels2
-  // are companion-only (companion_radio's DataStore). A genuinely fresh
-  // device has none of these and falls through to sanitizeNodeRole()'s
-  // own companion default below.
-  {
-    mesh::LocalIdentity tmp;
-    if (!_store->loadRoleIdentity(NODE_ROLE_COMPANION, tmp) &&
-        !_store->loadRoleIdentity(NODE_ROLE_REPEATER, tmp)) {
-      FILESYSTEM* fs = _store->getPrimaryFS();
-      if (fs->exists("/s_contacts")) {
-        _board.role = NODE_ROLE_REPEATER;
-      } else if (fs->exists("/contacts3") || fs->exists("/channels2")) {
-        _board.role = NODE_ROLE_COMPANION;
+  FILESYSTEM* fs = _store->getPrimaryFS();
+  bool board_file_present = fs->exists("/beebo_board");
+  if (fs->exists("/beebo_role_pending")) {
+    File marker = fs->open("/beebo_role_pending", "r");
+    int selected_role = marker ? marker.read() : -1;
+    if (marker) marker.close();
+    if (selected_role == NODE_ROLE_COMPANION || selected_role == NODE_ROLE_REPEATER) {
+      // Resume an explicit selection interrupted between identity and board
+      // writes. Replaying both writes is safe and prevents duplicate keys.
+      mesh::LocalIdentity upstream_id;
+      if (_store->loadMainIdentity(upstream_id)) {
+        _store->saveRoleIdentity(selected_role, upstream_id);
+      }
+      _board.role = selected_role;
+      _store->saveBeeboBoardPrefs(_board);
+      fs->remove("/beebo_role_pending");
+      board_existed = board_file_present = true;
+    } else if (board_file_present) {
+      fs->remove("/beebo_role_pending");
+    }
+  }
+  bool valid_upstream_prefs = false;
+  if (fs->exists("/prefs.json")) {
+    File prefs_file = fs->open("/prefs.json", "r");
+    if (prefs_file) {
+      UpstreamRoleProbe probe;
+      valid_upstream_prefs = probe.loadSerial(prefs_file) && probe.hasName();
+      prefs_file.close();
+      if (valid_upstream_prefs) {
+        if (probe.role() == UpstreamRoleProbe::COMPANION) _upstream_role = NODE_ROLE_COMPANION;
+        if (probe.role() == UpstreamRoleProbe::REPEATER) _upstream_role = NODE_ROLE_REPEATER;
       }
     }
+  }
+  if (!board_file_present) {
+    if (valid_upstream_prefs) {
+      _board.role = _upstream_role == NODE_ROLE_LIVE
+          ? (fs->exists("/contacts3") ? NODE_ROLE_COMPANION : NODE_ROLE_REPEATER)
+          : _upstream_role;
+    }
+    if (!valid_upstream_prefs) {
+#if BEEBO_ENABLE_COMPANION_ROLE
+      // An incomplete first boot stays pending across reboots. Existing
+      // Beebo role files are the pre-board-file migration case instead.
+      _role_selection_pending = fs->exists("/beebo_role_pending") ||
+          (!fs->exists("/beebo_companion") && !fs->exists("/beebo_repeater"));
+      if (_role_selection_pending) {
+        _board.role = NODE_ROLE_COMPANION;
+        File marker = fs->open("/beebo_role_pending", "w", true);
+        if (marker) marker.close();
+      }
+#endif
+    }
+  } else if (fs->exists("/beebo_role_pending")) {
+    // Board selection was committed before a power loss removed the marker.
+    fs->remove("/beebo_role_pending");
   }
   // sync cache -- loadBeeboCompanionPrefs()/loadBeeboBoardPrefs() (or the
   // detection above) write role directly
@@ -1448,6 +1608,10 @@ void Beebo::begin() {
 #endif
   RLOGH(RLOG_ID_BOOT_ROLE_STATE_LOADED, (int32_t)millis());
 
+#if BEEBO_ENABLE_COMPANION_ROLE
+  if (_role_selection_pending) _board.role = NODE_ROLE_COMPANION;
+#endif
+
   // beebo: BeeboBoardPrefs unification -- board_existed false means
   // /beebo_board either didn't exist yet (pre-refactor device, or
   // genuinely fresh) or predated the battery/ADC fields
@@ -1463,7 +1627,7 @@ void Beebo::begin() {
   // persist `_board`'s plain compiled-in defaults instead of the real
   // migrated values on exactly the one-time upgrade path this exists to
   // handle correctly.
-  if (!board_existed) {
+  if (!board_existed && !_role_selection_pending) {
     _store->saveBeeboBoardPrefs(_board);
   } else {
     // beebo: loadRoleState(NODE_ROLE_COMPANION) above just called
@@ -1761,6 +1925,9 @@ void Beebo::clampRadioPrefs() {
   _role_state->prefs.sf = constrain(_role_state->prefs.sf, 5, 12);
   _role_state->prefs.cr = constrain(_role_state->prefs.cr, 5, 8);
   _role_state->prefs.tx_power_dbm = constrain(_role_state->prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
+  _role_state->prefs.comp_tx_delay_factor = constrain(_role_state->prefs.comp_tx_delay_factor, 0.0f, 2.0f);
+  _role_state->prefs.comp_direct_tx_delay_factor = constrain(_role_state->prefs.comp_direct_tx_delay_factor, 0.0f, 2.0f);
+  _role_state->prefs.comp_interference_threshold = constrain(_role_state->prefs.comp_interference_threshold, 0, 9);
   _role_state->prefs.BeeboBasePrefs::radio_fem_rxgain = constrain(_role_state->prefs.BeeboBasePrefs::radio_fem_rxgain, 0, 1);
   _role_state->prefs.BeeboBasePrefs::radio_fem_txgain = constrain(_role_state->prefs.BeeboBasePrefs::radio_fem_txgain, 0, 1);
   _board.adc_multiplier = constrain(_board.adc_multiplier, 0.0f, 10.0f);
@@ -4200,13 +4367,14 @@ bool Beebo::tlvSetCompanionRepeat(Beebo* self, uint8_t role, uint32_t raw) {
 // app's UI sees an ordinary admin-command response with no special casing needed there.
 #if BEEBO_ENABLE_COMPANION_ROLE
 void Beebo::handleAdminSelfCommand(const ContactInfo& target, char* command) {
-  char reply[160];
-  reply[0] = 0;
+  if (!cli_reply) return;
+  cli_reply[0] = 0;
   uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
-  handleCommand(timestamp, command, reply);
-  int text_len = strlen(reply);
+  handleCommand(timestamp, command, cli_reply);
+  size_t text_len = cliReplyLen(cli_reply, CLI_REPLY_CAP, MAX_TEXT_LEN);
   if (text_len > 0) {
-    queueMessage(target, TXT_TYPE_CLI_DATA, NULL, timestamp, NULL, 0, reply);
+    cli_reply[text_len] = 0;
+    queueMessage(target, TXT_TYPE_CLI_DATA, NULL, timestamp, NULL, 0, cli_reply);
   }
 }
 #endif
@@ -4361,7 +4529,8 @@ void Beebo::handleCmdFrame(size_t len) {
     uint8_t *pub_key_prefix = &cmd_frame[i];
     i += 6;
     ContactInfo *recipient = lookupContactByPubKey(pub_key_prefix, 6);
-    if (recipient && (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_CLI_DATA)) {
+    if (recipient && (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_CLI_DATA ||
+                      txt_type == TXT_TYPE_CLI_COMMAND)) {
       char *text = (char *)&cmd_frame[i];
       int tlen = len - i;
       text[tlen] = 0; // ensure null
@@ -4386,9 +4555,9 @@ void Beebo::handleCmdFrame(size_t len) {
         int result;
         uint32_t expected_ack;
         uint32_t tx_pkt_hash = 0;
-        if (txt_type == TXT_TYPE_CLI_DATA) {
+        if (txt_type == TXT_TYPE_CLI_DATA || txt_type == TXT_TYPE_CLI_COMMAND) {
           msg_timestamp = getRTCClock()->getCurrentTimeUnique(); // Use node's RTC instead of app timestamp to avoid tripping replay protection
-          result = sendCommandData(*recipient, msg_timestamp, attempt, text, est_timeout);
+          result = sendCommandData(*recipient, msg_timestamp, attempt, txt_type, text, est_timeout);
           expected_ack = 0; // no Ack expected
         } else {
           result = sendMessage(*recipient, msg_timestamp, attempt, text, expected_ack, est_timeout, &tx_pkt_hash);
@@ -4468,6 +4637,13 @@ void Beebo::handleCmdFrame(size_t len) {
       return;
     }
 
+    size_t path_bytes = path_len == OUT_PATH_UNKNOWN ? 0 :
+                        (size_t)(path_len & 63) * ((path_len >> 6) + 1);
+    if (len < (size_t)i + path_bytes + 2) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
+
     // parse provided path if not flood
     uint8_t path[MAX_PATH_SIZE];
     if (path_len != OUT_PATH_UNKNOWN) {
@@ -4484,8 +4660,8 @@ void Beebo::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
     } else if (data_type == DATA_TYPE_RESERVED) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (payload_len > MAX_CHANNEL_DATA_LENGTH) {
-      MESH_DEBUG_PRINTLN("CMD_SEND_CHANNEL_DATA payload too long: %d > %d", payload_len, MAX_CHANNEL_DATA_LENGTH);
+    } else if (payload_len > MAX_GROUP_DATA_LENGTH) {
+      MESH_DEBUG_PRINTLN("CMD_SEND_CHANNEL_DATA payload too long: %d > %d", payload_len, MAX_GROUP_DATA_LENGTH);
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else if (sendGroupData(channel.channel, path, path_len, data_type, payload, payload_len)) {
       writeOKFrame();
@@ -4957,10 +5133,12 @@ void Beebo::handleCmdFrame(size_t len) {
 #endif
   } else if (cmd_frame[0] == CMD_SEND_RAW_DATA && len >= 6) {
     int i = 1;
-    int8_t path_len = cmd_frame[i++];
-    if (path_len >= 0 && i + path_len + 4 <= len) { // minimum 4 byte payload
-      uint8_t *path = &cmd_frame[i];
-      i += path_len;
+    uint8_t path_len = cmd_frame[i++];
+    size_t path_bytes = mesh::Packet::isValidPathLen(path_len) ?
+                        (size_t)(path_len & 63) * ((path_len >> 6) + 1) : 0;
+    if (mesh::Packet::isValidPathLen(path_len) && len >= (size_t)i + path_bytes + 4) {
+      uint8_t path[MAX_PATH_SIZE];
+      i += mesh::Packet::writePath(path, &cmd_frame[i], path_len);
       auto pkt = createRawData(&cmd_frame[i], len - i);
       if (pkt) {
         sendDirect(pkt, path, path_len);
@@ -4969,7 +5147,7 @@ void Beebo::handleCmdFrame(size_t len) {
         writeErrFrame(ERR_CODE_TABLE_FULL);
       }
     } else {
-      writeErrFrame(ERR_CODE_UNSUPPORTED_CMD); // flood, not supported (yet)
+      writeErrFrame(path_len == OUT_PATH_UNKNOWN ? ERR_CODE_UNSUPPORTED_CMD : ERR_CODE_ILLEGAL_ARG);
     }
 #if BEEBO_ENABLE_COMPANION_ROLE
   } else if (cmd_frame[0] == CMD_SEND_LOGIN && len >= 1 + PUB_KEY_SIZE) {
@@ -5635,15 +5813,16 @@ void Beebo::handleCmdFrame(size_t len) {
     command[cmd_len] = 0;
     char prefix[4];
     char* text = splitCliPrefix(command, prefix);
-    char reply[164];
     size_t plen = strlen(prefix);
-    memcpy(reply, prefix, plen);
-    reply[plen] = 0;
-    handleCommand(getRTCClock()->getCurrentTimeUnique(), text, &reply[plen]);
     out_frame[0] = RESP_CODE_CLI_REPLY;
-    int reply_len = strlen(reply);
-    memcpy(&out_frame[1], reply, reply_len);
-    _serial->writeFrame(out_frame, 1 + reply_len);
+    if (cli_reply) {
+      cli_reply[0] = 0;
+      handleCommand(getRTCClock()->getCurrentTimeUnique(), text, cli_reply);
+    }
+    size_t body_len = cli_reply ? cliReplyLen(cli_reply, CLI_REPLY_CAP, MAX_FRAME_SIZE - 1 - plen) : 0;
+    memcpy(&out_frame[1], prefix, plen);
+    memcpy(&out_frame[1 + plen], cli_reply, body_len);
+    _serial->writeFrame(out_frame, 1 + plen + body_len);
   } else if (cmd_frame[0] == CMD_BEEBO && len >= 2) {
     uint8_t* sub = &cmd_frame[1];
     int sub_len = len - 1;
@@ -6872,13 +7051,15 @@ void Beebo::handleCmdFrame(size_t len) {
     size_t cmd_len = min((size_t)sub_len - 1, sizeof(command) - 1);
     memcpy(command, &sub[1], cmd_len);
     command[cmd_len] = 0;
-    char reply[160];
-    reply[0] = 0;
-    handleCommand(getRTCClock()->getCurrentTimeUnique(), command, reply);
-    int reply_len = strlen(reply);
+    size_t reply_len = 0;
+    if (cli_reply) {
+      cli_reply[0] = 0;
+      handleCommand(getRTCClock()->getCurrentTimeUnique(), command, cli_reply);
+      reply_len = cliReplyLen(cli_reply, CLI_REPLY_CAP, MAX_FRAME_SIZE - 2);
+    }
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_SELF_COMMAND_REPLY;
-    memcpy(&out_frame[2], reply, reply_len);
+    memcpy(&out_frame[2], cli_reply, reply_len);
     _serial->writeFrame(out_frame, 2 + reply_len);
   } else if (sub[0] == BEEBO_CMD_GET_BOARD_ID) {
     // beebo: factory eFuse base MAC -- hardware-burned, stable across
@@ -7071,10 +7252,10 @@ void Beebo::checkSerialInterface() {
     // interface always reports BINARY here.
     if (frame_type == RecvFrameType::TEXT) {
       cmd_frame[len] = 0;  // null terminator, matching simple_repeater's own text CLI
-      char reply[160];
-      reply[0] = 0;
-      handleCommand(0, (char*)cmd_frame, reply);  // NOTE: no sender_timestamp via local text CLI
-      _serial->writeFrame((uint8_t*)reply, strlen(reply));
+      if (!cli_reply) return;
+      cli_reply[0] = 0;
+      handleCommand(0, (char*)cmd_frame, cli_reply);  // NOTE: no sender_timestamp via local text CLI
+      _serial->writeFrame((uint8_t*)cli_reply, cliReplyLen(cli_reply, CLI_REPLY_CAP, CLI_REPLY_CAP));
       return;
     }
     // Trace every command into the debug ring (recv before, done after) so a
@@ -8650,7 +8831,7 @@ void Beebo::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, c
       memcpy(&sender_timestamp, data, 4);
       uint8_t flags = (data[4] >> 2);
 
-      if (!(flags == TXT_TYPE_PLAIN || flags == TXT_TYPE_CLI_DATA)) {
+      if (!(flags == TXT_TYPE_PLAIN || flags == TXT_TYPE_CLI_DATA || flags == TXT_TYPE_CLI_COMMAND)) {
         MESH_DEBUG_PRINTLN("onPeerDataRecv: unsupported text type received: flags=%02x", (uint32_t)flags);
       } else if (sender_timestamp >= client->last_timestamp) { // prevent replay attacks
         bool is_retry = (sender_timestamp == client->last_timestamp);
@@ -8755,6 +8936,27 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
     board.powerOff();   // doesn't return
     return true;
   }
+  if (strcmp(command, "power") == 0) {
+    const char* usb = board.hasUsbPowerDetect() ? (board.isUsbPowered() ? "yes" : "no") : "n/a";
+    const char* solar = board.hasSolarChargerDetect() ? (board.isSolarChargerActive() ? "yes" : "no") : "n/a";
+    snprintf(reply, 160, "batt:%u mV usb:%s solar_chg:%s ext:%s charger:%s",
+             (unsigned)board.getBattMilliVolts(), usb, solar,
+             board.isExternalPowered() ? "yes" : "no", board.isChargerActive() ? "yes" : "no");
+    return true;
+  }
+  if (strcmp(command, "gps diag") == 0) {
+    LocationProvider* location = sensors.getLocationProvider();
+    if (!location) {
+      strcpy(reply, "gps provider not found");
+    } else {
+      const char* setting = sensors.getSettingByKey("gps");
+      bool requested = setting && strcmp(setting, "1") == 0;
+      int n = snprintf(reply, 160, "req:%u ", requested ? 1U : 0U);
+      if (n >= 0 && n < 160) location->formatDiagnostics(reply + n, 160 - n);
+      else reply[159] = 0;
+    }
+    return true;
+  }
   if (strcmp(command, "get tz.offset") == 0) {
     sprintf(reply, "> %d", (int)_role_state->prefs.tz_offset);
     return true;
@@ -8850,6 +9052,34 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
   } else if (memcmp(command, "reboot", 6) == 0 || memcmp(command, "advert", 6) == 0) {
     appendTextCommandRunEvent(command);
   }
+
+  if (isCompanion()) {
+    BeeboCompanionRadioCLI radio(_role_state->prefs);
+    if (radio.handleCommand(command, sender_timestamp, reply)) {
+      if (radio.isDirty()) {
+        _role_state->prefs.dirty = true;
+        clampRadioPrefs();
+        applyRadioPrefs();
+        flushDirtyPrefs();
+      }
+      return;
+    }
+  }
+#if BEEBO_ENABLE_REPEATER_ROLE
+  if (isRepeater()) {
+    CommonRadioPrefs* radio = _role_state->prefs.getRadioPrefs();
+    if (radio->handleCommand(command, sender_timestamp, reply)) {
+      if (radio->isDirty()) {
+        _role_state->prefs.dirty = true;
+        clampRadioPrefs();
+        applyRadioPrefs();
+        flushDirtyPrefs();
+        radio->clearDirty();
+      }
+      return;
+    }
+  }
+#endif
 
   if (memcmp(command, "reboot", 6) == 0) {
     board.reboot();  // doesn't return
