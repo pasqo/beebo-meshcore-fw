@@ -1108,8 +1108,9 @@ private:
   int feedIdOf(uint8_t channel_idx) const;   // feed id of a channel index, -1 if not a feed
   void feedPost(uint8_t id, const char* text);
   void feedInput(uint8_t id, char* text);   // a message the user typed into a feed channel
-  bool feedChannel(uint8_t channel_idx, char* name32, uint8_t* secret16);   // repeater: name and secret of a feed
-  uint8_t _feed_idx[FEED_COUNT];   // companion: persisted slot per feed; repeater: fixed 0, 1
+  bool feedChannel(uint8_t channel_idx, char* name32, uint8_t* secret16);   // name and secret of a feed
+  void feedAllocate();   // give each feed a channel index (board prefs), after the channel table loads
+  bool feedRename(uint8_t id, const char* name);
 #if BEEBO_ENABLE_COMPANION_ROLE
   int getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) override {
     return _store->getBlobByKey(key, key_len, dest_buf);

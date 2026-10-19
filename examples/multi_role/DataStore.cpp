@@ -395,6 +395,13 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
       file.read((uint8_t *)&_prefs.fem_rssi_ofs_lna, sizeof(_prefs.fem_rssi_ofs_lna));       // 59
       file.read((uint8_t *)&_prefs.fem_rssi_ofs_bypass, sizeof(_prefs.fem_rssi_ofs_bypass)); // 60
     }
+    // 61: feed slots and names -- an older file ends before them and keeps the defaults.
+    if ((size_t)file.available() >= sizeof(_prefs.feed_idx) + sizeof(_prefs.feed_name)) {
+      file.read((uint8_t *)_prefs.feed_idx, sizeof(_prefs.feed_idx));    // 61
+      file.read((uint8_t *)_prefs.feed_name, sizeof(_prefs.feed_name));  // 63
+      _prefs.feed_name[0][31] = 0;
+      _prefs.feed_name[1][31] = 0;
+    }
   }
   file.close();
   return has_battery_fields;
@@ -414,6 +421,8 @@ void DataStore::saveBeeboBoardPrefs(const BeeboBoardPrefs& _prefs) {
     file.write((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs)); // 57
     file.write((uint8_t *)&_prefs.fem_rssi_ofs_lna, sizeof(_prefs.fem_rssi_ofs_lna));       // 59
     file.write((uint8_t *)&_prefs.fem_rssi_ofs_bypass, sizeof(_prefs.fem_rssi_ofs_bypass)); // 60
+    file.write((uint8_t *)_prefs.feed_idx, sizeof(_prefs.feed_idx));                        // 61
+    file.write((uint8_t *)_prefs.feed_name, sizeof(_prefs.feed_name));                      // 63
     file.close();
   }
   _abi.board_prefs_version = BOARD_PREFS_VERSION;

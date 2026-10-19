@@ -104,3 +104,14 @@ inline size_t channelInfoFrame(uint8_t* out, uint8_t channel_idx, const char* na
   memcpy(&out[34], secret16, 16);
   return 50;
 }
+
+// Channel index a feed uses. Keeps `cur` while it is in range, not the other feed's slot and not
+// a slot holding a real channel (bit i of `occupied`); otherwise the highest free slot, so the
+// user's own channels keep their low indexes. 0xFF when nothing is free. `slots` is at most 64.
+inline uint8_t feedAssignSlot(uint8_t cur, uint8_t other, uint64_t occupied, uint8_t slots) {
+  if (cur < slots && cur != other && !((occupied >> cur) & 1)) return cur;
+  for (int i = slots - 1; i >= 0; i--) {
+    if (i != other && !((occupied >> i) & 1)) return (uint8_t)i;
+  }
+  return 0xFF;
+}

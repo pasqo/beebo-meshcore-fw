@@ -113,6 +113,33 @@ TEST(FeedSlots, NamesAndSecretsAreDistinct) {
   EXPECT_STREQ(feedDefaultName(FEED_CLI), "beebo-cli");
 }
 
+TEST(FeedSlots, UnassignedTakesTheHighestFreeSlots) {
+  uint8_t a = feedAssignSlot(0xFF, 0xFF, 0, 40);
+  EXPECT_EQ(a, 39);
+  EXPECT_EQ(feedAssignSlot(0xFF, a, 0, 40), 38);
+}
+
+TEST(FeedSlots, ValidSlotIsKept) {
+  EXPECT_EQ(feedAssignSlot(7, 8, 0, 40), 7);
+}
+
+TEST(FeedSlots, SlotHoldingARealChannelIsReassigned) {
+  uint64_t occupied = (1ull << 39) | 1ull;   // a channel at 39 and at 0
+  EXPECT_EQ(feedAssignSlot(39, 38, occupied, 40), 37);
+}
+
+TEST(FeedSlots, SameSlotAsTheOtherFeedIsReassigned) {
+  EXPECT_EQ(feedAssignSlot(5, 5, 0, 40), 39);
+}
+
+TEST(FeedSlots, OutOfRangeSlotIsReassigned) {
+  EXPECT_EQ(feedAssignSlot(60, 0xFF, 0, 40), 39);
+}
+
+TEST(FeedSlots, FullTableHasNoSlot) {
+  EXPECT_EQ(feedAssignSlot(0xFF, 0xFF, 0xFull, 4), 0xFF);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {

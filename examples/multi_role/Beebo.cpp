@@ -249,8 +249,7 @@ void Beebo::queueForApp(const uint8_t frame[], int len) {
 }
 
 uint8_t Beebo::feedIdx(uint8_t id) const {
-  if (id >= FEED_COUNT) return 0xFF;
-  return isRepeater() ? id : _feed_idx[id];
+  return id < FEED_COUNT ? _board.feed_idx[id] : 0xFF;
 }
 
 int Beebo::feedIdOf(uint8_t channel_idx) const {
@@ -287,14 +286,48 @@ void Beebo::feedInput(uint8_t id, char* text) {
   feedPost(FEED_CLI, n ? cli_reply : "(no output)");
 }
 
-// Name and secret of a feed channel, for the repeater role where the two feeds are the node's
-// whole channel table. The secret is derived from the identity key, so it is stable across
-// renames and differs per node.
+// Gives each feed a channel index, persisted in the board prefs so both roles agree on it. A slot
+// holding a real channel (companion role, table loaded) is never taken; in repeater role the
+// table is not loaded, so only an unassigned feed is filled and the companion re-checks at its
+// next boot.
+void Beebo::feedAllocate() {
+  uint64_t occupied = 0;
+  const uint8_t slots = MAX_GROUP_CHANNELS < 64 ? MAX_GROUP_CHANNELS : 64;
+#if BEEBO_ENABLE_COMPANION_ROLE
+  if (isCompanion()) {
+    static const uint8_t zero[16] = {0};
+    for (uint8_t i = 0; i < slots; i++) {
+      ChannelDetails ch;
+      if (getChannel(i, ch) && memcmp(ch.channel.secret, zero, 16) != 0) occupied |= 1ull << i;
+    }
+  }
+#endif
+  bool changed = false;
+  for (uint8_t id = 0; id < FEED_COUNT; id++) {
+    uint8_t want = feedAssignSlot(_board.feed_idx[id], _board.feed_idx[FEED_COUNT - 1 - id], occupied, slots);
+    if (want != _board.feed_idx[id]) {
+      _board.feed_idx[id] = want;
+      changed = true;
+    }
+  }
+  if (changed) _store->saveBeeboBoardPrefs(_board);
+}
+
+bool Beebo::feedRename(uint8_t id, const char* name) {
+  if (id >= FEED_COUNT || name[0] == 0) return false;   // a feed cannot be cleared
+  StrHelper::strncpy(_board.feed_name[id], name, sizeof(_board.feed_name[id]));
+  _store->saveBeeboBoardPrefs(_board);
+  return true;
+}
+
+// Name and secret of a feed channel, in any role. The secret is derived from the identity key,
+// so it is stable across renames and differs per node.
 bool Beebo::feedChannel(uint8_t channel_idx, char* name32, uint8_t* secret16) {
-  if (channel_idx >= FEED_COUNT) return false;
+  int id = feedIdOf(channel_idx);
+  if (id < 0) return false;
   memset(name32, 0, 32);
-  strncpy(name32, feedDefaultName(channel_idx), 31);
-  const uint8_t tag[2] = {'F', channel_idx};
+  strncpy(name32, _board.feed_name[id][0] ? _board.feed_name[id] : feedDefaultName(id), 31);
+  const uint8_t tag[2] = {'F', (uint8_t)id};
   mesh::Utils::sha256(secret16, 16, self_id.pub_key, PUB_KEY_SIZE, tag, 2);
   return true;
 }
@@ -1234,7 +1267,6 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   _pending_disconnect = false;
   offline_queue_len = 0;
   offline_queue = nullptr;
-  memset(_feed_idx, 0xFF, sizeof(_feed_idx));
   app_target_ver = 0;
   _app_max_tx = MAX_FRAME_SIZE;
   _app_stream = false;
@@ -1793,6 +1825,7 @@ void Beebo::begin() {
     _store->loadChannels(this);
   }
 #endif
+  feedAllocate();
 
   applyRadioPrefs();
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
@@ -4571,6 +4604,15 @@ void Beebo::handleCmdFrame(size_t len) {
     text[tlen] = 0;
     writeOKFrame();
     feedInput((uint8_t)feedIdOf(cmd_frame[2]), text);
+  } else if (cmd_frame[0] == CMD_SET_CHANNEL && len >= 2 + 32 + 16 && feedIdOf(cmd_frame[1]) >= 0) {
+    // beebo: a feed channel can be renamed, not re-keyed or cleared; the secret in the frame is ignored.
+    char name[32];
+    StrHelper::strncpy(name, (char *)&cmd_frame[2], sizeof(name));
+    if (feedRename((uint8_t)feedIdOf(cmd_frame[1]), name)) {
+      writeOKFrame();
+    } else {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    }
   } else if (isRepeater() && cmd_frame[0] == CMD_GET_CONTACTS) {
     // beebo: the app's sync gets a valid empty contact list instead of an error frame.
     uint8_t reply[5];
@@ -4586,12 +4628,9 @@ void Beebo::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
     char name[32];
     uint8_t secret[16];
-    bool found = false;
-    if (isRepeater()) {
-      found = feedChannel(cmd_frame[1], name, secret);
-    }
+    bool found = feedChannel(cmd_frame[1], name, secret);   // a feed, in any role
 #if BEEBO_ENABLE_COMPANION_ROLE
-    else {
+    if (!found && isCompanion()) {
       ChannelDetails channel;
       if (getChannel(cmd_frame[1], channel)) {
         memcpy(name, channel.name, sizeof(name));
