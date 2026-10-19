@@ -128,6 +128,32 @@ TEST(FeedSlots, FullTableHasNoSlot) {
   EXPECT_EQ(feedAssignSlot(0xFF, 0xFF, 0xFull, 4), 0xFF);
 }
 
+TEST(QueueVictim, FeedMessageEvictsTheOldestNonFeedOfAnyKind) {
+  const uint8_t kind[] = {QK_FEED, QK_OTHER, QK_CHANNEL, QK_FEED};
+  EXPECT_EQ(offlineQueueVictim(kind, 4, true), 1);
+}
+
+TEST(QueueVictim, FeedMessageEvictsTheOldestFeedWhenAllAreFeed) {
+  const uint8_t kind[] = {QK_FEED, QK_FEED};
+  EXPECT_EQ(offlineQueueVictim(kind, 2, true), 0);
+}
+
+TEST(QueueVictim, OtherMessageEvictsTheOldestNonFeedChannelMessage) {
+  const uint8_t kind[] = {QK_FEED, QK_OTHER, QK_CHANNEL, QK_CHANNEL};
+  EXPECT_EQ(offlineQueueVictim(kind, 4, false), 2);
+}
+
+TEST(QueueVictim, OtherMessageNeverEvictsAFeedMessage) {
+  const uint8_t only_feed[] = {QK_FEED, QK_FEED};
+  EXPECT_EQ(offlineQueueVictim(only_feed, 2, false), -1);
+  const uint8_t no_channel[] = {QK_FEED, QK_OTHER};
+  EXPECT_EQ(offlineQueueVictim(no_channel, 2, false), -1);   // a contact message is not evicted either
+}
+
+TEST(QueueVictim, EmptyQueueHasNoVictim) {
+  EXPECT_EQ(offlineQueueVictim(nullptr, 0, true), -1);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {

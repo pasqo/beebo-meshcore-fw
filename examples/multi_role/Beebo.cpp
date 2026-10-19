@@ -197,34 +197,34 @@ void Beebo::updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, con
 }
 #endif // BEEBO_ENABLE_COMPANION_ROLE
 
-bool Beebo::Frame::isChannelMsg() const {
-  return buf[0] == RESP_CODE_CHANNEL_MSG_RECV || buf[0] == RESP_CODE_CHANNEL_MSG_RECV_V3 ||
-         buf[0] == RESP_CODE_CHANNEL_DATA_RECV;
+// What a queued frame is, for choosing what to drop when the queue is full (offlineQueueVictim()).
+uint8_t Beebo::queueKind(const uint8_t frame[]) const {
+  const uint8_t code = frame[0];
+  if (code != RESP_CODE_CHANNEL_MSG_RECV && code != RESP_CODE_CHANNEL_MSG_RECV_V3 &&
+      code != RESP_CODE_CHANNEL_DATA_RECV) return QK_OTHER;
+  const uint8_t channel_idx = code == RESP_CODE_CHANNEL_MSG_RECV ? frame[1] : frame[4];
+  return feedIdOf(channel_idx) >= 0 ? QK_FEED : QK_CHANNEL;
 }
 
+// Queues a frame for the app. When full, the feed messages have priority: see offlineQueueVictim().
 void Beebo::addToOfflineQueue(const uint8_t frame[], int len) {
   if (offline_queue == nullptr) return;   // begin() could not allocate the queue
   if (offline_queue_len >= OFFLINE_QUEUE_SIZE) {
     MESH_DEBUG_PRINTLN("WARN: offline_queue is full!");
-    int pos = 0;
-    while (pos < offline_queue_len) {
-      if (offline_queue[pos].isChannelMsg()) {
-        for (int i = pos; i < offline_queue_len - 1; i++) { // delete oldest channel msg from queue
-          offline_queue[i] = offline_queue[i + 1];
-        }
-        MESH_DEBUG_PRINTLN("INFO: removed oldest channel message from queue.");
-        offline_queue[offline_queue_len - 1].len = len;
-        memcpy(offline_queue[offline_queue_len - 1].buf, frame, len);
-        return;
-      }
-      pos++;
+    uint8_t kind[OFFLINE_QUEUE_SIZE];
+    for (int i = 0; i < offline_queue_len; i++) kind[i] = queueKind(offline_queue[i].buf);
+    int victim = offlineQueueVictim(kind, offline_queue_len, queueKind(frame) == QK_FEED);
+    if (victim < 0) {
+      MESH_DEBUG_PRINTLN("INFO: nothing to remove from queue, message dropped.");
+      return;
     }
-    MESH_DEBUG_PRINTLN("INFO: no channel messages to remove from queue.");
-  } else {
-    offline_queue[offline_queue_len].len = len;
-    memcpy(offline_queue[offline_queue_len].buf, frame, len);
-    offline_queue_len++;
+    for (int i = victim; i < offline_queue_len - 1; i++) offline_queue[i] = offline_queue[i + 1];
+    offline_queue_len--;
+    MESH_DEBUG_PRINTLN("INFO: removed one message from queue.");
   }
+  offline_queue[offline_queue_len].len = len;
+  memcpy(offline_queue[offline_queue_len].buf, frame, len);
+  offline_queue_len++;
 }
 
 int Beebo::getFromOfflineQueue(uint8_t frame[]) {

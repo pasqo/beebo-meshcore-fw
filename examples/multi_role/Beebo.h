@@ -1103,6 +1103,7 @@ private:
   void updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, const uint8_t *frame, int len);
 #endif
   void addToOfflineQueue(const uint8_t frame[], int len);
+  uint8_t queueKind(const uint8_t frame[]) const;   // QueueKind of a queued frame
   int getFromOfflineQueue(uint8_t frame[]);
   void queueForApp(const uint8_t frame[], int len);   // queue plus MSG_WAITING push
 
@@ -2569,8 +2570,6 @@ private:
   struct Frame {
     uint8_t len;
     uint8_t buf[MAX_FRAME_SIZE];
-
-    bool isChannelMsg() const;
   };
   // beebo: OFFLINE_QUEUE_SIZE frames (45 kB at 256) of messages waiting for an app.
   // Cold path, so allocated once in begin() from PSRAM instead of sitting in

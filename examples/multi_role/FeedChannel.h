@@ -104,3 +104,17 @@ inline uint8_t feedAssignSlot(uint8_t cur, uint8_t other, uint64_t occupied, uin
   }
   return 0xFF;
 }
+
+// What a queued app frame is, for choosing what to drop when the offline queue is full.
+enum QueueKind : uint8_t { QK_OTHER = 0, QK_CHANNEL = 1, QK_FEED = 2 };
+
+// Index of the queued frame to evict so a new one fits, or -1 to drop the new one. Feed messages
+// have priority: a new feed message evicts the oldest non-feed message of any kind, else the
+// oldest feed message; any other new message evicts only the oldest non-feed channel message and
+// never a feed message.
+inline int offlineQueueVictim(const uint8_t* kind, int n, bool incoming_feed) {
+  for (int i = 0; i < n; i++) {
+    if (incoming_feed ? kind[i] != QK_FEED : kind[i] == QK_CHANNEL) return i;
+  }
+  return incoming_feed && n > 0 ? 0 : -1;
+}
