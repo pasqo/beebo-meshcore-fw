@@ -195,7 +195,6 @@ void Beebo::updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, con
 }
 #endif // BEEBO_ENABLE_COMPANION_ROLE
 
-#if BEEBO_ENABLE_COMPANION_ROLE
 bool Beebo::Frame::isChannelMsg() const {
   return buf[0] == RESP_CODE_CHANNEL_MSG_RECV || buf[0] == RESP_CODE_CHANNEL_MSG_RECV_V3 ||
          buf[0] == RESP_CODE_CHANNEL_DATA_RECV;
@@ -239,7 +238,59 @@ int Beebo::getFromOfflineQueue(uint8_t frame[]) {
   }
   return 0; // queue is empty
 }
-#endif // BEEBO_ENABLE_COMPANION_ROLE
+
+uint8_t Beebo::feedIdx(uint8_t id) const {
+  if (id >= FEED_COUNT) return 0xFF;
+  return isRepeater() ? id : _feed_idx[id];
+}
+
+void Beebo::feedPost(uint8_t id, const char* text) {
+  uint8_t idx = feedIdx(id);
+  if (idx == 0xFF) return;   // no channel slot for this feed
+  const char* name = isRepeater() ? getRoleName(NODE_ROLE_REPEATER) : _role_state->prefs.node_name;
+  char line[FEED_PART_CAP + 40];
+  size_t budget = FEED_TEXT_MAX > strlen(name) + 2 ? FEED_TEXT_MAX - (strlen(name) + 2) : 1;
+  char parts[FEED_PARTS_MAX][FEED_PART_CAP];
+  int n = feedSplit(text, budget, parts, FEED_PARTS_MAX);
+  uint8_t frame[FEED_FRAME_CAP];
+  for (int i = 0; i < n; i++) {
+    snprintf(line, sizeof(line), "%s: %s", name, parts[i]);
+    size_t len = feedBuildChannelMsg(frame, sizeof(frame), idx, getRTCClock()->getCurrentTime(), line);
+    addToOfflineQueue(frame, (int)len);
+  }
+  if (_serial->isConnected()) {
+    uint8_t push = PUSH_CODE_MSG_WAITING;
+    _serial->writeFrame(&push, 1);
+  }
+}
+
+// A message typed into a feed channel never goes on air. On the cli feed it runs as a command
+// against the live role and the reply is posted back; the status feed ignores input.
+void Beebo::feedInput(uint8_t id, char* text) {
+  if (id != FEED_CLI || cli_reply == nullptr) return;
+  cli_reply[0] = 0;
+  handleCommand(getRTCClock()->getCurrentTimeUnique(), text, cli_reply);
+  size_t n = cliReplyLen(cli_reply, CLI_REPLY_CAP, CLI_REPLY_CAP - 1);
+  cli_reply[n] = 0;
+  feedPost(FEED_CLI, n ? cli_reply : "(no output)");
+}
+
+// Repeater role only: the two feeds are the node's whole channel table. The secret is derived
+// from the identity key, so it is stable across renames and differs per node.
+bool Beebo::feedGetChannel(uint8_t channel_idx, uint8_t* out, int* out_len) {
+  if (channel_idx >= FEED_COUNT) return false;
+  int i = 0;
+  out[i++] = RESP_CODE_CHANNEL_INFO;
+  out[i++] = channel_idx;
+  memset(&out[i], 0, 32);
+  strncpy((char *)&out[i], feedDefaultName(channel_idx), 31);
+  i += 32;
+  const uint8_t tag[2] = {'F', channel_idx};
+  mesh::Utils::sha256(&out[i], 16, self_id.pub_key, PUB_KEY_SIZE, tag, 2);
+  i += 16;
+  *out_len = i;
+  return true;
+}
 
 // beebo: airtime_factor is one of the 14 SharedPrefs fields (see
 // NodePrefs.h) -- one physical storage slot in _role_state->prefs regardless of
@@ -1175,9 +1226,8 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
   _iter_started = false;
   _pending_disconnect = false;
   offline_queue_len = 0;
-#if BEEBO_ENABLE_COMPANION_ROLE
   offline_queue = nullptr;
-#endif
+  memset(_feed_idx, 0xFF, sizeof(_feed_idx));
   app_target_ver = 0;
   _app_max_tx = MAX_FRAME_SIZE;
   _app_stream = false;
@@ -1519,9 +1569,7 @@ void Beebo::begin() {
 
   cli_reply = (char *)heap_caps_malloc(CLI_REPLY_CAP, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
-#if BEEBO_ENABLE_COMPANION_ROLE
   offline_queue = (Frame *)heap_caps_malloc(sizeof(Frame) * OFFLINE_QUEUE_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-#endif
 
   // beebo: BeeboBoardPrefs's own file (role/board_password/board_name,
   // and as of BOARD_BATTERY_PREFS.md the seven battery/ADC fields).
@@ -4514,8 +4562,27 @@ void Beebo::handleCmdFrame(size_t len) {
     _serial->writeFrame(reply, appSyncContactsStart(reply));
     _serial->writeFrame(reply, appSyncContactsEnd(reply));
   } else if (isRepeater() && cmd_frame[0] == CMD_SYNC_NEXT_MESSAGE) {
-    uint8_t reply[1];
-    _serial->writeFrame(reply, appSyncNoMoreMessages(reply));
+    int out_len;
+    if ((out_len = getFromOfflineQueue(out_frame)) > 0) {
+      _serial->writeFrame(out_frame, out_len);
+    } else {
+      _serial->writeFrame(out_frame, appSyncNoMoreMessages(out_frame));
+    }
+  } else if (isRepeater() && cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG && len >= 8 && cmd_frame[2] < FEED_COUNT) {
+    // beebo: text typed into a feed channel; never transmitted (plans/ROLE_APP_FEED.md).
+    char text[FEED_TEXT_MAX + 1];
+    size_t tlen = min((size_t)len - 7, (size_t)FEED_TEXT_MAX);
+    memcpy(text, &cmd_frame[7], tlen);
+    text[tlen] = 0;
+    writeOKFrame();
+    feedInput(cmd_frame[2], text);
+  } else if (isRepeater() && cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
+    int out_len;
+    if (feedGetChannel(cmd_frame[1], out_frame, &out_len)) {
+      _serial->writeFrame(out_frame, out_len);
+    } else {
+      writeErrFrame(ERR_CODE_NOT_FOUND);
+    }
   } else if (isRepeater() && cmd_frame[0] == CMD_HAS_CONNECTION) {
     writeErrFrame(ERR_CODE_NOT_FOUND);   // a repeater holds no companion connections
   } else if (isRepeater() && (
@@ -4525,7 +4592,7 @@ void Beebo::handleCmdFrame(size_t len) {
         cmd_frame[0] == CMD_REMOVE_CONTACT || cmd_frame[0] == CMD_SHARE_CONTACT ||
         cmd_frame[0] == CMD_GET_CONTACT_BY_KEY || cmd_frame[0] == CMD_EXPORT_CONTACT ||
         cmd_frame[0] == CMD_IMPORT_CONTACT || cmd_frame[0] == CMD_LOGOUT ||
-        cmd_frame[0] == CMD_GET_CHANNEL || cmd_frame[0] == CMD_SET_CHANNEL ||
+        cmd_frame[0] == CMD_SET_CHANNEL ||
         cmd_frame[0] == CMD_SET_DEFAULT_FLOOD_SCOPE || cmd_frame[0] == CMD_GET_DEFAULT_FLOOD_SCOPE)) {
     // beebo: role separation -- these are companion-only chat/contact/channel
     // commands (BaseChatMesh's contract); a node currently running as

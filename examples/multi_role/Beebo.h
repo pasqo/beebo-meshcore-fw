@@ -85,6 +85,7 @@ static_assert(USB_TX_BUFFER_SIZE >= 2 * (MAX_SEND_FRAME_SIZE + 3), "USB TX buffe
 // here is the local, beebo-owned file, not the stock companion_radio one).
 #include "BeeboPrefs.h"
 #include "BeeboBoardPrefs.h"
+#include "FeedChannel.h"
 #include "BeeboRoleState.h"
 
 #ifndef LORA_FREQ
@@ -1097,10 +1098,16 @@ private:
   void writeContactRespFrame(uint8_t code, const ContactInfo &contact);
   void updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, const uint8_t *frame, int len);
 #endif
-#if BEEBO_ENABLE_COMPANION_ROLE
   void addToOfflineQueue(const uint8_t frame[], int len);
   int getFromOfflineQueue(uint8_t frame[]);
-#endif
+
+  // App feed channels (plans/ROLE_APP_FEED.md): node-originated messages queued for the
+  // app. feedIdx() is the channel index the app sees for a feed (0xFF if it has none).
+  uint8_t feedIdx(uint8_t id) const;
+  void feedPost(uint8_t id, const char* text);
+  void feedInput(uint8_t id, char* text);   // a message the user typed into a feed channel
+  bool feedGetChannel(uint8_t channel_idx, uint8_t* out, int* out_len);   // CMD_GET_CHANNEL body
+  uint8_t _feed_idx[FEED_COUNT];   // companion: persisted slot per feed; repeater: fixed 0, 1
 #if BEEBO_ENABLE_COMPANION_ROLE
   int getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) override {
     return _store->getBlobByKey(key, key_len, dest_buf);
@@ -2552,7 +2559,6 @@ private:
   struct { bool active; int index; } _neighread;  // in-flight GET_NEIGHBORS stream
   struct { bool active; int index; } _pathread;   // in-flight GET_ADVERT_PATHS stream
 
-#if BEEBO_ENABLE_COMPANION_ROLE
   struct Frame {
     uint8_t len;
     uint8_t buf[MAX_FRAME_SIZE];
@@ -2563,8 +2569,7 @@ private:
   // Cold path, so allocated once in begin() from PSRAM instead of sitting in
   // internal RAM as part of this object; null if that fails (messages dropped).
   Frame* offline_queue;
-#endif
-  int offline_queue_len; // stays 0 (never incremented) when companion is compiled out
+  int offline_queue_len;
 
   // beebo: DM send-confirmation tracking is companion-only (BaseChatMesh's
   // own sendMessage()/onAckRecv() are still always available when
