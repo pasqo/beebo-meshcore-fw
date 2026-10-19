@@ -14,6 +14,7 @@
 #include "BeeboProtocol.h"
 #include "AdminSelfCommand.h"
 #include "CliCommand.h"
+#include "AppSync.h"
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_mac.h>  // beebo: esp_efuse_mac_get_default() for BEEBO_CMD_GET_BOARD_ID
@@ -4507,14 +4508,23 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&out_frame[i], name, tlen);
     i += tlen;
     _serial->writeFrame(out_frame, i);
+  } else if (isRepeater() && cmd_frame[0] == CMD_GET_CONTACTS) {
+    // beebo: the app's sync gets a valid empty contact list instead of an error frame.
+    uint8_t reply[5];
+    _serial->writeFrame(reply, appSyncContactsStart(reply));
+    _serial->writeFrame(reply, appSyncContactsEnd(reply));
+  } else if (isRepeater() && cmd_frame[0] == CMD_SYNC_NEXT_MESSAGE) {
+    uint8_t reply[1];
+    _serial->writeFrame(reply, appSyncNoMoreMessages(reply));
+  } else if (isRepeater() && cmd_frame[0] == CMD_HAS_CONNECTION) {
+    writeErrFrame(ERR_CODE_NOT_FOUND);   // a repeater holds no companion connections
   } else if (isRepeater() && (
         cmd_frame[0] == CMD_SEND_TXT_MSG || cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG ||
-        cmd_frame[0] == CMD_SEND_CHANNEL_DATA || cmd_frame[0] == CMD_GET_CONTACTS ||
+        cmd_frame[0] == CMD_SEND_CHANNEL_DATA ||
         cmd_frame[0] == CMD_RESET_PATH || cmd_frame[0] == CMD_ADD_UPDATE_CONTACT ||
         cmd_frame[0] == CMD_REMOVE_CONTACT || cmd_frame[0] == CMD_SHARE_CONTACT ||
         cmd_frame[0] == CMD_GET_CONTACT_BY_KEY || cmd_frame[0] == CMD_EXPORT_CONTACT ||
-        cmd_frame[0] == CMD_IMPORT_CONTACT || cmd_frame[0] == CMD_SYNC_NEXT_MESSAGE ||
-        cmd_frame[0] == CMD_HAS_CONNECTION || cmd_frame[0] == CMD_LOGOUT ||
+        cmd_frame[0] == CMD_IMPORT_CONTACT || cmd_frame[0] == CMD_LOGOUT ||
         cmd_frame[0] == CMD_GET_CHANNEL || cmd_frame[0] == CMD_SET_CHANNEL ||
         cmd_frame[0] == CMD_SET_DEFAULT_FLOOD_SCOPE || cmd_frame[0] == CMD_GET_DEFAULT_FLOOD_SCOPE)) {
     // beebo: role separation -- these are companion-only chat/contact/channel
