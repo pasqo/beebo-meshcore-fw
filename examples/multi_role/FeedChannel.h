@@ -13,6 +13,7 @@
 #define FEED_PART_CAP                  (FEED_TEXT_MAX + 1)
 #define FEED_FRAME_CAP                 176   // MAX_FRAME_SIZE
 #define FEED_RESP_CHANNEL_MSG_RECV_V3  17    // RESP_CODE_CHANNEL_MSG_RECV_V3
+#define FEED_RESP_CHANNEL_INFO         18    // RESP_CODE_CHANNEL_INFO
 #define FEED_PREFIX_LEN                4     // "i/n "
 
 enum FeedChannelId : uint8_t { FEED_STATUS = 0, FEED_CLI = 1, FEED_COUNT = 2 };
@@ -72,17 +73,18 @@ inline int feedSplit(const char* text, size_t max_text, char (*out)[FEED_PART_CA
   return cnt;
 }
 
-// Builds a RESP_CODE_CHANNEL_MSG_RECV_V3 frame for a node-originated message: no SNR or RSSI,
-// direct path, plain text. The text is clamped to `cap`. Returns the frame length.
-inline size_t feedBuildChannelMsg(uint8_t* out, size_t cap, uint8_t channel_idx, uint32_t timestamp,
-                                  const char* text) {
+// Builds a RESP_CODE_CHANNEL_MSG_RECV_V3 frame, the one layout every channel message to the app
+// uses (received off air or node-originated). `snr4` is the SNR in quarter dB, `path_len` 0xFF
+// for direct. The text is clamped to `cap`. Returns the frame length.
+inline size_t channelMsgV3Frame(uint8_t* out, size_t cap, uint8_t channel_idx, uint8_t path_len,
+                                int8_t snr4, int16_t rssi, uint32_t timestamp, const char* text) {
   size_t i = 0;
   out[i++] = FEED_RESP_CHANNEL_MSG_RECV_V3;
-  out[i++] = 0;                  // snr
-  out[i++] = 0;                  // rssi lo
-  out[i++] = 0;                  // rssi hi
+  out[i++] = (uint8_t)snr4;
+  memcpy(&out[i], &rssi, 2);
+  i += 2;
   out[i++] = channel_idx;
-  out[i++] = 0xFF;               // direct
+  out[i++] = path_len;
   out[i++] = 0;                  // TXT_TYPE_PLAIN
   memcpy(&out[i], &timestamp, 4);
   i += 4;
@@ -90,4 +92,15 @@ inline size_t feedBuildChannelMsg(uint8_t* out, size_t cap, uint8_t channel_idx,
   if (i + tlen > cap) tlen = cap - i;
   memcpy(&out[i], text, tlen);
   return i + tlen;
+}
+
+// Builds a RESP_CODE_CHANNEL_INFO frame (the reply to CMD_GET_CHANNEL) from a 32 byte name field
+// and a 16 byte secret, whichever role they come from. Returns the frame length.
+inline size_t channelInfoFrame(uint8_t* out, uint8_t channel_idx, const char* name32,
+                               const uint8_t* secret16) {
+  out[0] = FEED_RESP_CHANNEL_INFO;
+  out[1] = channel_idx;
+  memcpy(&out[2], name32, 32);
+  memcpy(&out[34], secret16, 16);
+  return 50;
 }

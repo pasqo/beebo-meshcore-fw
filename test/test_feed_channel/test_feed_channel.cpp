@@ -74,14 +74,13 @@ TEST(FeedSplit, EmptyTextIsOneEmptyPart) {
   EXPECT_STREQ(out[0], "");
 }
 
-TEST(FeedFrame, ChannelMessageLayout) {
+TEST(ChannelFrames, MessageLayout) {
   uint8_t buf[FEED_FRAME_CAP];
-  size_t n = feedBuildChannelMsg(buf, sizeof(buf), 3, 0x11223344, "bench: hi");
+  size_t n = channelMsgV3Frame(buf, sizeof(buf), 3, 0xFF, -8, -97, 0x11223344, "bench: hi");
   ASSERT_EQ(n, 11u + 9u);
   EXPECT_EQ(buf[0], FEED_RESP_CHANNEL_MSG_RECV_V3);
-  EXPECT_EQ(buf[1], 0);                 // snr
-  EXPECT_EQ(buf[2], 0);                 // rssi lo
-  EXPECT_EQ(buf[3], 0);                 // rssi hi
+  EXPECT_EQ((int8_t)buf[1], -8);        // snr, quarter dB
+  EXPECT_EQ((int16_t)(buf[2] | buf[3] << 8), -97);   // rssi, little-endian
   EXPECT_EQ(buf[4], 3);                 // channel idx
   EXPECT_EQ(buf[5], 0xFF);              // direct
   EXPECT_EQ(buf[6], 0);                 // plain text
@@ -90,10 +89,22 @@ TEST(FeedFrame, ChannelMessageLayout) {
   EXPECT_EQ(memcmp(&buf[11], "bench: hi", 9), 0);
 }
 
-TEST(FeedFrame, TextIsClampedToTheBuffer) {
+TEST(ChannelFrames, MessageTextIsClampedToTheBuffer) {
   uint8_t buf[20];
-  size_t n = feedBuildChannelMsg(buf, sizeof(buf), 0, 0, "0123456789abcdefghij");
+  size_t n = channelMsgV3Frame(buf, sizeof(buf), 0, 0xFF, 0, 0, 0, "0123456789abcdefghij");
   EXPECT_EQ(n, sizeof(buf));
+}
+
+TEST(ChannelFrames, InfoLayout) {
+  char name[32] = "beebo-cli";
+  uint8_t secret[16];
+  for (int i = 0; i < 16; i++) secret[i] = 0xA0 + i;
+  uint8_t buf[64];
+  ASSERT_EQ(channelInfoFrame(buf, 1, name, secret), 50u);
+  EXPECT_EQ(buf[0], FEED_RESP_CHANNEL_INFO);
+  EXPECT_EQ(buf[1], 1);
+  EXPECT_STREQ((char*)&buf[2], "beebo-cli");
+  EXPECT_EQ(memcmp(&buf[34], secret, 16), 0);
 }
 
 TEST(FeedSlots, NamesAndSecretsAreDistinct) {

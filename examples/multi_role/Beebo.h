@@ -1100,13 +1100,15 @@ private:
 #endif
   void addToOfflineQueue(const uint8_t frame[], int len);
   int getFromOfflineQueue(uint8_t frame[]);
+  void queueForApp(const uint8_t frame[], int len);   // queue plus MSG_WAITING push
 
   // App feed channels (plans/ROLE_APP_FEED.md): node-originated messages queued for the
   // app. feedIdx() is the channel index the app sees for a feed (0xFF if it has none).
   uint8_t feedIdx(uint8_t id) const;
+  int feedIdOf(uint8_t channel_idx) const;   // feed id of a channel index, -1 if not a feed
   void feedPost(uint8_t id, const char* text);
   void feedInput(uint8_t id, char* text);   // a message the user typed into a feed channel
-  bool feedGetChannel(uint8_t channel_idx, uint8_t* out, int* out_len);   // CMD_GET_CHANNEL body
+  bool feedChannel(uint8_t channel_idx, char* name32, uint8_t* secret16);   // repeater: name and secret of a feed
   uint8_t _feed_idx[FEED_COUNT];   // companion: persisted slot per feed; repeater: fixed 0, 1
 #if BEEBO_ENABLE_COMPANION_ROLE
   int getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) override {

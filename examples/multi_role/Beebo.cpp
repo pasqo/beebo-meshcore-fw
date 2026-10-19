@@ -239,9 +239,25 @@ int Beebo::getFromOfflineQueue(uint8_t frame[]) {
   return 0; // queue is empty
 }
 
+// Queues a frame for the app's next sync and tickles a connected app, whatever the role.
+void Beebo::queueForApp(const uint8_t frame[], int len) {
+  addToOfflineQueue(frame, len);
+  if (_serial->isConnected()) {
+    uint8_t push = PUSH_CODE_MSG_WAITING;
+    _serial->writeFrame(&push, 1);
+  }
+}
+
 uint8_t Beebo::feedIdx(uint8_t id) const {
   if (id >= FEED_COUNT) return 0xFF;
   return isRepeater() ? id : _feed_idx[id];
+}
+
+int Beebo::feedIdOf(uint8_t channel_idx) const {
+  for (uint8_t id = 0; id < FEED_COUNT; id++) {
+    if (feedIdx(id) == channel_idx) return id;
+  }
+  return -1;
 }
 
 void Beebo::feedPost(uint8_t id, const char* text) {
@@ -255,12 +271,8 @@ void Beebo::feedPost(uint8_t id, const char* text) {
   uint8_t frame[FEED_FRAME_CAP];
   for (int i = 0; i < n; i++) {
     snprintf(line, sizeof(line), "%s: %s", name, parts[i]);
-    size_t len = feedBuildChannelMsg(frame, sizeof(frame), idx, getRTCClock()->getCurrentTime(), line);
-    addToOfflineQueue(frame, (int)len);
-  }
-  if (_serial->isConnected()) {
-    uint8_t push = PUSH_CODE_MSG_WAITING;
-    _serial->writeFrame(&push, 1);
+    size_t len = channelMsgV3Frame(frame, sizeof(frame), idx, 0xFF, 0, 0, getRTCClock()->getCurrentTime(), line);
+    queueForApp(frame, (int)len);
   }
 }
 
@@ -275,20 +287,15 @@ void Beebo::feedInput(uint8_t id, char* text) {
   feedPost(FEED_CLI, n ? cli_reply : "(no output)");
 }
 
-// Repeater role only: the two feeds are the node's whole channel table. The secret is derived
-// from the identity key, so it is stable across renames and differs per node.
-bool Beebo::feedGetChannel(uint8_t channel_idx, uint8_t* out, int* out_len) {
+// Name and secret of a feed channel, for the repeater role where the two feeds are the node's
+// whole channel table. The secret is derived from the identity key, so it is stable across
+// renames and differs per node.
+bool Beebo::feedChannel(uint8_t channel_idx, char* name32, uint8_t* secret16) {
   if (channel_idx >= FEED_COUNT) return false;
-  int i = 0;
-  out[i++] = RESP_CODE_CHANNEL_INFO;
-  out[i++] = channel_idx;
-  memset(&out[i], 0, 32);
-  strncpy((char *)&out[i], feedDefaultName(channel_idx), 31);
-  i += 32;
+  memset(name32, 0, 32);
+  strncpy(name32, feedDefaultName(channel_idx), 31);
   const uint8_t tag[2] = {'F', channel_idx};
-  mesh::Utils::sha256(&out[i], 16, self_id.pub_key, PUB_KEY_SIZE, tag, 2);
-  i += 16;
-  *out_len = i;
+  mesh::Utils::sha256(secret16, 16, self_id.pub_key, PUB_KEY_SIZE, tag, 2);
   return true;
 }
 
@@ -4556,6 +4563,14 @@ void Beebo::handleCmdFrame(size_t len) {
     memcpy(&out_frame[i], name, tlen);
     i += tlen;
     _serial->writeFrame(out_frame, i);
+  } else if (cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG && len >= 8 && feedIdOf(cmd_frame[2]) >= 0) {
+    // beebo: text typed into a feed channel, in any role; never transmitted (plans/ROLE_APP_FEED.md).
+    char text[FEED_TEXT_MAX + 1];
+    size_t tlen = min((size_t)len - 7, (size_t)FEED_TEXT_MAX);
+    memcpy(text, &cmd_frame[7], tlen);
+    text[tlen] = 0;
+    writeOKFrame();
+    feedInput((uint8_t)feedIdOf(cmd_frame[2]), text);
   } else if (isRepeater() && cmd_frame[0] == CMD_GET_CONTACTS) {
     // beebo: the app's sync gets a valid empty contact list instead of an error frame.
     uint8_t reply[5];
@@ -4568,18 +4583,25 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       _serial->writeFrame(out_frame, appSyncNoMoreMessages(out_frame));
     }
-  } else if (isRepeater() && cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG && len >= 8 && cmd_frame[2] < FEED_COUNT) {
-    // beebo: text typed into a feed channel; never transmitted (plans/ROLE_APP_FEED.md).
-    char text[FEED_TEXT_MAX + 1];
-    size_t tlen = min((size_t)len - 7, (size_t)FEED_TEXT_MAX);
-    memcpy(text, &cmd_frame[7], tlen);
-    text[tlen] = 0;
-    writeOKFrame();
-    feedInput(cmd_frame[2], text);
-  } else if (isRepeater() && cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
-    int out_len;
-    if (feedGetChannel(cmd_frame[1], out_frame, &out_len)) {
-      _serial->writeFrame(out_frame, out_len);
+  } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
+    char name[32];
+    uint8_t secret[16];
+    bool found = false;
+    if (isRepeater()) {
+      found = feedChannel(cmd_frame[1], name, secret);
+    }
+#if BEEBO_ENABLE_COMPANION_ROLE
+    else {
+      ChannelDetails channel;
+      if (getChannel(cmd_frame[1], channel)) {
+        memcpy(name, channel.name, sizeof(name));
+        memcpy(secret, channel.channel.secret, sizeof(secret));   // NOTE: only 128-bit supported
+        found = true;
+      }
+    }
+#endif
+    if (found) {
+      _serial->writeFrame(out_frame, channelInfoFrame(out_frame, cmd_frame[1], name, secret));
     } else {
       writeErrFrame(ERR_CODE_NOT_FOUND);
     }
@@ -5425,23 +5447,6 @@ void Beebo::handleCmdFrame(size_t len) {
     uint8_t *pub_key = &cmd_frame[1];
     stopConnection(pub_key);
     writeOKFrame();
-#endif
-#if BEEBO_ENABLE_COMPANION_ROLE
-  } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
-    uint8_t channel_idx = cmd_frame[1];
-    ChannelDetails channel;
-    if (getChannel(channel_idx, channel)) {
-      int i = 0;
-      out_frame[i++] = RESP_CODE_CHANNEL_INFO;
-      out_frame[i++] = channel_idx;
-      strcpy((char *)&out_frame[i], channel.name);
-      i += 32;
-      memcpy(&out_frame[i], channel.channel.secret, 16);
-      i += 16; // NOTE: only 128-bit supported
-      _serial->writeFrame(out_frame, i);
-    } else {
-      writeErrFrame(ERR_CODE_NOT_FOUND);
-    }
 #endif
   } else if (cmd_frame[0] == CMD_SET_CHANNEL && len >= 2 + 32 + 32) {
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD); // not supported (yet)

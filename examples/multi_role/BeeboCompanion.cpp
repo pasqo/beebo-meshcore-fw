@@ -287,14 +287,7 @@ void Beebo::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packet
   }
   memcpy(&out_frame[i], text, tlen);
   i += tlen;
-  addToOfflineQueue(out_frame, i);
-
-  if (_serial->isConnected()) {
-    uint8_t frame[1];
-    frame[0] = PUSH_CODE_MSG_WAITING; // send push 'tickle'
-    _serial->writeFrame(frame, 1);
-  }
-
+  queueForApp(out_frame, i);
 }
 void Beebo::sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis) {
   // TODO: dynamic send_scope, depending on recipient and current 'home' Region
@@ -367,42 +360,31 @@ void Beebo::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet
   int i = 0;
 #ifdef MSG_INCLUDE_RSSI
   const bool use_v3 = true;   // beebo: always record SNR/RSSI (see queueMessage)
+  const int16_t rssi = (int16_t)pkt->getRSSI();
 #else
   const bool use_v3 = (app_target_ver >= 3);
+  const int16_t rssi = 0;
 #endif
+  uint8_t channel_idx = findChannelIdx(channel);
+  uint8_t path_len = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
   if (use_v3) {
-    out_frame[i++] = RESP_CODE_CHANNEL_MSG_RECV_V3;
-    out_frame[i++] = (int8_t)(pkt->getSNR() * 4);
-#ifdef MSG_INCLUDE_RSSI
-    { int16_t rssi = (int16_t)pkt->getRSSI(); memcpy(&out_frame[i], &rssi, 2); i += 2; }
-#else
-    out_frame[i++] = 0; // reserved1
-    out_frame[i++] = 0; // reserved2
-#endif
+    i = (int)channelMsgV3Frame(out_frame, MAX_FRAME_SIZE, channel_idx, path_len,
+                               (int8_t)(pkt->getSNR() * 4), rssi, timestamp, text);   // TODO: UTF-8 ??
   } else {
     out_frame[i++] = RESP_CODE_CHANNEL_MSG_RECV;
+    out_frame[i++] = channel_idx;
+    out_frame[i++] = path_len;
+    out_frame[i++] = TXT_TYPE_PLAIN;
+    memcpy(&out_frame[i], &timestamp, 4);
+    i += 4;
+    int tlen = strlen(text);
+    if (i + tlen > MAX_FRAME_SIZE) {
+      tlen = MAX_FRAME_SIZE - i;
+    }
+    memcpy(&out_frame[i], text, tlen);
+    i += tlen;
   }
-
-  uint8_t channel_idx = findChannelIdx(channel);
-  out_frame[i++] = channel_idx;
-  uint8_t path_len = out_frame[i++] = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
-
-  out_frame[i++] = TXT_TYPE_PLAIN;
-  memcpy(&out_frame[i], &timestamp, 4);
-  i += 4;
-  int tlen = strlen(text); // TODO: UTF-8 ??
-  if (i + tlen > MAX_FRAME_SIZE) {
-    tlen = MAX_FRAME_SIZE - i;
-  }
-  memcpy(&out_frame[i], text, tlen);
-  i += tlen;
-  addToOfflineQueue(out_frame, i);
-
-  if (_serial->isConnected()) {
-    uint8_t frame[1];
-    frame[0] = PUSH_CODE_MSG_WAITING; // send push 'tickle'
-    _serial->writeFrame(frame, 1);
-  }
+  queueForApp(out_frame, i);
 }
 
 void Beebo::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
@@ -431,13 +413,7 @@ void Beebo::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *p
     memcpy(&out_frame[i], data, copy_len);
     i += copy_len;
   }
-  addToOfflineQueue(out_frame, i);
-
-  if (_serial->isConnected()) {
-    uint8_t frame[1];
-    frame[0] = PUSH_CODE_MSG_WAITING; // send push 'tickle'
-    _serial->writeFrame(frame, 1);
-  }
+  queueForApp(out_frame, i);
 }
 uint8_t Beebo::onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
                                  uint8_t len, uint8_t *reply) {
