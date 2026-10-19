@@ -15,6 +15,7 @@
 #include "AdminSelfCommand.h"
 #include "CliCommand.h"
 #include "AppSync.h"
+#include "FeedLines.h"
 #include "ResetReason.h"
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
@@ -247,6 +248,18 @@ void Beebo::queueForApp(const uint8_t frame[], int len) {
     uint8_t push = PUSH_CODE_MSG_WAITING;
     _serial->writeFrame(&push, 1);
   }
+}
+
+// The status feed's periodic monitor line.
+void Beebo::loopFeed() {
+  if ((long)(millis() - _feed_mon_at) < 0) return;
+  _feed_mon_at = millis() + FEED_MON_PERIOD_MS;
+  MonRing::QosStats q = qosStats();
+  char line[FEED_PART_CAP];
+  feedFmtMon(line, sizeof(line), monring.enabled(), getNumRecvFlood() + getNumRecvDirect(),
+             getNumSentFlood() + getNumSentDirect(), MonRing::computeQosExposure(q) > 0, MonRing::computeQos(q),
+             MonRing::computeSoh(sohStats()));
+  feedPost(FEED_STATUS, line);
 }
 
 uint8_t Beebo::feedIdx(uint8_t id) const {
@@ -2477,16 +2490,6 @@ int Beebo::scoreIndex(const char* name, int len) {
 }
 
 #if BEEBO_ENABLE_REPEATER_ROLE
-// beebo: lifetime reward counters, the same four every QoS/RoS computation uses.
-MonRing::QosStats Beebo::tuningQosStats() {
-  SimpleMeshTables* tables = (SimpleMeshTables*)getTables();
-  MonRing::QosStats q;
-  q.ack_success_count = getAckSuccessCount();
-  q.ack_timeout_count = getAckTimeoutCount();
-  q.echo_attempt_count = tables->getEchoAttemptCount();
-  q.echo_success_count = tables->getEchoSuccessCount();
-  return q;
-}
 
 void Beebo::openEvalWindow(uint16_t window_id) {
 #ifdef BEEBO_CPU_ACCOUNTING
@@ -2494,7 +2497,7 @@ void Beebo::openEvalWindow(uint16_t window_id) {
 #else
   uint32_t cad_ms = 0;
 #endif
-  eval_window.open(millis(), tuningQosStats(), window_id, cad_ms, radio_driver.getPacketsRecv(),
+  eval_window.open(millis(), qosStats(), window_id, cad_ms, radio_driver.getPacketsRecv(),
                    monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                    radio_driver.getPacketsSent());
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
@@ -2537,7 +2540,7 @@ void Beebo::loopTuning() {
   uint32_t cad_ms = 0;
 #endif
   EvalWindow::Result window;
-  if (!eval_window.poll(millis(), tuningQosStats(), cad_ms, window, radio_driver.getPacketsRecv(),
+  if (!eval_window.poll(millis(), qosStats(), cad_ms, window, radio_driver.getPacketsRecv(),
                         monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                         radio_driver.getPacketsSent())) {
     return;
@@ -2681,7 +2684,13 @@ void Beebo::emitTrialStart(int sw, const TrialFSM::Config& tc) {
   r.trial_start.volume_ref = (uint16_t)(ref > 65535.0f ? 65535.0f : ref + 0.5f);
   monring.appendTrial(r, getRTCClock()->nowMillis());
   if (sw == TRIAL_COMBINED) emitTrialParts();
+  char line[FEED_PART_CAP];
+  feedFmtTrialStart(line, sizeof(line), trialFeedName(sw), trial.original(), trial.alternative(),
+                    trial.totalBlocks(), tc.block_s);
+  feedPost(FEED_STATUS, line);
 }
+
+const char* Beebo::trialFeedName(int sw) { return sw < 0 ? "combined" : TrialSequence::name(sw); }
 
 // One record per participant of a combined trial, right after its start record.
 void Beebo::emitTrialParts() {
@@ -2717,6 +2726,10 @@ void Beebo::emitTrialBlock(uint16_t index, uint8_t value, const EvalWindow::Resu
   rec.trial_block.lower = trialX1000(p.lower);
   rec.trial_block.upper = trialX1000(p.upper);
   monring.appendTrial(rec, getRTCClock()->nowMillis());
+  char line[FEED_PART_CAP];
+  feedFmtTrialBlock(line, sizeof(line), trialFeedName(_trial_switch), index, trial.totalBlocks(), p.n_pairs,
+                    rec.trial_block.mean, p.bounds, rec.trial_block.lower, rec.trial_block.upper);
+  feedPost(FEED_STATUS, line);
 }
 
 void Beebo::emitTrialPlan(const TrialPlanner::Plan& plan, const TrialRates& r, bool replan, uint16_t blocks) {
@@ -2763,6 +2776,10 @@ void Beebo::emitTrialEnd(int sw, const TrialFSM::Step& step) {
   rec.trial_end.se = (int16_t)st.se_x1000;
   rec.trial_end.ratio_diff = (int16_t)st.mean_ratio_diff;
   monring.appendTrial(rec, getRTCClock()->nowMillis());
+  char line[FEED_PART_CAP];
+  feedFmtTrialEnd(line, sizeof(line), trialFeedName(sw), step.outcome, trial.original(), trial.alternative(),
+                  st.n_pairs, st.mean_rel_x1000, st.se_x1000);
+  feedPost(FEED_STATUS, line);
 }
 
 // A switch startTrial() declined to run leaves an end record (outcome
@@ -2775,6 +2792,9 @@ void Beebo::emitTrialSkip(int sw, TrialFSM::Outcome outcome) {
   rec.trial_end.a = sw < 0 ? 0 : trialSwitchStoredValue(sw);
   rec.trial_end.b = sw < 0 ? 1 : _trial_lists.v[sw].current();
   monring.appendTrial(rec, getRTCClock()->nowMillis());
+  char line[FEED_PART_CAP];
+  feedFmtTrialSkip(line, sizeof(line), trialFeedName(sw), outcome);
+  feedPost(FEED_STATUS, line);
 }
 
 void Beebo::refreshObjectiveReference() {
@@ -2853,7 +2873,7 @@ void Beebo::openTrialWindow() {
 #else
   uint32_t cad_ms = 0;
 #endif
-  trial_window.open(millis(), tuningQosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
+  trial_window.open(millis(), qosStats(), trialWindowId(), cad_ms, radio_driver.getPacketsRecv(),
                     monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                     radio_driver.getPacketsSent());
   NeighborReach::resetWindow(neighbors, MAX_NEIGHBOURS);
@@ -2915,7 +2935,7 @@ void Beebo::loopTrial() {
   uint32_t cad_ms = 0;
 #endif
   EvalWindow::Result r;
-  if (!trial_window.poll(millis(), tuningQosStats(), cad_ms, r, radio_driver.getPacketsRecv(),
+  if (!trial_window.poll(millis(), qosStats(), cad_ms, r, radio_driver.getPacketsRecv(),
                          monring.rxParseErrorCount(), radio_driver.getPacketsRecvErrors(),
                          radio_driver.getPacketsSent())) return;
   NeighborReach::scan(neighbors, MAX_NEIGHBOURS, r.reach_heard, r.reach_marginal);
@@ -3016,7 +3036,7 @@ TrialPlanner::Plan Beebo::planTrial() {
 // Traffic rates for the planner, from the counters EvalWindow reads; run every
 // loop in the repeater role, trial or not, so a plan can start at once.
 void Beebo::trackExposure() {
-  MonRing::QosStats q = tuningQosStats();
+  MonRing::QosStats q = qosStats();
   _expo.poll(millis(), MonRing::computeQosExposure(q), MonRing::computeRos(q), radio_driver.getPacketsRecv());
 }
 
@@ -3130,7 +3150,6 @@ void Beebo::abortTrial(bool mark_done) {
   _trial_switch = -1;
 }
 #else
-MonRing::QosStats Beebo::tuningQosStats() { return MonRing::QosStats{}; }
 void Beebo::openEvalWindow(uint16_t) {}
 void Beebo::loopTuning() {}
 void Beebo::trackExposure() {}
@@ -3399,9 +3418,9 @@ void Beebo::logRxQueueFull() {
 // "full".
 void Beebo::appendLinkQueueDropEvents() {
   uint64_t now = getRTCClock()->nowMillis();
-  uint32_t link_tx = ble_interface.getSendQueueFullCount() + wifi_interface.getSendQueueFullCount()
-                      + debug_log.getUsbQueueDropCount();
-  uint32_t link_rx = ble_interface.getRecvQueueFullCount();
+  MonRing::SohStats s = sohStats();
+  uint32_t link_tx = s.link_tx_queue_full_count;
+  uint32_t link_rx = s.link_rx_queue_full_count;
 
   if (link_tx != _last_link_tx_queue_full) {
     EventRecord rec{};
@@ -3579,6 +3598,36 @@ void Beebo::clearMonRing() {
   _rs_have_last = false;   // the ring lost the last EVENT_ROUTE_STATS: log the next interval
 }
 
+// beebo: lifetime reward counters, the same four every QoS/RoS computation uses.
+MonRing::QosStats Beebo::qosStats() {
+  SimpleMeshTables* tables = (SimpleMeshTables*)getTables();
+  MonRing::QosStats q;
+  q.ack_success_count = getAckSuccessCount();
+  q.ack_timeout_count = getAckTimeoutCount();
+  q.echo_attempt_count = tables->getEchoAttemptCount();
+  q.echo_success_count = tables->getEchoSuccessCount();
+  return q;
+}
+
+MonRing::SohStats Beebo::sohStats() {
+  SimpleMeshTables* tables = (SimpleMeshTables*)getTables();
+  MonRing::SohStats s;
+  s.tx_pool_full_count = _tx_pool_full_count;
+  s.rx_pool_exhausted_count = monring.rxPoolExhaustedCount();
+  s.tx_cad_timeout_count = _cad_timeout_count;
+  s.rx_start_timeout_count = _rx_start_timeout_count;
+  s.tx_queue_full_count = _mgr->getTxQueueFullCount();
+  s.rx_queue_full_count = _mgr->getRxQueueFullCount();
+  s.link_tx_queue_full_count = ble_interface.getSendQueueFullCount() + wifi_interface.getSendQueueFullCount()
+                               + debug_log.getUsbQueueDropCount();
+  s.link_rx_queue_full_count = ble_interface.getRecvQueueFullCount();
+  s.tx_ack_overflow_count = getAckOverflowCount();
+  s.tx_echo_overflow_count = tables->getEchoOverflowCount();
+  s.rx_activity_count = getNumRecvFlood() + getNumRecvDirect();
+  s.tx_activity_count = getNumSentFlood() + getNumSentDirect();
+  return s;
+}
+
 int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, uint32_t *returned, bool first_page, bool reset) {
   int i = 0;
   out[i++] = RESP_CODE_BEEBO;
@@ -3625,7 +3674,8 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   // to reconstruct from a download (see MonRing::bumpRxDropCount()). Every
   // other RX/TX condition breakdown was removed from this header; recreate
   // it offline via `beebo monitor download` instead.
-  uint32_t rx_pool_exhausted = monring.rxPoolExhaustedCount();
+  MonRing::SohStats soh_stats = sohStats();   // the raw fault counters below, and SoH from them
+  uint32_t rx_pool_exhausted = soh_stats.rx_pool_exhausted_count;
   uint32_t rx_parse_error = monring.rxParseErrorCount();
   memcpy(&out[i], &rx_pool_exhausted, 4); i += 4;
   memcpy(&out[i], &rx_parse_error, 4); i += 4;
@@ -3635,11 +3685,10 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   // BLE + WiFi + DebugLog's own USB retry-queue drops (see
   // appendLinkQueueDropEvents()'s own comment for why LINK_RX has no USB
   // term -- must stay in lockstep with that function's identical formula).
-  uint32_t mesh_tx_queue_full = _mgr->getTxQueueFullCount();
-  uint32_t mesh_rx_queue_full = _mgr->getRxQueueFullCount();
-  uint32_t link_tx_queue_full = ble_interface.getSendQueueFullCount() + wifi_interface.getSendQueueFullCount()
-                                 + debug_log.getUsbQueueDropCount();
-  uint32_t link_rx_queue_full = ble_interface.getRecvQueueFullCount();
+  uint32_t mesh_tx_queue_full = soh_stats.tx_queue_full_count;
+  uint32_t mesh_rx_queue_full = soh_stats.rx_queue_full_count;
+  uint32_t link_tx_queue_full = soh_stats.link_tx_queue_full_count;
+  uint32_t link_rx_queue_full = soh_stats.link_rx_queue_full_count;
   memcpy(&out[i], &mesh_tx_queue_full, 4); i += 4;
   memcpy(&out[i], &mesh_rx_queue_full, 4); i += 4;
   memcpy(&out[i], &link_tx_queue_full, 4); i += 4;
@@ -3657,24 +3706,7 @@ int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, ui
   // 1000/hour at 100%, this can. rx_drop is no longer part of QoS's
   // denominator (see MonRing::computeQos()'s own comment) -- it remains a
   // SoH input only, via the counters already gathered above.
-  MonRing::QosStats qos_stats;
-  qos_stats.ack_success_count = getAckSuccessCount();
-  qos_stats.ack_timeout_count = getAckTimeoutCount();
-  qos_stats.echo_attempt_count = ((SimpleMeshTables*)getTables())->getEchoAttemptCount();
-  qos_stats.echo_success_count = ((SimpleMeshTables*)getTables())->getEchoSuccessCount();
-  MonRing::SohStats soh_stats;
-  soh_stats.tx_pool_full_count = _tx_pool_full_count;
-  soh_stats.rx_pool_exhausted_count = rx_pool_exhausted;
-  soh_stats.tx_cad_timeout_count = _cad_timeout_count;
-  soh_stats.rx_start_timeout_count = _rx_start_timeout_count;
-  soh_stats.tx_queue_full_count = mesh_tx_queue_full;
-  soh_stats.rx_queue_full_count = mesh_rx_queue_full;
-  soh_stats.link_tx_queue_full_count = link_tx_queue_full;
-  soh_stats.link_rx_queue_full_count = link_rx_queue_full;
-  soh_stats.tx_ack_overflow_count = getAckOverflowCount();
-  soh_stats.tx_echo_overflow_count = ((SimpleMeshTables*)getTables())->getEchoOverflowCount();
-  soh_stats.rx_activity_count = getNumRecvFlood() + getNumRecvDirect();
-  soh_stats.tx_activity_count = getNumSentFlood() + getNumSentDirect();
+  MonRing::QosStats qos_stats = qosStats();
   // Raw SoH-input counters not otherwise in this header (tx_pool_full/
   // cad_timeout/rx_start_timeout aren't -- those live in Beebo, not MonRing/
   // PacketManager/transports, unlike everything above), plus
@@ -4620,8 +4652,35 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
+  } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
+    char name[32];
+    uint8_t secret[16];
+    bool found = feedChannel(cmd_frame[1], name, secret);   // a feed, in any role
+#if BEEBO_ENABLE_COMPANION_ROLE
+    if (!found) {   // the channel table: empty slots answer with an empty name, as upstream does
+      ChannelDetails channel;
+      if (getChannel(cmd_frame[1], channel)) {
+        memcpy(name, channel.name, sizeof(name));
+        memcpy(secret, channel.channel.secret, sizeof(secret));   // NOTE: only 128-bit supported
+        found = true;
+      }
+    }
+#else
+    if (!found && cmd_frame[1] < MAX_GROUP_CHANNELS) {   // static repeater: no table, every slot empty
+      memset(name, 0, sizeof(name));
+      memset(secret, 0, sizeof(secret));
+      found = true;
+    }
+#endif
+    if (found) {
+      _serial->writeFrame(out_frame, channelInfoFrame(out_frame, cmd_frame[1], name, secret));
+    } else {
+      writeErrFrame(ERR_CODE_NOT_FOUND);
+    }
+#if !BEEBO_ENABLE_COMPANION_ROLE
+  // beebo: a static repeater has no companion handlers to reuse; the multi-role build lets these
+  // three fall through to the companion's own, which answer from the repeater's empty tables.
   } else if (isRepeater() && cmd_frame[0] == CMD_GET_CONTACTS) {
-    // beebo: the app's sync gets a valid empty contact list instead of an error frame.
     uint8_t reply[5];
     _serial->writeFrame(reply, appSyncContactsStart(reply));
     _serial->writeFrame(reply, appSyncContactsEnd(reply));
@@ -4632,27 +4691,9 @@ void Beebo::handleCmdFrame(size_t len) {
     } else {
       _serial->writeFrame(out_frame, appSyncNoMoreMessages(out_frame));
     }
-  } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
-    char name[32];
-    uint8_t secret[16];
-    bool found = feedChannel(cmd_frame[1], name, secret);   // a feed, in any role
-#if BEEBO_ENABLE_COMPANION_ROLE
-    if (!found && isCompanion()) {
-      ChannelDetails channel;
-      if (getChannel(cmd_frame[1], channel)) {
-        memcpy(name, channel.name, sizeof(name));
-        memcpy(secret, channel.channel.secret, sizeof(secret));   // NOTE: only 128-bit supported
-        found = true;
-      }
-    }
-#endif
-    if (found) {
-      _serial->writeFrame(out_frame, channelInfoFrame(out_frame, cmd_frame[1], name, secret));
-    } else {
-      writeErrFrame(ERR_CODE_NOT_FOUND);
-    }
   } else if (isRepeater() && cmd_frame[0] == CMD_HAS_CONNECTION) {
     writeErrFrame(ERR_CODE_NOT_FOUND);   // a repeater holds no companion connections
+#endif
   } else if (isRepeater() && (
         cmd_frame[0] == CMD_SEND_TXT_MSG || cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG ||
         cmd_frame[0] == CMD_SEND_CHANNEL_DATA ||
@@ -8135,6 +8176,7 @@ void Beebo::loop() {
   // default 0) is a separate, narrower opt-in on top of that -- every param
   // stays observe-only until its own bit is set.
   if (isRepeater() && monring.allocated()) trackExposure();
+  loopFeed();
   if (isRepeater() && (_adaptive_enabled || _trial_enabled) && monring.allocated()) loopTuning();
 #endif
 

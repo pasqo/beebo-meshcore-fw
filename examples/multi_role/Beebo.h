@@ -86,6 +86,8 @@ static_assert(USB_TX_BUFFER_SIZE >= 2 * (MAX_SEND_FRAME_SIZE + 3), "USB TX buffe
 #include "BeeboPrefs.h"
 #include "BeeboBoardPrefs.h"
 #include "FeedChannel.h"
+#define FEED_MON_FIRST_MS  (60UL * 1000UL)           // the first monitor line, a minute after boot
+#define FEED_MON_PERIOD_MS (60UL * 60UL * 1000UL)   // then one an hour
 #include "BeeboRoleState.h"
 
 #ifndef LORA_FREQ
@@ -464,6 +466,8 @@ public:
   // records. `reset` is written into the header as-is (see
   // BEEBO_CMD_GET_MONRING) -- this function doesn't decide it, only reports
   // whatever the caller already determined.
+  MonRing::QosStats qosStats();   // lifetime reward counters behind QoS and RoS
+  MonRing::SohStats sohStats();   // lifetime fault counters behind SoH
   int fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, uint32_t *returned, bool first_page, bool reset);
 
   const char *getNodeName();
@@ -1109,6 +1113,9 @@ private:
   void feedPost(uint8_t id, const char* text);
   void feedInput(uint8_t id, char* text);   // a message the user typed into a feed channel
   bool feedChannel(uint8_t channel_idx, char* name32, uint8_t* secret16);   // name and secret of a feed
+  void loopFeed();   // the periodic monitor line
+  static const char* trialFeedName(int sw);
+  unsigned long _feed_mon_at = FEED_MON_FIRST_MS;   // next monitor line, millis()
   void feedAllocate();   // give each feed a channel index (board prefs), after the channel table loads
   bool feedRename(uint8_t id, const char* name);
 #if BEEBO_ENABLE_COMPANION_ROLE
@@ -2283,7 +2290,6 @@ private:
   bool replanTrial();   // after an A B B A cycle; true when the trial ended
   void emitTrialNoise();
   uint16_t trialWindowId() const { return 0x8000 | trial.blockIndex(); }
-  MonRing::QosStats tuningQosStats();
   // Open a fresh evaluation window from the current counters.
   void openEvalWindow(uint16_t window_id);
   // One-per-loop tuning step: samples utilization, closes the window by rule
