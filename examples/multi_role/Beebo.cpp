@@ -3473,6 +3473,16 @@ void Beebo::startInterface(BaseSerialInterface &serial) {
   serial.enable();
 }
 
+// beebo: clear the monitor ring and re-seed its anchors; shared by SET_MONRING op 2
+// and the text key "monring.clear". Not radioIsIdle()-verified -- see initMonRing()'s comment.
+void Beebo::clearMonRing() {
+  resetBattTrendRef(_batt_state, _cached_batt_mv, _board.batt_present);
+  uint32_t now_epoch; uint16_t now_ms;
+  getRTCClock()->getTime(now_epoch, now_ms);
+  monring.clear(now_epoch, (uint32_t)millis(), buildRadioRecord(), buildEnvRecord(), now_ms);
+  _rs_have_last = false;   // the ring lost the last EVENT_ROUTE_STATS: log the next interval
+}
+
 int Beebo::fillMonRingFrame(uint8_t *out, uint32_t after_seq, size_t max_len, uint32_t *returned, bool first_page, bool reset) {
   int i = 0;
   out[i++] = RESP_CODE_BEEBO;
@@ -6729,15 +6739,9 @@ void Beebo::handleCmdFrame(size_t len) {
         monring.applyConfig(_role_state->prefs.monring_config);
         savePrefs();
         break;
-      case 2: {
-        // beebo: not radioIsIdle()-verified -- see initMonRing()'s comment.
-        resetBattTrendRef(_batt_state, _cached_batt_mv, _board.batt_present);
-        uint32_t now_epoch; uint16_t now_ms;
-        getRTCClock()->getTime(now_epoch, now_ms);
-        monring.clear(now_epoch, (uint32_t)millis(), buildRadioRecord(), buildEnvRecord(), now_ms);
-        _rs_have_last = false;   // the ring lost the last EVENT_ROUTE_STATS: log the next interval
+      case 2:
+        clearMonRing();
         break;
-      }
       default: writeErrFrame(ERR_CODE_ILLEGAL_ARG); return;
     }
     writeOKFrame();
@@ -9126,6 +9130,18 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else {
       strcpy(reply, "ERR: clock cannot go backwards");
     }
+  } else if (strcmp(command, "monring.header") == 0) {
+    // beebo: text twin of the GET_MONRING header (`monitor status` over -r); resident counts only
+    snprintf(reply, 160, "en %d cap %lu cnt %lu old %lu next %lu start %lu end %lu rx %lu tx %lu sync %lu radio %lu env %lu batt %lu",
+             monring.enabled() ? 1 : 0, (unsigned long)monring.capacity(), (unsigned long)monring.count(),
+             (unsigned long)monring.oldestSeq(), (unsigned long)monring.nextSeq(),
+             (unsigned long)monring.startTime(), (unsigned long)monring.endTime(),
+             (unsigned long)monring.rxCount(), (unsigned long)monring.txCount(),
+             (unsigned long)monring.syncCount(), (unsigned long)monring.radioCount(),
+             (unsigned long)monring.envCount(), (unsigned long)monring.battCount());
+  } else if (strcmp(command, "monring.clear") == 0) {
+    clearMonRing();
+    strcpy(reply, "OK");
   } else if (memcmp(command, "clock.epoch", 11) == 0) {
     // beebo: see CommonCLI.cpp's identical "clock.epoch" comment -- widened
     // the same way with optional trailing "<time> <boot> <ms>" tokens.

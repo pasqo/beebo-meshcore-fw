@@ -442,6 +442,7 @@ public:
   bool sendRouteRetry(const uint8_t* raw, uint8_t len, uint8_t attempt);
   uint8_t _route_retry = 0;   // the live RetryPolicy byte
 #endif
+  void clearMonRing();  // beebo: clear the monitor ring (SET_MONRING op 2, text "monring.clear")
   void initMonRing();  // beebo: apply MonRing's real boot-known state (call after beebo.begin(), same position as before)
   void applyMonRingCaptureConfig();  // beebo: apply the real persisted event-capture preference -- call LAST in setup(), right after RLOG_ID_BOOT_COMPLETE (see initMonRing()'s own comment for why this is split out)
   // beebo: DebugLog::DebugSink target -- forwards every H/M-severity RLOG
