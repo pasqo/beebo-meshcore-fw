@@ -13,7 +13,6 @@
 #define FEED_PART_CAP                  (FEED_TEXT_MAX + 1)
 #define FEED_FRAME_CAP                 176   // MAX_FRAME_SIZE
 #define FEED_RESP_CHANNEL_MSG_RECV_V3  17    // RESP_CODE_CHANNEL_MSG_RECV_V3
-#define FEED_RESP_CHANNEL_INFO         18    // RESP_CODE_CHANNEL_INFO
 #define FEED_PREFIX_LEN                4     // "i/n "
 
 enum FeedChannelId : uint8_t { FEED_STATUS = 0, FEED_CLI = 1, FEED_COUNT = 2 };
@@ -94,16 +93,6 @@ inline size_t channelMsgV3Frame(uint8_t* out, size_t cap, uint8_t channel_idx, u
   return i + tlen;
 }
 
-// Builds a RESP_CODE_CHANNEL_INFO frame (the reply to CMD_GET_CHANNEL) from a 32 byte name field
-// and a 16 byte secret, whichever role they come from. Returns the frame length.
-inline size_t channelInfoFrame(uint8_t* out, uint8_t channel_idx, const char* name32,
-                               const uint8_t* secret16) {
-  out[0] = FEED_RESP_CHANNEL_INFO;
-  out[1] = channel_idx;
-  memcpy(&out[2], name32, 32);
-  memcpy(&out[34], secret16, 16);
-  return 50;
-}
 
 // Channel index a feed uses. Keeps `cur` while it is in range, not the other feed's slot and not
 // a slot holding a real channel (bit i of `occupied`); otherwise the highest free slot, so the

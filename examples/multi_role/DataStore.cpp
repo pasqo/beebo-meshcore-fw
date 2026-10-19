@@ -395,12 +395,10 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
       file.read((uint8_t *)&_prefs.fem_rssi_ofs_lna, sizeof(_prefs.fem_rssi_ofs_lna));       // 59
       file.read((uint8_t *)&_prefs.fem_rssi_ofs_bypass, sizeof(_prefs.fem_rssi_ofs_bypass)); // 60
     }
-    // 61: feed slots and names -- an older file ends before them and keeps the defaults.
-    if ((size_t)file.available() >= sizeof(_prefs.feed_idx) + sizeof(_prefs.feed_name)) {
+    // 61: feed slots -- an older file ends before them and keeps the defaults. (A file written by an
+    // earlier build may carry 64 more bytes here, which are ignored.)
+    if ((size_t)file.available() >= sizeof(_prefs.feed_idx)) {
       file.read((uint8_t *)_prefs.feed_idx, sizeof(_prefs.feed_idx));    // 61
-      file.read((uint8_t *)_prefs.feed_name, sizeof(_prefs.feed_name));  // 63
-      _prefs.feed_name[0][31] = 0;
-      _prefs.feed_name[1][31] = 0;
     }
   }
   file.close();
@@ -422,7 +420,6 @@ void DataStore::saveBeeboBoardPrefs(const BeeboBoardPrefs& _prefs) {
     file.write((uint8_t *)&_prefs.fem_rssi_ofs_lna, sizeof(_prefs.fem_rssi_ofs_lna));       // 59
     file.write((uint8_t *)&_prefs.fem_rssi_ofs_bypass, sizeof(_prefs.fem_rssi_ofs_bypass)); // 60
     file.write((uint8_t *)_prefs.feed_idx, sizeof(_prefs.feed_idx));                        // 61
-    file.write((uint8_t *)_prefs.feed_name, sizeof(_prefs.feed_name));                      // 63
     file.close();
   }
   _abi.board_prefs_version = BOARD_PREFS_VERSION;

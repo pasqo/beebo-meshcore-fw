@@ -95,18 +95,6 @@ TEST(ChannelFrames, MessageTextIsClampedToTheBuffer) {
   EXPECT_EQ(n, sizeof(buf));
 }
 
-TEST(ChannelFrames, InfoLayout) {
-  char name[32] = "beebo-cli";
-  uint8_t secret[16];
-  for (int i = 0; i < 16; i++) secret[i] = 0xA0 + i;
-  uint8_t buf[64];
-  ASSERT_EQ(channelInfoFrame(buf, 1, name, secret), 50u);
-  EXPECT_EQ(buf[0], FEED_RESP_CHANNEL_INFO);
-  EXPECT_EQ(buf[1], 1);
-  EXPECT_STREQ((char*)&buf[2], "beebo-cli");
-  EXPECT_EQ(memcmp(&buf[34], secret, 16), 0);
-}
-
 TEST(FeedSlots, NamesAndSecretsAreDistinct) {
   EXPECT_STRNE(feedDefaultName(FEED_STATUS), feedDefaultName(FEED_CLI));
   EXPECT_STREQ(feedDefaultName(FEED_STATUS), "beebo-status");

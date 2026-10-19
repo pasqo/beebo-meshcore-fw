@@ -65,11 +65,9 @@ struct BeeboBoardPrefs {
   int8_t fem_rssi_ofs_lna = -17;    // board.fem.rssi_offset.lna - LNA in path (fem.rxgain on)
   int8_t fem_rssi_ofs_bypass = 2;   // board.fem.rssi_offset.bypass - LNA bypassed (fem.rxgain off)
 
-  // App feed channels (plans/ROLE_APP_FEED.md): one pair per board, shared by every role. The
-  // channel index each feed has in the app (0xFF = not assigned yet) and its user-chosen name
-  // (empty = the default name).
+  // App feed channels (plans/ROLE_APP_FEED.md): which channel-table slot each feed is (0xFF =
+  // not created yet), so a renamed feed is still recognized. One pair per board, every role.
   uint8_t feed_idx[2] = {0xFF, 0xFF};
-  char feed_name[2][32] = {{0}, {0}};
 };
 
 #define FEM_RSSI_OFS_MIN  -30

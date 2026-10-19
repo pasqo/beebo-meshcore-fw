@@ -357,6 +357,8 @@ void Beebo::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint
 
 void Beebo::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
                                   const char *text) {
+  // beebo: a repeater does not hand chat to the app, and a feed channel is local only
+  if (isRepeater() || feedIdOf((uint8_t)findChannelIdx(channel)) >= 0) return;
   int i = 0;
 #ifdef MSG_INCLUDE_RSSI
   const bool use_v3 = true;   // beebo: always record SNR/RSSI (see queueMessage)
@@ -389,6 +391,7 @@ void Beebo::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet
 
 void Beebo::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
                                const uint8_t *data, size_t data_len) {
+  if (isRepeater() || feedIdOf((uint8_t)findChannelIdx(channel)) >= 0) return;   // see onChannelMessageRecv()
   if (data_len > MAX_CHANNEL_DATA_LENGTH) {
     MESH_DEBUG_PRINTLN("onChannelDataRecv: dropping payload_len=%d exceeds frame limit=%d",
                        (uint32_t)data_len, (uint32_t)MAX_CHANNEL_DATA_LENGTH);

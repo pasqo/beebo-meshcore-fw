@@ -1112,12 +1112,10 @@ private:
   int feedIdOf(uint8_t channel_idx) const;   // feed id of a channel index, -1 if not a feed
   void feedPost(uint8_t id, const char* text);
   void feedInput(uint8_t id, char* text);   // a message the user typed into a feed channel
-  bool feedChannel(uint8_t channel_idx, char* name32, uint8_t* secret16);   // name and secret of a feed
   void loopFeed();   // the periodic monitor line
   static const char* trialFeedName(int sw);
   unsigned long _feed_mon_at = FEED_MON_FIRST_MS;   // next monitor line, millis()
-  void feedAllocate();   // give each feed a channel index (board prefs), after the channel table loads
-  bool feedRename(uint8_t id, const char* name);
+  void feedEnsure();   // create missing feed channels in the channel table, after it loads
 #if BEEBO_ENABLE_COMPANION_ROLE
   int getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) override {
     return _store->getBlobByKey(key, key_len, dest_buf);
