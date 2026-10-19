@@ -15,6 +15,7 @@
 #include "AdminSelfCommand.h"
 #include "CliCommand.h"
 #include "AppSync.h"
+#include "ResetReason.h"
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_mac.h>  // beebo: esp_efuse_mac_get_default() for BEEBO_CMD_GET_BOARD_ID
@@ -1837,6 +1838,12 @@ void Beebo::begin() {
   //   calibrateBaseCosts();
   // #endif
   resetRxTimeoutClock();
+
+  // beebo: first line of the status feed, waiting for the app to connect.
+  char line[96];
+  snprintf(line, sizeof(line), "boot %s %s %s", FIRMWARE_VERSION, isRepeater() ? "repeater" : "companion",
+           reset_reason_str(esp_reset_reason()));
+  feedPost(FEED_STATUS, line);
 }
 
 // beebo: transports are brought up per the persisted enable flags (NodePrefs):
