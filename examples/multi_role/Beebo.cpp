@@ -9722,16 +9722,6 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
 #else
       strcpy(reply, "ERR: not supported");
 #endif
-    } else if (memcmp(key, "af ", 3) == 0) {
-#if BEEBO_ENABLE_REPEATER_ROLE
-      float v = atof(&key[3]);
-      _role_state->prefs.airtime_factor = v;
-      _role_state->prefs.dirty = true;
-      flushDirtyPrefs();
-      sprintf(reply, "> %s", StrHelper::ftoa(v));
-#else
-      strcpy(reply, "ERR: not supported");
-#endif
     } else if (memcmp(key, "txdelay ", 8) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
       float v = atof(&key[8]);
