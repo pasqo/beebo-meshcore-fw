@@ -51,6 +51,23 @@ TEST(FeedLines, TrialSkip) {
   EXPECT_STREQ(b, "trial cad skipped_same");
 }
 
+TEST(FeedLines, TrialWaitingForTraffic) {
+  char b[100];
+  feedFmtTrialWait(b, sizeof(b));
+  EXPECT_STREQ(b, "trial waiting for traffic");
+}
+
+TEST(FeedLines, TxPowerWarnsBelowTheSaturationOnsetOnly) {
+  char b[100] = "untouched";
+  EXPECT_EQ(0, feedFmtTxPowerWarn(b, sizeof(b), 16));
+  EXPECT_EQ(0, feedFmtTxPowerWarn(b, sizeof(b), 22));
+  EXPECT_STREQ(b, "untouched");
+  EXPECT_GT(feedFmtTxPowerWarn(b, sizeof(b), 10), 0);
+  EXPECT_STREQ(b, "warn: txpower=10 dBm underdrives the PA, run: radio.txpower 18");
+  feedFmtTxPowerWarn(b, sizeof(b), -9);
+  EXPECT_STREQ(b, "warn: txpower=-9 dBm underdrives the PA, run: radio.txpower 18");
+}
+
 TEST(FeedLines, OutcomeNamesMatchTheEnumOrder) {
   EXPECT_STREQ(feedTrialOutcomeName(1), "keep_a");
   EXPECT_STREQ(feedTrialOutcomeName(12), "skipped_underpowered");

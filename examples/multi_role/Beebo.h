@@ -86,6 +86,7 @@ static_assert(USB_TX_BUFFER_SIZE >= 2 * (MAX_SEND_FRAME_SIZE + 3), "USB TX buffe
 #include "BeeboPrefs.h"
 #include "BeeboBoardPrefs.h"
 #include "FeedChannel.h"
+#include "FeedLines.h"
 #define FEED_MON_FIRST_MS  (60UL * 1000UL)           // the first monitor line, a minute after boot
 #define FEED_MON_PERIOD_MS (60UL * 60UL * 1000UL)   // then one an hour
 #include "BeeboRoleState.h"
@@ -2035,8 +2036,9 @@ private:
   // an A B B A cycle averages less (0 = no minimum, no idle stop).
   uint8_t _trial_min_pkt_rate = TrialFSM::MIN_PKT_RATE;
   bool _trial_rate_wait = false;        // waiting for traffic, EVENT_TRIAL_PKT_RATE logged
+  bool _trial_wait_posted = false;      // the waiting line is on the feed; cleared when a trial starts or the trial is disabled
   uint32_t _trial_rate_check_at = 0;    // next check while waiting (once a minute)
-  uint16_t _trial_switches = (1u << TrialSequence::NUM_SWITCHES) - 1;   // bit i = switch i (TrialSequence.h); all on, so enabling the trial runs the whole sequence
+  uint16_t _trial_switches = TrialSequence::profileMask(TrialSequence::PROFILE_MAIN);   // bit i = switch i (TrialSequence.h); the main profile's, so enabling the trial runs the short sequence
   // tuning.trial.block_size_s / block_count: 0 = planned from the node's traffic
   // (TrialPlanner.h, plans/TRIAL_AUTO_SCHEDULE.md); never overwritten by the plan,
   // which goes only into the trial's config. Both nonzero is the fixed schedule.
@@ -2062,7 +2064,10 @@ private:
   uint16_t _trial_done_mask = 0;   // switches already decided since the last enable/setting change
   int8_t _trial_switch = -1;      // 0 = FEM LNA, 1 = RX boost, 2 = coding rate, -1 = none running
   // Per switch: A, then the challengers (TrialSequence.h).
-  TrialSequence::Lists _trial_lists;
+  TrialSequence::Lists _trial_lists{TrialSequence::PROFILE_MAIN};
+  // tuning.trial.profile: main (default) or exhaustive (TrialSequence.h). Setting it
+  // selects the profile's switches and resets every list to the profile's defaults.
+  uint8_t _trial_profile = TrialSequence::PROFILE_MAIN;
   // Exact pre-trial value of a prefs-backed switch (the float settings are
   // held as whole numbers in the trial), restored when its trial ends.
   float _trial_orig_f[TrialSequence::NUM_SWITCHES] = {};
@@ -2122,8 +2127,42 @@ private:
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_ENABLED, _trial_enabled ? 1 : 0, on ? 1 : 0, source);
       abortTrial(false);
       restartTrials();
+      _trial_wait_posted = false;
+      if (on) {   // a low txpower makes every trial result suspect: say so right away
+        char warn[72];
+        if (feedFmtTxPowerWarn(warn, sizeof(warn), _role_state->prefs.tx_power_dbm) > 0) feedPost(FEED_STATUS, warn);
+      }
+      if (on) ensureTrialMonitor();
     }
     _trial_enabled = on;
+  }
+  // Enabling a trial sets the lean monitor profile of a long unattended run,
+  // persisted like the matching `monitor` commands. On: the master enable, the
+  // tuning, event and radio capture kinds, and the trial_pkt_rate event type (the
+  // trial's own records, settings and radio changes; without them the host views and
+  // analysis find nothing). Off: rx and tx capture, which would fill the one shared
+  // ring in hours on a busy node and evict the trial's records. A user who wants
+  // packet records turns them on after enabling the trial.
+  void ensureTrialMonitor() {
+    if (!monring.allocated()) return;
+    uint32_t cfg = tlvGetMonringConfig(this, _board.role);
+    uint32_t want = (cfg | MON_CAP_ENABLED | MON_CAP_TUNING | MON_CAP_EVENT | MON_CAP_RADIO) &
+                    ~(uint32_t)(MON_CAP_RX | MON_CAP_TX);
+    if (want != cfg) tlvSetMonringConfig(this, _board.role, want);
+    uint32_t mask = tlvGetMonringEventMask(this, _board.role);
+    if (!(mask & (1u << EVENT_TRIAL_PKT_RATE))) tlvSetMonringEventMask(this, _board.role, mask | (1u << EVENT_TRIAL_PKT_RATE));
+  }
+  bool setTrialProfile(uint8_t profile, uint8_t source) {
+    if (profile >= TrialSequence::NUM_PROFILES) return false;
+    if (profile != _trial_profile) {
+      appendSettingChangedEvent(SETTING_TUNING_TRIAL_PROFILE, _trial_profile, profile, source);
+      abortTrial(false);
+      _trial_profile = profile;
+      _trial_lists = TrialSequence::Lists(profile);
+      _trial_switches = TrialSequence::profileMask(profile);
+      restartTrials();
+    }
+    return true;
   }
   bool setTrialSwitches(uint16_t mask, uint8_t source) {
     if (mask >= (1u << TrialSequence::NUM_SWITCHES)) return false;

@@ -67,3 +67,15 @@ inline int feedFmtTrialEnd(char* buf, size_t cap, const char* sw, uint8_t outcom
 inline int feedFmtTrialSkip(char* buf, size_t cap, const char* sw, uint8_t outcome) {
   return snprintf(buf, cap, "trial %s %s", sw, feedTrialOutcomeName(outcome));
 }
+
+// The sequence is enabled but the node counts too little traffic to start a trial.
+inline int feedFmtTrialWait(char* buf, size_t cap) {
+  return snprintf(buf, cap, "trial waiting for traffic");
+}
+
+// Below the PA's saturation onset (16 dBm, see config.py's _check_txpower) the V4.3 is
+// underdriven. 0, with `buf` untouched, when the power is fine.
+inline int feedFmtTxPowerWarn(char* buf, size_t cap, int dbm) {
+  if (dbm >= 16) return 0;
+  return snprintf(buf, cap, "warn: txpower=%d dBm underdrives the PA, run: radio.txpower 18", dbm);
+}

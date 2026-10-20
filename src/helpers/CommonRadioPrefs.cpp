@@ -135,7 +135,7 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
   }
 
   if (memcmp(command, "get tx", 6) == 0 && (command[6] == 0 || command[6] == ' ')) {
-    sprintf(reply, "> %d", (int32_t) getTxPower());
+    sprintf(reply, "> %d", (int32_t)(int8_t) getTxPower());   // the field is signed (-9..30); the getter returns it as uint8_t
     return true;
   }
   if (memcmp(command, "set tx ", 7) == 0) {

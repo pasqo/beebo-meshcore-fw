@@ -13,6 +13,7 @@
 #include <helpers/BattTrend.h>
 #include "BeeboProtocol.h"
 #include "AdminSelfCommand.h"
+#include "ConsoleAlias.h"
 #include "CliCommand.h"
 #include "AppSync.h"
 #include "FeedLines.h"
@@ -1848,6 +1849,7 @@ void Beebo::begin() {
   snprintf(line, sizeof(line), "boot %s %s %s", FIRMWARE_VERSION, isRepeater() ? "repeater" : "companion",
            reset_reason_str(esp_reset_reason()));
   feedPost(FEED_STATUS, line);
+  if (feedFmtTxPowerWarn(line, sizeof(line), _role_state->prefs.tx_power_dbm) > 0) feedPost(FEED_STATUS, line);
 }
 
 // beebo: transports are brought up per the persisted enable flags (NodePrefs):
@@ -2509,7 +2511,17 @@ void Beebo::loopTuning() {
     if (millisHasNowPassed(_trial_idle_until)) _trial_idle_hold = false;
     else pending = 0;
   }
-  if (pending && !trialRateAllows(_trial_combined ? (int)TRIAL_COMBINED : TrialSequence::nextSwitch(pending))) pending = 0;   // too little traffic to start a trial
+  if (pending && !trialRateAllows(_trial_combined ? (int)TRIAL_COMBINED : TrialSequence::nextSwitch(pending))) {   // too little traffic to start a trial
+    pending = 0;
+    if (!_trial_wait_posted) {
+      _trial_wait_posted = true;
+      char line[48];
+      feedFmtTrialWait(line, sizeof(line));
+      feedPost(FEED_STATUS, line);
+    }
+  } else if (pending) {
+    _trial_wait_posted = false;
+  }
   if (pending && adaptive_controller.idle()) {
     if (!_trial_seq_started) _trial_start_stored ? trialStartFromStored() : trialSetAllToA();
     pending = _trial_switches & ~_trial_done_mask;
@@ -3002,10 +3014,12 @@ void Beebo::trialSetAllToA() {
 
 // tuning.trial.start stored: nothing is stored up front; each selected switch
 // starts from its stored value (the last winner) and every list value is a
-// challenger (startTrial() skips one equal to it).
+// challenger (startTrial() skips one equal to it). The main profile keeps its
+// one challenger: A is the stored value, and a stored value equal to B skips it.
 void Beebo::trialStartFromStored() {
   for (int sw = 0; sw < TrialSequence::NUM_SWITCHES; sw++) {
-    if (_trial_switches & ~_trial_done_mask & (1u << sw)) _trial_lists.v[sw].fromStored();
+    if (_trial_profile == TrialSequence::PROFILE_EXHAUSTIVE &&
+        (_trial_switches & ~_trial_done_mask & (1u << sw))) _trial_lists.v[sw].fromStored();
   }
   _trial_seq_started = true;
 }
@@ -6672,6 +6686,17 @@ void Beebo::handleCmdFrame(size_t len) {
       setTrialStartStored(sub[1] == 1, EVENT_SOURCE_BINARY);
       writeOKFrame();
     }
+  } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_PROFILE) {
+    uint32_t v = _trial_profile;
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &v, 4);
+    _serial->writeFrame(out_frame, 5);
+  } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_PROFILE && sub_len >= 2) {
+    if (!setTrialProfile(sub[1], EVENT_SOURCE_BINARY)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      writeOKFrame();
+    }
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_COMBINED) {
     uint32_t v = _trial_combined ? 1 : 0;
     out_frame[0] = RESP_CODE_OK;
@@ -9172,6 +9197,18 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
 
 void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
   while (*command == ' ') command++;  // skip leading spaces
+  // beebo: a `beebo settings` tree name (protocol.yaml `console:`) stands for the
+  // existing text key, so every entry point (app CLI screen, feed, USB, self) takes it.
+  char alias_cmd[CONSOLE_ALIAS_CMD_MAX];
+  bool alias_repeater_only = false;
+  if (consoleAliasRewrite(command, alias_cmd, sizeof(alias_cmd), &alias_repeater_only)) {
+    if (alias_repeater_only && !isRepeater()) {
+      strcpy(reply, "ERR: trials run in repeater role only");
+      return;
+    }
+    handleCommand(sender_timestamp, alias_cmd, reply);
+    return;
+  }
   if (handleAppCliCommand(command, reply)) return;
 
 #if BEEBO_ENABLE_REPEATER_ROLE
@@ -9588,6 +9625,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_trial_min_pkt_rate);
     } else if (strcmp(key, "tuning.trial.start") == 0) {
       sprintf(reply, "> %s", _trial_start_stored ? "stored" : "list");
+    } else if (strcmp(key, "tuning.trial.profile") == 0) {
+      sprintf(reply, "> %s", _trial_profile == TrialSequence::PROFILE_MAIN ? "main" : "exhaustive");
     } else if (strcmp(key, "tuning.trial.combined") == 0) {
       sprintf(reply, "> %s", _trial_combined ? "on" : "off");
     } else if (strcmp(key, "tuning.trial.enabled") == 0) {
@@ -10066,6 +10105,14 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         else if (strcmp(on, "off") == 0) setTrialCombined(false, EVENT_SOURCE_TEXT_CLI);
         else { strcpy(reply, "ERR: expected on/off"); return; }
         sprintf(reply, "> %s", _trial_combined ? "on" : "off");
+        return;
+      }
+      if (strncmp(k, "profile ", 8) == 0) {
+        const char* name = &k[8];
+        if (strcmp(name, "main") == 0) setTrialProfile(TrialSequence::PROFILE_MAIN, EVENT_SOURCE_TEXT_CLI);
+        else if (strcmp(name, "exhaustive") == 0) setTrialProfile(TrialSequence::PROFILE_EXHAUSTIVE, EVENT_SOURCE_TEXT_CLI);
+        else { strcpy(reply, "ERR: expected main/exhaustive"); return; }
+        sprintf(reply, "> %s", _trial_profile == TrialSequence::PROFILE_MAIN ? "main" : "exhaustive");
         return;
       }
       if (strncmp(k, "start ", 6) == 0) {

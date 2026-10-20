@@ -308,6 +308,58 @@ TEST(TrialSequence, CombinedStartFromStoredSkipsAValueEqualToStored) {
   EXPECT_EQ(0, q.lists.v[TrialSequence::MULTI_ACKS].pos);     // not pending
 }
 
+TEST(TrialSequence, MainProfileSelectsFourSwitchesWithOneChallengerEach) {
+  const uint16_t main_mask = bit(TrialSequence::LNA) | bit(TrialSequence::CAD) |
+                             bit(TrialSequence::TX_DELAY) | bit(TrialSequence::RETRY);
+  EXPECT_EQ(main_mask, TrialSequence::profileMask(TrialSequence::PROFILE_MAIN));
+  EXPECT_EQ((1u << TrialSequence::NUM_SWITCHES) - 1, TrialSequence::profileMask(TrialSequence::PROFILE_EXHAUSTIVE));
+  TrialSequence::Lists lists(TrialSequence::PROFILE_MAIN);
+  for (int sw = 0; sw < TrialSequence::NUM_SWITCHES; sw++) {
+    if (!(main_mask & bit(sw))) continue;
+    EXPECT_EQ(2, lists.v[sw].n) << TrialSequence::name(sw);
+    EXPECT_EQ(1, lists.v[sw].pos) << TrialSequence::name(sw);   // B is the one challenger
+  }
+  EXPECT_EQ(1, lists.v[TrialSequence::LNA].current());
+  EXPECT_EQ(1, lists.v[TrialSequence::CAD].current());
+  EXPECT_EQ(100, lists.v[TrialSequence::TX_DELAY].current());   // 1.0
+  EXPECT_EQ(64, lists.v[TrialSequence::RETRY].current());       // one retry at 4/5
+  EXPECT_FALSE(lists.v[TrialSequence::TX_DELAY].advance());     // no second challenger
+}
+
+TEST(TrialSequence, MainProfileGivesEverySwitchOneChallengerSelectedOrNot) {
+  TrialSequence::Lists lists(TrialSequence::PROFILE_MAIN);
+  for (int sw = 0; sw < TrialSequence::NUM_SWITCHES; sw++) {
+    EXPECT_EQ(2, lists.v[sw].n) << TrialSequence::name(sw);
+    EXPECT_EQ(1, lists.v[sw].pos) << TrialSequence::name(sw);
+    EXPECT_TRUE(TrialSequence::validValue(sw, lists.v[sw].current())) << TrialSequence::name(sw);
+  }
+  EXPECT_EQ(1, lists.v[TrialSequence::RX_BOOST].current());
+  EXPECT_EQ(1, lists.v[TrialSequence::MULTI_ACKS].current());
+  EXPECT_EQ(6, lists.v[TrialSequence::CR].current());
+  EXPECT_EQ(2, lists.v[TrialSequence::AGC].current());            // 8 s in 4 s units
+  EXPECT_EQ(3, lists.v[TrialSequence::INTERFERENCE].current());
+  EXPECT_EQ(50, lists.v[TrialSequence::RX_DELAY].current());      // 5.0
+  EXPECT_EQ(50, lists.v[TrialSequence::DIRECT_TX_DELAY].current());   // 0.5
+  EXPECT_EQ(20, lists.v[TrialSequence::AIRTIME].current());       // 1.0
+}
+
+TEST(TrialSequence, ExhaustiveProfileKeepsTheFullLists) {
+  TrialSequence::Lists lists(TrialSequence::PROFILE_EXHAUSTIVE);
+  EXPECT_EQ(4, lists.v[TrialSequence::TX_DELAY].n);
+  EXPECT_EQ(4, lists.v[TrialSequence::RETRY].n);
+  EXPECT_EQ(4, lists.v[TrialSequence::RX_DELAY].n);
+  TrialSequence::Lists dflt;                                    // no argument: the full lists
+  EXPECT_EQ(lists.v[TrialSequence::TX_DELAY].packed(), dflt.v[TrialSequence::TX_DELAY].packed());
+}
+
+TEST(TrialSequence, MainProfileBEqualToStoredLeavesNothingToCompare) {
+  TrialSequence::Lists lists(TrialSequence::PROFILE_MAIN);
+  auto& tx = lists.v[TrialSequence::TX_DELAY];
+  const uint8_t stored = 100;                                   // already the challenger
+  while (tx.current() == stored && tx.advance()) {}
+  EXPECT_EQ(stored, tx.current());                              // advance() refused: skipped, not reversed
+}
+
 TEST(TrialSequence, ParticipantCount) {
   EXPECT_EQ(0, TrialSequence::countBits(0));
   EXPECT_EQ(3, TrialSequence::countBits(bit(0) | bit(5) | bit(12)));

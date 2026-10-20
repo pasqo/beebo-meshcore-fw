@@ -26,6 +26,18 @@ public:
   };
   static const int MAX_VALUES = 4;
 
+  // Trial profile (tuning.trial.profile). main: the four switches whose effect one
+  // node's score can see, one challenger each (every other switch's list has one too) (the list's second value; the stored
+  // value is A, and a stored value equal to B leaves nothing to compare). exhaustive:
+  // every switch with its full list.
+  enum Profile { PROFILE_MAIN = 0, PROFILE_EXHAUSTIVE = 1, NUM_PROFILES = 2 };
+
+  // The switches a profile selects (bit i = switch i).
+  static uint16_t profileMask(int profile) {
+    if (profile == PROFILE_MAIN) return (1u << LNA) | (1u << CAD) | (1u << TX_DELAY) | (1u << RETRY);
+    return (1u << NUM_SWITCHES) - 1;
+  }
+
   // Settings-tree / text-key name of each switch.
   static const char* name(int sw) {
     static const char* const names[NUM_SWITCHES] = {
@@ -125,8 +137,9 @@ public:
     uint8_t n;     // at least 2
     uint8_t pos;   // index of the current challenger, from 1
 
-    // Default list: A first, then challengers across the range.
-    void reset(int sw) {
+    // Default list: A first, then challengers across the range. The main
+    // profile's switches get one challenger.
+    void reset(int sw, int profile = PROFILE_EXHAUSTIVE) {
       static const uint8_t table[NUM_SWITCHES][MAX_VALUES] = {
         {0, 1, 0, 0},            // LNA: off, on
         {0, 1, 0, 0},            // RX boost: off, on
@@ -144,6 +157,11 @@ public:
       static const uint8_t counts[NUM_SWITCHES] = {2, 2, 4, 4, 4, 4, 4, 4, 4, 2, 2, 4};
       for (int i = 0; i < MAX_VALUES; i++) v[i] = table[sw][i];
       n = counts[sw];
+      if (profile == PROFILE_MAIN) {     // one challenger on every switch, selected or not
+        if (sw == TX_DELAY) { v[0] = 50; v[1] = 100; }   // 1.0 against the shipped 0.5
+        else if (sw == RX_DELAY) v[1] = 50;    // 5.0: a mild spread (a base of 10 was upstream's abandoned default)
+        n = 2;
+      }
       pos = 1;
     }
     uint8_t first() const { return v[0]; }        // A: the value the sequence starts from
@@ -207,7 +225,7 @@ public:
   // One default-initialized list per switch.
   struct Lists {
     List v[NUM_SWITCHES];
-    Lists() { for (int i = 0; i < NUM_SWITCHES; i++) v[i].reset(i); }
+    Lists(int profile = PROFILE_EXHAUSTIVE) { for (int i = 0; i < NUM_SWITCHES; i++) v[i].reset(i, profile); }
   };
   static int countBits(uint16_t mask) {
     int n = 0;
