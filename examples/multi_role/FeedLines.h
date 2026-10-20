@@ -32,10 +32,10 @@ inline int feedFmtMon(char* buf, size_t cap, bool on, uint32_t rx, uint32_t tx, 
                   (unsigned long)rx, (unsigned long)tx, q, (unsigned)(soh / 100));
 }
 
-inline int feedFmtTrialStart(char* buf, size_t cap, const char* sw, uint8_t a, uint8_t b,
-                             uint16_t blocks, uint16_t block_s) {
-  return snprintf(buf, cap, "trial %s start a=%u b=%u blocks=%u block=%us", sw, (unsigned)a,
-                  (unsigned)b, (unsigned)blocks, (unsigned)block_s);
+inline int feedFmtTrialStart(char* buf, size_t cap, const char* sw, const char* profile, uint8_t a,
+                             uint8_t b, uint16_t blocks, uint16_t block_s) {
+  return snprintf(buf, cap, "trial %s start profile=%s a=%u b=%u blocks=%u block=%us", sw, profile,
+                  (unsigned)a, (unsigned)b, (unsigned)blocks, (unsigned)block_s);
 }
 
 // `index` is the block that closed; the interval is shown once the trial has one.

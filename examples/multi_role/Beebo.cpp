@@ -2688,8 +2688,8 @@ void Beebo::emitTrialStart(int sw, const TrialFSM::Config& tc) {
   monring.appendTrial(r, getRTCClock()->nowMillis());
   if (sw == TRIAL_COMBINED) emitTrialParts();
   char line[FEED_PART_CAP];
-  feedFmtTrialStart(line, sizeof(line), trialFeedName(sw), trial.original(), trial.alternative(),
-                    trial.totalBlocks(), tc.block_s);
+  feedFmtTrialStart(line, sizeof(line), trialFeedName(sw), _trial_profile == TrialSequence::PROFILE_MAIN ? "main" : "exhaustive",
+                    trial.original(), trial.alternative(), trial.totalBlocks(), tc.block_s);
   feedPost(FEED_STATUS, line);
 }
 

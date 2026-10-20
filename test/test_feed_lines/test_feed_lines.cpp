@@ -27,8 +27,10 @@ TEST(FeedLines, GainHasSignAndOneDecimal) {
 
 TEST(FeedLines, TrialStart) {
   char b[100];
-  feedFmtTrialStart(b, sizeof(b), "lna", 1, 0, 96, 1800);
-  EXPECT_STREQ(b, "trial lna start a=1 b=0 blocks=96 block=1800s");
+  feedFmtTrialStart(b, sizeof(b), "lna", "main", 1, 0, 96, 1800);
+  EXPECT_STREQ(b, "trial lna start profile=main a=1 b=0 blocks=96 block=1800s");
+  feedFmtTrialStart(b, sizeof(b), "directtxdelay", "exhaustive", 255, 255, 1000, 3600);
+  EXPECT_STREQ(b, "trial directtxdelay start profile=exhaustive a=255 b=255 blocks=1000 block=3600s");
 }
 
 TEST(FeedLines, TrialBlockWithoutBoundsThenWith) {
