@@ -9313,6 +9313,11 @@ void Beebo::consoleMonitorStatus(const char* section, char* reply) {
   }
   if (all || strcmp(section, "service") == 0) {
     if (n) reply[n++] = '\n';
+    // As the host's rows: the sends no verdict is expected for, and the flood sends still waiting for one.
+    uint32_t acks = getAckSuccessCount() + getAckTimeoutCount() + getAckOverflowCount();
+    uint32_t echoes = tables->getEchoSuccessCount() + tables->getEchoTimeoutCount() + tables->getEchoOverflowCount();
+    uint32_t direct_untracked = getNumSentDirect() > acks ? getNumSentDirect() - acks : 0;
+    uint32_t flood_pending = getNumSentFlood() > echoes ? getNumSentFlood() - echoes : 0;
     const ConsoleCounter c[] = {
       {"rx_packets", radio_driver.getPacketsRecv()}, {"rx_flood", getNumRecvFlood()}, {"rx_flood_dup", tables->getNumFloodDups()},
       {"rx_direct", getNumRecvDirect()}, {"rx_direct_dup", tables->getNumDirectDups()},
@@ -9320,6 +9325,7 @@ void Beebo::consoleMonitorStatus(const char* section, char* reply) {
       {"tx_packets", radio_driver.getPacketsSent()}, {"tx_flood", getNumSentFlood()}, {"tx_direct", getNumSentDirect()},
       {"tx_direct_success", getAckSuccessCount()}, {"tx_direct_timeout", getAckTimeoutCount()},
       {"tx_flood_success", tables->getEchoSuccessCount()}, {"tx_flood_timeout", tables->getEchoTimeoutCount()},
+      {"tx_direct_untracked", direct_untracked}, {"tx_flood_pending", flood_pending},
       {"tx_max_hop_no_fwd", _max_hop_no_fwd_count}, {"tx_region_no_fwd", _region_no_fwd_count}, {"tx_loop_no_fwd", _loop_no_fwd_count},
     };
     consoleCounters("service", c, sizeof(c) / sizeof(c[0]), reply + n, CLI_REPLY_CAP - n);
