@@ -18,6 +18,7 @@
 #include "ConsoleMonitor.h"
 #include "ConsoleBattery.h"
 #include "ConsoleCheck.h"
+#include "ConsoleNames.h"
 #include "CliCommand.h"
 #include "AppSync.h"
 #include "FeedLines.h"
@@ -9431,6 +9432,13 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     case CONSOLE_NOT_SETTINGS:
       break;
   }
+  // beebo: the CLI's spelling of a command the firmware knows by an older name
+  // (protocol.yaml `console_names:`).
+  char name_cmd[CONSOLE_ALIAS_CMD_MAX];
+  if (consoleNameRewrite(command, name_cmd, sizeof(name_cmd))) {
+    handleCommand(sender_timestamp, name_cmd, reply);
+    return;
+  }
   if (handleConsoleStatus(command, reply)) return;
   if (handleConsoleMonitor(command, reply)) return;
   if (handleConsoleBattery(command, reply)) return;
@@ -10403,8 +10411,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
   // node's own current type is), asking "who's near me" has no such
   // constraint -- responses are logged into putNeighbor(), the same
   // shared neighbor table both roles already use.
-  } else if (memcmp(command, "discover.neighbors", 19) == 0) {
-    const char* sub = command + 19;
+  } else if (memcmp(command, "discover.neighbors", 18) == 0 && (command[18] == 0 || command[18] == ' ')) {
+    // beebo: the 19th byte is the NUL of the bare command; comparing it and then reading from
+    // command + 19 ran past the terminator into whatever followed in the buffer.
+    const char* sub = command + 18;
     while (*sub == ' ') sub++;
     if (*sub == 0) {
       sendNodeDiscoverReq(1 << ADV_TYPE_REPEATER);   // preserve old (repeater-only) default
