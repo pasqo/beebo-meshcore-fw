@@ -14,6 +14,7 @@
 #include "BeeboProtocol.h"
 #include "AdminSelfCommand.h"
 #include "ConsoleAlias.h"
+#include "ConsoleStatus.h"
 #include "CliCommand.h"
 #include "AppSync.h"
 #include "FeedLines.h"
@@ -9106,6 +9107,48 @@ static bool isValidName(const char *n) {
 // (meshcore-dev/MeshCore dev, MyMesh::handleCommand) that the get/set chains below
 // do not carry under that name, answered against the live role in upstream's reply
 // format. Exact key matches only; false means "not one of these".
+// `status [node|radio|resources]`: the CLI's `beebo status` as one compact line per section, from
+// the state the binary STATS_* replies read.
+bool Beebo::handleConsoleStatus(const char* command, char* reply) {
+  if (strncmp(command, "status", 6) != 0) return false;
+  const char* arg = command + 6;
+  while (*arg == ' ') arg++;
+  bool all = *arg == 0;
+  bool node = all || strcmp(arg, "node") == 0, radio = all || strcmp(arg, "radio") == 0,
+       res = all || strcmp(arg, "resources") == 0;
+  if (command[6] != 0 && command[6] != ' ') return false;
+  if (!node && !radio && !res) { strcpy(reply, "ERR: status takes node, radio or resources"); return true; }
+  ConsoleStatus s{};
+  s.name = getNodeName();
+  s.role = isRepeater() ? "repeater" : "companion";
+  s.version = FIRMWARE_VERSION;
+  s.uptime_secs = _ms->getMillis() / 1000;
+  s.battery_mv = updateBattTrend(true);
+  s.mcu_temp_x10 = _mcu_temp_scaled;
+  s.err_flags = _err_flags;
+  s.quiet = _bench_quiet;
+  if (!_bench_quiet) {   // live SX1262 reads would touch the sleeping chip
+    s.noise_floor = (int16_t)_radio->getNoiseFloor();
+    s.last_rssi = satI8(radio_driver.getLastRSSI());
+    s.last_snr_x4 = (int8_t)(radio_driver.getLastSNR() * 4);
+  }
+  s.tx_air_secs = getTotalAirTime() / 1000;
+  s.rx_air_secs = getReceiveAirTime() / 1000;
+  s.free_heap = ESP.getFreeHeap();
+  s.free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  s.flash_size = ESP.getFlashChipSize();
+  s.contacts = (uint16_t)getNumContacts();
+  s.pending_msgs = (uint16_t)offline_queue_len;
+  s.ring_enabled = monring.enabled();
+  s.ring_count = monring.count();
+  s.ring_cap = monring.capacity();
+  if (all) consoleStatusAll(s, reply, CLI_REPLY_CAP);
+  else if (node) consoleStatusNode(s, reply, CLI_REPLY_CAP);
+  else if (radio) consoleStatusRadio(s, reply, CLI_REPLY_CAP);
+  else consoleStatusResources(s, reply, CLI_REPLY_CAP);
+  return true;
+}
+
 bool Beebo::handleAppCliCommand(const char* command, char* reply) {
   if (strcmp(command, "poweroff") == 0 || strcmp(command, "shutdown") == 0) {
     board.powerOff();   // doesn't return
@@ -9225,6 +9268,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     case CONSOLE_NOT_SETTINGS:
       break;
   }
+  if (handleConsoleStatus(command, reply)) return;
   if (handleAppCliCommand(command, reply)) return;
 
 #if BEEBO_ENABLE_REPEATER_ROLE
