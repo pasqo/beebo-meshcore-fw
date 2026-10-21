@@ -6083,23 +6083,8 @@ void Beebo::handleCmdFrame(size_t len) {
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_BATT_STATE && sub_len >= 2) {
     uint8_t value = sub[1];
-    if (_board.batt_present == BATT_PRESENT_NO) {
-      // beebo: batt_present==no already pins the classifier to PLUGGED (see
-      // classifyBattTrend()/resetBattTrendRef()) -- forcing any other state
-      // here would just get overwritten by the next sample, so reject it
-      // outright instead of silently doing nothing.
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (value == BATT_STATE_INIT || value == BATT_STATE_CHARGING || value == BATT_STATE_DISCHARGING
-        || value == BATT_STATE_CHARGED || value == BATT_STATE_PLUGGED) {
-      _batt_state = value;
-      // beebo: re-seed the anchor to the current reading -- forcing a state
-      // with a stale ref_mv would immediately re-trigger a trend edge on the
-      // next sample and undo the forced state.
-      _cached_batt_mv = board.getBattMilliVolts();
-      writeOKFrame();
-    } else {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    }
+    if (forceBattState(value)) writeOKFrame();
+    else writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (sub[0] == BEEBO_CMD_GET_NODE_ROLE) {
     out_frame[0] = RESP_CODE_OK;
     uint32_t value = _board.role;
@@ -9252,11 +9237,36 @@ bool Beebo::handleConsoleMonitor(const char* command, char* reply) {
   return true;
 }
 
-// `battery state` and `battery calibrate VOLTS` (the voltmeter reading at the Vbat pigtail).
+// beebo: force the charge classifier (RAM-only). False when the value is not one that can be
+// forced, or battery.present is "no": that already pins the classifier to PLUGGED (see
+// classifyBattTrend()/resetBattTrendRef()), so any other state would be overwritten by the next
+// sample. The anchor is re-seeded to the current reading, or a stale ref_mv would re-trigger a
+// trend edge on the next sample and undo the forced state.
+bool Beebo::forceBattState(uint8_t value) {
+  if (_board.batt_present == BATT_PRESENT_NO) return false;
+  if (value != BATT_STATE_INIT && value != BATT_STATE_CHARGING && value != BATT_STATE_DISCHARGING &&
+      value != BATT_STATE_CHARGED && value != BATT_STATE_PLUGGED) return false;
+  _batt_state = value;
+  _cached_batt_mv = board.getBattMilliVolts();
+  return true;
+}
+
+// `battery state [word]` and `battery calibrate VOLTS` (the voltmeter reading at the Vbat pigtail).
 bool Beebo::handleConsoleBattery(const char* command, char* reply) {
   if (strncmp(command, "battery", 7) != 0 || (command[7] != 0 && command[7] != ' ')) return false;
   const char* arg = command + 7;
   while (*arg == ' ') arg++;
+  if (strncmp(arg, "state ", 6) == 0) {
+    uint8_t want;
+    if (!consoleBatteryForceWord(arg + 6, &want)) {
+      strcpy(reply, "ERR: battery state takes charging, discharging, charged, plugged or unknown");
+    } else if (!forceBattState(want)) {
+      strcpy(reply, "ERR: battery.present is no; set it to yes first");
+    } else {
+      strcpy(reply, "OK");
+    }
+    return true;
+  }
   if (strcmp(arg, "state") == 0) {
     uint16_t mv = updateBattTrend(true);
     consoleBatteryState(_board.batt_present, mv, _batt_state, reply, 160);

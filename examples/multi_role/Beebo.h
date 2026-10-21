@@ -505,6 +505,7 @@ public:
   bool handleConsoleStatus(const char* command, char* reply);
   bool handleConsoleMonitor(const char* command, char* reply);
   bool handleConsoleBattery(const char* command, char* reply);
+  bool forceBattState(uint8_t value);
   bool handleConsoleCheck(const char* command, char* reply);
   void consoleMonitorStatus(const char* section, char* reply);
 

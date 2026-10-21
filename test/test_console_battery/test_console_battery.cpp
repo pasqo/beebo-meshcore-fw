@@ -61,6 +61,32 @@ TEST(ConsoleBattery, CalibrateReply) {
   EXPECT_STREQ("mult 2.0000 -> 2.1000", out);
 }
 
+TEST(ConsoleBattery, ForceWords) {
+  uint8_t st = 99;
+  ASSERT_TRUE(consoleBatteryForceWord("unknown", &st));
+  EXPECT_EQ(0, st);
+  ASSERT_TRUE(consoleBatteryForceWord("charging", &st));
+  EXPECT_EQ(2, st);
+  ASSERT_TRUE(consoleBatteryForceWord("discharging", &st));
+  EXPECT_EQ(3, st);
+  ASSERT_TRUE(consoleBatteryForceWord("charged", &st));
+  EXPECT_EQ(4, st);
+  ASSERT_TRUE(consoleBatteryForceWord("plugged", &st));
+  EXPECT_EQ(5, st);
+  ASSERT_TRUE(consoleBatteryForceWord("  charged  ", &st));
+  EXPECT_EQ(4, st);
+}
+
+TEST(ConsoleBattery, ForceWordsRefuseTheRest) {
+  uint8_t st = 99;
+  EXPECT_FALSE(consoleBatteryForceWord("stable", &st));      // STABLE is a result of the trend, never forced
+  EXPECT_FALSE(consoleBatteryForceWord("CHARGED", &st));
+  EXPECT_FALSE(consoleBatteryForceWord("charge", &st));
+  EXPECT_FALSE(consoleBatteryForceWord("", &st));
+  EXPECT_FALSE(consoleBatteryForceWord("charged now", &st));
+  EXPECT_EQ(99, st);
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {

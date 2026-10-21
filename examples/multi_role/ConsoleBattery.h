@@ -27,6 +27,20 @@ inline void consoleBatteryState(uint8_t present, uint16_t mv, uint8_t state, cha
            (unsigned)(mv / 1000), (unsigned)(mv % 1000), consoleBatteryStateName(state));
 }
 
+// The word `battery state <word>` forces the charge classifier to (BattTrend.h BATT_STATE_*).
+// STABLE is only ever the trend's own verdict, so it cannot be forced.
+inline bool consoleBatteryForceWord(const char* text, uint8_t* state) {
+  while (*text == ' ') text++;
+  size_t n = strlen(text);
+  while (n && text[n - 1] == ' ') n--;
+  static const struct { const char* word; uint8_t state; } words[] = {
+    {"unknown", 0}, {"charging", 2}, {"discharging", 3}, {"charged", 4}, {"plugged", 5}};
+  for (const auto& w : words) {
+    if (strlen(w.word) == n && strncmp(w.word, text, n) == 0) { *state = w.state; return true; }
+  }
+  return false;
+}
+
 // A plain decimal number, surrounded by spaces at most.
 inline bool consoleParseVolts(const char* text, float* v) {
   while (*text == ' ') text++;
