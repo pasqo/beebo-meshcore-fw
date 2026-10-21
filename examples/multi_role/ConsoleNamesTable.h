@@ -14,6 +14,7 @@ static const ConsoleNameEntry CONSOLE_NAMES[] = {
   {"region tree", "region"},
   {"region allow", "region allowf"},
   {"region deny", "region denyf"},
-  {"advert --flood", "advert"},
+  {"advert flood", "advert"},
+  {"advert direct", "advert.zerohop"},
 };
 static const unsigned CONSOLE_NAME_COUNT = sizeof(CONSOLE_NAMES) / sizeof(CONSOLE_NAMES[0]);

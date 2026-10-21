@@ -22,8 +22,10 @@ TEST(ConsoleNames, WithoutArguments) {
   EXPECT_STREQ("region", out);
   ASSERT_TRUE(consoleNameRewrite("neighbors discover", out, sizeof(out)));
   EXPECT_STREQ("discover.neighbors", out);
-  ASSERT_TRUE(consoleNameRewrite("advert --flood", out, sizeof(out)));
+  ASSERT_TRUE(consoleNameRewrite("advert flood", out, sizeof(out)));
   EXPECT_STREQ("advert", out);
+  ASSERT_TRUE(consoleNameRewrite("advert direct", out, sizeof(out)));
+  EXPECT_STREQ("advert.zerohop", out);
 }
 
 TEST(ConsoleNames, LeadingAndRepeatedSpaces) {
