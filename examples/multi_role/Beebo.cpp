@@ -1825,7 +1825,9 @@ void Beebo::begin() {
   if (isCompanion()) {
     resetContacts();
     _store->loadContacts(this);
-    bootstrapRTCfromContacts();
+    // beebo: no bootstrapRTCfromContacts() -- it ratchets the clock to the newest contact
+    // lastmod with no upper bound, so one far-future value pins the clock there across
+    // reboots. Both roles take the clock from ESP32RTCClock::begin() only (kbase/RTC_RESET_RECOVERY.md).
   }
   // beebo: the channel table loads in either role, so the feed channels are the same ones in both
   addChannel("Public", PUBLIC_GROUP_PSK); // pre-configure Andy's public channel
