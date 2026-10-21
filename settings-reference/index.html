@@ -1,0 +1,2168 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for the Beebo Heltec V4.3 MeshCore Node Build">
+      
+      
+      
+        <link rel="canonical" href="https://pasqo.github.io/beebo-meshcore-fw/settings-reference/">
+      
+      
+        <link rel="prev" href="../cli-reference/">
+      
+      
+        <link rel="next" href="../python-api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Settings Reference - Beebo Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#settings-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Beebo Docs" class="md-header__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Beebo Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Settings Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../roles/" class="md-tabs__link">
+          
+  
+  
+  Using Beebo
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tuning/" class="md-tabs__link">
+          
+  
+  
+  Tuning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Command Line
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../internals/" class="md-tabs__link">
+          
+  
+  
+  Under the Hood
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../support/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Support
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Beebo Docs" class="md-nav__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Beebo Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using Beebo
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using Beebo
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phone-feed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Phone Feed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../connections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tuning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setting Trials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a Repeater Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trial-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trial Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Adaptive Tuner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Line
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Command Line
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install and Connect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Update and Service a Node
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../battery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Battery State and Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health Check
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#companion-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Companion settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Companion settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#companionrouting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        companion.routing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#companionfem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        companion.fem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#companionradio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        companion.radio
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#companionmonitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        companion.monitor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#companionprofile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        companion.profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#companionnode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        companion.node
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#board-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Board settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Board settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#boardadc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        board.adc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#boardfem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        board.fem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#boardbattery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        board.battery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#boardstate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        board.state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#boardnode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        board.node
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#console-settings-local" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Console settings (local)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Console settings (local)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#consoleble" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        console.ble
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#consoletcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        console.tcp
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#consoleusb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        console.usb
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repeater-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repeater settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Repeater settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#repeaterrouting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        repeater.routing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#repeaterguest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        repeater.guest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#repeaterfem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        repeater.fem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#repeaterradio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        repeater.radio
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#repeatermonitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        repeater.monitor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#repeaterprofile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        repeater.profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#repeateradmin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        repeater.admin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#repeaternode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        repeater.node
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Under the Hood
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Under the Hood
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Board Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rf-experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF Experiments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="settings-reference">Settings Reference<a class="headerlink" href="#settings-reference" title="Permanent link">&para;</a></h1>
+<p>Every leaf of the <code>beebo settings</code> tree with its help text, range or choices, generated from the settings tree itself. For how the tree works see <a href="../settings/">Settings</a>. On the node's CLI screen the role prefix (<code>companion.</code> or <code>repeater.</code>) is optional and the live role is implied. <code>companion.*</code> and <code>repeater.*</code> hold each role's own copy of the settings they share.</p>
+<h2 id="companion-settings">Companion settings<a class="headerlink" href="#companion-settings" title="Permanent link">&para;</a></h2>
+<h3 id="companionrouting"><code>companion.routing</code><a class="headerlink" href="#companionrouting" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>companion.routing.airtime</code>: Transmit budget [#] [0 to 9]. Scales the enforced wait between this node's transmissions; 0 is unthrottled, higher values ease congestion.</li>
+<li><code>companion.routing.rxdelay</code>: Base delay before relaying [s] [0 to 20]. Staggers repeats so neighbors that all heard a packet don't collide.</li>
+<li><code>companion.routing.dutycycle</code>: Airtime budget expressed as a channel-occupancy percent [%] [1 to 100]. A friendlier view of airtime; writes airtime_factor = 100/percent - 1.</li>
+<li><code>companion.routing.seen_window</code>: How long [seconds, fractional] [0 to 60] a repeat of a packet still counts as the same packet: a duplicate, or the echo of our own send that arrived after its echo window (credited as heard, so the confirm ratio and the trial scores do not charge a late echo as a failure; <code>beebo analyze dup-latency</code> sizes it). It also decides whether a dedup-table eviction counts as a live risk (<code>beebo monitor status</code>'s rx_dedup_table_full row). Companion value; see repeater.routing.seen_window for the independent repeater copy. Stored as milliseconds. 0 turns the late credit and the live-eviction counting off (a real, literal setting, not a 'reset to default' sentinel); firmware default is 30.</li>
+</ul>
+<h3 id="companionfem"><code>companion.fem</code><a class="headerlink" href="#companionfem" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>companion.fem.rxgain</code>: Front-end module RX gain / LNA — {on|off}. Switches the FEM's low-noise amplifier into the receive path for better weak-signal sensitivity, at a little extra receive current. Distinct from the SX1262's own boosted gain (radio.rxgain); only present on boards whose FEM supports it. This role's own independent copy -- see companion.fem.rxgain/repeater.fem.rxgain.</li>
+<li><code>companion.fem.txgain</code>: Front-end module TX gain / PA — {on|off}. Software-selectable external FEM transmit gain; not a PA power switch. Only present on boards whose FEM supports it. This role's own independent copy -- see companion.fem.txgain/repeater.fem.txgain.</li>
+</ul>
+<h3 id="companionradio"><code>companion.radio</code><a class="headerlink" href="#companionradio" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>companion.radio.lora.freq</code>: Carrier frequency [MHz] [137 to 1020]. Must sit in a band legal for your region and match the nodes you talk to directly.</li>
+<li><code>companion.radio.lora.bw</code>: Channel bandwidth [kHz] [7.8, 10.4, 15.6, 20.8, 31.25, 41.7, 62.5, 125, 250, 500]. Wider is faster but less sensitive; must match the nodes you talk to directly.</li>
+<li><code>companion.radio.lora.sf</code>: Spreading factor [#] [5 to 12]. Higher reaches further but is slower; must match the nodes you talk to directly.</li>
+<li><code>companion.radio.lora.cr</code>: Coding rate denominator [#] [5 to 8] (4/N). More redundancy survives noise but costs throughput.</li>
+<li><code>companion.radio.lora.preset</code>: Named community-suggested freq/bw/sf/cr quadruplet for a region (from presets.json, mirroring meshcore.nz's own app config) — reading reports the matching preset title or '(custom)' if the live quadruplet doesn't match any of them; writing applies all four fields from the named preset at once, e.g. 'beebo settings companion.radio.lora.preset "USA/Canada"'.</li>
+<li><code>companion.radio.txpower</code>: Output power at the PA [dBm] [-9 to board max].</li>
+<li><code>companion.radio.rxgain</code>: SX1262 RX boosted-gain mode for weak-signal reception — {on|off}. Independent of the FEM/LNA (fem.rxgain). This role's own independent copy -- see companion.radio.rxgain/repeater.radio.rxgain.</li>
+<li><code>companion.radio.cad</code>: Hardware channel activity detection before each transmit — {on|off}. This role's own independent copy -- see companion.radio.cad/repeater.radio.cad.</li>
+<li><code>companion.radio.allowed_repeat_freq</code>: Frequency ranges [MHz] this node is allowed to repeat on (read-only). Companion-only: it doesn't apply under repeater role, which has its own (currently unexposed) frequency config.</li>
+</ul>
+<h3 id="companionmonitor"><code>companion.monitor</code><a class="headerlink" href="#companionmonitor" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>companion.monitor.enabled</code>: Global capture switch — {on|off}. Pause/resume the ring by toggling this.</li>
+<li><code>companion.monitor.rx</code>: Capture RX records — {on|off}.</li>
+<li><code>companion.monitor.tx</code>: Capture TX records — {on|off}.</li>
+<li><code>companion.monitor.radio</code>: Capture RADIO reference records (config changes) — {on|off}.</li>
+<li><code>companion.monitor.env</code>: Capture ENV reference records (noise/battery/heap) — {on|off}.</li>
+<li><code>companion.monitor.batt</code>: Capture BATT records (every Vbat sample, idle/forced + trend state) — {on|off}.</li>
+<li><code>companion.monitor.tuning</code>: Capture tuning records — {on|off}: the adaptive tuner's proposals (tuner), the evaluation windows (eval) and the A/B trials (trial).</li>
+<li><code>companion.monitor.path</code>: RX path mode — {on|off}: an RX record's nbr holds the last three hops of its path, one byte each (the first byte of each hash), instead of the last hop's identity. Off by default. With 2- and 3-byte hashes two neighbors can share a byte.</li>
+<li><code>companion.monitor.event</code>: Capture EVENT records (fault transitions and other notable state changes, timestamped instead of a bare sticky flag) — {on|off}. On by default. Same bit as setting/command/route/debug below (see their own help) -- toggling any of the five toggles all five.</li>
+<li><code>companion.monitor.setting</code>: Capture SETTING records (admin-visible setting changes) — {on|off}. Alias of <code>event</code> -- same bit, no independent toggle (see its help).</li>
+<li><code>companion.monitor.command</code>: Capture COMMAND records (admin commands run) — {on|off}. Alias of <code>event</code> -- same bit, no independent toggle (see its help).</li>
+<li><code>companion.monitor.route</code>: Capture ROUTE records (periodic routing-latency snapshot) — {on|off}. Alias of <code>event</code> -- same bit, no independent toggle (see its help).</li>
+<li><code>companion.monitor.debug</code>: Capture DEBUG records (folded-in RLOG transport/boot/session trace) — {on|off}. Alias of <code>event</code> -- same bit, no independent toggle (see its help).</li>
+</ul>
+<h3 id="companionprofile"><code>companion.profile</code><a class="headerlink" href="#companionprofile" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>companion.profile.enabled</code>: Enable/disable ProfileLog (command/span latency profiling ring, see <code>beebo profile</code>) — {on|off}. Off by default; inactive until turned on explicitly. Distinct from <code>monitor.*</code> (MonRing's own capture config) -- ProfileLog measures span duration, a separate concern. This role's own independent copy -- see companion.profile.enabled/repeater.profile.enabled.</li>
+</ul>
+<h3 id="companionnode"><code>companion.node</code><a class="headerlink" href="#companionnode" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>companion.node.coords</code>: Companion's own PREFS-mode advertised coordinates [deg] (used when adv_loc_policy=2/prefs), as 'LAT,LON' -- distinct from repeater.coords (repeater_settings.py, a separate /beebo_repeater field) and from the shared, role-agnostic live-GPS SHARE register (no CLI leaf -- no GPS hardware on beebo, so SHARE always advertises 0,0).</li>
+<li><code>companion.node.multi_acks</code>: Whether companion sends multiple ACKs for multi-path replies [#] -- distinct from repeater.multi_acks (repeater_settings.py, a separate /beebo_repeater field).</li>
+<li><code>companion.node.path_hash_mode</code>: Path hash length used for companion's new contacts [0=1 byte, 1=2 bytes, 2=3 bytes] -- distinct from repeater.path_hash_mode (repeater_settings.py, a separate /beebo_repeater field).</li>
+<li><code>companion.node.name</code>: This node's advertised name (companion persona).</li>
+<li><code>companion.node.region.scope</code>: Default flood-advert scope name (channel messages fall back to this scope when none is given); 'none' clears it. Companion's own field (NodePrefs.default_scope_key, stock companion_radio's only scoping mechanism -- it has no RegionMap at all) -- unrelated to repeater.node.region.default, which is repeater's own independent RegionMap default_id.</li>
+<li><code>companion.node.adv_loc_policy</code>: Location advertising policy [0=none, 1=share, 2=prefs].</li>
+<li><code>companion.node.manual_add_contacts</code>: Whether new contacts must be manually approved — {on|off}.</li>
+<li><code>companion.node.autoadd_config</code>: Bitmask of contact types auto-added when manual_add_contacts is off [hex] (1=overwrite, 2=chat/client, 4=repeater, 8=room, 16=sensor). Set with a raw bitmask (e.g. 0x07) or a comma-separated flag name list (e.g. "chat,repeater"); read with no value for a table of which flags are set.</li>
+<li><code>companion.node.telemetry.base</code>: Telemetry advertising mode for base [#] [0 to 3].</li>
+<li><code>companion.node.telemetry.loc</code>: Telemetry advertising mode for loc [#] [0 to 3].</li>
+<li><code>companion.node.telemetry.env</code>: Telemetry advertising mode for env [#] [0 to 3].</li>
+<li><code>companion.node.repeat</code>: Whether this node relays other nodes' flood traffic while in companion role — {on|off} (_prefs.client_repeat, CMD_SET_RADIO_PARAMS's trailing byte). Distinct from repeater.repeat, which maps to a different field entirely (the repeater role's own forwarding toggle, disable_fwd) -- this one only matters while board.node.role is companion. Read via CMD_DEVICE_QUERY (stock meshcore's <code>repeat</code> field, fw_ver &gt;= 9); written by re-sending freq/bw/sf/cr from self_info alongside the new value, since CMD_SET_RADIO_PARAMS rewrites all five at once.</li>
+<li><code>companion.node.public_key</code>: Companion's own Ed25519 public key (read-only) -- distinct from repeater.node.public_key (repeater_settings.py).</li>
+<li><code>companion.node.tz_offset</code>: Hours from UTC [-12 to +14], stored for the app's CLI (get/set tz.offset); nothing on the node uses it. This role's own independent copy -- see companion.node.tz_offset/repeater.node.tz_offset.</li>
+<li><code>companion.node.transmit</code>: Whether the radio sends anything — {on|off}. Off is receive-only: no forwards, adverts, ACKs or replies, and <code>beebo cw</code> is refused; stricter than node.repeat, which only stops relaying. This role's own independent copy -- see companion.node.transmit/repeater.node.transmit.</li>
+<li><code>companion.node.transport.ble</code>: Whether this role brings up BLE at boot — {on|off}. This role's own independent copy -- see node.transport.* for the general semantics (live-apply behavior, ble/tcp mutual exclusion, usb fallback).</li>
+<li><code>companion.node.transport.tcp</code>: Whether this role brings up TCP at boot — {on|off}. This role's own independent copy -- see node.transport.* for the general semantics (live-apply behavior, ble/tcp mutual exclusion, usb fallback).</li>
+<li><code>companion.node.transport.usb</code>: Whether this role brings up USB at boot — {on|off}. This role's own independent copy -- see node.transport.* for the general semantics (live-apply behavior, ble/tcp mutual exclusion, usb fallback).</li>
+<li><code>companion.node.wifi.ssid</code>: WiFi network name (SSID) the node joins to offer the TCP companion transport. This role's own independent copy -- see companion.node.wifi.ssid/repeater.node.wifi.ssid.</li>
+<li><code>companion.node.wifi.password</code>: WiFi password, write-only (see node.wifi.password's help for why). This role's own independent copy. (write-only, prompts for the value)</li>
+<li><code>companion.node.wifi.ip</code>: Current WiFi station IP address, assigned at run time by DHCP once the node joins its configured network -- read-only. Not really a per-role value (there's one physical WiFi radio, whichever role is live) -- companion.node.wifi.ip/repeater.node.wifi.ip both read the same run-time cache regardless of <code>role</code>. Empty means WiFi is off or the node hasn't associated yet.</li>
+<li><code>companion.node.wifi.rssi</code>: Current WiFi STA RSSI in dBm -- read-only, same run-time/role-agnostic shape as node.wifi.ip. No BLE equivalent: BLE RSSI can't be read synchronously on this hardware without racing a live BLE teardown (see fw's SerialBLEInterface::requestHealthSample() comment), so it isn't exposed at all. WIFI_RSSI_UNAVAILABLE (127) means WiFi is off or the node hasn't associated yet.</li>
+<li><code>companion.node.ble.pin</code>: BLE pairing PIN, this role's own stored override -- see node.ble.pin's help for the general semantics. Reports the stored value, not the resolved active session pin (only meaningful for whichever role is actually live).</li>
+<li><code>companion.node.ble.rssi</code>: Current BLE RSSI in dBm -- read-only, same run-time/role-agnostic shape as node.ble.rssi -- companion.node.ble.rssi/repeater.node.ble.rssi both read the same run-time cache regardless of role.</li>
+</ul>
+<h2 id="board-settings">Board settings<a class="headerlink" href="#board-settings" title="Permanent link">&para;</a></h2>
+<h3 id="boardadc"><code>board.adc</code><a class="headerlink" href="#boardadc" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>board.adc.multiplier</code>: Battery ADC scale multiplier. 0 resets to the board default. Works for both companion and repeater nodes.</li>
+<li><code>board.adc.resolution</code>: Battery ADC sample resolution, bits [10|12]. 12-bit is the default, giving ~4x finer quantization than 10-bit at the cost of exposing more raw analog noise. Works for both companion and repeater nodes.</li>
+</ul>
+<h3 id="boardfem"><code>board.fem</code><a class="headerlink" href="#boardfem" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>board.fem.rssi_offset.lna</code>: dB added to RSSI and the noise floor while the FEM LNA is in the RX path (fem.rxgain on), referring them to the antenna connector. Nominal -17; 0 = no correction.</li>
+<li><code>board.fem.rssi_offset.bypass</code>: dB added to RSSI and the noise floor while the FEM LNA is bypassed (fem.rxgain off), referring them to the antenna connector. Nominal +2; 0 = no correction.</li>
+</ul>
+<h3 id="boardbattery"><code>board.battery</code><a class="headerlink" href="#boardbattery" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>board.battery.sample_period</code>: Battery resample period [seconds] [1 to 65535], default 300s.</li>
+<li><code>board.battery.sample_window</code>: How long before sample_period elapses to start trying for an idle-gated sample [seconds] [1 to 60], default 30s.</li>
+<li><code>board.battery.present</code>: Does this node have a real battery installed? {yes|no}. Resolves the ambiguity between 'no battery' and 'battery already full at boot' that voltage alone can't tell apart -- no assumption is made from node type.</li>
+</ul>
+<h3 id="boardstate"><code>board.state</code><a class="headerlink" href="#boardstate" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>board.state.quiet</code>: Bench IR-drop test {on|off}. 'on' sleeps the radio + FEM and suspends mesh/radio work, leaving only the VBAT ADC path live so a bench meter can read board current in isolation. 'off' wakes both live and resumes normal operation immediately -- no reboot needed. Works for both companion and repeater nodes.</li>
+</ul>
+<h3 id="boardnode"><code>board.node</code><a class="headerlink" href="#boardnode" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>board.node.role</code>: Node role -- ['companion', 'repeater']. Persisted; an actual change always reboots the device. multi_role firmware only.</li>
+<li><code>board.node.password</code>: The node's one backup/recovery credential (see <code>beebo config backup</code>/<code>recover</code>) -- distinct from repeater.admin.password (mesh admin login), and present on every build, static companion/repeater included, unlike repeater.admin.password which only exists when the repeater role is compiled in. Unset by default (no compiled-in default, unlike repeater.admin.password's ADMIN_PASSWORD) -- <code>config backup</code> refuses to run until this is set. Write-only, never echoed back on read -- <code>get</code> reports (set)/(unset) only. (write-only, prompts for the value)</li>
+<li><code>board.node.id</code>: The ESP32's factory eFuse base MAC (read-only) -- a hardware-burned identifier, stable across reflashes, identity changes, and role switches, unlike companion.node.public_key/repeater.node.public_key (ed25519) or board.node.role (shared).</li>
+<li><code>board.node.name</code>: Human-editable alias for board.node.id (DEVICE_NAME plan) -- distinct from the per-role persona names (companion.name/repeater.node.name): this identifies the physical board, not a role. Empty until set; <code>beebo config</code>'s default filenames fall back to board.node.id's hex string until then.</li>
+</ul>
+<h2 id="console-settings-local">Console settings (local)<a class="headerlink" href="#console-settings-local" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>console.autosave</code>: Whether pref changes are written to flash immediately — {on|off}. On (the default) writes every pref change to flash at once. Off holds changes in RAM only, so they survive until reboot but are not saved — pair it with <code>beebo settings commit</code> to write a batch, or <code>beebo settings restore</code> to roll back.</li>
+<li><code>console.transport</code>: Default transport used when no --ble/--tcp/--usb is given — {ble|tcp|usb}. (local to this machine)</li>
+<li><code>console.log_level</code>: Default logging verbosity, overridable per-run with --log-level. (local to this machine)</li>
+<li><code>console.dbg_level</code>: Default minimum debug-event severity <code>monitor debug</code>/<code>monitor watch</code> stream, when no H/M/L is given in their own KINDS arguments — H | M | L. (local to this machine)</li>
+<li><code>console.device_id</code>: Optional: a human-readable record of which board.node.id this alias is meant to point at. Not auto-verified against the live device on connect (see common/config.py's module docstring for why). (local to this machine)</li>
+<li><code>console.device_name</code>: Optional: this alias's device.name label, purely informational. (local to this machine)</li>
+<li><code>console.node_name</code>: Auto-learned on this alias's first successful connect: the live device's board.node.name. Every later connect verifies the live device still matches, refusing on a mismatch (see common/config.py's module docstring). Clear it (empty string) to re-learn after an intentional device swap under this alias. (local to this machine)</li>
+<li><code>console.node_role</code>: Auto-learned alongside node_name (see there) -- the live device's role (companion|repeater) at that connect. Same verify-on-connect/clear-to-re-learn behavior as node_name. (local to this machine)</li>
+</ul>
+<h3 id="consoleble"><code>console.ble</code><a class="headerlink" href="#consoleble" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>console.ble.address</code>: Default BLE MAC/name; 'scan' discovers and picks a device. (local to this machine)</li>
+</ul>
+<h3 id="consoletcp"><code>console.tcp</code><a class="headerlink" href="#consoletcp" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>console.tcp.host</code>: Default TCP host[:port]. (local to this machine)</li>
+</ul>
+<h3 id="consoleusb"><code>console.usb</code><a class="headerlink" href="#consoleusb" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>console.usb.port</code>: Default USB serial port path. (local to this machine)</li>
+</ul>
+<h2 id="repeater-settings">Repeater settings<a class="headerlink" href="#repeater-settings" title="Permanent link">&para;</a></h2>
+<h3 id="repeaterrouting"><code>repeater.routing</code><a class="headerlink" href="#repeaterrouting" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>repeater.routing.rxdelay</code>: Base delay before relaying [s] [0 to 20], independent of companion.routing.rxdelay. Staggers repeats so neighbors that all heard a packet don't collide.</li>
+<li><code>repeater.routing.airtime</code>: Transmit budget [#] [0 to 9], independent of companion.routing.airtime. Scales the enforced wait between this node's own transmissions; 0 is unthrottled, higher values ease congestion.</li>
+<li><code>repeater.routing.seen_window</code>: How long [seconds, fractional] [0 to 60] a repeat of a packet still counts as the same packet: a duplicate, or the echo of our own send that arrived after its echo window (credited as heard, so the confirm ratio and the trial scores do not charge a late echo as a failure; <code>beebo analyze dup-latency</code> sizes it). It also decides whether a dedup-table eviction counts as a live risk (<code>beebo monitor status</code>'s rx_dedup_table_full row). Independent of companion.routing.seen_window. Stored as milliseconds. 0 turns the late credit and the live-eviction counting off (a real, literal setting, not a 'reset to default' sentinel); firmware default is 30.</li>
+<li><code>repeater.routing.retry</code>: Coding rates 4/x of the retries of a forwarded flood whose echo timed out, in order, up to three [5 to 8 each]: 5|6 retries first at 4/5 then at 4/6. 5 is the same rate as the first send, 8 the most robust (longest airtime). 0 disables retries.</li>
+<li><code>repeater.routing.dutycycle</code>: Repeater's own airtime budget as a channel-occupancy percent [%] [1 to 100], independent of companion.routing.dutycycle. A friendlier view of repeater.routing.airtime; writes airtime_factor = 100/percent - 1.</li>
+<li><code>repeater.routing.txdelay</code>: Base TX delay factor [0 to 2], scales the random wait before this node's own transmissions.</li>
+<li><code>repeater.routing.direct.txdelay</code>: TX delay factor for direct (non-flood) transmissions [0 to 2].</li>
+<li><code>repeater.routing.agc.reset.interval</code>: AGC reset interval [s], rounded to a multiple of 4.</li>
+<li><code>repeater.routing.interference.threshold</code>: Interference threshold [0 to 9]. Higher values require a noisier channel before the radio reports interference. (CommonCLI wire key stays "int.thresh" -- only this path's name changed, per SETTINGS_TREE_CLEANUP.md Decision D.)</li>
+<li><code>repeater.routing.tuning.adaptive.enabled</code>: Adaptive tuner on/off — {on|off}. Observe-only by default: logs MON_ADAPTIVE proposals to the monitor ring every 5 min. Whether a given param's proposals actually get written live is controlled separately by tuning.adaptive.applied. Independent of the trial (tuning.trial.enabled). RAM-only — always back to 'off' after a reboot.</li>
+<li><code>repeater.routing.tuning.adaptive.applied</code>: Per-param live-actuation bitmask [0 to 63], bit i = AdaptiveController::specFor(i)'s param (0=rx_delay_base, 1=tx_delay_factor, 2=direct_tx_delay_factor, 3=agc_reset_interval, 4=interference_threshold, 5=airtime_factor). A clear bit keeps that param observe-only; 0 (default) means every param stays observe-only. RAM-only — always back to 0 after a reboot.</li>
+<li><code>repeater.routing.tuning.adaptive.window.min_s</code>: Shortest evaluation window, seconds [1 to 65535, &lt;= max_s]; default 300. RAM-only. Invalidates the window in progress.</li>
+<li><code>repeater.routing.tuning.adaptive.window.max_s</code>: Longest evaluation window, seconds [1 to 65535, &gt;= min_s]; default 3600. A window with no RX activity at max_s is insufficient_data. RAM-only. Invalidates the window in progress.</li>
+<li><code>repeater.routing.tuning.score.routed</code>: Weight of packets routed per hour (confirmable attempts; a retry is not one) in the score both tuners judge windows with [-50 to 50], in tenths (10 = 1.0, 0 = ignored, negative = a cost). Defaults: routed 10, delivered 10, received 0, which is the confirmed deliveries per hour. RAM-only. Refused while a trial is running; between trials it restarts the trial sequence and the adaptive tuner's statistics.</li>
+<li><code>repeater.routing.tuning.score.delivered</code>: Weight of the share of the routed packets that were confirmed in the score both tuners judge windows with [-50 to 50], in tenths (10 = 1.0, 0 = ignored, negative = a cost). Defaults: routed 10, delivered 10, received 0, which is the confirmed deliveries per hour. RAM-only. Refused while a trial is running; between trials it restarts the trial sequence and the adaptive tuner's statistics.</li>
+<li><code>repeater.routing.tuning.score.received</code>: Weight of valid packets received per hour in the score both tuners judge windows with [-50 to 50], in tenths (10 = 1.0, 0 = ignored, negative = a cost). Defaults: routed 10, delivered 10, received 0, which is the confirmed deliveries per hour. RAM-only. Refused while a trial is running; between trials it restarts the trial sequence and the adaptive tuner's statistics.</li>
+<li><code>repeater.routing.tuning.trial.enabled</code>: On-device A/B trial master switch — {on|off}. A trial runs only when this and that switch's switches.&lt;lna|rxboost|cr&gt;.enable are on. Independent of the adaptive tuner (tuning.adaptive.enabled). RAM-only — always back to 'off' after a reboot. Turning it off aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.rxboost.enable</code>: Include the on-device A/B trial of RX boosted gain in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.rxboost.values</code>: Values of RX boosted gain the trial explores [0 to 1]: A first, then 1 to 3 challengers, separated by commas (default 0,1). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.lna.enable</code>: Include the on-device A/B trial of FEM LNA in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.lna.values</code>: Values of FEM LNA the trial explores [0 to 1]: A first, then 1 to 3 challengers, separated by commas (default 0,1). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.agc.enable</code>: Include the on-device A/B trial of AGC reset interval [s] in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.agc.values</code>: Values of AGC reset interval [s] the trial explores [0 to 1020]: A first, then 1 to 3 challengers, separated by commas (default 0,8,16,32). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.interference.enable</code>: Include the on-device A/B trial of interference threshold in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.interference.values</code>: Values of interference threshold the trial explores [0 to 9]: A first, then 1 to 3 challengers, separated by commas (default 0,3,6,9). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.cad.enable</code>: Include the on-device A/B trial of CAD in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.cad.values</code>: Values of CAD the trial explores [0 to 1]: A first, then 1 to 3 challengers, separated by commas (default 0,1). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.cr.enable</code>: Include the on-device A/B trial of coding rate in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.cr.values</code>: Values of coding rate the trial explores [5 to 8]: A first, then 1 to 3 challengers, separated by commas (default 5,6,7,8). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.multiacks.enable</code>: Include the on-device A/B trial of multi acks in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.multiacks.values</code>: Values of multi acks the trial explores [0 to 1]: A first, then 1 to 3 challengers, separated by commas (default 0,1). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.retry.enable</code>: Include the on-device A/B trial of retry policy in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.retry.values</code>: Values of retry policy the trial explores (policies separated by commas, each 0 or 1 to 3 coding rates from 5 to 8 separated by '|'): A first, then 1 to 3 challengers, separated by commas (default 0,5,5|6,5|7). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.rxdelay.enable</code>: Include the on-device A/B trial of RX delay base in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.rxdelay.values</code>: Values of RX delay base the trial explores [0 to 20]: A first, then 1 to 3 challengers, separated by commas (default 0,7,13,20). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.txdelay.enable</code>: Include the on-device A/B trial of TX delay factor in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.txdelay.values</code>: Values of TX delay factor the trial explores [0 to 2]: A first, then 1 to 3 challengers, separated by commas (default 0,0.5,1,2). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.directtxdelay.enable</code>: Include the on-device A/B trial of direct TX delay factor in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.directtxdelay.values</code>: Values of direct TX delay factor the trial explores [0 to 2]: A first, then 1 to 3 challengers, separated by commas (default 0,0.5,1,2). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.airtime.enable</code>: Include the on-device A/B trial of airtime factor in the sequence [0 to 1]; 1 = yes (default: all are on, so tuning.trial.enabled runs the whole sequence). One switch runs at a time when tuning.trial.enabled is on, in the order rxboost, lna, agc, interference, cad, cr, multiacks, retry, rxdelay, txdelay, directtxdelay, airtime; a switch turns itself off once decided. A trial changes it live only (a reboot reverts it) and persists the winner. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.switches.airtime.values</code>: Values of airtime factor the trial explores [0 to 9]: A first, then 1 to 3 challengers, separated by commas (default 0.5,1,3,9). The sequence first stores A; the first trial compares A with the first challenger, each later one compares the winner, which is persisted, with the next challenger. A challenger equal to the winner is skipped. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.confidence_pct</code>: Trial confidence level, percent [90, 95 or 99]; default 95. How sure the node must be before it adopts the alternative: 100 minus it is about the most often a trial of a setting with no real gain adopts it, counting every look (sequential t-test on the paired score difference); higher adopts less readily and needs more pairs. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.min_gain_pct</code>: Smallest worthwhile score gain, percent [0 to 50]; default 5. When even the best case of the trial's confidence interval is below it, the trial stops early and keeps the original. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.min_pkt_rate</code>: The score's own events per minute (confirmed deliveries for the default score; normalized so a uniform scale of the score weights does not change it) a FIXED schedule (block_size_s and block_count both set) needs before its next trial starts, and that every A B B A cycle of a running one must clearly average [0 to 255]; default 5, 0 = no minimum and no idle stop. A planned (auto) schedule adapts to any rate and ignores it. Below it before a start the sequence waits, checking once a minute; below it over a cycle the trial ends idle, keeps the original and runs again an hour later, and three in a row turn tuning.trial.enabled off. RAM-only. A running trial keeps the value it started with for its idle stop.</li>
+<li><code>repeater.routing.tuning.trial.profile</code>: Which switches a trial sequence runs and how many values each tries — {main|exhaustive}. main (default): the FEM LNA, CAD, TX delay factor and retry policy, one challenger each against the stored value. exhaustive: every switch with its full value list. Selecting a profile sets the switches' .enable and resets their .values. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.start</code>: Where a trial sequence starts — {stored|list}. stored (default): each switch's A is its stored value, the last winner, and every list value is a challenger. list: the sequence first stores each switch's first list value as A. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.combined</code>: Run one combined trial instead of one per switch — {on|off}. Side A has every participant at its stored value, side B at its current challenger (the first list value with start stored, the second with start list); a switch participates when selected and its B differs from its A, and at least two must. A win adopts every participant's B. Every selected switch is done after it. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.block_size_s</code>: Trial block length, seconds [0 = auto, 1 to 3600]; default 0: set before every A/B/B/A cycle from the node's traffic so a block holds about 50 of the score's events. Blocks alternate A/B/B/A so each hour of day is compared like for like. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.block_count</code>: Most blocks per trial [0 = auto, 2 to 1000], rounded down to whole A/B pairs; default 0: planned from the confidence, min gain and the noise the trial measures, or the trial is skipped as underpowered; it ends earlier when the decision bounds settle it. With block_size_s also set the schedule is fixed. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.tuning.trial.block_spread_pct</code>: Advanced: override of the block spread a trial's first plan starts from, percent [0 to 70]; default 0 = built-in (14: c = 0.02), the relative standard deviation of a block that a longer block does not average away. Higher starts with more pairs. A running trial moves it toward what its own pairs show, so it rarely needs setting. RAM-only. Aborts a running trial.</li>
+<li><code>repeater.routing.loop.detect</code>: Flood-loop suppression aggressiveness — {off|minimal|moderate|strict}.</li>
+<li><code>repeater.routing.flood.max</code>: Max hop count for flood-routed packets [0 to 64].</li>
+<li><code>repeater.routing.flood.max_advert</code>: Max hop count for flood-routed adverts [0 to 64].</li>
+<li><code>repeater.routing.flood.max_unscoped</code>: Max hop count for unscoped flood packets [0 to 64].</li>
+</ul>
+<h3 id="repeaterguest"><code>repeater.guest</code><a class="headerlink" href="#repeaterguest" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>repeater.guest.password</code>: Guest/room-server login password (not the repeater's own admin password — see <code>repeater.admin.password</code>). Read back in cleartext over a legacy CommonLink text connection; write-only over a binary (multi_role) connection, same as repeater.admin.password — treat <code>beebo settings repeater.guest.password</code> as a secret-revealing command when it does read back. (write-only, prompts for the value)</li>
+</ul>
+<h3 id="repeaterfem"><code>repeater.fem</code><a class="headerlink" href="#repeaterfem" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>repeater.fem.rxgain</code>: Front-end module RX gain / LNA — {on|off}. Switches the FEM's low-noise amplifier into the receive path for better weak-signal sensitivity, at a little extra receive current. Distinct from the SX1262's own boosted gain (radio.rxgain); only present on boards whose FEM supports it. This role's own independent copy -- see companion.fem.rxgain/repeater.fem.rxgain.</li>
+<li><code>repeater.fem.txgain</code>: Front-end module TX gain / PA — {on|off}. Software-selectable external FEM transmit gain; not a PA power switch. Only present on boards whose FEM supports it. This role's own independent copy -- see companion.fem.txgain/repeater.fem.txgain.</li>
+</ul>
+<h3 id="repeaterradio"><code>repeater.radio</code><a class="headerlink" href="#repeaterradio" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>repeater.radio.lora.freq</code>: Carrier frequency [MHz] [137 to 1020]. Must sit in a band legal for your region and match the nodes you talk to directly.</li>
+<li><code>repeater.radio.lora.bw</code>: Channel bandwidth [kHz] [7.8, 10.4, 15.6, 20.8, 31.25, 41.7, 62.5, 125, 250, 500]. Wider is faster but less sensitive; must match the nodes you talk to directly.</li>
+<li><code>repeater.radio.lora.sf</code>: Spreading factor [#] [5 to 12]. Higher reaches further but is slower; must match the nodes you talk to directly.</li>
+<li><code>repeater.radio.lora.cr</code>: Coding rate denominator [#] [5 to 8] (4/N). More redundancy survives noise but costs throughput.</li>
+<li><code>repeater.radio.lora.preset</code>: Named community-suggested freq/bw/sf/cr quadruplet for a region (from presets.json, mirroring meshcore.nz's own app config) — reading reports the matching preset title or '(custom)' if the live quadruplet doesn't match any of them; writing applies all four fields from the named preset at once, e.g. 'beebo settings companion.radio.lora.preset "USA/Canada"'.</li>
+<li><code>repeater.radio.txpower</code>: Output power at the PA [dBm] [-9 to board max].</li>
+<li><code>repeater.radio.rxgain</code>: SX1262 RX boosted-gain mode for weak-signal reception — {on|off}. Independent of the FEM/LNA (fem.rxgain). This role's own independent copy -- see companion.radio.rxgain/repeater.radio.rxgain.</li>
+<li><code>repeater.radio.cad</code>: Hardware channel activity detection before each transmit — {on|off}. This role's own independent copy -- see companion.radio.cad/repeater.radio.cad.</li>
+</ul>
+<h3 id="repeatermonitor"><code>repeater.monitor</code><a class="headerlink" href="#repeatermonitor" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>repeater.monitor.enabled</code>: Global capture switch — {on|off}. Pause/resume the ring by toggling this.</li>
+<li><code>repeater.monitor.rx</code>: Capture RX records — {on|off}.</li>
+<li><code>repeater.monitor.tx</code>: Capture TX records — {on|off}.</li>
+<li><code>repeater.monitor.radio</code>: Capture RADIO reference records (config changes) — {on|off}.</li>
+<li><code>repeater.monitor.env</code>: Capture ENV reference records (noise/battery/heap) — {on|off}.</li>
+<li><code>repeater.monitor.batt</code>: Capture BATT records (every Vbat sample, idle/forced + trend state) — {on|off}.</li>
+<li><code>repeater.monitor.tuning</code>: Capture tuning records — {on|off}: the adaptive tuner's proposals (tuner), the evaluation windows (eval) and the A/B trials (trial).</li>
+<li><code>repeater.monitor.path</code>: RX path mode — {on|off}: an RX record's nbr holds the last three hops of its path, one byte each (the first byte of each hash), instead of the last hop's identity. Off by default. With 2- and 3-byte hashes two neighbors can share a byte.</li>
+<li><code>repeater.monitor.event</code>: Capture EVENT records (fault transitions and other notable state changes, timestamped instead of a bare sticky flag) — {on|off}. On by default. Same bit as setting/command/route/debug below (see their own help) -- toggling any of the five toggles all five.</li>
+<li><code>repeater.monitor.setting</code>: Capture SETTING records (admin-visible setting changes) — {on|off}. Alias of <code>event</code> -- same bit, no independent toggle (see its help).</li>
+<li><code>repeater.monitor.command</code>: Capture COMMAND records (admin commands run) — {on|off}. Alias of <code>event</code> -- same bit, no independent toggle (see its help).</li>
+<li><code>repeater.monitor.route</code>: Capture ROUTE records (periodic routing-latency snapshot) — {on|off}. Alias of <code>event</code> -- same bit, no independent toggle (see its help).</li>
+<li><code>repeater.monitor.debug</code>: Capture DEBUG records (folded-in RLOG transport/boot/session trace) — {on|off}. Alias of <code>event</code> -- same bit, no independent toggle (see its help).</li>
+</ul>
+<h3 id="repeaterprofile"><code>repeater.profile</code><a class="headerlink" href="#repeaterprofile" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>repeater.profile.enabled</code>: Enable/disable ProfileLog (command/span latency profiling ring, see <code>beebo profile</code>) — {on|off}. Off by default; inactive until turned on explicitly. Distinct from <code>monitor.*</code> (MonRing's own capture config) -- ProfileLog measures span duration, a separate concern. This role's own independent copy -- see companion.profile.enabled/repeater.profile.enabled.</li>
+</ul>
+<h3 id="repeateradmin"><code>repeater.admin</code><a class="headerlink" href="#repeateradmin" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>repeater.admin.password</code>: Admin/owner login password used for mesh <code>login</code>/<code>cmd</code> auth (distinct from guest.password). Defaults to the firmware's own compiled-in ADMIN_PASSWORD until changed (varies by build env -- not always the literal "password"). The value itself is write-only, never echoed back on read (over a binary connection, <code>get</code> instead reports (default)/(set): a server-side comparison against ADMIN_PASSWORD via GET_PREFS_TLV(KEY_REPEATER_PASSWORD), mirroring node.wifi.password's (set)/(unset); unavailable at all over a CommonLink, no CommonCLI text-CLI equivalent exists). Run <code>beebo settings repeater.admin.password</code> with no value and you'll be prompted for it hidden, twice — a plaintext CLI argument is rejected outright since it'd already be in your shell history before any confirmation could help. Even a successful set only proves what's in RAM/ComPrefs, not that the mesh login check accepts it — verify with <code>beebo admin &lt;target&gt; login &lt;newpwd&gt;</code>. (write-only, prompts for the value)</li>
+</ul>
+<h3 id="repeaternode"><code>repeater.node</code><a class="headerlink" href="#repeaternode" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>repeater.node.name</code>: The repeater persona's own advertised name (distinct from companion.name) -- stored at /com_prefs offset 4. Empty until customized, in which case the device falls back to the companion name.</li>
+<li><code>repeater.node.repeat</code>: Whether this node forwards other nodes' traffic — {on|off}. Off turns the repeater into a leaf node (advertises but doesn't relay).</li>
+<li><code>repeater.node.multi_acks</code>: Whether this node sends multiple ACKs for multi-path replies [#], independent of companion.multi_acks (companion's own copy, companion_settings.py).</li>
+<li><code>repeater.node.path_hash_mode</code>: Path hash length used for new contacts [0=1 byte, 1=2 bytes, 2=3 bytes], independent of companion.path_hash_mode (companion's own copy, companion_settings.py).</li>
+<li><code>repeater.node.adv_loc_policy</code>: The repeater persona's own advertised-location policy [0=none, 1=share, 2=prefs], independent of companion.adv_loc_policy (companion's own copy, companion_settings.py). 'share' reads the shared, role-agnostic live-GPS register, which stays 0,0 on beebo (no GPS hardware) -- deliberately not seeded from repeater.coords, so an accidental 'share' is obviously wrong rather than silently acting like 'prefs'. Use 'prefs' (backed by repeater.coords) for a fixed location.</li>
+<li><code>repeater.node.coords</code>: The repeater persona's own advertised coordinates [deg], as 'LAT,LON', independent of companion.coords (companion's own copy, companion_settings.py).</li>
+<li><code>repeater.node.allow.read.only</code>: Whether unauthenticated clients may read (but not change) prefs over the console — {on|off}.</li>
+<li><code>repeater.node.advert.interval</code>: Interval between local (zero-hop) adverts [minutes], 60 to 240, or 0 to disable.</li>
+<li><code>repeater.node.advert.flood_interval</code>: Interval between flood adverts [hours], 3 to 168, or 0 to disable.</li>
+<li><code>repeater.node.owner.info</code>: Free-text owner/contact info shown to guest logins.</li>
+<li><code>repeater.node.region.home</code>: This repeater's home region -- a bookmark only (RegionMap's own home_id). No forwarding or send code anywhere reads it; it exists purely for 'region tree'/'region home' to show which region you consider yours. See repeater.node.region.default for the region that actually tags this node's own outgoing traffic -- home_id and default_id are two genuinely independent RegionMap fields (same as stock simple_repeater keeps them), not synced with each other. 'none'/'0'/empty clears this bookmark (binary connection only -- no CommonLink equivalent for clearing, only reading/setting). Setting this to a region name that doesn't exist yet auto-defines it first (root-level, flood-allowed by default -- same as a bare <code>beebo region put &lt;name&gt;</code>), so this always applies directly.</li>
+<li><code>repeater.node.region.default</code>: The region this repeater's own outgoing traffic (self-adverts, flood replies) is actually tagged with -- RegionMap's own independent default_id/getDefaultRegion(), GET/SET_REGION_DEFAULT (distinct from repeater.node.region.home's home_id). Restores stock simple_repeater's own default-scope mechanism, which multi_role's repeater role didn't consult until this was wired up -- it used to fall back to companion.node.region.scope (companion's own field, companion_settings.py) as a stand-in, which this leaf is now unrelated to. Setting this to a region name that doesn't exist yet auto-defines it first (root-level, flood-allowed by default), matching CommonCLI's real 'region default &lt;name&gt;' behavior exactly.</li>
+<li><code>repeater.node.region.list</code>: Read-only inventory of this repeater's defined region names. Over a CommonLink this is only the flood-allowed subset (CommonCLI's text-CLI has no unconditional 'list everything' form); over a binary connection it's every defined region regardless of its flood-allow/deny flag.</li>
+<li><code>repeater.node.public_key</code>: Repeater's own Ed25519 public key (read-only) -- distinct from companion.node.public_key (companion_settings.py) and from node.public_key (whichever role is currently live).</li>
+<li><code>repeater.node.tz_offset</code>: Hours from UTC [-12 to +14], stored for the app's CLI (get/set tz.offset); nothing on the node uses it. This role's own independent copy -- see companion.node.tz_offset/repeater.node.tz_offset.</li>
+<li><code>repeater.node.transmit</code>: Whether the radio sends anything — {on|off}. Off is receive-only: no forwards, adverts, ACKs or replies, and <code>beebo cw</code> is refused; stricter than node.repeat, which only stops relaying. This role's own independent copy -- see companion.node.transmit/repeater.node.transmit.</li>
+<li><code>repeater.node.transport.ble</code>: Whether this role brings up BLE at boot — {on|off}. This role's own independent copy -- see node.transport.* for the general semantics (live-apply behavior, ble/tcp mutual exclusion, usb fallback).</li>
+<li><code>repeater.node.transport.tcp</code>: Whether this role brings up TCP at boot — {on|off}. This role's own independent copy -- see node.transport.* for the general semantics (live-apply behavior, ble/tcp mutual exclusion, usb fallback).</li>
+<li><code>repeater.node.transport.usb</code>: Whether this role brings up USB at boot — {on|off}. This role's own independent copy -- see node.transport.* for the general semantics (live-apply behavior, ble/tcp mutual exclusion, usb fallback).</li>
+<li><code>repeater.node.wifi.ssid</code>: WiFi network name (SSID) the node joins to offer the TCP companion transport. This role's own independent copy -- see companion.node.wifi.ssid/repeater.node.wifi.ssid.</li>
+<li><code>repeater.node.wifi.password</code>: WiFi password, write-only (see node.wifi.password's help for why). This role's own independent copy. (write-only, prompts for the value)</li>
+<li><code>repeater.node.wifi.ip</code>: Current WiFi station IP address, assigned at run time by DHCP once the node joins its configured network -- read-only. Not really a per-role value (there's one physical WiFi radio, whichever role is live) -- companion.node.wifi.ip/repeater.node.wifi.ip both read the same run-time cache regardless of <code>role</code>. Empty means WiFi is off or the node hasn't associated yet.</li>
+<li><code>repeater.node.wifi.rssi</code>: Current WiFi STA RSSI in dBm -- read-only, same run-time/role-agnostic shape as node.wifi.ip. No BLE equivalent: BLE RSSI can't be read synchronously on this hardware without racing a live BLE teardown (see fw's SerialBLEInterface::requestHealthSample() comment), so it isn't exposed at all. WIFI_RSSI_UNAVAILABLE (127) means WiFi is off or the node hasn't associated yet.</li>
+<li><code>repeater.node.ble.pin</code>: BLE pairing PIN, this role's own stored override -- see node.ble.pin's help for the general semantics. Reports the stored value, not the resolved active session pin (only meaningful for whichever role is actually live).</li>
+<li><code>repeater.node.ble.rssi</code>: Current BLE RSSI in dBm -- read-only, same run-time/role-agnostic shape as node.ble.rssi -- companion.node.ble.rssi/repeater.node.ble.rssi both read the same run-time cache regardless of role.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.top", "navigation.instant", "toc.integrate", "navigation.tabs", "toc.follow", "search.highlight", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

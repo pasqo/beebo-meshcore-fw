@@ -1,0 +1,2206 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for the Beebo Heltec V4.3 MeshCore Node Build">
+      
+      
+      
+        <link rel="canonical" href="https://pasqo.github.io/beebo-meshcore-fw/trial-reference/">
+      
+      
+        <link rel="prev" href="../scoring/">
+      
+      
+        <link rel="next" href="../adaptive/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Trial Reference - Beebo Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#trial-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Beebo Docs" class="md-header__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Beebo Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Trial Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../roles/" class="md-tabs__link">
+          
+  
+  
+  Using Beebo
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../tuning/" class="md-tabs__link">
+          
+  
+  
+  Tuning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Command Line
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../internals/" class="md-tabs__link">
+          
+  
+  
+  Under the Hood
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../support/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Support
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Beebo Docs" class="md-nav__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Beebo Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using Beebo
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using Beebo
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phone-feed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Phone Feed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../connections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tuning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setting Trials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a Repeater Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trial Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trial Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#profiles-and-switches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profiles and switches
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-a-sequence-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How a sequence runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#combined-trial" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Combined trial
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-changes-and-what-is-kept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What changes and what is kept
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-noisy-a-trial-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How noisy a trial is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#automatic-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic schedule
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-slow-a-node-can-be" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How slow a node can be
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-trial-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The trial report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#analyzing-trials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analyzing trials
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Analyzing trials">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#beebo-analyze-tuning-trial-reading-a-setting-trial" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        beebo analyze tuning trial — reading a setting trial
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#beebo-analyze-tuning-phi-how-noisy-the-trials-are" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        beebo analyze tuning phi — how noisy the trials are
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Adaptive Tuner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Line
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Command Line
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install and Connect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Update and Service a Node
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../battery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Battery State and Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health Check
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Under the Hood
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Under the Hood
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Board Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rf-experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF Experiments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="trial-reference">Trial Reference<a class="headerlink" href="#trial-reference" title="Permanent link">&para;</a></h1>
+<p>Everything about how a <a href="../trials/">setting trial</a> works and how to read its result: the profiles and switches, the sequence, the statistics, the schedule, and the <code>beebo analyze</code> commands.</p>
+<h2 id="profiles-and-switches">Profiles and switches<a class="headerlink" href="#profiles-and-switches" title="Permanent link">&para;</a></h2>
+<p>Some settings are high-impact and depend on the local environment, so the <a href="../adaptive/">adaptive tuner</a>
+does not tune them. A separate on-device trial decides them instead: it compares
+two values of one setting on the live node and keeps the better one. Twelve
+settings can be trialed, one after another, in the order of the table below.</p>
+<p>Which of them run is the trial <strong>profile</strong>, <code>repeater.routing.tuning.trial.profile</code>:</p>
+<ul>
+<li><code>main</code> (default): the LNA, CAD, TX delay factor and retry policy, each against one
+  challenger (the last column). The other eight rows also have a one-challenger list
+  in this profile, used if you enable them by hand.</li>
+<li><code>exhaustive</code>: all twelve settings with the full lists of the third column.</li>
+</ul>
+<p>Selecting a profile sets the switches' <code>.enable</code> bits and resets their <code>.values</code> to
+the profile's lists. Like the other trial settings it is RAM-only, so a reboot returns
+it to <code>main</code>. The feed and trial records print the two compared values in the setting's
+internal units: on/off switches as 0/1, the delay factors in hundredths
+(<code>txdelay</code> <code>a=50 b=100</code> is 0.5 against 1.0), <code>rxdelay</code> in tenths, <code>agc</code> in units of
+4 s, and <code>retry</code> as a policy byte (64 is one retry at 4/5).</p>
+<table>
+<thead>
+<tr>
+<th>Switch</th>
+<th>Setting</th>
+<th>Default <code>.values</code> (A first)</th>
+<th><code>main</code>: selected, B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lna</code></td>
+<td><code>fem.rxgain</code></td>
+<td><code>0,1</code></td>
+<td>yes, on</td>
+</tr>
+<tr>
+<td><code>rxboost</code></td>
+<td><code>radio.rxgain</code></td>
+<td><code>0,1</code></td>
+<td>no, on</td>
+</tr>
+<tr>
+<td><code>agc</code></td>
+<td><code>routing.agc.reset.interval</code> (seconds)</td>
+<td><code>0,8,16,32</code></td>
+<td>no, 8</td>
+</tr>
+<tr>
+<td><code>interference</code></td>
+<td><code>routing.interference.threshold</code></td>
+<td><code>0,3,6,9</code></td>
+<td>no, 3</td>
+</tr>
+<tr>
+<td><code>cad</code></td>
+<td><code>radio.cad</code></td>
+<td><code>0,1</code></td>
+<td>yes, on</td>
+</tr>
+<tr>
+<td><code>cr</code></td>
+<td><code>radio.lora.cr</code></td>
+<td><code>5,6,7,8</code></td>
+<td>no, 6</td>
+</tr>
+<tr>
+<td><code>multiacks</code></td>
+<td><code>node.multi_acks</code></td>
+<td><code>0,1</code></td>
+<td>no, on</td>
+</tr>
+<tr>
+<td><code>retry</code></td>
+<td><code>routing.retry</code></td>
+<td><code>0,5,5\|6,5\|7</code> (a policy is its coding rates separated by <code>\|</code>)</td>
+<td>yes, 5</td>
+</tr>
+<tr>
+<td><code>rxdelay</code></td>
+<td><code>routing.rxdelay</code></td>
+<td><code>0,7,13,20</code></td>
+<td>no, 5</td>
+</tr>
+<tr>
+<td><code>txdelay</code></td>
+<td><code>routing.txdelay</code></td>
+<td><code>0,0.5,1,2</code></td>
+<td>yes, 1.0</td>
+</tr>
+<tr>
+<td><code>directtxdelay</code></td>
+<td><code>routing.direct.txdelay</code></td>
+<td><code>0,0.5,1,2</code></td>
+<td>no, 0.5</td>
+</tr>
+<tr>
+<td><code>airtime</code></td>
+<td><code>routing.airtime</code></td>
+<td><code>0.5,1,3,9</code></td>
+<td>no, 1.0</td>
+</tr>
+</tbody>
+</table>
+<p>Each switch has a group <code>repeater.routing.tuning.trial.switches.&lt;name&gt;</code> (listed in
+run order by <code>beebo settings</code>) with two leaves:</p>
+<ul>
+<li><code>.enable</code> (0/1, default 1): the switch is part of the sequence. A switch turns
+  itself off once it is decided.</li>
+<li><code>.values</code>: the values it explores, A first and then up to 3 challengers
+  separated by commas, for example <code>5,6,8</code>. The defaults start at the upstream
+  setting and span the allowed range (the airtime default leaves out <code>0</code>, which
+  removes the duty-cycle limit). A list of n values is n - 1 trials.</li>
+</ul>
+<h2 id="how-a-sequence-runs">How a sequence runs<a class="headerlink" href="#how-a-sequence-runs" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Turn <code>repeater.routing.tuning.trial.enabled</code> on (independent of the adaptive
+   tuner). The profile decides the switches: four with <code>main</code> (the default), all twelve
+   with <code>exhaustive</code>; set <code>.enable</code> to 0 on the ones to leave out. A switch that is off
+   is never touched. Turning the trial on also sets the monitor to record it, persisted:
+   it enables the monitor and the tuning, event and radio capture and the
+   <code>trial_pkt_rate</code> event, and turns rx and tx capture off so that a long run does not
+   fill the ring (turn them on afterwards with <code>beebo monitor capture rx on</code>).</li>
+<li>Where the sequence starts is <code>tuning.trial.start</code>. With <code>stored</code> (the default)
+   each switch's A is its stored value, the winner of the last run, and every value
+   in its list is a challenger (one equal to A is skipped), so runs build on each
+   other. With <code>list</code> the node first sets every selected switch to the first value
+   of its list and stores it, so the run starts from a known state whatever was
+   stored before. The default lists start the LNA off and RX boost on (the Heltec
+   V4 default), so the radio still hears traffic while the LNA is measured.</li>
+<li>A planned trial starts as soon as the node has traffic data.
+   With <code>tuning.trial.block_size_s</code> and <code>tuning.trial.block_count</code> at their
+   default 0 (auto) the node plans the schedule (see Automatic schedule below) and
+   holds the sequence only until it has counted events of each indicator the score weights.
+   A planned schedule adapts to whatever rate there is: it has no rate floor, runs
+   at any rate, capped at 72 hours, and ends idle only when a whole cycle
+   counts nothing. With both set the schedule is fixed, and then a trial starts only
+   while the node counts at least <code>tuning.trial.min_pkt_rate</code>
+   events a minute (default 5; 0 = no minimum, and no idle stop either). The events
+   are the score's own, those whose chance variation sets a block's noise: the
+   confirmed deliveries for the default score, the routed attempts for a
+   routed-only score, the received packets for a received-only one (a mix of
+   weights gives the equivalent of the weighted sum; the rate is normalized by the
+   largest weight squared, so scaling every score weight by the same factor does not
+   change it). <code>monitor tuning trial</code> shows the rate as <code>counting N/min</code>. Below the minimum the
+   sequence waits, checking once a minute, and logs a <code>trial_pkt_rate</code> event each time
+   it starts or stops waiting. The same rate ends a running fixed trial (step 5), when
+   a cycle counts clearly less than the minimum: more than 3 standard deviations under
+   it, since counts vary by about their square root.</li>
+<li>The first switch runs. Its first trial compares A with the first challenger:
+   every block (<code>tuning.trial.block_size_s</code> seconds) the value alternates in an
+   A/B/B/A pattern, for <code>tuning.trial.block_count</code> blocks (two per pair). Half the
+   blocks run the other value, so expect reduced service during the trial. A
+   fixed schedule that spans every hour of the day, 30 minute blocks for 96
+   blocks, compares like for like.</li>
+<li>After every pair from the third on, the node checks whether the evidence has
+   settled, on the paired difference of the score (see <a href="#how-noisy-a-trial-is">How noisy a trial is</a>). It keeps A as soon
+   as even the best case for B is smaller than a worthwhile gain
+   (<code>tuning.trial.min_gain_pct</code>, default 5%). It adopts B as soon as even the worst
+   case is a real gain with no loss in confirm ratio (more than 2 percentage
+   points), unless B's confirmed deliveries grew: more forwarding lowers the
+   ratio without losing anything. The bounds are the mean of the paired change plus or minus
+   <code>t x sqrt(N / n)</code> standard errors, with <code>n</code> the pairs so far, <code>N</code> the most pairs
+   the trial may run and <code>t</code> the Student-t value at the confidence level
+   <code>tuning.trial.confidence_pct</code> (90, 95 or 99 percent, default 95); the factor
+   <code>sqrt(N / n)</code> is what lets the node look after every pair, so the bounds are wider
+   than the plain interval until the last pair. A clear result ends the trial early.
+   <code>confidence_pct</code> is how sure the node wants to be before it changes a setting:
+   100 minus it is about the most often a trial of a setting with no real gain
+   adopts B, counting every look, not each look alone (the rule is the plain t value
+   scaled by <code>sqrt(N / n)</code>, close to the nominal rate but not exact). Each switch's
+   trial has its own budget, so over a sequence of switches the expected number of
+   false adoptions adds up. B is adopted when the lower bound is above 0, not above
+   <code>min_gain_pct</code>: <code>min_gain_pct</code> sets the pairs the plan asks for and the point
+   below which A is kept. <code>monitor tuning trial</code> shows the bounds and <code>Conf</code>, the
+   confidence they amount to: 100 minus it is the p-value adjusted for the looks, and
+   B is adopted when it reaches <code>confidence_pct</code>. It is not the probability that B is better. An undecided trial whose
+   bounds stopped moving ends as inconclusive with A kept (it needs at least 7
+   pairs); otherwise
+   it runs to the end of the schedule, where B is adopted only if the plain test
+   passes; otherwise, or with fewer than 3 pairs, it ends undecided with A kept.
+   Before that test, after every pair, the node checks for a dead side: a block that
+   heard nothing never forms a pair, so a setting that deafens the radio would
+   otherwise lose by default. When one value heard at most a quarter of the
+   other's packets (Received, counted up to 8 per block), the other heard traffic in
+   at least 2 blocks, and a split that uneven is too unlikely to be chance, the
+   value that hears wins at once.
+   After every A/B/B/A cycle of a fixed schedule, an average clearly below
+   <code>tuning.trial.min_pkt_rate</code> events a minute over the whole cycle (a planned schedule:
+   no events at all) ends the
+   trial as idle with A kept: the channel is too quiet to decide anything. The
+   switch stays pending and the same trial runs again an hour later; a run of idle
+   ends with no completed trial for 24 h turns <code>tuning.trial.enabled</code> off.</li>
+<li>The winner is stored before the next trial starts. The next trial compares
+   that winner with the next challenger of the list, and a challenger equal to the
+   winner is skipped.</li>
+<li>When a switch has run out of challengers the node turns its <code>.enable</code> off and
+   moves to the next switch. When every selected switch is decided it turns
+   <code>tuning.trial.enabled</code> off too; turn them on again to run another sequence.</li>
+</ol>
+<h2 id="combined-trial">Combined trial<a class="headerlink" href="#combined-trial" title="Permanent link">&para;</a></h2>
+<p>A one-switch trial resolves a gain only when it is large: a 1-2% switch never
+does at 10 packets a minute, and its trend is thrown away. Several such gains add
+up and resolve together. So screen the switches one by one for a trend (the <code>Change</code>
+and <code>Conf</code> columns of <code>monitor tuning trial</code>), then set <code>tuning.trial.combined on</code>
+and run one trial where side A and side B differ in all of them at once.</p>
+<ul>
+<li>Side A is each selected switch's stored value. Side B is its current challenger:
+  with <code>tuning.trial.start stored</code> the first value of its <code>values</code> list that differs
+  from the stored one, with <code>list</code> the second value. Put the direction its
+  screening trend favored first, or set <code>values</code> to <code>A,B</code>.</li>
+<li>A switch takes part when it is selected, its B differs from its A, and it can run
+  (the FEM LNA needs LNA control). Anything
+  else changes nothing. Fewer than two participants ends as <code>skipped (same)</code>.</li>
+<li>The decision is the usual paired test. A win adopts every participant's B; there is
+  no per-switch attribution. Every selected switch is decided afterward, whatever the
+  outcome (an idle end retries the whole combination an hour later).</li>
+<li>A manual change of any participant aborts the trial, as for one switch.</li>
+<li><code>monitor tuning trial</code> shows a <code>combined</code> row (A and B are the two sets) and marks
+  the participants <code>in combined</code>; <code>analyze tuning trial</code> lists the participants.</li>
+</ul>
+<h2 id="what-changes-and-what-is-kept">What changes and what is kept<a class="headerlink" href="#what-changes-and-what-is-kept" title="Permanent link">&para;</a></h2>
+<ul>
+<li>The four radio switches (<code>lna</code>, <code>rxboost</code>, <code>cr</code>, <code>cad</code>) act on the radio hardware live
+  only: a reboot in the middle of a trial puts the stored value back. The other eight
+  settings are read by the node from its running settings, so a trial writes its
+  value there while it runs and puts the original back afterwards.</li>
+<li>Only a winner is stored, and the sequence stores A at its start. So the stored
+  settings of the selected switches change when a sequence starts, and stay
+  changed if you stop it. Every change is logged as a <code>setting</code> record with source
+  <code>tuning</code>.</li>
+<li>A packet pool guardrail trip ends the running trial with A kept (outcome
+  <code>aborted_guardrail</code>); the sequence goes on with the switch's next challenger, or
+  the next switch. Disabling the trial or changing any <code>tuning.trial.*</code> setting
+  aborts the running trial and restores the setting. Changing a <code>tuning.trial.*</code>
+  setting restarts the sequence for the switches still selected: it stores their A again, so it undoes
+  a winner adopted for a switch that has not finished (a finished switch is off
+  and is not touched).</li>
+<li>A manual change of a switch's own setting during its trial (through <code>beebo
+  settings</code> or the binary protocol) aborts that trial; the switch's trial then
+  starts again with the new stored value as A.</li>
+<li>Caveat: for the six settings held in the running settings (<code>agc</code>,
+  <code>interference</code>, <code>rxdelay</code>, <code>txdelay</code>, <code>directtxdelay</code>, <code>airtime</code>), any other setting change while their trial runs also saves the
+  challenger value, and a <code>set</code> typed in the repeater's text CLI for the same
+  setting is overwritten by the trial.</li>
+</ul>
+<h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
+<p>All RAM-only and back to their defaults after a reboot:
+<code>tuning.trial.enabled</code> (off), <code>.profile</code> (<code>main</code>), <code>.switches.&lt;name&gt;.enable</code> and <code>.values</code> (above),
+<code>.block_size_s</code> (0 = auto, or 1 to 3600 s), <code>.block_count</code> (0 = auto, or 2 to 1000),
+<code>.block_spread_pct</code> (0 = built-in start, advanced, 0 to 70), <code>.confidence_pct</code> (95), <code>.min_gain_pct</code> (5),
+<code>.min_pkt_rate</code> (5 events a minute, the start gate and the idle stop of a fixed schedule; see steps 3
+and 5) and <code>.start</code>
+(<code>stored</code>, or <code>list</code>; see step 2).</p>
+<p>Each block is logged as <code>MON_EVAL</code>, and the trial itself as <code>MON_TRIAL</code> records: a
+start (setting and sides), one per block (the sequential rule's mean and bounds so
+far) and an end (outcome and statistics), see <code>beebo monitor decode -k trial</code>.
+They are captured only with <code>repeater.monitor.tuning</code> on.</p>
+<h2 id="how-noisy-a-trial-is">How noisy a trial is<a class="headerlink" href="#how-noisy-a-trial-is" title="Permanent link">&para;</a></h2>
+<p>A trial decides from the paired differences <code>d</code> of the
+score between an A block and the next B block, so what limits it is how much <code>d</code>
+varies when the setting makes no difference. Two things add to that:</p>
+<ul>
+<li><em>Counting noise</em>, <code>v</code>: a block holds a limited number of events, and the score
+  moves by chance with their count. <code>v = 1/N</code>, where <code>N</code> is the
+  counts per block of the score: for the default score, which is the confirmed
+  deliveries per hour, the confirmed deliveries in the block (the routed attempts
+  for a routed-only score, the received packets for a received-only one), so a block
+  with 33 of them has <code>v</code> of about 0.03 (a 17% swing).
+  A longer block averages it down.</li>
+<li>The <em>block spread</em>, <code>c</code>: bursts of traffic, slow drift over the day, and an effect that
+  differs from pair to pair. The same in a long block as in a short one, so
+  longer blocks do not average it away.</li>
+</ul>
+<p>A block's variance is <code>v + c</code>, a pair difference has twice that, and with <code>P</code>
+pairs the trial can tell a gain <code>g</code> (<code>gain</code>, 5% by default) from nothing at the
+confidence <code>t</code> (about 2 at 95%) when <code>P</code> is about <code>2 t² (v + c) / g²</code>. With
+<code>v = c = 0.03</code> that is about 190 pairs. Once a block holds about <code>1/c</code> confirmed
+deliveries, more length buys little; more pairs do. The ratio
+<code>phi = var(d) / (2 v)</code> says how far a trial is above counting noise alone: 1 is
+counting noise only, and it grows with block length.</p>
+<p><code>beebo analyze tuning phi</code> measures these on pulled trials (see <a href="#analyzing-trials">Analyzing trials</a>). On 13 trials pulled from one repeater (300 s and 900 s blocks) the block spread is 14% (<code>c</code> = 0.020, 0.007 to 0.039), about 51 counts per block (N), and phi is 1.2 to 1.3 for 300 s blocks and 2.5 to 3.1 for 900 s blocks.</p>
+<h2 id="automatic-schedule">Automatic schedule<a class="headerlink" href="#automatic-schedule" title="Permanent link">&para;</a></h2>
+<p>With <code>block_size_s</code> or <code>block_count</code> at 0 the node
+plans the missing one from its own traffic, so the confidence and <code>min_gain_pct</code>
+you asked for are reachable. A background tracker keeps the routed, confirmed and
+received rates of the last few hours (an average that fades with a two hour time
+constant), ready once it has seen 5 confirmed deliveries over 30 seconds, so a
+node that just booted can plan within minutes. From those rates and the score
+weights the plan takes the block length that holds about 50 counts of the score
+(the confirmed deliveries for the default score; 60 s to 1 h), the most pairs from the formula under How noisy a trial is,
+and the block spread <code>c</code> that starts at the built-in 0.02 (a 14% swing, what the
+field trials pooled to). That start is only a first guess and needs no setting
+(<code>block_spread_pct</code>, 0 = built-in, overrides it as an advanced setting): once a running
+trial has 4 pairs, each re-plan moves the spread toward what the pairs show,
+<code>c = var(d) / 2 - v</code> (the variance of a block less its counting noise, measured
+around the mean difference, so it does not depend on the effect under test),
+weighted as the pairs seen against 3 pairs for the start. A noisier channel than
+the start lengthens the trial, a quieter one shortens it, so the most pairs move up
+or down as the trial learns. A planned trial has no rate floor (<code>min_pkt_rate</code> applies to fixed schedules only): it
+runs at whatever rate there is, with longer blocks when the rate falls. A schedule that needs more
+than 72 hours or 1000 blocks is
+underpowered: the trial runs capped at those limits and ends when a decision bound
+is crossed or the cap is reached, inconclusive if the data does not decide.
+With only one of the two set the other is planned; a fixed <code>block_count</code> is
+never checked for feasibility and never re-planned. The settings keep reading 0:
+the planned values are in the trial's start record and plan records. <code>monitor tuning trial</code> shows, next to each auto setting, the schedule of the trial running now (<code>auto (running trial: up to 304 blocks)</code>, <code>auto (running trial: 150 s now, set per cycle)</code>) or what the node would plan for the next one (<code>auto (next trial: ...)</code>), or that it is still collecting traffic data, has no counts for the score yet, or the plan is underpowered. Under them, <code>at most 152 pairs, 8h31m left at the current traffic</code> is what the trial can take at the traffic it sees now, with the remaining blocks as long as they are now (they follow the traffic). It ends earlier when a decision bound is crossed. The table's <code>N</code> column is the counts per block that set its noise, <code>1/N</code>: the confirmed deliveries for the default score, the routed attempts for a routed-only score, the received packets for a received-only one (a mix gives the weighted sum's equivalent). <code>Bounds</code> is the node's decision interval at the pairs so far and <code>Conf</code> the confidence it amounts to (100 minus Conf is the p-value adjusted for the looks), the figure to compare with <code>confidence_pct</code>: B is adopted when Conf reaches it.</p>
+<h2 id="how-slow-a-node-can-be">How slow a node can be<a class="headerlink" href="#how-slow-a-node-can-be" title="Permanent link">&para;</a></h2>
+<p>The block length follows the rate, 3000 / rate seconds for
+50 events, and the pairs needed do not, so the time a trial can take scales with 1 /
+rate. The longest trial at the built-in block spread (c = 0.02), in hours, by events a
+minute (the figures are computed from the planner's formulas, not measured on a node):</p>
+<table>
+<thead>
+<tr>
+<th>events a minute</th>
+<th>95% confidence, 5% gain</th>
+<th>90%, 5% gain</th>
+<th>90%, 10% gain</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>20</td>
+<td>12</td>
+<td>8</td>
+<td>2</td>
+</tr>
+<tr>
+<td>5</td>
+<td>44</td>
+<td>32</td>
+<td>9</td>
+</tr>
+<tr>
+<td>3</td>
+<td>73 (capped)</td>
+<td>53</td>
+<td>15</td>
+</tr>
+<tr>
+<td>2</td>
+<td>109 (capped)</td>
+<td>79 (capped)</td>
+<td>22</td>
+</tr>
+<tr>
+<td>1</td>
+<td>217 (capped)</td>
+<td>157 (capped)</td>
+<td>44</td>
+</tr>
+</tbody>
+</table>
+<p>The pairs are 130, 94 and 26 (260, 188 and 52 blocks). A longest trial above 72 hours
+runs capped at 72 hours. A trial usually ends earlier, at about 60% of the longest
+in simulation, when a decision bound is crossed. So with the defaults the practical
+limit is about 3.5 events a minute; a larger <code>min_gain_pct</code> or a lower
+<code>confidence_pct</code> lowers it. Below it the trial runs capped at 72 hours and is likely to end inconclusive. Blocks stop
+growing at 1 h (below about 0.8 events a minute), the noise then rises, and a trial
+that spans hours of changing traffic measures a larger block spread than the start
+value, which the plan follows after a few pairs.</p>
+<p><code>block_count</code> auto is the most blocks the trial may run, not a fixed schedule: the
+trial ends as soon as the decision bounds settle it, and the pairs it needs depend
+only on the confidence, <code>min_gain_pct</code> and the noise. <code>block_size_s</code> auto is the
+block length now. After every A B B A cycle the node plans again from the rates of
+its last four A blocks (side B changes the rates, side A does not carry the effect
+under test, so the plan never sees the result). The next cycle's four blocks take
+the length that holds about 50 counts at that rate, all four alike so every pair
+stays comparable and drift still cancels inside the cycle, and a change of less than
+15% is ignored so a noisy rate does not move it every cycle. The noise of a block
+stays about the same whatever the traffic does, so the pairs needed stay about the same
+and the time changes: a quiet hour gives longer blocks, a busy one shorter ones. With
+<code>block_count</code> auto the pairs also grow or shrink to the noise measured, up to the 72
+hour cap, counted from the start of the trial; a block at its 1 h ceiling cannot
+hold the counts, so the noise rises and the pairs grow. A trial whose schedule hits the
+cap runs to it and decides there. A planned
+trial waits 10 s after each switch of the value before it starts counting a block
+(the confirmations of packets sent before the switch are not counted), and ends
+early as inconclusive once even the full schedule could not decide. Shorten a
+trial by raising <code>min_gain_pct</code>, or lowering <code>confidence_pct</code>,
+or fixing <code>block_count</code>. <code>analyze tuning trial</code> prints the plan, each re-plan
+(with the block length it set), where the decision stands and the noise the blocks measured.</p>
+<h2 id="the-trial-report">The trial report<a class="headerlink" href="#the-trial-report" title="Permanent link">&para;</a></h2>
+<p><code>beebo analyze tuning trial</code> prints this report; its options are under <a href="#analyzing-trials">Analyzing trials</a>.</p>
+<p>The report of one trial starts with a header, then the plan, the noise, the decision and the table of indicators:</p>
+<figure>
+  <img alt="beebo analyze tuning trial: the header, plan, noise and decision lines, the indicator table and the score chart of a CAD trial" src="../images/trial-report.svg" width="900" />
+<br />
+<figcaption>A finished trial of radio.cad on a repeater: B was clearly worse, so the node kept A after 7 of up to 64 pairs</figcaption>
+</figure>
+<p><code>Received per side</code> is what the dead-side check counts; its <code>split p</code> appears once
+one value hears at least four times the other.</p>
+<p><code>Status</code> says whether the trial ended (and how: at which pair and why, or that the
+schedule completed), is running, or was interrupted (no end record and the capture
+runs on without another block). <code>Ended</code> and <code>Verdict</code> appear once the node has
+written the end record. The table has one row per indicator with the mean of A and
+B over the matched pairs, <code>Change</code> (the per-pair B - A, mean and standard error),
+<code>Conf</code> (two-sided Student t confidence that the change is not zero) and a
+<code>Verdict</code>. The columns match <code>monitor tuning trial</code>: <code>Pairs</code>, <code>N</code> and <code>Bounds</code> are
+the score's and show <code>-</code> on an indicator row.</p>
+<p>The first row, <code>Score</code>, is what the trial optimizes and decides on: the objective's
+log score, whose <code>A</code> and <code>B</code> are the score as a packet rate per minute (confirmed deliveries for the default weights, so B / A - 1 is the <code>Change</code>) and whose <code>Change</code> is shown as a
+relative gain in percent (e^x - 1 of the log-score difference, so it reads against
+<code>min_gain_pct</code>), with
+the trial's verdict (<code>use A</code>, <code>use B</code>, <code>inconclusive, use A</code>, <code>undecided, use A</code>,
+<code>use B (A heard almost nothing)</code> or the reverse, or an abort reason);
+before 3 pairs it reads <code>undecided</code>, and without an end record <code>so far: ...</code> shows
+what the node's own rule gives. The rows <code>Routed</code>, <code>Delivered</code> and <code>Received</code> are the score's indicators; the rows below them are diagnostics
+(<code>TX Dispatched</code>, <code>RX Invalid</code>,
+<code>RX Errors</code>, <code>Nbr Heard</code>, <code>Nbr Marginal</code>, <code>Pool Busy</code>, <code>CAD Busy</code>). Where higher is
+better they show <code>B better</code> or <code>A better</code> once their confidence reaches the
+trial's confidence setting, and <code>B ahead</code> or <code>A ahead</code> below it; the rest show <code>-</code>.
+The trial re-derives the decision offline with the node's own rule and flags a
+difference from the node's end record. Blocks the node marked <code>insufficient_data</code>
+or <code>invalidated</code> are excluded from the pairing.</p>
+<h2 id="analyzing-trials">Analyzing trials<a class="headerlink" href="#analyzing-trials" title="Permanent link">&para;</a></h2>
+<h3 id="beebo-analyze-tuning-trial-reading-a-setting-trial"><code>beebo analyze tuning trial</code> — reading a setting trial<a class="headerlink" href="#beebo-analyze-tuning-trial-reading-a-setting-trial" title="Permanent link">&para;</a></h3>
+<p><code>beebo analyze tuning trial [FILE]</code> reports the latest <a href="../trials/">setting trial</a> in one pulled day file (the most recent by default; a relative <code>FILE</code> is resolved against <code>--dir</code>). A trial record is captured only with <code>repeater.monitor.tuning</code> on. For a trial with a planned schedule it also prints the plan (block length, blocks and pairs, block spread, the traffic it planned from, pairs run) and the noise the node measured (<code>var(d)/2</code>, counting noise <code>v</code>, <code>phi</code>). A set can also be named before the report, like every other analyze report (<code>gatto analyze monring_2026-09-27 tuning trial</code>), but it must be a raw <code>.bin</code> set. When the newest set holds no trial, the report says which set does.</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>gatto<span class="w"> </span>monitor<span class="w"> </span>pull
+<span class="gp">$ </span>gatto<span class="w"> </span>analyze<span class="w"> </span>tuning<span class="w"> </span>trial
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--all</code></td>
+<td>Detail every trial in the file, not just the latest</td>
+</tr>
+<tr>
+<td><code>--blocks</code></td>
+<td>Add the per-block table (every indicator, one row per block)</td>
+</tr>
+<tr>
+<td><code>--legend</code></td>
+<td>Print the definition of every column and verdict word first</td>
+</tr>
+<tr>
+<td><code>--score NAME=WEIGHT,...</code></td>
+<td>Re-score the blocks offline with these <a href="../scoring/">score</a> weights (tenths, -50 to 50; routed, delivered, received; one not named is 0), e.g. <code>--score received=10</code>. The node's own verdict is unchanged and shown in a note</td>
+</tr>
+<tr>
+<td><code>--diagnostics</code></td>
+<td>Also chart the diagnostic indicators; by default only Score, Routed, Delivered and Received are charted (the table lists all rows)</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>JSON instead of tables</td>
+</tr>
+</tbody>
+</table>
+<p>With more than one trial in the file (a sequence), a "Trial Plan" table comes first: one line per trial with its setting, A, B, start, status (ended, running or interrupted), the pairs used of those planned, N (the counts per block that set its noise, 1/N), Spread (the block spread, see <a href="#how-noisy-a-trial-is">how noisy a trial is</a>) and verdict, with the pool over the trials under it. The report also has a Decision line: the bounds at the pairs measured of the most the trial may run, the widening by the planned pairs, the two thresholds, and the confidence against the one needed. Every trial report has a Noise line from its measured blocks: N, φ with its 95% interval, the block spread with c and its interval against the planner's built-in start of 14%, and the pairs this noise needs to resolve the minimum gain; <code>--json</code> carries it as <code>phi</code>. <a href="#the-trial-report">The trial report</a> explains each column.</p>
+<h3 id="beebo-analyze-tuning-phi-how-noisy-the-trials-are"><code>beebo analyze tuning phi</code> — how noisy the trials are<a class="headerlink" href="#beebo-analyze-tuning-phi-how-noisy-the-trials-are" title="Permanent link">&para;</a></h3>
+<p>The per-trial figures are part of <code>analyze tuning trial</code>; this command pools them over every trial of a set.</p>
+<p><code>beebo analyze tuning phi [FILE]</code> measures how noisy the paired score differences of every finished trial in a pulled set are (the most recent by default; <code>--from NAME</code>, a leading dataset name or <code>--all</code> for every raw set under <code>--dir</code>). A block's variance is v + c: v the counting noise (1/N, N the counts per block of the score: the confirmed deliveries for the default score), c the block spread, the part that longer blocks do not average away (bursts, drift, an effect that differs between pairs). φ = var(d) / (2 v) is 1 for counting noise alone and grows with block length. See <a href="#how-noisy-a-trial-is">How noisy a trial is</a>.</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>gatto<span class="w"> </span>monitor<span class="w"> </span>pull
+<span class="gp">$ </span>gatto<span class="w"> </span>analyze<span class="w"> </span>tuning<span class="w"> </span>phi<span class="w"> </span>--all
+</code></pre></div>
+<p>It prints one row per trial with at least 3 measured pairs (setting, start, block length in seconds, pairs, confirm ratio p, counts per block N, mean paired difference, φ), the pool per setting and block length, and the overall pools with 95% intervals: φ, and the block spread (the standard deviation sqrt(c) in percent, with c and its interval) and the block size N = 1/c (counts per block) beyond which longer blocks add little, ending with whether a reference block spread of 14% (c = 0.02) is inside c's interval. The reference is the planner's built-in start; the command's constant is not a device setting. Trials it cannot use are listed with the reason (too few pairs, or a received weight on a capture without the on-device rx counter). <code>--score NAME=WEIGHT,...</code> re-scores with other weights as in <code>analyze tuning trial</code>; <code>--json</code> prints the same as one object.</p>
+<p><code>beebo analyze tuning effect</code> splits the whole capture by setting assignment (<code>lna</code>, <code>rxgain</code>, <code>tx_power</code>, any changed setting; <code>-p</code> picks which) and reports the indicators for each, plus the change against the longest-running assignment computed hour by hour so time-of-day load cancels.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.top", "navigation.instant", "toc.integrate", "navigation.tabs", "toc.follow", "search.highlight", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

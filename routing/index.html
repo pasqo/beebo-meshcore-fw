@@ -1,0 +1,2016 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for the Beebo Heltec V4.3 MeshCore Node Build">
+      
+      
+      
+        <link rel="canonical" href="https://pasqo.github.io/beebo-meshcore-fw/routing/">
+      
+      
+        <link rel="prev" href="../trials/">
+      
+      
+        <link rel="next" href="../scoring/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>How a Repeater Routes - Beebo Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#how-a-repeater-routes" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Beebo Docs" class="md-header__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Beebo Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              How a Repeater Routes
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../roles/" class="md-tabs__link">
+          
+  
+  
+  Using Beebo
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../tuning/" class="md-tabs__link">
+          
+  
+  
+  Tuning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Command Line
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../internals/" class="md-tabs__link">
+          
+  
+  
+  Under the Hood
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../support/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Support
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Beebo Docs" class="md-nav__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Beebo Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using Beebo
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using Beebo
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phone-feed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Phone Feed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../connections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tuning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setting Trials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a Repeater Routes
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a Repeater Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-meshcore-routes-a-packet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How MeshCore Routes a Packet
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How MeshCore Routes a Packet">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-this-sits-in-routing-taxonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where This Sits in Routing Taxonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-tunable-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Tunable Parameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Tunable Parameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rx_delay_base-flood-forward-jitter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rx_delay_base — flood forward jitter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tx_delay_factor-direct_tx_delay_factor-retransmit-jitter-window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tx_delay_factor / direct_tx_delay_factor — retransmit jitter window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#interference_threshold-rssi-over-noise-floor-busy-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        interference_threshold — RSSI-over-noise-floor busy check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tx_wait_cad-includes-reception-in-progress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tx_wait_cad includes reception in progress
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#radiocad-hardware-channel-activity-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        radio.cad — hardware channel activity detection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agc_reset_interval-agc-re-convergence-cadence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        agc_reset_interval — AGC re-convergence cadence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#airtime_factor-duty-cycle-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        airtime_factor — duty-cycle budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#route-retry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Route retry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-they-interweave" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How They Interweave
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trial-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trial Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Adaptive Tuner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Line
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Command Line
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install and Connect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Update and Service a Node
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../battery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Battery State and Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health Check
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Under the Hood
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Under the Hood
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Board Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rf-experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF Experiments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="how-a-repeater-routes">How a Repeater Routes<a class="headerlink" href="#how-a-repeater-routes" title="Permanent link">&para;</a></h1>
+<p>The MeshCore routing and timing mechanics behind the settings that <a href="../trials/">trials</a> and the <a href="../adaptive/">tuner</a> change. Without knowing what each parameter controls, tuning them is guesswork.</p>
+<h2 id="how-meshcore-routes-a-packet">How MeshCore Routes a Packet<a class="headerlink" href="#how-meshcore-routes-a-packet" title="Permanent link">&para;</a></h2>
+<p>Every packet carries a route type in its header
+(<code>docs/packet_format.md</code>): <strong>flood</strong> (<code>ROUTE_TYPE_FLOOD</code>/
+<code>_TRANSPORT_FLOOD</code>) or <strong>direct</strong> (<code>ROUTE_TYPE_DIRECT</code>/<code>_TRANSPORT_DIRECT</code>).
+The two build and consume their path very differently, and the tunable
+timing parameters below apply almost entirely to the flood case:</p>
+<ul>
+<li><strong>Flood</strong>: no path is set by the sender — each repeater that forwards it
+  appends its own identity hash to the packet's path buffer before
+  re-queuing it (<code>Mesh::routeRecvPacket()</code>). The path buffer has a fixed
+  capacity (<code>MAX_PATH_SIZE</code>), so a flood packet that has already changed
+  hands too many times gets dropped rather than appended to
+  (<code>RX_DISP_PATH_FULL</code>) — this is flood's de facto hop limit, not an
+  explicit TTL counter.</li>
+<li><strong>Direct</strong>: the sender supplies the full path up front. Each hop checks
+  whether <em>it</em> is the next hash in that path; if so, it strips itself off
+  the front and forwards to whatever's left (<code>removeSelfFromPath()</code>). A node
+  that isn't the expected next hop logs <code>RX_DISP_WRONG_HOP</code> and drops.</li>
+</ul>
+<p>Because a flood packet has no path to begin with, the exact same packet
+reaches a repeater from multiple neighbors, multiple times, as it spreads
+outward. <strong>Deduplication</strong> is what keeps this from cascading forever: every
+received packet's hash (<code>Packet::calculatePacketHash()</code>, essentially a
+digest of its payload) is checked against a rolling table of recently-seen
+hashes. First sight: process it (and, for a repeater, schedule a forward).
+Every repeat sight after that: <code>RX_DISP_DUP</code>, dropped without forwarding.
+This table's size (<code>MAX_PACKET_HASHES</code>) is a boundary condition, not a
+tuning knob — the parameters below govern <em>when</em> a genuinely new flood
+packet gets forwarded, not whether a duplicate does.</p>
+<p>A repeater's own forward-or-drop decision for a freshly-received packet is
+one of (<code>RxDisposition</code>, <code>src/Dispatcher.h</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Disposition</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RX_DISP_FORWARDED</code></td>
+<td>Repeater accepted and scheduled a retransmission (flood or direct).</td>
+</tr>
+<tr>
+<td><code>RX_DISP_NO_FORWARD</code></td>
+<td>This node is the correct next hop, but packet forwarding is administratively disabled here (<code>client_repeat</code>/<code>repeat_mode</code> off).</td>
+</tr>
+<tr>
+<td><code>RX_DISP_WRONG_HOP</code></td>
+<td>Direct-routed packet; this node isn't the path's next hop.</td>
+</tr>
+<tr>
+<td><code>RX_DISP_PATH_FULL</code></td>
+<td>Would forward, but the path buffer has no room left to append/consume.</td>
+</tr>
+<tr>
+<td><code>RX_DISP_DUP</code></td>
+<td>Already seen this packet's hash — dropped, not forwarded.</td>
+</tr>
+<tr>
+<td><code>RX_DISP_FILTERED</code></td>
+<td>Rejected pre-dispatch (e.g. region/scope filtering).</td>
+</tr>
+</tbody>
+</table>
+<p><code>beebo monitor</code>'s "RX conditions" histogram and the offline <code>delivery_proxy</code> of
+<code>beebo analyze tuning indicators</code> are built from this disposition breakdown. The
+tuners themselves do not score it: they reward confirmed delivery instead (see
+<a href="../scoring/#the-objective-function">The Objective Function</a>).</p>
+<h3 id="where-this-sits-in-routing-taxonomy">Where This Sits in Routing Taxonomy<a class="headerlink" href="#where-this-sits-in-routing-taxonomy" title="Permanent link">&para;</a></h3>
+<p>It's worth being precise about what kind of routing this actually is, since
+the term "dynamic routing" usually means something more specific: protocols
+like RIP (distance-vector), OSPF (link-state), or BGP (path-vector), where
+routers periodically exchange routing information and maintain forwarding
+tables computed from a metric (hop count, cost, path attributes) — the
+"dynamic" part being that the <em>tables</em> update automatically as topology
+changes, ahead of any actual data needing to move (see
+<a href="https://en.wikipedia.org/wiki/Dynamic_routing">Dynamic routing</a>).</p>
+<p>MeshCore doesn't do any of that:</p>
+<ul>
+<li><strong>No routing tables, no route advertisements, no periodic exchange at
+  all.</strong> Nodes don't know the topology and don't compute paths in advance.</li>
+<li><strong>Flood + path accumulation is the discovery mechanism.</strong> A flood packet
+  has no path; each repeater that forwards it appends its own hash to the
+  packet's path buffer. By the time it reaches the destination, the packet
+  itself carries a complete accumulated path.</li>
+<li><strong>Direct packets are then source-routed</strong> using exactly that accumulated
+  path, hop by hop stripping itself off the front — no lookup, no table.</li>
+</ul>
+<p>That combination — on-demand path discovery via flooding, with the
+discovered path embedded directly in subsequent packets rather than stored
+in per-node tables — sits much closer to the <strong>reactive/source-routing
+family of MANET protocols</strong> (DSR is the closest analogue) than to any of the
+table-maintaining dynamic routing protocols the term usually refers to. If
+forced onto that taxonomy at all, MeshCore sits outside "dynamic routing" as
+classically defined — arguably closer to the <em>absence</em> of a routing table,
+with the path riding along in the data itself instead.</p>
+<p>This is also why the <a href="../tuning/">tuning</a> beebo adds is not "route optimization" in
+the RIP/OSPF/BGP sense: the parameters it adjusts shape <em>when</em> a node
+retransmits and how it avoids collisions (forwarding-timing/collision-
+avoidance discipline), never <em>which path</em> a packet takes or any routing
+metric — there is no metric to optimize, since there's no routing table to
+begin with.</p>
+<h2 id="the-tunable-parameters">The Tunable Parameters<a class="headerlink" href="#the-tunable-parameters" title="Permanent link">&para;</a></h2>
+<p>Six parameters govern a repeater's forwarding timing, collision avoidance,
+and airtime discipline, and a seventh, route retry, covers a forward nobody echoed. All are persisted <code>NodePrefs</code>/ComPrefs fields,
+reachable via <code>beebo settings repeater.routing.*</code>. <code>rx_delay_base</code>/
+<code>airtime_factor</code> also have a separate, independent companion-role copy at
+<code>companion.routing.*</code> (the stock upstream <code>CMD_GET/SET_TUNING_PARAMS</code>
+opcode) — tuning the repeater's forwarding timing never affects a
+simultaneous companion session's behavior, or vice versa. See the
+<a href="../settings/">Settings</a> reference for the exact leaf
+paths.</p>
+<h3 id="rx_delay_base-flood-forward-jitter"><code>rx_delay_base</code> — flood forward jitter<a class="headerlink" href="#rx_delay_base-flood-forward-jitter" title="Permanent link">&para;</a></h3>
+<p>Only applies to <strong>flood</strong> packets a repeater is about to forward for the
+first time. <code>calcRxDelay(score, air_time)</code> computes:</p>
+<div class="highlight"><pre><span></span><code>delay = (rx_delay_base ^ (0.85 - score) - 1) * air_time
+</code></pre></div>
+<p><code>score</code> (<code>Radio::packetScore()</code>, roughly 0-1) reflects how good the received
+link was (SNR-driven) — a stronger link gives a higher score, which shrinks
+the exponent and pulls the delay toward zero. In effect: <strong>the node that
+heard the flood packet best jitters least and is likely to retransmit
+first</strong>, giving the mesh a natural, no-coordination-needed ordering that
+thins out redundant near-simultaneous retransmissions from several
+repeaters that all heard the same flood packet. Raising <code>rx_delay_base</code>
+widens the <em>spread</em> between a well-scored and poorly-scored node's delay —
+more separation, generally fewer collisions, at the cost of slower
+propagation. <code>rx_delay_base &lt;= 0</code> disables this jitter entirely (fires
+immediately).</p>
+<h3 id="tx_delay_factor-direct_tx_delay_factor-retransmit-jitter-window"><code>tx_delay_factor</code> / <code>direct_tx_delay_factor</code> — retransmit jitter window<a class="headerlink" href="#tx_delay_factor-direct_tx_delay_factor-retransmit-jitter-window" title="Permanent link">&para;</a></h3>
+<p>Once a repeater has decided to forward (flood or direct respectively), it
+still doesn't transmit instantly — <code>getRetransmitDelay()</code>/
+<code>getDirectRetransmitDelay()</code> pick a <strong>random</strong> delay in
+<code>[0, 5 * estimated_airtime * factor]</code>. Raising the factor widens this random
+window, spreading out <em>when</em> different repeaters (or the same repeater's
+queued packets) actually key up, at the direct cost of added latency per
+hop. This is the primary knob for reducing collisions between repeaters
+that all decided to forward around the same time — <code>rx_delay_base</code> orders
+who goes first, this decides how spread out the actual transmissions are.</p>
+<h3 id="interference_threshold-rssi-over-noise-floor-busy-check"><code>interference_threshold</code> — RSSI-over-noise-floor busy check<a class="headerlink" href="#interference_threshold-rssi-over-noise-floor-busy-check" title="Permanent link">&para;</a></h3>
+<p>One of the channel busy/clear checks <code>checkSend()</code> makes before every
+transmit. <code>isReceiving()</code> runs three, ORed: a frame in progress (the radio's
+preamble or valid-header flag, always on and not tunable, see
+<a href="#tx_wait_cad-includes-reception-in-progress"><code>tx_wait_cad</code></a>), then this RSSI
+check and the hardware scan
+(<a href="#radiocad-hardware-channel-activity-detection"><code>radio.cad</code></a>) inside
+<code>isChannelActive()</code>. This check is busy when <code>getCurrentRSSI() &gt; noise_floor + interference_threshold</code>, where
+<code>noise_floor</code> is tracked separately via periodic RSSI sampling
+(<code>triggerNoiseFloorCalibrate()</code> only resets that sampling, it does not use
+the threshold itself). A threshold of 0 turns this RSSI check off; the
+hardware scan, if <code>radio.cad</code> is on, still runs. Raising the threshold makes
+the radio tolerate a noisier floor before treating it as channel activity —
+useful in a persistently noisy RF environment, at the cost of being slower
+to detect genuine channel activity (more collision risk) if raised too
+far. The check reads wideband RSSI, so any energy above the threshold counts,
+LoRa or not. Not used by <code>packetScore()</code>, which scores purely from SNR/SF/packet
+length.</p>
+<h3 id="tx_wait_cad-includes-reception-in-progress"><code>tx_wait_cad</code> includes reception in progress<a class="headerlink" href="#tx_wait_cad-includes-reception-in-progress" title="Permanent link">&para;</a></h3>
+<p>Before the two checks above, <code>isReceiving()</code> returns busy while the radio is
+receiving a frame: the SX1262 preamble-detected or header-valid flag
+(<code>CustomSX1262::isReceiving()</code>). It is always on, so <code>tx_wait_cad</code> is non-zero
+with <code>interference_threshold</code> 0 and <code>radio.cad</code> off: a packet ready to send
+waits out the frame and then a 120-480 ms backoff. A preamble with no header
+is dropped as noise after <code>_preambleMillis</code>, a header that never completes
+after <code>_maxPayloadMillis</code>. Time in the indicator therefore tracks on-air
+traffic heard by the node, plus those flag timeouts.</p>
+<p><code>beebo monitor</code> splits <code>tx_wait_cad</code> by the check behind each busy verdict:
+<code>tx_wait_cad_frame</code> (a frame in progress), <code>tx_wait_cad_rssi</code>
+(<code>interference_threshold</code>) and <code>tx_wait_cad_hw</code> (<code>radio.cad</code>, plus any
+backoff not set by a verdict). <code>tx_cad_verdicts</code> counts the verdicts per
+minute, saturating at 255. The backoff after a verdict is charged to the
+check that caused it.</p>
+<h3 id="radiocad-hardware-channel-activity-detection"><code>radio.cad</code> — hardware channel activity detection<a class="headerlink" href="#radiocad-hardware-channel-activity-detection" title="Permanent link">&para;</a></h3>
+<p>A switch (<code>0</code>/<code>1</code>, default off; <code>PREFS_TLV_CAD</code>, upstream's <code>set cad on/off</code>)
+that adds the radio's own channel scan to <code>isChannelActive()</code>: when on and the
+RSSI check above did not already say busy, the radio runs <code>scanChannel()</code>,
+which looks for a LoRa preamble at the node's SF and BW, and anything but
+"channel free" counts as busy. The two checks are ORed, RSSI first, so
+turning both on can only produce more busy verdicts than either alone. CAD is
+more selective than the RSSI check (LoRa only) and catches a weak
+transmission under the RSSI threshold, but it can also fire on a distant
+transmission that could not have collided, and each scan interrupts RX (the
+radio is put back in receive afterwards, the scan's interrupt flag cleared so
+it is not counted as a receive error).</p>
+<p>A busy verdict defers the send by a random 120, 240, 360 or 480 ms
+(<code>Mesh::getCADFailRetryDelay()</code>). After 4 s
+of continuous busy (<code>getCADFailMaxDuration()</code>) the node sends anyway and
+raises the <code>ERR_EVENT_CAD_TIMEOUT</code> fault, so a channel that stays busy delays
+every send by up to that long but never blocks forever. All of that waiting is
+the <code>tx_wait_cad</code> time (the CAD Busy indicator); it does not depend on
+<code>radio.cad</code> being on, and stays non-zero with the threshold at 0 and CAD off
+(see above). With a tight <code>interference_threshold</code> CAD adds little and
+costs scan time; with a loose or zero one it is the main collision avoidance.
+<code>radio.cad</code> is a trial switch, so a trial can decide it from measured goodput.</p>
+<h3 id="agc_reset_interval-agc-re-convergence-cadence"><code>agc_reset_interval</code> — AGC re-convergence cadence<a class="headerlink" href="#agc_reset_interval-agc-re-convergence-cadence" title="Permanent link">&para;</a></h3>
+<p>Purely a radio-frontend concern: on a timer, the radio does a brief
+sleep/wake cycle (<code>doResetAGC()</code>) to force its automatic gain control to
+re-converge, preventing a "stuck" gain state from skewing RSSI/noise-floor
+readings (which, again, feed <code>packetScore()</code>). Not really a
+collision/delivery lever on its own — its effect is indirect, through
+keeping the inputs to the other parameters accurate.</p>
+<h3 id="airtime_factor-duty-cycle-budget"><code>airtime_factor</code> — duty-cycle budget<a class="headerlink" href="#airtime_factor-duty-cycle-budget" title="Permanent link">&para;</a></h3>
+<p>Independent of the above: a token-bucket budget (<code>tx_budget_ms</code>) refills
+over time at a rate set by <code>duty_cycle = 1 / (1 + airtime_factor)</code> and
+drains by each transmission's measured airtime. When the budget runs low,
+<code>checkSend()</code> blocks new transmissions until it recovers — this is airtime
+<em>discipline</em> (regulatory/fairness budget enforcement), separate from CAD's
+<em>collision avoidance</em> (reacting to a channel that's busy right now). Raising
+<code>airtime_factor</code> tightens the budget (lower effective duty cycle, less
+total airtime spent, but transmissions queue up and wait longer once the
+budget is exhausted).</p>
+<h3 id="route-retry">Route retry<a class="headerlink" href="#route-retry" title="Permanent link">&para;</a></h3>
+<p>A repeater that forwards a flood and never hears a neighbor rebroadcast it can
+send it again, at a more robust LoRa coding rate. One setting controls it, also
+trialed (see <a href="../trials/">Setting Trials</a>):</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Range</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>repeater.routing.retry</code></td>
+<td>0, or 1 to 3 coding rates from 5 to 8 separated by <code>\|</code>, default 0</td>
+<td>The coding rate 4/x of each retry of a forward whose echo timed out, in order: <code>8</code> is one retry at 4/8, <code>5\|6</code> a first retry at 4/5 and a second at 4/6. 5 is the rate of the first send; 0 turns retry off</td>
+</tr>
+</tbody>
+</table>
+<p>A retry has the same packet hash as its first send. <code>beebo analyze retries</code>
+reports how many retries were heard, went unanswered or are pending, the rescue
+rate and the extra airtime; <code>beebo analyze packets</code> marks each retry in its <code>Try</code>
+column. Only floods the repeater forwards are retried, never direct packets or
+packets the node originates.</p>
+<p>A flood's echo window starts when the packet is sent, so it measures the
+neighbor's turnaround only: 4500 ms plus 6 x the packet's airtime, rounded up
+from a fit to measured captures. A packet that is never sent gets no window, and a
+forward heard from another repeater before ours went out does not count as an
+echo. The window is fixed in the firmware, not a setting: echoes of a repeater's
+forward can arrive later than the window allows for, and <code>beebo analyze
+timing</code> shows the share past the window, the window that would cover 95% and 99%
+of the echoes, and a fit of base + factor x airtime to compare with the one in use.</p>
+<h2 id="how-they-interweave">How They Interweave<a class="headerlink" href="#how-they-interweave" title="Permanent link">&para;</a></h2>
+<p>None of these parameters acts alone:</p>
+<div class="highlight"><pre><span></span><code>interference_threshold ──▶ noise floor ──▶ packetScore() ──▶ rx_delay_base&#39;s exponent
+                                               │
+agc_reset_interval ──▶ (keeps the above accurate over time)
+                                               │
+                                               ▼
+                              flood forward jitter (who retransmits first)
+                                               │
+                                               ▼
+                    tx_delay_factor / direct_tx_delay_factor (when they actually key up)
+                                               │
+                                               ▼
+                              airtime_factor&#39;s budget (whether they&#39;re allowed to yet)
+</code></pre></div>
+<p>A change to one can shift the effective behavior of another: e.g. raising
+<code>interference_threshold</code> changes <code>packetScore()</code>'s inputs, which changes how
+much spread <code>rx_delay_base</code> actually produces between two given nodes, even
+though <code>rx_delay_base</code> itself didn't change. This is exactly why the tuning
+work changes <strong>one parameter at a time</strong> and waits to observe the
+result before touching another (see <a href="../trials/">Setting Trials</a>) — changing several
+simultaneously would make it impossible to attribute an outcome to any
+single knob.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.top", "navigation.instant", "toc.integrate", "navigation.tabs", "toc.follow", "search.highlight", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

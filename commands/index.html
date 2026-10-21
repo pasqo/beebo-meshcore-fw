@@ -1,0 +1,3147 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for the Beebo Heltec V4.3 MeshCore Node Build">
+      
+      
+      
+        <link rel="canonical" href="https://pasqo.github.io/beebo-meshcore-fw/commands/">
+      
+      
+        <link rel="prev" href="../update/">
+      
+      
+        <link rel="next" href="../settings/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Commands - Beebo Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#commands" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Beebo Docs" class="md-header__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Beebo Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Commands
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../roles/" class="md-tabs__link">
+          
+  
+  
+  Using Beebo
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tuning/" class="md-tabs__link">
+          
+  
+  
+  Tuning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Command Line
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../internals/" class="md-tabs__link">
+          
+  
+  
+  Under the Hood
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../support/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Support
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Beebo Docs" class="md-nav__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Beebo Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using Beebo
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using Beebo
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phone-feed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Phone Feed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../connections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tuning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setting Trials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a Repeater Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trial-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trial Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Adaptive Tuner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Line
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Command Line
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install and Connect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Update and Service a Node
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-cli-and-node-console" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host CLI and node console
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interactive-mode-and-completion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interactive mode and completion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#node-status-and-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node status and control
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Node status and control">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#battery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Battery
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity-and-saved-configurations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity and saved configurations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Identity and saved configurations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#guided-setup-and-saved-configurations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guided setup and saved configurations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#regions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Regions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mesh-discovery-and-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mesh discovery and routing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Mesh discovery and routing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#beebo-neighbors-update-complete-partial-neighbors-from-a-node-directory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        beebo neighbors update — complete partial neighbors from a node directory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#beebo-neighbors-poke-and-beebo-neighbors-ping-single-peer-on-demand-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        beebo neighbors poke and beebo neighbors ping — single-peer, on-demand checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#channels-and-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channels and messages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#monitoring-and-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring and diagnostics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remote-mesh-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote mesh admin
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remote mesh admin">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#status-and-telemetry-rendering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status and telemetry rendering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-cmd-text-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        admin ... cmd text commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get-and-set-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get and set keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rf-bench-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RF bench measurement
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../battery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Battery State and Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health Check
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Under the Hood
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Under the Hood
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Board Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rf-experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF Experiments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h1>
+<p><code>beebo</code> is a single Typer application. Along with the global transport options (<code>-u</code>/<code>--usb</code>, <code>-b</code>/<code>--ble</code>, <code>-t</code>/<code>--tcp</code>) described in <a href="../getting-started/">Install and Connect</a>, there is a set of subcommands (<code>status</code>, <code>settings</code>, <code>admin</code>, <code>ota</code>, <code>trace</code>, <code>discover</code>, <code>contacts</code>, <code>messages</code>, <code>neighbors</code>, <code>rxlog</code>, <code>monitor</code>, <code>check</code>, <code>clock</code>, <code>config</code>, <code>analyze</code>, ...) that act on whichever node is connected. The same global flags are reused by every subcommand, so once a transport is chosen it stays consistent across the whole session.</p>
+<p>Every command and option is listed in the <a href="../cli-reference/">CLI Reference</a>, which is generated from the command line itself. Some commands have a page of their own:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Documented in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>settings</code></td>
+<td><a href="../settings/">Settings</a></td>
+</tr>
+<tr>
+<td><code>monitor</code></td>
+<td><a href="../monitoring/">Monitoring</a></td>
+</tr>
+<tr>
+<td><code>check</code></td>
+<td><a href="../health/">Health Check</a></td>
+</tr>
+<tr>
+<td><code>analyze</code>, <code>rxlog --compare</code></td>
+<td><a href="../analysis/">Analysis</a></td>
+</tr>
+<tr>
+<td><code>ota</code>, <code>admin ... transport</code></td>
+<td><a href="../update/">Update and Service a Node</a></td>
+</tr>
+<tr>
+<td><code>battery</code></td>
+<td><a href="../battery/">Battery State and Calibration</a></td>
+</tr>
+<tr>
+<td><code>measure</code></td>
+<td><a href="../rf-experiments/">RF Experiments</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>Running <code>beebo --help</code> on its own lists the global transport options and every top-level command:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>--help
+
+<span class="go"> Usage: beebo [OPTIONS] COMMAND [ARGS]...</span>
+
+<span class="go"> CLI for Heltec ESP32-S3 V4.3 MeshCore Beebo Nodes.</span>
+
+<span class="go">╭─ Options ────────────────────────────────────────────────────────────────────╮</span>
+<span class="go">│ --ble          -b   ADDRESS  Connect via BLE to ADDRESS (&#39;scan&#39; to discover).│</span>
+<span class="go">│ --tcp          -t   HOST     Connect via TCP to HOST[:port].                 │</span>
+<span class="go">│ --usb          -u   PORT     Connect via USB serial PORT.                    │</span>
+<span class="go">│ --raw          -r            Force the plain-text CommonCLI protocol instead │</span>
+<span class="go">│                              of the companion binary protocol.               │</span>
+<span class="go">│ --log-level    -l   LEVEL    Logging level: DEBUG, INFO, WARNING, ERROR,     │</span>
+<span class="go">│                              CRITICAL.  [default: WARNING]                   │</span>
+<span class="go">│ --profile / --no-profile     Enable CLI level command profiling.             │</span>
+<span class="go">│ --interactive  -i            Open a &#39;beebo() -&gt; &#39; prompt; `connect` and      │</span>
+<span class="go">│                              `release` manage the device session explicitly. │</span>
+<span class="go">│ --version      -v            Show version and exit.                          │</span>
+<span class="go">│ --help         -h            Show this message and exit.                     │</span>
+<span class="go">╰──────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="go">╭─ Commands ───────────────────────────────────────────────────────────────────╮</span>
+<span class="go">│ admin      Remote node administration authorization and commands.            │</span>
+<span class="go">│ advert     Send a direct or flood advert.                                    │</span>
+<span class="go">│ analyze    Offline analysis of downloaded data.                              │</span>
+<span class="go">│ battery    Battery monitoring and management.                                │</span>
+<span class="go">│ channels   Manage a companion&#39;s group channels and the shared channels.json. │</span>
+<span class="go">│ check      Health status and service quality dashboard.                      │</span>
+<span class="go">│ clock      Show the device&#39;s time and drift from host, or set it explicitly. │</span>
+<span class="go">│ config     Save, list, diff, and apply named device configurations.          │</span>
+<span class="go">│ connect    Connect the -i session&#39;s device (only inside -i).                 │</span>
+<span class="go">│ contacts   Show or refresh the local contact cache.                          │</span>
+<span class="go">│ discover   Probe the mesh for nodes and show responders type and SNR.        │</span>
+<span class="go">│ measure    RF bench measurements: noise floor, BW sweep, TX-power curves.    │</span>
+<span class="go">│ messages   Download pending messages, or send a new one.                     │</span>
+<span class="go">│ monitor    Health and service monitoring management and dashboard.           │</span>
+<span class="go">│ neighbors  List and manage the node&#39;s direct neighbors.                      │</span>
+<span class="go">│ ota        Upload a firmware image to the node over the air.                 │</span>
+<span class="go">│ profile    Command runtime and latency profiling.                            │</span>
+<span class="go">│ reboot     Reboot the node and synchronize time.                             │</span>
+<span class="go">│ region     Region management for repeater flood scoping.                     │</span>
+<span class="go">│ release    Disconnect the -i session&#39;s device (only inside -i).              │</span>
+<span class="go">│ run        Curated and user-provided use-case scripts.                       │</span>
+<span class="go">│ rxlog      Capture received packets and summarize their SNR / RSSI.          │</span>
+<span class="go">│ settings   Show or set a node preference by dotted path.                     │</span>
+<span class="go">│ status     Runtime node, radio, resource status.                             │</span>
+<span class="go">│ trace      Trace the path to a target, printing each hop&#39;s SNR.              │</span>
+<span class="go">│ traffic    Inject flood group traffic on a channel.                          │</span>
+<span class="go">╰──────────────────────────────────────────────────────────────────────────────╯</span>
+</code></pre></div>
+<h2 id="host-cli-and-node-console">Host CLI and node console<a class="headerlink" href="#host-cli-and-node-console" title="Permanent link">&para;</a></h2>
+<p>The <code>beebo</code> command line runs on a computer. The node also answers a text console, in the
+<code>beebo-cli</code> channel and the CLI screen of a MeshCore app and on USB, so a phone alone can
+check and tune a node. The console uses the words of the command line, so the same name does
+the same thing in both places. This table lists every command and where it runs.</p>
+<p>A reply on the app's CLI screen is cut at 160 characters; the <code>beebo-cli</code> channel splits a
+longer one into up to four parts. The console answers in plain text: no tables, charts or
+files, which stay on the host.</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Host CLI</th>
+<th>Node console</th>
+<th>Node form and limits</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>settings</code></td>
+<td>yes</td>
+<td>yes</td>
+<td><code>settings &lt;path&gt; [value]</code>, <code>settings</code>, <code>settings &lt;branch&gt;</code>. The paths with a plain value: trial, routing, radio, FEM, battery, node and board settings. The composite settings (<code>radio.lora.*</code>, coordinates, regions), secrets, <code>console.*</code> and the <code>--reboot</code> option are host only; <code>monitor.*</code> is the <code>monitor capture</code> command on the node</td>
+</tr>
+<tr>
+<td><code>status</code>, <code>status node</code>, <code>status radio</code>, <code>status resources</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>one line each; bare <code>status</code> is the three lines</td>
+</tr>
+<tr>
+<td><code>check</code></td>
+<td>yes</td>
+<td>partly</td>
+<td>QoS and SoH verdicts with the CLI's bands and wording; the battery, tuning and settings checks are host only</td>
+</tr>
+<tr>
+<td><code>config check</code></td>
+<td>yes</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>monitor</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>capture state and ring fill</td>
+</tr>
+<tr>
+<td><code>monitor status</code>, <code>... health</code>, <code>... service</code>, <code>... rates</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>the host prints the Health Status, Service Status and Service Rates tables; the node prints <code>name=value</code> lines of the counters that are not zero</td>
+</tr>
+<tr>
+<td><code>monitor start</code>, <code>monitor stop</code>, <code>monitor clear</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>monitor capture [leaf on\|off]</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>leaves <code>enabled</code>, <code>rx</code>, <code>tx</code>, <code>radio</code>, <code>env</code>, <code>batt</code>, <code>tuning</code>, <code>event</code> (also <code>setting</code>, <code>command</code>, <code>route</code>, <code>debug</code>, the same bit) and <code>path</code></td>
+</tr>
+<tr>
+<td><code>monitor events</code></td>
+<td>yes</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>monitor tuning trial</code>, <code>... start [switch...\|all]</code>, <code>... stop</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>repeater role. <code>start</code> enables the named switches and turns the trial on, as on the host. The other trial subcommands are the <code>settings routing.tuning.trial.*</code> paths</td>
+</tr>
+<tr>
+<td><code>monitor tuning trial *</code></td>
+<td>yes</td>
+<td>no</td>
+<td>the other trial subcommands (<code>profile</code>, <code>enable</code>, <code>values</code>, <code>score</code>, <code>block_size_s</code>, ...) are the <code>settings routing.tuning.trial.*</code> paths</td>
+</tr>
+<tr>
+<td><code>monitor tuning</code>, <code>monitor tuning adaptive</code></td>
+<td>yes</td>
+<td>no</td>
+<td>the adaptive settings are <code>settings</code> paths</td>
+</tr>
+<tr>
+<td><code>monitor pull</code>, <code>monitor decode</code>, <code>monitor list</code>, <code>monitor debug</code>, <code>monitor watch</code>, <code>monitor plot *</code></td>
+<td>yes</td>
+<td>no</td>
+<td>records, charts and streams</td>
+</tr>
+<tr>
+<td><code>analyze *</code></td>
+<td>yes</td>
+<td>no</td>
+<td>works on downloaded files</td>
+</tr>
+<tr>
+<td><code>battery state [state]</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>reads, or forces the charge classifier to <code>charging</code>, <code>discharging</code>, <code>charged</code>, <code>plugged</code> or <code>unknown</code> (a test aid, RAM-only, refused while <code>battery.present</code> is <code>no</code>)</td>
+</tr>
+<tr>
+<td><code>battery calibrate</code></td>
+<td>yes</td>
+<td>yes</td>
+<td><code>battery calibrate &lt;volts&gt;</code> applies the voltmeter reading at once, on the node and on the host. On the host, without a reading it asks for one</td>
+</tr>
+<tr>
+<td><code>clock</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>the node prints its own time; drift against the host, setting a time and <code>--boot</code> need the host</td>
+</tr>
+<tr>
+<td><code>reboot</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>advert flood</code>, <code>advert direct</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>flood reaches the whole mesh, direct (zero-hop) only the nodes in radio range. The node's bare <code>advert</code> floods, the stock meaning; on the host a bare <code>advert</code> is direct. Use the explicit forms</td>
+</tr>
+<tr>
+<td><code>neighbors</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>repeater role: the node lists its live table, as <code>neighbors peek</code> does on the host</td>
+</tr>
+<tr>
+<td><code>neighbors peek</code>, <code>neighbors forget</code>, <code>neighbors discover</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>repeater role: <code>peek</code> lists the live table, <code>forget &lt;hex&gt;</code> prunes one entry (the host also takes names and comma lists), <code>discover [-t type]...</code> sends the request and the answers appear in <code>neighbors peek</code> (the host also has <code>--resolve</code>, <code>--timeout</code>, <code>--passive</code>)</td>
+</tr>
+<tr>
+<td><code>neighbors ping</code>, <code>probe</code>, <code>poke</code>, <code>resolve</code>, <code>promote</code>, <code>pull</code>, <code>update</code>, <code>remove</code></td>
+<td>yes</td>
+<td>no</td>
+<td>the probes wait for replies, the rest keep files on the host</td>
+</tr>
+<tr>
+<td><code>region tree</code>, <code>region allow</code>, <code>region deny</code>, <code>region put</code>, <code>region remove</code>, <code>region save</code>, <code>region def</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>repeater role, the node's own <code>region</code> command</td>
+</tr>
+<tr>
+<td><code>profile</code>, <code>profile clear</code></td>
+<td>yes</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>ota</code></td>
+<td>yes</td>
+<td>no</td>
+<td>the upload is the host's job; <code>start ota</code> on the node opens the receiver</td>
+</tr>
+<tr>
+<td><code>admin *</code>, <code>discover</code>, <code>trace</code></td>
+<td>yes</td>
+<td>no</td>
+<td>active mesh requests</td>
+</tr>
+<tr>
+<td><code>channels *</code>, <code>contacts *</code>, <code>messages *</code>, <code>traffic *</code></td>
+<td>yes</td>
+<td>no</td>
+<td>the app handles channels, contacts and messages</td>
+</tr>
+<tr>
+<td><code>config *</code></td>
+<td>yes</td>
+<td>no</td>
+<td>files and prompts on the host</td>
+</tr>
+<tr>
+<td><code>measure *</code>, <code>rxlog</code>, <code>run *</code></td>
+<td>yes</td>
+<td>no</td>
+<td>bench tools and scripts</td>
+</tr>
+<tr>
+<td><code>connect</code>, <code>release</code></td>
+<td>yes</td>
+<td>no</td>
+<td>the host session</td>
+</tr>
+<tr>
+<td><code>ver</code></td>
+<td>no</td>
+<td>yes</td>
+<td>firmware version and build date</td>
+</tr>
+</tbody>
+</table>
+<p>The older text commands (<code>get</code>, <code>set</code>, <code>ver</code>, <code>reboot</code>, <code>clock</code>, <code>region</code>, ...) keep working on the
+node. <a href="../phone-feed/#commands">Phone Feed</a> shows the console in use.</p>
+<h2 id="interactive-mode-and-completion">Interactive mode and completion<a class="headerlink" href="#interactive-mode-and-completion" title="Permanent link">&para;</a></h2>
+<p>Add <code>-i</code>/<code>--interactive</code> to connect once and open a <code>beebo(&lt;name&gt;) -&gt;</code> prompt instead of running a single command: every line typed there is dispatched over that same connection (history and tab completion via <code>prompt_toolkit</code>), until Ctrl-D or <code>exit</code>/<code>quit</code> disconnects. <code>beebo run</code> (curated scripts shipped in the package, plus anything dropped in <code>scripts_dir</code>, default <code>~/.beebo/scripts</code> — see <code>beebo run --list</code>) is built the same way every other command is, so a script run from inside <code>-i</code> reuses the live connection automatically; the same script also runs standalone (e.g. cron'd on a Raspberry Pi) without going through <code>beebo</code> at all.</p>
+<p>Beebo supports shell autocompletion out of the box (standard Typer <code>--install-completion</code>, for bash/zsh/fish) — run it once and tab-completion covers every command and option:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>--install-completion
+<span class="go">bash completion installed in /home/&lt;user&gt;/.bash_completions/beebo.sh</span>
+<span class="go">Completion will take effect once you restart the terminal</span>
+</code></pre></div>
+<p>That installed script only wires up completion for the literal <code>beebo</code>
+command, though -- symlinking a device alias (<code>ln -s $(which beebo)
+gatto</code> picks up its own <code>~/.beebo/nodes/gatto/profile.toml</code>) doesn't get tab
+completion for free, since Click derives the completion trigger from
+<code>sys.argv[0]</code>'s basename (<code>_GATTO_COMPLETE</code> for a <code>gatto</code> symlink, not
+<code>_BEEBO_COMPLETE</code>). Run <code>--install-completion</code> again through each alias
+you use and Typer generates that alias's own correctly-named file the
+same way:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>gatto<span class="w"> </span>--install-completion
+<span class="go">bash completion installed in /home/&lt;user&gt;/.bash_completions/gatto.sh</span>
+</code></pre></div>
+<h2 id="node-status-and-control">Node status and control<a class="headerlink" href="#node-status-and-control" title="Permanent link">&para;</a></h2>
+<p>Each command has its own <code>--help</code>. For example, <code>status</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>status<span class="w"> </span>--help
+
+<span class="go"> Usage: beebo status [OPTIONS] COMMAND [ARGS]...</span>
+
+<span class="go"> Runtime node, radio, resource status.</span>
+
+<span class="go">╭─ Options ────────────────────────────────────────────────────────────────────╮</span>
+<span class="go">│ --timing            Print per-command round-trip latency to diagnose which   │</span>
+<span class="go">│                     query dominates.                                         │</span>
+<span class="go">│ --help    -h        Show this message and exit.                              │</span>
+<span class="go">╰──────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="go">╭─ Commands ───────────────────────────────────────────────────────────────────╮</span>
+<span class="go">│ node       Identity (name, role, model, version, build, transport), uptime,  │</span>
+<span class="go">│            battery, MCU temp.                                                │</span>
+<span class="go">│ radio      Noise floor, last RSSI/SNR, TX/RX airtime.                        │</span>
+<span class="go">│ resources  Heap/PSRAM/flash usage, MCU temp, contacts, pending messages,     │</span>
+<span class="go">│            MonRing state.                                                    │</span>
+<span class="go">╰──────────────────────────────────────────────────────────────────────────────╯</span>
+</code></pre></div>
+<p>Running <code>beebo status</code> with no subcommand prints the node, radio and resources sections (packet counters are under <code>beebo monitor status</code>) against our example companion node:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>status
+<span class="go">                     Node</span>
+<span class="go">╭────────────┬─────────────────────────────────────╮</span>
+<span class="go">│ Name       │ Beebo                               │</span>
+<span class="go">│ Role       │ companion                           │</span>
+<span class="go">│ Model      │ Heltec V4.3 Headless                │</span>
+<span class="go">│ Version    │ 1.18.0.beebo.1.0                    │</span>
+<span class="go">│ Build      │ 22 Sep 2026                         │</span>
+<span class="go">│ Device ID  │ f8:5b:1b:be:d1:ec                   │</span>
+<span class="go">│ Transport  │ tcp                                 │</span>
+<span class="go">│ WiFi RSSI  │ -58 dBm                             │</span>
+<span class="go">│ Uptime     │ 6h 49m 38s                          │</span>
+<span class="go">│ PWR Supply │ 4.400 V ⚡ Plugged                  │</span>
+<span class="go">│ MCU Temp   │ 50.9 °C                             │</span>
+<span class="go">│ SoH        │ 100.0%                              │</span>
+<span class="go">╰────────────┴─────────────────────────────────────╯</span>
+<span class="go">          Radio</span>
+<span class="go">╭─────────────┬─────────╮</span>
+<span class="go">│ Noise Floor │ -85 dBm │</span>
+<span class="go">│ Last RSSI   │ -99 dBm │</span>
+<span class="go">│ Last SNR    │ -9.2 dB │</span>
+<span class="go">│ TX Airtime  │ 1 s     │</span>
+<span class="go">│ RX Airtime  │ 3057 s  │</span>
+<span class="go">╰─────────────┴─────────╯</span>
+<span class="go">                    Resources</span>
+<span class="go">╭──────────┬─────────────────────────────────────╮</span>
+<span class="go">│ Memory   │ █████████████████░░░  (512 kB)      │</span>
+<span class="go">│ PSRAM    │ ██████████░░░░░░░░░░  (2.0 MB)      │</span>
+<span class="go">│ Storage  │ ██████████████░░░░░░  (16.0 MB)     │</span>
+<span class="go">│ Time     │ █░░░░░░░░░░░░░░░░░░░  (100%)        │</span>
+<span class="go">│   Busy   │ rx 4.10% / tx 0.02% / lx 0.31% /    │</span>
+<span class="go">│          │ sys 1.20% / idle 94.37%             │</span>
+<span class="go">│ Loop     │ 41,200/s, max 12ms                  │</span>
+<span class="go">│ Contacts │ 350                                 │</span>
+<span class="go">│ Messages │ 255 awaiting read                   │</span>
+<span class="go">│ MonRing  │ 14,800 / 65,536 records (capturing) │</span>
+<span class="go">╰──────────┴─────────────────────────────────────╯</span>
+</code></pre></div>
+<p><code>beebo status node</code> (or <code>radio</code>, <code>resources</code>) prints just one section. Packet counters and the drop/fault totals are under <code>beebo monitor status</code> (<code>health</code>, <code>service</code> or <code>rates</code> prints one table).</p>
+<ul>
+<li><strong><code>reboot</code></strong> — reboot the node and synchronize its clock. No options.</li>
+<li><strong><code>advert flood</code></strong>, <strong><code>advert direct</code></strong> — send a self advert to the whole mesh, or zero-hop to the nodes in radio range. A bare <code>advert</code> sends a direct one.</li>
+<li><strong><code>clock</code></strong> — show <code>Device</code>/<code>Source</code> from the connection's own auto-sync (see <a href="../internals/#auto-time-sync">Auto Time Sync</a>) with no extra round trip; <code>clock TIME</code> sets the device clock to an explicit epoch instead; <code>--boot</code> forces an immediate corrective reboot if the device is found ahead (the RTC cannot go backwards).</li>
+<li><strong><code>ota &lt;firmware.bin&gt;</code></strong> — upload a firmware image over the air (see <a href="../update/#over-the-air-ota-fw-update">Update and Service a Node</a> for the full procedure, chunking, and progress display). <code>--priority</code>/<code>--no-priority</code> controls whether the node skips radio dispatch during the transfer (every transport; on by default).</li>
+</ul>
+<h3 id="battery">Battery<a class="headerlink" href="#battery" title="Permanent link">&para;</a></h3>
+<p>How the state is derived, and how to calibrate the ADC, is on <a href="../battery/">Battery State and Calibration</a>.</p>
+<p><code>battery state</code> reports the raw <code>BATT_STATE_*</code> classifier value from <code>BattTrend.h</code> alongside the rendered symbol, separately from <code>status node</code>, since the two can disagree while a trend is settling:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>battery<span class="w"> </span>--help
+
+<span class="go"> Usage: beebo battery [OPTIONS] COMMAND [ARGS]...</span>
+
+<span class="go"> Battery monitoring and management.</span>
+
+<span class="go">╭─ Commands ───────────────────────────────────────────────────────────────────╮</span>
+<span class="go">│ state      Voltage, the raw BATT_STATE_* classifier state from BattTrend.h,  │</span>
+<span class="go">│            and the symbol `status node` would render. Give VALUE to force   │</span>
+<span class="go">│            the state instead of just reading it.                            │</span>
+<span class="go">│ calibrate  Measure Vbat with a voltmeter and calibrate board.adc.multiplier. │</span>
+<span class="go">╰──────────────────────────────────────────────────────────────────────────────╯</span>
+</code></pre></div>
+<p><code>battery calibrate</code> reads the node's currently-reported voltage and <code>board.adc.multiplier</code>, asks for a real voltmeter reading at the Vbat JST pigtail (defaulting to 4.2V, the V4.3 regulator's charge setpoint, which a fully charged battery sits at — accepting the default recalibrates against the reported-vs-expected gap with no meter in hand, so charge the battery fully and set <code>board.battery.present</code> to <code>yes</code> first), and solves for the new multiplier linearly. Given the reading as an argument (<code>battery calibrate 4.18</code>) it applies it at once, as the node console does; <code>--yes/-y</code> skips the prompts for scripted/cron use. It's also the first <code>beebo run</code> use-case script (<code>beebo run calibrate-vbat</code>, same command either way) and doubles as a standalone script — see <code>beebo run --list</code>.</p>
+<h2 id="identity-and-saved-configurations">Identity and saved configurations<a class="headerlink" href="#identity-and-saved-configurations" title="Permanent link">&para;</a></h2>
+<p>Identity management lives under <code>beebo config</code>, alongside the rest of the
+node-identity and profile management (<code>beebo config --help</code> lists all of these).</p>
+<ul>
+<li><strong><code>config identity</code></strong> — show the device's current identity (public key), or replace it with <code>import FILE</code>, or save it with <code>export [FILE]</code>/<code>save</code>. Without <code>FILE</code>, <code>export</code> (and its <code>save</code> shorthand) writes to <code>BEEBO_ROOT/nodes/&lt;node&gt;/identity.json</code>, the node's own directory in the config fs layout (<code>$BEEBO_ROOT</code> is <code>~/.beebo</code> by default). <code>generate [FILE]</code> creates a brand new Ed25519 keypair purely locally (no device connection) and saves it the same way — pair it with a separate <code>import FILE</code> to apply it to a device. Replacing the identity invalidates every contact's cached shared secret on the device and changes the hash the node is known by on the mesh — existing peers see it as a new, unrecognized node until they re-hear its advert. The table below lists the subcommands.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Example</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>config identity</code></td>
+<td><code>beebo config identity</code></td>
+<td>Print the connected device's current public key and name.</td>
+</tr>
+<tr>
+<td><code>config identity export [FILE] [--role ROLE]</code></td>
+<td><code>beebo config identity export --role repeater</code></td>
+<td>Save the device's keypair to <code>FILE</code> (default <code>BEEBO_ROOT/nodes/&lt;node&gt;/identity.json</code>).</td>
+</tr>
+<tr>
+<td><code>config identity save [--role ROLE]</code></td>
+<td><code>beebo config identity save</code></td>
+<td>Shorthand for <code>export</code> with no <code>FILE</code>.</td>
+</tr>
+<tr>
+<td><code>config identity import FILE [--role ROLE] [--yes]</code></td>
+<td><code>beebo config identity import backup.json</code></td>
+<td>Replace the device's identity with a saved keypair.</td>
+</tr>
+<tr>
+<td><code>config identity generate [FILE] [--role ROLE]</code></td>
+<td><code>beebo config identity generate --role companion</code></td>
+<td>Generate a brand-new keypair locally (no device connection) and save it.</td>
+</tr>
+<tr>
+<td><code>config create ROLE NAME [--copy EXISTING]</code></td>
+<td><code>beebo config create repeater gatto</code></td>
+<td>Generate a fresh named identity purely locally, under <code>nodes/NAME/</code>.</td>
+</tr>
+<tr>
+<td><code>config switch NAME [--yes]</code></td>
+<td><code>beebo -t gatto config switch gatto</code></td>
+<td>Apply a saved named identity to the connected board (import keypair + set name + role-switch-if-needed + reboot, atomic).</td>
+</tr>
+<tr>
+<td><code>config list [KIND]</code></td>
+<td><code>beebo config list nodes</code></td>
+<td>List saved <code>configs</code>, <code>templates</code>, <code>backups</code> and/or <code>nodes</code> (named identities).</td>
+</tr>
+<tr>
+<td><code>config delete KIND NAME [--role ROLE] [--yes]</code></td>
+<td><code>beebo config delete node old-name</code></td>
+<td>Delete one saved <code>config</code>, <code>template</code>, <code>backup</code> or <code>node</code>.</td>
+</tr>
+<tr>
+<td><code>config show NAME [PATH]</code></td>
+<td><code>beebo config show gatto repeater.radio</code></td>
+<td>Print a saved configuration's values (offline), optionally narrowed to a settings path.</td>
+</tr>
+<tr>
+<td><code>config pull [NAME] [PATHS...] [--role ROLE] [--factory]</code></td>
+<td><code>beebo config pull</code></td>
+<td>Snapshot the live device's settings into a named file (default <code>&lt;node&gt;-&lt;role&gt;</code>); <code>--factory</code> also writes verified firmware defaults as a validation template.</td>
+</tr>
+<tr>
+<td><code>config diff [NAME] [PATHS...] [--role ROLE]</code></td>
+<td><code>beebo config diff</code></td>
+<td>Compare a saved configuration against the live device.</td>
+</tr>
+<tr>
+<td><code>config push [NAME] [PATHS...] [--role ROLE] [--confirm]</code></td>
+<td><code>beebo config push</code></td>
+<td>Apply a saved configuration to the live device (<code>--confirm</code> asks per changed setting).</td>
+</tr>
+<tr>
+<td><code>config onboard [SAVE_AS] [--against TEMPLATE] [--default]</code></td>
+<td><code>beebo config onboard</code></td>
+<td>Guided first-time setup, prompting through each templated setting.</td>
+</tr>
+<tr>
+<td><code>config check [--role ROLE] [--against TEMPLATE] [--fix]</code></td>
+<td><code>beebo config check</code></td>
+<td>Validate live settings against a template's <code>[ranges]</code>/<code>[defaults]</code> (default <code>factory</code>), optionally auto-fixing.</td>
+</tr>
+<tr>
+<td><code>config backup [NAME] [--note TEXT]</code></td>
+<td><code>beebo config backup</code></td>
+<td>Password-gated snapshot of every secret (WiFi/repeater/guest passwords) plus settings, to <code>devices/&lt;board&gt;/recovery/</code>.</td>
+</tr>
+<tr>
+<td><code>config recover NAME</code></td>
+<td><code>beebo config recover 2026-08-20T10-00-00</code></td>
+<td>Restore a device from a prior <code>config backup</code> snapshot.</td>
+</tr>
+</tbody>
+</table>
+<p><code>--role companion|repeater|all</code> on <code>pull</code>, <code>diff</code>, <code>push</code> and <code>check</code> targets that role's persisted settings without switching <code>board.node.role</code>. <code>PATHS</code> are dotted settings-path prefixes (for example <code>board repeater.routing</code>) restricting what is captured, compared or applied; when given, <code>NAME</code> must be given first.</p>
+<h3 id="guided-setup-and-saved-configurations">Guided setup and saved configurations<a class="headerlink" href="#guided-setup-and-saved-configurations" title="Permanent link">&para;</a></h3>
+<p>Once connected over USB or BLE (WiFi needs its credentials first, from the app or the command line, see <a href="../getting-started/#connecting-with-wifi">Install and Connect</a>), the fastest way to configure a fresh device
+is <code>beebo config onboard</code> — a guided, question-driven wizard that
+walks through node name, role (companion/repeater), a LoRa region preset,
+the repeater admin password (forced if it's still the firmware's public
+default), and WiFi/TCP provisioning, defaulting every question to the
+device's current value so it's also safe to re-run later as a review:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>-u<span class="w"> </span>/dev/ttyACM0<span class="w"> </span>config<span class="w"> </span>onboard
+<span class="go">beebo onboard -- guided setup. Press Enter to keep the current value;</span>
+<span class="go">safe to re-run on an already-configured device.</span>
+
+<span class="go">Node name [beebo]: gatto</span>
+<span class="go">Node role [companion/repeater] (companion): repeater</span>
+<span class="go">Set a LoRa region preset? (current: (custom)) [y/n]: n</span>
+<span class="go">The repeater admin password is still the firmware&#39;s built-in default --</span>
+<span class="go">that default is public and known, so this isn&#39;t optional.</span>
+<span class="go">New repeater.admin.password: ********</span>
+<span class="go">Confirm new repeater.admin.password: ********</span>
+<span class="go">Set a guest password too? [y/n]: n</span>
+<span class="go">Enable WiFi (TCP transport)? [y/n]: y</span>
+<span class="go">WiFi SSID [myssid]: myssid</span>
+<span class="go">Set/change the WiFi password? [y/n]: y</span>
+<span class="go">New companion.node.wifi.password: ********</span>
+<span class="go">Confirm new companion.node.wifi.password: ********</span>
+
+<span class="go">Setup complete.</span>
+<span class="go">Save this as a named configuration? [y/n]: y</span>
+<span class="go">Configuration name: home-repeater</span>
+<span class="go">Saved as &#39;home-repeater&#39;: 41 setting(s) captured, 2 secret(s) skipped.</span>
+</code></pre></div>
+<p>That last save step is the other half of <code>beebo config</code>: a saved
+name captures the whole (role-filtered) settings tree and can later be
+compared or re-applied to any device —</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>-t<span class="w"> </span>gatto<span class="w"> </span>config<span class="w"> </span>diff<span class="w"> </span>home-repeater<span class="w">      </span><span class="c1"># what&#39;s changed since?</span>
+<span class="gp">$ </span>beebo<span class="w"> </span>-t<span class="w"> </span>gatto<span class="w"> </span>config<span class="w"> </span>push<span class="w"> </span>home-repeater<span class="w">      </span><span class="c1"># push it back</span>
+<span class="gp">$ </span>beebo<span class="w"> </span>-t<span class="w"> </span>gatto<span class="w"> </span>config<span class="w"> </span>check<span class="w">                   </span><span class="c1"># sanity/completeness check-up</span>
+<span class="gp">$ </span>beebo<span class="w"> </span>config<span class="w"> </span>list<span class="w">                              </span><span class="c1"># every saved configuration</span>
+</code></pre></div>
+<p>NAME is optional on <code>pull</code>/<code>diff</code>/<code>push</code> -- it defaults to
+<code>&lt;node_name&gt;-&lt;role&gt;</code>, built from whatever device you're connected to.</p>
+<p><code>config push</code> only writes settings that actually differ, batched
+into a single flash write where the firmware supports it, and offers to
+reboot at the end only if something it changed actually needs one.
+<code>config check</code> is the settings-only half of <code>beebo check</code> — unset
+owner info, a LoRa setup matching no known preset, a still-default admin
+password, that sort of thing — worth running before handing a repeater off.
+<code>beebo check</code> adds the live health verdicts (delivery, battery, tuning).</p>
+<p>The wizard drives the same one-setting-at-a-time <code>beebo settings</code> commands
+shown in <a href="../settings/">Settings</a> — use those directly for scripting, or for
+anything the wizard doesn't ask about (<code>beebo settings --help</code> covers the full
+tree).</p>
+<h2 id="regions">Regions<a class="headerlink" href="#regions" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Example</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>region tree</code></td>
+<td><code>gatto region tree</code></td>
+<td>Show the region hierarchy (green = flood-allowed, red = flood-denied, ★ = home).</td>
+</tr>
+<tr>
+<td><code>region put NAME [PARENT]</code></td>
+<td><code>gatto region put pnw</code></td>
+<td>Define a region, or re-parent an existing one.</td>
+</tr>
+<tr>
+<td><code>region remove NAME</code></td>
+<td><code>gatto region remove pnw</code></td>
+<td>Remove a region (must have no children).</td>
+</tr>
+<tr>
+<td><code>region allow NAME</code></td>
+<td><code>gatto region allow pnw</code></td>
+<td>Allow flood traffic tagged with this region to be relayed.</td>
+</tr>
+<tr>
+<td><code>region deny NAME</code></td>
+<td><code>gatto region deny pnw</code></td>
+<td>Deny (stop relaying) flood traffic tagged with this region.</td>
+</tr>
+<tr>
+<td><code>region def SEGMENTS</code></td>
+<td><code>gatto region def "west pnw|pdx wa|kls or wv,sle"</code></td>
+<td>Bulk-define a region subtree in one round trip.</td>
+</tr>
+<tr>
+<td><code>region save</code></td>
+<td><code>gatto region save</code></td>
+<td>Explicitly persist the region tree (every other subcommand already auto-persists).</td>
+</tr>
+</tbody>
+</table>
+<p><code>beebo settings repeater.node.region.home</code> (home region) and
+<code>repeater.node.region.default</code> (default region) are reached through
+<a href="../settings/#settings">Settings</a>, not <code>region</code> — <code>region</code> itself only manages the
+RegionMap tree/flood-policy structure.</p>
+<h2 id="mesh-discovery-and-routing">Mesh discovery and routing<a class="headerlink" href="#mesh-discovery-and-routing" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>discover [filter]</code></strong> — probe the mesh for nodes and show each responder's type and link SNR. <code>filter</code> narrows by node type (<code>all</code>, an int mask, or a comma list of <code>cli</code>/<code>rep</code>/<code>room</code>/<code>sens</code>); <code>--timeout</code> sets how long to wait for stragglers, <code>--full</code> requests full 32-byte public keys instead of prefixes.</li>
+</ul>
+<p><div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>discover<span class="w"> </span>rep,room<span class="w"> </span>--timeout<span class="w"> </span><span class="m">8</span>
+</code></pre></div>
+- <strong><code>trace &lt;target&gt;</code></strong> — trace the path to a target (contact name, public-key hex prefix, or a raw path) and print each hop's SNR.
+- <strong><code>neighbors</code></strong> — the node's own RAM-only table of everything heard via a <em>zero-hop</em> advert (<code>CMD_GET_NEIGHBORS</code>), independent of the saved contact list — useful because auto-add is usually off on a busy mesh, so a real immediate neighbor often isn't a saved contact yet. Subcommands: <code>discover</code> (send a direct advert, wait, then list what was heard), <code>pull</code> (re-query the table, merge it into <code>neighbors.json</code> and list the merged view), <code>peek</code> (the live RAM table only, without the cache), <code>resolve &lt;id&gt;</code> (request a neighbor's name/owner string), <code>probe &lt;id&gt;</code> (zero-hop reachability check of one neighbor), <code>promote &lt;id&gt;</code> (save a neighbor as a node contact), <code>remove &lt;id&gt;</code> (delete a previously promoted contact), <code>forget &lt;id&gt;</code> (prune an entry from the neighbor table itself, RAM-only, mirrors the text CLI's <code>neighbor.remove</code>), plus <code>ping</code> and <code>poke</code> (see below). <code>beebo contacts refresh</code> also merges these neighbors into the resolver cache and promotes fresh ones automatically.
+- <strong><code>contacts</code></strong> — list (offline, from the local <code>contacts.json</code> cache) or refresh (<code>contacts refresh</code>, re-queries the node and merges) the contact list, with heavy filtering (<code>--name</code>, <code>--hash</code>, <code>--type</code>, <code>--neighbors</code>, <code>--active</code>/<code>--inactive</code>, <code>--located</code>, <code>--near KM</code>, <code>--collisions</code>) and sort/group options for large meshes. <code>contacts active &lt;target&gt;</code> (or <code>--off</code>) flags a cached node reachable/unreachable by hand; <code>contacts remove &lt;name|hash&gt;...</code> deletes contacts from the node (<code>--all</code> removes every one, <code>--yes</code> skips the prompt), including ones that are not direct neighbors; <code>contacts free-1b</code> lists unused 1-byte hash prefixes, handy when hand-picking a distinguishable node name. Backs the neighbor-name resolution used by <code>rxlog</code>, <code>discover</code>, <code>trace</code>, and others.</p>
+<h3 id="beebo-neighbors-update-complete-partial-neighbors-from-a-node-directory"><code>beebo neighbors update</code> — complete partial neighbors from a node directory<a class="headerlink" href="#beebo-neighbors-update-complete-partial-neighbors-from-a-node-directory" title="Permanent link">&para;</a></h3>
+<p>A neighbor heard only through a control or relayed packet is saved in <code>neighbors.json</code> with just a 1-3 byte key prefix, no name and no location. <code>beebo neighbors update</code> completes those entries from a mesh node directory, the <code>directory.json</code> downloaded from cascadiamesh.org and placed in <code>$BEEBO_ROOT/mesh/</code>. It is offline and never connects to a device.</p>
+<p>An entry is completed only when its prefix matches exactly one node in the whole directory (a 1-byte prefix shared by several nodes never qualifies) and that node is within <code>--max-km</code> (default 100) of this node's own location. That location is recorded in <code>neighbors.json</code> (the <code>self</code> block) by <code>beebo neighbors pull</code>, which reads it from the node: the repeater's <code>repeater.coords</code>, or the companion's advertised location. A companion node also has it in <code>contacts.json</code>. Run <code>neighbors pull</code> once if <code>update</code> says the location is unknown, or give it explicitly with <code>--origin LAT,LON</code>. The name, type and location fill the blanks, and the key becomes the full 32-byte one. The proposals are shown in a table first, and nothing is written until you answer <code>y</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>gatto<span class="w"> </span>neighbors<span class="w"> </span>update
+<span class="gp">$ </span>gatto<span class="w"> </span>neighbors<span class="w"> </span>update<span class="w"> </span>--max-km<span class="w"> </span><span class="m">30</span><span class="w"> </span>--dry-run
+<span class="gp">$ </span>gatto<span class="w"> </span>neighbors<span class="w"> </span>update<span class="w"> </span>--yes
+</code></pre></div>
+<p><code>--dry-run</code> only prints the proposals and <code>--yes</code> applies them without asking. The table caption counts the entries that were skipped and why (ambiguous prefix, too far, not in the directory, no location in the directory).</p>
+<h3 id="beebo-neighbors-poke-and-beebo-neighbors-ping-single-peer-on-demand-checks"><code>beebo neighbors poke</code> and <code>beebo neighbors ping</code> — single-peer, on-demand checks<a class="headerlink" href="#beebo-neighbors-poke-and-beebo-neighbors-ping-single-peer-on-demand-checks" title="Permanent link">&para;</a></h3>
+<p><code>rxlog --compare</code> needs organic RX traffic to accumulate its samples, which can be slow against a quiet or distant neighbor. <code>beebo neighbors poke</code> and <code>beebo neighbors ping</code> get a data point on demand instead, useful for a quick manual before/after check against one specific direct neighbor around a manual <code>beebo settings companion.fem.rxgain on|off</code> toggle — both target a known direct (zero-hop) neighbor, resolved by name or public-key prefix against <code>neighbors.json</code> (run <code>beebo neighbors pull</code> first to populate/update it):</p>
+<ul>
+<li><strong><code>beebo neighbors poke &lt;target&gt; --pokes N</code></strong> sends a direct-route round trip and asks the neighbor to report <strong>its own</strong> atomically-measured RSSI/SNR/noise-floor for the poke it just received, alongside our own reading of its reply — unlike a trace/ping round trip, which only ever reports SNR back to us, a poke tells us how well <em>the other side</em> is hearing <em>us</em>, and gives us a fresh RX reading of our own in the same exchange:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>gatto<span class="w"> </span>neighbors<span class="w"> </span>poke<span class="w"> </span>beebo<span class="w"> </span>--pokes<span class="w"> </span><span class="m">5</span>
+</code></pre></div>
+<ul>
+<li><strong><code>beebo neighbors ping &lt;target&gt; --converge</code></strong> runs repeated direct-trace round trips until the SNR mean statistically converges, tagging its output filename with the LNA state in force at the time (<code>..._lna_on_...</code>/<code>..._lna_off_...</code>) — run once per LNA state against the same peer and compare the two converged means directly.</li>
+</ul>
+<h2 id="channels-and-messages">Channels and messages<a class="headerlink" href="#channels-and-messages" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>channels</code></strong> (companion only) — <code>list</code>, <code>get</code>, <code>set IDX NAME</code>, <code>remove</code>, <code>send CHANNEL TEXT [--max-hops N]</code>, <code>push</code>, <code>pull</code> manage the node's group-channel slots. A <code>#name</code> channel derives its public secret; any other name needs <code>--secret HEX</code> or <code>--random</code>. Every <code>set</code> records the channel in <code>&lt;root&gt;/mesh/channels.json</code> (mode 0600, keyed by name), which <code>push</code> writes to a node and <code>pull</code> fills from one, so nodes share a private channel. <code>--max-hops N</code> (1-21; 0 = no limit) limits how many repeaters forward the message, whatever their own settings, by sending it with a pre-filled path.</li>
+<li><strong><code>traffic send CHANNEL --rate N</code></strong> — injects fixed-size flood group messages at a constant rate per minute (<code>--size</code>, <code>--duration</code> or <code>--count</code>, <code>--max-hops</code>), so a quiet mesh still gives a tuned node the RX rate <code>tuning.trial.min_pkt_rate</code> requires.</li>
+<li><strong><code>messages download</code></strong> / <strong><code>messages send</code></strong> — <code>download</code> drains the full pending message backlog (<code>CMD_SYNC_NEXT_MESSAGE</code> looped until empty) across every channel and direct contact, saving to CSV or JSON (<code>--format</code>); <code>send &lt;target&gt; &lt;text&gt;</code> sends a direct message and reports whether it was ACK'd or timed out. Every message is tagged with the radio's rxgain/fem.rxgain at receive time and carries rxlog-comparable SNR/RSSI/path fields, so a backlog drain doubles as another source of LNA on/off data.</li>
+<li><strong><code>traffic sustain [CHANNEL --rate N | --off]</code></strong> — companion only: the node itself sends flood group messages on a private channel, at random (Poisson-spaced) times and at most one every 2 s, only while the packets it hears per minute are below N, so a tuned repeater nearby keeps its <code>tuning.trial.min_pkt_rate</code> without a held connection. RAM-only: a reboot or role switch stops it. No arguments shows the state.</li>
+</ul>
+<h2 id="monitoring-and-diagnostics">Monitoring and diagnostics<a class="headerlink" href="#monitoring-and-diagnostics" title="Permanent link">&para;</a></h2>
+<ul>
+<li>
+<p><strong><code>monitor</code></strong> — controls for the always-on background capture ring. With no subcommand it shows the ring's fill, capture state, window and packet totals, and an RX-conditions histogram. Its subcommands are below; <a href="../monitoring/#monitoring">Monitoring</a> has the full record-kind and event-type reference.</p>
+</li>
+<li>
+<p><code>monitor status [health|service|rates]</code>: the lifetime drop and fault counters plus the live RX, TX, CLI and idle time split. Bare, it prints three tables; a section name prints one.</p>
+</li>
+<li><code>monitor start</code>, <code>monitor stop</code>: resume or pause the capture (the same as <code>monitor.enabled on|off</code>). <code>monitor clear</code> empties the ring.</li>
+<li><code>monitor capture [leaf] [on|off]</code>: read or set which record kinds are captured: <code>enabled</code>, <code>rx</code>, <code>tx</code>, <code>radio</code>, <code>env</code>, <code>batt</code>, <code>tuning</code>, <code>event</code> and <code>path</code>.</li>
+<li><code>monitor events [name] [on|off]</code>: a finer, RAM-only filter per event type.</li>
+<li><code>monitor pull</code>: fetch the ring's raw records into a local per-node dataset, incremental by default. <code>--full</code> refetches everything, <code>--clear</code> empties the ring afterwards, and <code>--to NAME</code> appends everything to one file <code>NAME.bin</code> with its own resume cursor (read it back with <code>--from NAME</code> on <code>decode</code> and <code>analyze tuning trial</code> or <code>effect</code>). <code>monitor list</code> shows per-file and per-kind counts of what has been pulled.</li>
+<li><code>monitor decode</code>: view and filter that dataset as a console table, or <code>--save</code> it as CSV or JSON split per radio-config profile under <code>~/.beebo/nodes/&lt;node&gt;/data/&lt;radio_profile&gt;/</code>. See <a href="../analysis/#in-field-lna-comparison">Analysis and In-Field LNA Comparison</a> for how this feeds <code>beebo analyze</code>.</li>
+<li><code>monitor tuning trial</code> and <code>monitor tuning adaptive</code>: the tuning session at a glance, below. All take <code>--json</code>, and the views write nothing to disk.</li>
+</ul>
+<p><code>monitor tuning trial</code> prints a state line (off, running a switch, waiting for RX traffic, idle), then per switch in run order its stored value, value list and status (running n/blocks plus the side of the running block, A or B in the A B B A order; next, waiting, queued, pending, decided, off). It also lists every trial the live ring holds, oldest first: A, B, the pairs used of those planned, N (the counts per block that set its noise: confirmed deliveries for the default score), the Change (mean ± SE per pair), Bounds (the decision interval at the pairs so far; adopt B when its lower end is above 0), Conf (the confidence that interval amounts to, to compare with <code>confidence_pct</code>), the Verdict (use A or use B) and the duration. Its subcommands:</p>
+<ul>
+<li><code>start [SWITCH...|all]</code> starts the sequence, and is refused while it is already on. <code>stop</code> turns it off and aborts a running trial.</li>
+<li><code>enable|disable SWITCH...|all</code> changes only the named switches' enable bits.</li>
+<li><code>values SWITCH [A,B,...]</code> shows or sets a switch's value list (A, then up to three challengers, in the setting's own units); <code>values default [SWITCH|all]</code> resets lists.</li>
+<li><code>score [routed|delivered|received] [WEIGHT]</code> shows or sets the <a href="../trial-reference/">score</a> weights in tenths.</li>
+<li><code>profile</code> (<code>main</code> or <code>exhaustive</code>, see <a href="../trial-reference/">the setting trial</a>), <code>gain</code> (<code>min_gain_pct</code>), <code>confidence</code> (<code>confidence_pct</code>), <code>min_pkt_rate</code>, <code>block_count</code> and <code>block_size_s</code> (0 = planned from the node's traffic, see <a href="../trial-reference/">Automatic schedule</a>), and <code>combined</code> (on or off: one <a href="../trial-reference/">combined trial</a> of the selected switches instead of one per switch) show or set the matching setting.</li>
+<li>Every set and reset is refused while the trial is on: <code>stop</code> it first. <code>monitor tuning adaptive</code> shows the adaptive tuner's settings and the latest proposal per parameter.</li>
+<li><strong><code>monitor debug</code></strong> / <strong><code>monitor watch</code></strong> — stream the firmware's live debug and monitor-ring events (transport connect/disconnect/lock, faults, ...); <code>debug</code> replays the ring's current backlog first, <code>watch</code> shows only events from now on (see <a href="../internals/#diagnostics-and-protocol-additions">Diagnostics and Protocol Additions</a>).</li>
+<li><strong><code>monitor plot rssi</code></strong> — live chart of each received packet's RSSI per last-hop neighbor (every neighbor heard, or the <code>--top N</code> most heard, or <code>-n HEX</code> to pick) plus the noise floor, with a table of last RSSI, average over the window, best since the start, packets in the window and packets per minute for each neighbor, and a line with the total rate of all packets, updated per packet, and a level line at the best RSSI since the start; for placing an antenna. <code>--span</code> sets the rolling window the average and the rate cover (shorter reacts faster to antenna moves; the rate is over the time seen until the window is full); <code>--grid</code> adds a dim dotted grid and minor ticks where there is room.</li>
+<li><strong><code>monitor plot tuning indicators [INDICATOR]...</code></strong> — live charts of the tuning indicators, the charts of <code>analyze tuning indicators</code> (Score, Routed, Delivered, Received, Neighbors, Busy, RSSI, SNR), drawn and updated like <code>monitor plot rssi</code>: a dot at each measured point, the last <code>--span</code> seconds (default 60), <code>--grid</code> for a dotted grid, and a readout under the charts (now, average, min, max, point count, age and unit per line). Each chart title says what it measures and over how long, for example <code>Received: packets/min, trailing 15s</code>: the rate is the packets heard in the last 15 s scaled to a minute, so it moves in steps of 4 per packet and falls back when traffic stops. It starts empty and fills as records arrive, like <code>plot rssi</code>; once the first record has arrived the chart stays, and a node that hears nothing reads 0 a minute; Errors, Pool and CAD come from the <code>route_stats</code> event the firmware logs once a minute and only when a value changed, so Errors holds the last interval's rate (0 until the first) and Pool and CAD show <code>-</code> until one arrives; until a window has been watched, a rate is what was heard so far, scaled to a minute. <code>--replay</code> fills it from the ring first: the whole ring plays oldest first, minutes on a full one, with the chart following it forward in time until it reaches the present, so it only helps a long <code>--span</code>. Each line is a moving average: the indicator over the trailing <code>--window</code> seconds (default 15; rates are per minute over it), with the definitions of <code>analyze</code>, evaluated on a regular time grid and at each event, with a dot at each event. It follows every event and steps back down as events leave the window, to 0 once none come. Names pick the charts as in <code>analyze</code> (<code>monitor plot tuning indicators received delivered</code>; case and spaces ignored, a unique part of the name is enough, <code>all</code> for every chart; default Score), and <code>--score NAME=WEIGHT,...</code> re-scores. Charts that do not fit the terminal are left out with a note. Ctrl-D or Ctrl-C quits.</li>
+<li><strong><code>monitor plot tuning trial</code></strong> — live view of the setting trial, re-reading the monitor ring every 30 s (<code>--every</code>): the running block, its side (A or B) and time left, the A B B A strip, the paired statistics so far and a chart of A and B per pair. Follows the running trial, else the latest; <code>--switch NAME</code> pins one, names after <code>trial</code> pick the charts: Score or indicators of <code>analyze tuning indicators</code> (<code>monitor plot trial received delivered</code>; case and spaces ignored, a unique part of the name is enough, <code>all</code> for every chart). Ctrl-D or Ctrl-C quits. <code>--score NAME=WEIGHT,...</code> re-scores the trial with other score weights, as in <code>analyze tuning trial</code>. </li>
+<li><strong><code>profile</code></strong> — the command-latency profiling ring: merges the firmware's own per-command timing with the host-side round-trip log recorded when the global <code>--profile</code> flag is set, sorted/limited/filtered with <code>--sort</code>, <code>--reverse</code>, <code>--limit</code>; <code>--raw</code> prints the firmware's raw per-event timeline instead of the aggregated table. <code>profile clear</code> resets both rings.</li>
+<li><strong><code>check</code></strong> — a one-shot health check-up: a per-indicator verdict (OK/INFO/PENDING/WARN/FAIL) covering QoS, RoS, SoH, the settings checks (TX power, RX/FEM gain, PIN, password, dedup window, ...), battery, and the dynamic-tuning optimizer's state (see <a href="../tuning/">Performance Tuning</a>). Reads the monitor ring's live counters and latest resident snapshot the same way <code>monitor pull</code> does — nothing new is captured, this just turns what's already being collected into a verdict per indicator instead of cross-referencing several commands by hand. See <a href="../health/">Health Report</a> for what each indicator means and where its data comes from. <code>multi_role</code> only (no legacy <code>simple_repeater</code>/<code>-r</code> equivalent).</li>
+<li><strong><code>run</code></strong> — curated and user-provided use-case scripts (<code>beebo run --list</code>): <code>calibrate-vbat</code>, <code>api-demo</code>, <code>api-sync-demo</code>. They reuse the live connection under <code>-i</code>; the same logic is available to your own scripts through the <a href="../python-api/#python-api">Python API</a>.</li>
+</ul>
+<h2 id="remote-mesh-admin">Remote mesh admin<a class="headerlink" href="#remote-mesh-admin" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>admin &lt;target&gt; &lt;action&gt;</code></strong> — remote mesh-admin auth and repeater/room-server queries: <code>login</code>/<code>logout</code>/<code>forget</code> (credential lifecycle), <code>cmd &lt;text...&gt;</code> (run any admin CLI command remotely), <code>cli &lt;text...&gt;</code> (run a companion CLI command on a contact that allows it), <code>cli-allow [on|off]</code> (show or set whether that contact may run CLI commands on this node), <code>status</code>/<code>neighbors</code>/<code>telemetry</code>/<code>acl</code> (authenticated queries), <code>owner</code>/<code>regions</code>/<code>clock</code> (anonymous, no login needed), <code>mma &lt;start&gt; &lt;end&gt;</code> (sensor/type-4 nodes only), and <code>transport [usb|ble|tcp [on|off]]</code> (see <a href="../update/#admin-transport-control">Admin Transport Control</a>).</li>
+</ul>
+<p><code>beebo admin &lt;target&gt; &lt;action&gt; [args...]</code> authenticates against and
+queries another node over the mesh (not the locally-connected one) —
+<code>target</code> is a contact name or public-key hex prefix.</p>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Example</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>login [PASSWORD]</code></td>
+<td><code>beebo admin gatto login</code></td>
+<td>Log in (prompts for the password if omitted; caches it on success).</td>
+</tr>
+<tr>
+<td><code>logout</code></td>
+<td><code>beebo admin gatto logout</code></td>
+<td>Log out of an active admin session.</td>
+</tr>
+<tr>
+<td><code>forget</code></td>
+<td><code>beebo admin gatto forget</code></td>
+<td>Forget the locally cached password.</td>
+</tr>
+<tr>
+<td><code>cmd COMMAND...</code></td>
+<td><code>beebo admin gatto cmd "get radio"</code></td>
+<td>Run any admin text-CLI command remotely (see the text commands below) — requires an active login.</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>beebo admin gatto status</code></td>
+<td>Authenticated status query.</td>
+</tr>
+<tr>
+<td><code>neighbors</code></td>
+<td><code>beebo admin gatto neighbors</code></td>
+<td>Authenticated neighbor-table query.</td>
+</tr>
+<tr>
+<td><code>telemetry</code></td>
+<td><code>beebo admin gatto telemetry</code></td>
+<td>Authenticated telemetry query.</td>
+</tr>
+<tr>
+<td><code>acl</code></td>
+<td><code>beebo admin gatto acl</code></td>
+<td>Authenticated ACL (client login table) query.</td>
+</tr>
+<tr>
+<td><code>owner</code></td>
+<td><code>beebo admin gatto owner</code></td>
+<td>Anonymous owner-info query, no login needed.</td>
+</tr>
+<tr>
+<td><code>regions</code></td>
+<td><code>beebo admin gatto regions</code></td>
+<td>Anonymous region-list query, no login needed.</td>
+</tr>
+<tr>
+<td><code>clock</code></td>
+<td><code>beebo admin gatto clock</code></td>
+<td>Anonymous clock query, no login needed.</td>
+</tr>
+<tr>
+<td><code>mma START END</code></td>
+<td><code>beebo admin sensor1 mma 0 100</code></td>
+<td>Min/max/avg sensor telemetry query (sensor/type-4 nodes only).</td>
+</tr>
+<tr>
+<td><code>transport [usb\|ble\|tcp [on\|off]]</code></td>
+<td><code>beebo admin gatto transport tcp off</code></td>
+<td>Show or set which transports the target accepts admin logins on (see <a href="../update/#admin-transport-control">Admin Transport Control</a>).</td>
+</tr>
+</tbody>
+</table>
+<p><code>cmd self &lt;command&gt;</code> runs <code>&lt;command&gt;</code> locally on the <em>connected</em> companion
+node instead of relaying it to <code>&lt;target&gt;</code> over the mesh. It is the way to run a
+command on the connected node from an app whose CLI screen is not available.</p>
+<h3 id="status-and-telemetry-rendering">Status and telemetry rendering<a class="headerlink" href="#status-and-telemetry-rendering" title="Permanent link">&para;</a></h3>
+<p><code>beebo admin &lt;target&gt; status</code> and <code>... telemetry</code> render the raw core-stats/permission payloads as Rich tables with units instead of dumping hex or bare numbers — uptime is formatted human-readable, error-flag bitfields are decoded into named, colored fault labels, and the ACL permission byte is decoded into a colored admin/guest role label alongside the raw value (<code>beebo/src/beebo/admin.py</code>, <code>beebo/src/beebo/node.py</code>). Battery voltage is additionally paired with a charge-trend-aware state-of-charge estimate — see <a href="../battery/">Battery State and Calibration</a>.</p>
+<h3 id="admin-cmd-text-commands"><code>admin ... cmd</code> text commands<a class="headerlink" href="#admin-cmd-text-commands" title="Permanent link">&para;</a></h3>
+<p>The stock text commands, kept for third-party apps and old scripts: what a MeshCore app or <code>-r</code>/<code>--raw</code> sends to
+a node, and what <code>beebo admin &lt;target&gt; cmd ...</code> can send once logged in. The <code>beebo</code> command line and the node
+console use one set of names, shown in the last column; use those.</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>admin<span class="w"> </span>gatto<span class="w"> </span>login
+<span class="gp">$ </span>beebo<span class="w"> </span>admin<span class="w"> </span>gatto<span class="w"> </span>cmd<span class="w"> </span><span class="s2">&quot;get radio&quot;</span>
+<span class="go">&gt; 910.525,62.5,7,5</span>
+<span class="gp">$ </span>beebo<span class="w"> </span>admin<span class="w"> </span>gatto<span class="w"> </span>cmd<span class="w"> </span><span class="s2">&quot;set tx 18&quot;</span>
+<span class="go">ok</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Stock command</th>
+<th>What it does</th>
+<th>Same as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>reboot</code></td>
+<td>Reboot the device.</td>
+<td><code>reboot</code></td>
+</tr>
+<tr>
+<td><code>clkreboot</code></td>
+<td>Reset RTC to a fixed date and reboot.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>poweroff</code> | <code>shutdown</code></td>
+<td>Power off the device.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>advert</code></td>
+<td>Send a flood advert.</td>
+<td><code>advert flood</code></td>
+</tr>
+<tr>
+<td><code>advert.zerohop</code></td>
+<td>Send a zero-hop (local only) advert.</td>
+<td><code>advert direct</code></td>
+</tr>
+<tr>
+<td><code>clock</code></td>
+<td>Show RTC time as <code>HH:MM - D/M/Y UTC</code>.</td>
+<td><code>clock</code></td>
+</tr>
+<tr>
+<td><code>clock sync</code></td>
+<td>Set RTC from this command's send time (cannot go backwards).</td>
+<td></td>
+</tr>
+<tr>
+<td><code>clock.epoch</code></td>
+<td>Show RTC time as bare epoch seconds (beebo-only).</td>
+<td></td>
+</tr>
+<tr>
+<td><code>time &lt;epoch&gt;</code></td>
+<td>Set RTC to <code>&lt;epoch&gt;</code> seconds (cannot go backwards).</td>
+<td></td>
+</tr>
+<tr>
+<td><code>start ota</code></td>
+<td>Begin an OTA firmware update.</td>
+<td><code>ota</code> (host)</td>
+</tr>
+<tr>
+<td><code>ver</code></td>
+<td>Show firmware version and build date.</td>
+<td><code>ver</code> (node only)</td>
+</tr>
+<tr>
+<td><code>board</code></td>
+<td>Show board/manufacturer name.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>neighbors</code></td>
+<td>Show the neighbor table.</td>
+<td><code>neighbors peek</code></td>
+</tr>
+<tr>
+<td><code>neighbor.remove &lt;pubkey-hex&gt;</code></td>
+<td>Remove a neighbor by pubkey hex.</td>
+<td><code>neighbors forget</code></td>
+</tr>
+<tr>
+<td><code>tempradio &lt;freq&gt; &lt;bw&gt; &lt;sf&gt; &lt;cr&gt; &lt;mins&gt;</code></td>
+<td>Apply temporary radio params for <code>&lt;mins&gt;</code> minutes.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>password &lt;new&gt;</code></td>
+<td>Change the admin password.</td>
+<td><code>settings repeater.admin.password</code> (host only, it prompts)</td>
+</tr>
+<tr>
+<td><code>clear stats</code></td>
+<td>Reset packet/radio stats counters.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>get &lt;key&gt;</code></td>
+<td>Read a config setting (see <a href="../settings/#settings">Settings</a> for the same values by dotted path).</td>
+<td><code>settings &lt;path&gt;</code></td>
+</tr>
+<tr>
+<td><code>get transports</code></td>
+<td>Read usb/ble/tcp enable bits in one reply (beebo-only).</td>
+<td><code>settings node.transport.usb\|ble\|tcp</code></td>
+</tr>
+<tr>
+<td><code>set &lt;key&gt; &lt;value&gt;</code></td>
+<td>Write a config setting.</td>
+<td><code>settings &lt;path&gt; &lt;value&gt;</code></td>
+</tr>
+<tr>
+<td><code>region [&lt;region&gt;]</code></td>
+<td>Show or set the LoRa region.</td>
+<td><code>region tree</code></td>
+</tr>
+<tr>
+<td><code>sensor list [&lt;start&gt;]</code></td>
+<td>List custom sensor settings.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>sensor get &lt;key&gt;</code></td>
+<td>Read a custom sensor setting.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>sensor set &lt;key&gt; &lt;value&gt;</code></td>
+<td>Write a custom sensor setting.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>powersaving [on\|off]</code></td>
+<td>Show or set power-saving mode.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>log start</code> | <code>log stop</code></td>
+<td>Enable/disable file logging.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>log erase</code></td>
+<td>Erase the log file.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>log</code></td>
+<td>Dump the log file (unauthenticated targets only).</td>
+<td></td>
+</tr>
+<tr>
+<td><code>stats-core</code> | <code>stats-radio</code> | <code>stats-packets</code></td>
+<td>Show stats counters (unauthenticated targets only).</td>
+<td><code>status node</code>, <code>status radio</code>, <code>monitor status service</code></td>
+</tr>
+<tr>
+<td><code>gps [on\|off\|sync\|setloc\|advert [none\|share\|prefs]]</code></td>
+<td>GPS control (boards with GPS only).</td>
+<td></td>
+</tr>
+<tr>
+<td><code>gps diag</code></td>
+<td>Show GPS diagnostics, if available.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>power</code></td>
+<td>Show battery and power-source status.</td>
+<td><code>battery state</code> (voltage and charge state)</td>
+</tr>
+<tr>
+<td><code>erase</code></td>
+<td>Erase the node's file system. USB serial text CLI only.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>discover.neighbors</code></td>
+<td>Probe for neighbors. USB serial text CLI only.</td>
+<td><code>neighbors discover</code></td>
+</tr>
+<tr>
+<td><code>monring.header</code></td>
+<td>Show the monitor ring's counters (beebo-only).</td>
+<td><code>monitor status</code></td>
+</tr>
+<tr>
+<td><code>monring.clear</code></td>
+<td>Clear the monitor ring (beebo-only).</td>
+<td><code>monitor clear</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="get-and-set-keys"><code>get</code> and <code>set</code> keys<a class="headerlink" href="#get-and-set-keys" title="Permanent link">&para;</a></h3>
+<p><code>get &lt;key&gt;</code> and <code>set &lt;key&gt; &lt;value&gt;</code> take these keys. A key without a meaning below has the meaning of the same-named leaf in the <a href="../settings-reference/">Settings Reference</a>; <code>beebo settings</code> is the preferred form, and these stay for scripts written for stock MeshCore.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Read</th>
+<th>Write</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>adc.multiplier</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>advert.interval</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Local (zero-hop) advert interval in minutes, 0 = off, up to 240.</td>
+</tr>
+<tr>
+<td><code>af</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>agc.reset.interval</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>allow.read.only</code></td>
+<td>yes</td>
+<td>yes</td>
+<td><code>on</code> or <code>off</code>: allow read-only (guest) logins.</td>
+</tr>
+<tr>
+<td><code>ble</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>bootloader.ver</code></td>
+<td>yes</td>
+<td></td>
+<td>Bootloader version.</td>
+</tr>
+<tr>
+<td><code>bridge.baud</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Bridge build only.</td>
+</tr>
+<tr>
+<td><code>bridge.channel</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Bridge build only.</td>
+</tr>
+<tr>
+<td><code>bridge.delay</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Bridge build only.</td>
+</tr>
+<tr>
+<td><code>bridge.enabled</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Bridge build only.</td>
+</tr>
+<tr>
+<td><code>bridge.secret</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Bridge build only.</td>
+</tr>
+<tr>
+<td><code>bridge.source</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Bridge build only.</td>
+</tr>
+<tr>
+<td><code>bridge.type</code></td>
+<td>yes</td>
+<td></td>
+<td>Bridge build only.</td>
+</tr>
+<tr>
+<td><code>cad</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>direct.txdelay</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>dutycycle</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>extra.sf</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Up to three extra spreading factors the radio also listens on (side detectors), for example <code>set extra.sf 8 9</code>.</td>
+</tr>
+<tr>
+<td><code>flood.advert.interval</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Flood advert interval in hours, 0 = off, 3 to 168.</td>
+</tr>
+<tr>
+<td><code>flood.max</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>flood.max.advert</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>flood.max.unscoped</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>freq</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>guest.password</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>identity.generate</code></td>
+<td></td>
+<td>yes</td>
+<td>Generate a new identity (write only).</td>
+</tr>
+<tr>
+<td><code>int.thresh</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>lat</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>lon</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>loop.detect</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>multi.acks</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>node</code></td>
+<td></td>
+<td>yes</td>
+<td><code>set node &lt;name&gt; &lt;privkey_hex&gt;</code>: set the name and private key together (write only).</td>
+</tr>
+<tr>
+<td><code>node.role</code></td>
+<td>yes</td>
+<td>yes</td>
+<td><code>companion</code> or <code>repeater</code>; a change reboots the node.</td>
+</tr>
+<tr>
+<td><code>owner.info</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Owner text; a vertical bar stands for a newline.</td>
+</tr>
+<tr>
+<td><code>path.hash.mode</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>pin</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>prv.key</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>Private key. Reading it works from the USB serial text CLI only.</td>
+</tr>
+<tr>
+<td><code>public.key</code></td>
+<td>yes</td>
+<td></td>
+<td>The public key.</td>
+</tr>
+<tr>
+<td><code>pwrmgt.bootmv</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>pwrmgt.bootreason</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>pwrmgt.source</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>pwrmgt.support</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>radio</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>radio.rxgain</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>repeat</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>role</code></td>
+<td>yes</td>
+<td></td>
+<td>The live role.</td>
+</tr>
+<tr>
+<td><code>rxdelay</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>transmit</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>tx</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>txdelay</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>tz.offset</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>usb</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>wifi.enabled</code></td>
+<td>yes</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>wifi.rssi</code></td>
+<td>yes</td>
+<td></td>
+<td>WiFi signal strength.</td>
+</tr>
+<tr>
+<td><code>wifi.status</code></td>
+<td>yes</td>
+<td></td>
+<td>WiFi connection status.</td>
+</tr>
+<tr>
+<td><code>tuning.*</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>The tuning settings, for example <code>tuning.trial.enabled</code>. See <a href="../settings/#tuning-settings">Settings</a>.</td>
+</tr>
+</tbody>
+</table>
+<p>This table is <code>beebo admin</code>'s own built-in <code>ADMIN_CLI_HELP</code> reference
+(<code>beebo admin --help</code> prints it in full); it's kept here so it shows up
+alongside the rest of the command surface without needing <code>--help</code>.</p>
+<h2 id="rf-bench-measurement">RF bench measurement<a class="headerlink" href="#rf-bench-measurement" title="Permanent link">&para;</a></h2>
+<p><code>measure</code> groups the lab-equipment-based procedures detailed in <a href="../rf-experiments/">RF Experiments</a> — as opposed to <a href="../analysis/#in-field-lna-comparison"><code>rxlog --compare</code></a>'s no-equipment, in-field alternative:</p>
+<ul>
+<li><strong><code>measure cw --power &lt;dBm&gt; [--secs N]</code></strong> — key a manual continuous-wave carrier at one TX power level, for spot-checking with a spectrum analyzer. <code>--secs</code> is the carrier duration (default 30); <code>0</code> keeps it on until Ctrl-C, with no firmware auto-stop, so the PA stays keyed if the connection is lost.</li>
+<li><strong><code>measure txpower [--carrier advert|cw] [--optimize/--no-optimize]</code></strong> — the automated TX power sweep described in <a href="../rf-experiments/#tx-radiated-power">TX Radiated Power</a>.</li>
+<li><strong><code>measure noise {internal|combined|in_band}</code></strong> — the noise-floor characterization procedures in <a href="../rf-experiments/#system-noise-floor">System Noise Floor</a> (50-ohm stub / antenna / bandpass filter), across every <code>rxgain</code>/<code>fem.rxgain</code> permutation. Values are raw SX1262 input unless <code>--antenna-ref</code> keeps the node's FEM RSSI offsets; <code>combined</code>/<code>in_band</code> also print the LNA gain against the latest <code>internal</code> run.</li>
+<li><strong><code>measure rssi-by-bw</code></strong> — sweep LoRa bandwidth with transmit turned off by the test. A 50-ohm stub measures the receiver's internal noise; the real antenna measures the in-band environment noise. It shows how the noise floor scales with bandwidth (verifying the thermal-noise relationship in <a href="../hardware/#thermal-noise">Thermal Noise</a>).</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.top", "navigation.instant", "toc.integrate", "navigation.tabs", "toc.follow", "search.highlight", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

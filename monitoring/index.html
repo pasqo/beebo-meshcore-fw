@@ -1,0 +1,2379 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for the Beebo Heltec V4.3 MeshCore Node Build">
+      
+      
+      
+        <link rel="canonical" href="https://pasqo.github.io/beebo-meshcore-fw/monitoring/">
+      
+      
+        <link rel="prev" href="../battery/">
+      
+      
+        <link rel="next" href="../health/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Monitoring - Beebo Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#monitoring" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Beebo Docs" class="md-header__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Beebo Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Monitoring
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../roles/" class="md-tabs__link">
+          
+  
+  
+  Using Beebo
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tuning/" class="md-tabs__link">
+          
+  
+  
+  Tuning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Command Line
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../internals/" class="md-tabs__link">
+          
+  
+  
+  Under the Hood
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../support/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Support
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Beebo Docs" class="md-nav__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Beebo Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using Beebo
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using Beebo
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phone-feed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Phone Feed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../connections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tuning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setting Trials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a Repeater Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trial-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trial Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Adaptive Tuner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Line
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Command Line
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install and Connect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Update and Service a Node
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../battery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Battery State and Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#using-the-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using the monitor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-charts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live charts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-monitor-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading monitor status
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reading monitor status">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#health-the-nodes-own-faults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Health: the node's own faults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#service-traffic-and-delivery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service: traffic and delivery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rates-where-the-time-goes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rates: where the time goes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#automating-periodic-pulls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automating periodic pulls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#record-kinds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Record kinds
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-kind-capture-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-kind capture defaults
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#time-headroom-and-routing-latency-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Time, Headroom and Routing-Latency Metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Time, Headroom and Routing-Latency Metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rxtxlxsys-busy-and-system-idle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RX/TX/LX/SYS busy and system idle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#loop-headroom-loopssec-and-max-loop-latency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loop headroom: loops/sec and max loop latency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#routing-latency-busy-vs-wait-mon_routerouterecord" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Routing latency: busy vs. wait (MON_ROUTE/RouteRecord)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#counter-rates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Counter rates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-these-signals-for-tuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using these signals for tuning
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#event-catalog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Catalog
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health Check
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Under the Hood
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Under the Hood
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Board Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rf-experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF Experiments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="monitoring">Monitoring<a class="headerlink" href="#monitoring" title="Permanent link">&para;</a></h1>
+<p><code>beebo monitor</code> reads MonRing, a continuous ring buffer in free PSRAM (see <a href="../internals/#diagnostics-and-protocol-additions">Diagnostics and Protocol Additions</a>) that the firmware appends to on its own — nothing needs to be running or connected on the host for capture to happen. <code>beebo monitor</code> just controls it and reads it back: <code>start</code>/<code>stop</code>, <code>clear</code>, <code>capture</code> (per-kind on/off), <code>pull</code> (incremental raw download into a local per-device dataset), <code>list</code> (per-file/per-kind record counts for what's been pulled), <code>decode</code> (view/filter the pulled dataset, or <code>--save</code> it as CSV/JSON for <code>beebo analyze</code>).</p>
+<h2 id="using-the-monitor">Using the monitor<a class="headerlink" href="#using-the-monitor" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>monitor<span class="w">                          </span><span class="c1"># ring fill, capture state, window and packet totals</span>
+<span class="gp">$ </span>beebo<span class="w"> </span>monitor<span class="w"> </span>pull<span class="w">                     </span><span class="c1"># download the new records into the local dataset</span>
+<span class="gp">$ </span>beebo<span class="w"> </span>monitor<span class="w"> </span>list<span class="w">                     </span><span class="c1"># what has been pulled, per file and kind</span>
+<span class="gp">$ </span>beebo<span class="w"> </span>monitor<span class="w"> </span>decode<span class="w"> </span>-k<span class="w"> </span>rx<span class="w"> </span>--limit<span class="w"> </span><span class="m">20</span><span class="w">  </span><span class="c1"># view and filter the pulled records</span>
+<span class="gp">$ </span>beebo<span class="w"> </span>monitor<span class="w"> </span>decode<span class="w"> </span>--save<span class="w">            </span><span class="c1"># write CSV/JSON for `beebo analyze`</span>
+<span class="gp">$ </span>beebo<span class="w"> </span>monitor<span class="w"> </span>capture<span class="w"> </span>rx<span class="w"> </span>off<span class="w">           </span><span class="c1"># switch one record kind off</span>
+</code></pre></div>
+<h2 id="live-charts">Live charts<a class="headerlink" href="#live-charts" title="Permanent link">&para;</a></h2>
+<p><code>beebo monitor plot</code> draws what the node hears as it happens, in the terminal. <code>monitor plot rssi</code> charts each received packet's RSSI per neighbor, with the noise floor and a level line at the best RSSI since the start, and a table of the last, average and best RSSI, the packet count and the rate of each neighbor. It is meant for placing an antenna: move the antenna and watch the levels follow.</p>
+<figure>
+  <img alt="monitor plot rssi: the RSSI of three neighbors and the noise floor over the last 60 seconds, with a table of last, average and best RSSI and packets per minute for each" src="../images/monitor-plot-rssi.png" width="700" />
+<br />
+<figcaption>beebo monitor plot rssi: three neighbors (b2, 96 and 7a) and the noise floor over the last 60 s</figcaption>
+</figure>
+<p><code>monitor plot tuning indicators</code> and <code>monitor plot tuning trial</code> chart the tuning indicators and a running <a href="../trials/">setting trial</a> the same way. Every option is in the <a href="../cli-reference/">CLI reference</a>.</p>
+<h2 id="reading-monitor-status">Reading <code>monitor status</code><a class="headerlink" href="#reading-monitor-status" title="Permanent link">&para;</a></h2>
+<p><code>beebo monitor status</code> answers "how is the node doing right now?" without downloading the ring. It prints three tables, and <code>monitor status health</code>, <code>service</code> or <code>rates</code> prints one of them. On the node console the same sections come as <code>name=value</code> lines of the counters that are not zero. The counters count from boot; nothing is saved across a reboot.</p>
+<h3 id="health-the-nodes-own-faults">Health: the node's own faults<a class="headerlink" href="#health-the-nodes-own-faults" title="Permanent link">&para;</a></h3>
+<p><strong>Health Status</strong> counts the node's internal faults and drops, the inputs of the SoH score in <a href="../health/">Health Check</a>. A healthy node reads zero on every row. A row that grows says what ran out.</p>
+<figure>
+  <img alt="monitor status health: eleven fault counters, all zero" src="../images/monitor-status-health.svg" width="700" />
+<br />
+<figcaption>beebo monitor status health on a healthy repeater: every counter reads zero</figcaption>
+</figure>
+<table>
+<thead>
+<tr>
+<th>Counter</th>
+<th>What it counts</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rx_pool_full</code></td>
+<td>Incoming frame dropped due to buffer full</td>
+</tr>
+<tr>
+<td><code>rx_queue_full</code></td>
+<td>Delayed packet dropped with scheduling queue full</td>
+</tr>
+<tr>
+<td><code>tx_queue_full</code></td>
+<td>ACK reply dropped with send queue full</td>
+</tr>
+<tr>
+<td><code>link_tx_queue_full</code></td>
+<td>Outbound frame to app dropped: BLE/WiFi/USB queue full</td>
+</tr>
+<tr>
+<td><code>link_rx_queue_full</code></td>
+<td>Inbound frame from app dropped: BLE queue full</td>
+</tr>
+<tr>
+<td><code>tx_pool_full</code></td>
+<td>Outgoing/forwarded packet dropped: packet buffer full</td>
+</tr>
+<tr>
+<td><code>tx_cad_timeout</code></td>
+<td>Channel busy past max CAD duration</td>
+</tr>
+<tr>
+<td><code>rx_start_timeout</code></td>
+<td>Radio stuck out of RX mode &gt;8s</td>
+</tr>
+<tr>
+<td><code>tx_ack_overflow</code></td>
+<td>ACK expected-table wrapped onto an unresolved slot</td>
+</tr>
+<tr>
+<td><code>tx_echo_overflow</code></td>
+<td>Repeat ring wrapped onto an unresolved slot</td>
+</tr>
+<tr>
+<td><code>rx_dedup_table_full</code></td>
+<td>Hash evicted from the dedup table within the live window. Shown here but not part of SoH</td>
+</tr>
+</tbody>
+</table>
+<p>Each name is also an event type of the <a href="#event-catalog">Event Catalog</a>, where the occurrences carry timestamps.</p>
+<h3 id="service-traffic-and-delivery">Service: traffic and delivery<a class="headerlink" href="#service-traffic-and-delivery" title="Permanent link">&para;</a></h3>
+<p><strong>Service Status</strong> is what the node handled and how its sends fared. The host adds a <code>Rate</code> column, events per minute over a moving 60 s window; see <a href="#counter-rates">Counter rates</a>.</p>
+<figure>
+  <img alt="monitor status service: traffic and delivery counters with their rates per minute" src="../images/monitor-status-service.svg" width="700" />
+<br />
+<figcaption>beebo monitor status service on a repeater: counts, rate per minute and what each counter means</figcaption>
+</figure>
+<table>
+<thead>
+<tr>
+<th>Counter</th>
+<th>What it counts</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rx_packets</code></td>
+<td>Total lifetime packets received</td>
+</tr>
+<tr>
+<td><code>rx_flood</code>, <code>rx_direct</code></td>
+<td>Flood-routed and direct-routed packets received</td>
+</tr>
+<tr>
+<td><code>rx_flood_dup</code>, <code>rx_direct_dup</code></td>
+<td>Duplicate receptions of each</td>
+</tr>
+<tr>
+<td><code>rx_errors</code></td>
+<td>Radio-level receive errors (CRC/malformed)</td>
+</tr>
+<tr>
+<td><code>rx_parse_error</code></td>
+<td>Frame captured but failed to parse. Counted in QoS, not in SoH</td>
+</tr>
+<tr>
+<td><code>tx_packets</code></td>
+<td>Total lifetime packets sent</td>
+</tr>
+<tr>
+<td><code>tx_flood</code>, <code>tx_direct</code></td>
+<td>Flood-routed and direct-routed packets sent</td>
+</tr>
+<tr>
+<td><code>tx_direct_success</code>, <code>tx_direct_timeout</code></td>
+<td>A direct send's ACK arrived, or its deadline elapsed unconfirmed</td>
+</tr>
+<tr>
+<td><code>tx_flood_success</code>, <code>tx_flood_timeout</code></td>
+<td>A flood send's repeat was heard, or its window elapsed unconfirmed</td>
+</tr>
+<tr>
+<td><code>tx_direct_untracked</code></td>
+<td>Direct sends with no ACK expected (replies, adverts, admin frames)</td>
+</tr>
+<tr>
+<td><code>tx_flood_pending</code></td>
+<td>Flood sends awaiting echo confirmation (recent, not yet resolved)</td>
+</tr>
+<tr>
+<td><code>tx_max_hop_no_fwd</code></td>
+<td>Repeater: flood packet already past its configured hop limit</td>
+</tr>
+<tr>
+<td><code>tx_region_no_fwd</code></td>
+<td>Repeater: flood packet's region tag matched no flood-allowed region</td>
+</tr>
+<tr>
+<td><code>tx_loop_no_fwd</code></td>
+<td>Repeater: flood packet dropped by loop detection</td>
+</tr>
+</tbody>
+</table>
+<p>The success and timeout rows are what QoS is computed from. The three <code>*_no_fwd</code> rows are configured policy, not faults, so they are not in SoH.</p>
+<h3 id="rates-where-the-time-goes">Rates: where the time goes<a class="headerlink" href="#rates-where-the-time-goes" title="Permanent link">&para;</a></h3>
+<p><strong>Service Rates</strong> is the node's own time over the latest 10 s window, in percent of the window except where noted. The metrics are explained in <a href="#time-headroom-and-routing-latency-metrics">Time, Headroom and Routing-Latency Metrics</a>.</p>
+<figure>
+  <img alt="monitor status rates: time shares of the loop over the latest 10 seconds" src="../images/monitor-status-rates.svg" width="700" />
+<br />
+<figcaption>beebo monitor status rates: where the node's time went over the latest 10 s window</figcaption>
+</figure>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rx_busy</code>, <code>tx_busy</code></td>
+<td>Time spent in RX and in TX</td>
+</tr>
+<tr>
+<td><code>lx_busy</code></td>
+<td>Time spent on host communication (USB/BLE/TCP)</td>
+</tr>
+<tr>
+<td><code>sys_busy</code></td>
+<td>Time spent on other main-loop housekeeping</td>
+</tr>
+<tr>
+<td><code>lp_idle</code></td>
+<td>Time idle</td>
+</tr>
+<tr>
+<td><code>loops_per_sec</code></td>
+<td>Loop iterations per second (a count)</td>
+</tr>
+<tr>
+<td><code>max_loop_latency_ms</code></td>
+<td>Worst single loop stall in the window (milliseconds)</td>
+</tr>
+<tr>
+<td><code>tx_wait_airtime</code></td>
+<td>Time TX waited on the airtime/duty-cycle budget</td>
+</tr>
+<tr>
+<td><code>tx_wait_cad</code></td>
+<td>Time TX waited on channel-activity detection</td>
+</tr>
+<tr>
+<td><code>rx_wait_relay</code></td>
+<td>Time an RX relay was delayed past its scheduled time</td>
+</tr>
+</tbody>
+</table>
+<p>A firmware built without CPU accounting prints no Rates table.</p>
+<h2 id="automating-periodic-pulls">Automating periodic pulls<a class="headerlink" href="#automating-periodic-pulls" title="Permanent link">&para;</a></h2>
+<p>A cron job or systemd timer that just runs <code>beebo -t &lt;device&gt; monitor pull</code> on an interval is enough to keep an offline dataset in sync — <code>pull</code> is incremental by default (only records newer than the local cursor are fetched), so a routine run only transfers what's new since the last one, not the whole ring. No separate daemon or state file to manage beyond what <code>pull</code> already keeps (<code>monring.cursor.json</code>, next to the pulled <code>.bin</code> files).</p>
+<p>The only thing to size is the interval itself, against how fast the ring fills: <code>beebo -t &lt;device&gt; monitor</code> (no subcommand) prints the ring's current fill (e.g. <code>22,486 / 65,536 records</code>) and its <code>elapsed</code> span, so <code>records ÷ elapsed</code> gives a rough fill rate — pick an interval comfortably shorter than <code>(capacity − typical fill) ÷ rate</code>, so the ring can't wrap (evicting records <code>pull</code> hasn't fetched yet) between two runs. <code>beebo -t &lt;device&gt; monitor list</code> shows the same per-day/per-kind breakdown for what's actually accumulated locally, handy for spot-checking that a scheduled pull is really keeping up.</p>
+<p>Example crontab entry, pulling every 15 minutes:</p>
+<div class="highlight"><pre><span></span><code><span class="go">*/15 * * * * /path/to/venv/bin/gatto monitor pull &gt;&gt; ~/.beebo/pull.log 2&gt;&amp;1</span>
+</code></pre></div>
+<p>Or a systemd user timer (<code>~/.config/systemd/user/beebo-pull@.service</code>/<code>.timer</code>, one instance per device via <code>systemctl --user enable --now beebo-pull@gatto.timer</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># beebo-pull@.service</span>
+<span class="k">[Service]</span>
+<span class="na">Type</span><span class="o">=</span><span class="s">oneshot</span>
+<span class="na">ExecStart</span><span class="o">=</span><span class="s">/path/to/venv/bin/beebo -t %i monitor pull</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="c1"># beebo-pull@.timer</span>
+<span class="k">[Timer]</span>
+<span class="na">OnBootSec</span><span class="o">=</span><span class="s">5min</span>
+<span class="na">OnUnitActiveSec</span><span class="o">=</span><span class="s">15min</span>
+
+<span class="k">[Install]</span>
+<span class="na">WantedBy</span><span class="o">=</span><span class="s">timers.target</span>
+</code></pre></div>
+<h2 id="record-kinds">Record kinds<a class="headerlink" href="#record-kinds" title="Permanent link">&para;</a></h2>
+<p>Each record is a fixed 16 bytes, one of fourteen kinds:</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>What it captures</th>
+<th>Cadence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sync</code></td>
+<td>A time-base relatch (epoch anchor for every record after it, until the next one)</td>
+<td>Automatic, on ring init/wrap or a clock jump</td>
+</tr>
+<tr>
+<td><code>rx</code></td>
+<td>One reception: SNR, RSSI, neighbor, packet type/route, and its disposition (see below)</td>
+<td>Every RX (if <code>monitor.rx</code> is on)</td>
+</tr>
+<tr>
+<td><code>tx</code></td>
+<td>One of this node's own transmissions: route, type, destination, airtime, result (ok/timeout)</td>
+<td>Every TX (if <code>monitor.tx</code> is on)</td>
+</tr>
+<tr>
+<td><code>radio</code></td>
+<td>The live radio config (freq/sf/bw/cr/tx_power/rxgain/fem.rxgain)</td>
+<td>Only on a real change (dedup'd)</td>
+</tr>
+<tr>
+<td><code>env</code></td>
+<td>Noise floor, battery, MCU temp, free heap, packet-pool free count, TX queue depth, sticky fault flags, CAD-busy episode count</td>
+<td>Only on a real change (dedup'd); <code>monitor.env</code> off by default (higher volume)</td>
+</tr>
+<tr>
+<td><code>batt</code></td>
+<td>One battery voltage sample, with idle/trend state and which transport radios are powered</td>
+<td>Periodic (<code>board.battery.sample_period</code>)</td>
+</tr>
+<tr>
+<td><code>adaptive</code></td>
+<td>One adaptive-tuner decision (param, old/proposed value, reward)</td>
+<td>Once per tuning tick, repeater role only, opt-in (<code>monitor.tuning</code>) — see <a href="../adaptive/">The Adaptive Tuner</a></td>
+</tr>
+<tr>
+<td><code>eval</code></td>
+<td>One closed evaluation window or trial block (indicators, outcome, flags)</td>
+<td>Once per window/block while a tuner or trial runs, opt-in (<code>monitor.tuning</code>)</td>
+</tr>
+<tr>
+<td><code>trial</code></td>
+<td>One setting-trial record: a start (setting, sides, schedule), one per block (running mean and bounds) or an end (outcome, statistics)</td>
+<td>While a trial runs, opt-in (<code>monitor.tuning</code>) — see <a href="../trial-reference/">The setting trial</a></td>
+</tr>
+<tr>
+<td><code>setting</code></td>
+<td>One admin-visible setting change: which one, old/new value, and which dispatch path made it</td>
+<td>Immediately, whenever a change happens</td>
+</tr>
+<tr>
+<td><code>command</code></td>
+<td>One command run that mutates state or is a deliberate one-shot action (OTA begin/end, reboot, a <code>SET_*</code>/<code>set ...</code>) — routine reads/polling are NOT logged, to keep this from flooding</td>
+<td>Immediately, whenever an eligible command runs</td>
+</tr>
+<tr>
+<td><code>event</code></td>
+<td>A discrete, timestamped occurrence with no other fixed shape (faults, overflows, queue drops, ...) — see the full catalog below</td>
+<td>Immediately, at the moment each occurrence happens</td>
+</tr>
+<tr>
+<td><code>route</code></td>
+<td>Radio/link utilization and queue-wait snapshots</td>
+<td>Periodic while capture is enabled</td>
+</tr>
+<tr>
+<td><code>debug</code></td>
+<td>Firmware diagnostic event: severity, source file/line, event type, detail, and five raw user bytes</td>
+<td>When firmware emits a persisted high/medium debug event</td>
+</tr>
+</tbody>
+</table>
+<p>Enabling a <a href="../trial-reference/">setting trial</a> turns <code>tuning</code>, <code>event</code> and <code>radio</code> capture on and <code>rx</code> and <code>tx</code> capture off for the run. <code>monitor.path</code> is not a record kind: it makes an RX record hold the last three hops of its path (one byte each) instead of the last hop's identity, off by default; <code>analyze paths</code> reads it. <code>setting</code>/<code>command</code> share <code>event</code>'s capture toggle (<code>monitor.event</code>) — there's no separate leaf for them, since they're still conceptually part of "admin/event activity capture," just split into their own record kinds because every instance shares one fixed column shape (unlike the genuinely one-off events below).</p>
+<p><code>setting</code>/<code>command</code> were split out of the generic <code>event</code> kind precisely because they always carry the same fixed columns (<code>setting</code>/<code>old_value</code>/<code>new_value</code>/<code>source</code> and <code>command</code>/<code>source</code> respectively) — unlike faults, overflows, and queue drops, which are each their own one-off shape and stay under <code>event</code>.</p>
+<p><code>monitor.event</code> is an all-or-nothing switch for the whole <code>event</code> kind; <code>beebo monitor events</code> is a finer filter underneath it, one on/off bit per individual event TYPE (Event Catalog name, e.g. <code>tx_ack_success</code>) — useful since capture isn't free and a busy node can log a lot of high-volume verdict events. <code>beebo monitor events</code> alone lists every type's current state; <code>beebo monitor events &lt;name&gt; on|off</code> toggles one. Unlike <code>monitor capture</code>'s persisted per-kind bits, this mask is <strong>RAM-only</strong> and resets to capture-everything on every reboot — a live tuning knob, not a standing device policy.</p>
+<p>An <code>rx</code> record's <strong>disposition</strong> is three independent axes packed into one byte, so a single reception can carry several outcomes at once (e.g. accepted <em>and</em> forwarded) instead of one lossy "best" value:</p>
+<ul>
+<li><strong>endpoint</strong> — the local/terminal verdict: <code>accepted</code>, <code>not_for_us</code>, <code>duplicated</code>, <code>wrong_hop</code>, <code>filtered</code>, <code>incomplete</code>, <code>forged_sig</code>, <code>self</code>, <code>unknown_type</code>, <code>parse_err</code>, <code>pool_full</code>, <code>misc_drop</code>.</li>
+<li><strong>routing</strong> — what this node did as a relay: <code>forwarded</code>, <code>no_forward</code>, <code>path_full</code>.</li>
+<li><strong>invalid</strong> — a rider bit meaning the frame's header/path didn't parse (malformed or truncated), so route, neighbor and hash are unknown (doesn't affect actual packet handling).</li>
+<li><strong>queue_full</strong> — a rider bit meaning routing said <code>forwarded</code> but the actual send never happened (<code>send_queue</code> was full when the firmware tried to enqueue it) — see <code>tx_queue_full</code> below for why this is a bit on the record rather than a separate event. <code>beebo analyze tuning indicators</code> excludes <code>forwarded</code>+<code>queue_full</code> records from its routed count.</li>
+</ul>
+<h2 id="per-kind-capture-defaults">Per-kind capture defaults<a class="headerlink" href="#per-kind-capture-defaults" title="Permanent link">&para;</a></h2>
+<p><code>beebo settings monitor.*</code> (or <code>beebo monitor capture</code>) switches each record kind on or off independently. On a fresh device <code>rx</code>, <code>tx</code>, <code>sync</code>, <code>radio</code>, <code>batt</code>, <code>event</code>, <code>setting</code> and <code>command</code> capture by default. <code>env</code> and <code>tuning</code> are opt-in: <code>env</code> is comparatively high-volume, and <code>tuning</code> covers the <code>adaptive</code>, <code>eval</code> and <code>trial</code> records, so turn it on before running either tuner. <strong>This default only applies once, when a device's prefs file is first created.</strong> An already-provisioned device that has since been upgraded keeps the capture byte it already had, so a newly added kind (like <code>event</code>, added after some deployed devices' files existed) does <strong>not</strong> turn on for them. Check <code>beebo settings monitor</code> after upgrading and turn on anything you expect but don't see.</p>
+<h2 id="time-headroom-and-routing-latency-metrics">Time, Headroom and Routing-Latency Metrics<a class="headerlink" href="#time-headroom-and-routing-latency-metrics" title="Permanent link">&para;</a></h2>
+<p>Besides the <a href="../scoring/">score</a>, beebo tracks a second family of
+signals — how the node's own loop/CPU time is spent, and how much of a
+packet's delay is internal (this node computing) versus external (waiting
+on channel/budget backpressure). These are <strong>diagnostic only and not
+part of the on-device reward</strong> — see <a href="#using-these-signals-for-tuning">Using these signals for
+tuning</a> below for exactly what's wired in
+and what isn't.</p>
+<h3 id="rxtxlxsys-busy-and-system-idle">RX/TX/LX/SYS busy and system idle<a class="headerlink" href="#rxtxlxsys-busy-and-system-idle" title="Permanent link">&para;</a></h3>
+<p><code>rx_busy</code>/<code>tx_busy</code>/<code>lx_busy</code> measure wall-clock time spent in
+<code>checkRecv()</code>/<code>checkSend()</code>/host communication (USB/BLE/TCP), including any
+blocking wait on hardware inside them (radio SPI, USB/BLE transfer) — not
+CPU cycles the way an OS "CPU time" figure would be. <code>sys_busy</code> covers
+everything else in the main loop that isn't rx/tx-dispatched or lx-timed —
+battery ADC refresh, the slow-stat cache (storage usage, MCU temperature),
+env sampling, OTA/echo timeout checks — some of it non-trivial (a
+temperature read averages four ~76ms samples). <code>lp_idle</code> ("loop-idle") is
+the remainder across every task at once (<code>window - (rx_busy + tx_busy +
+lx_busy + sys_busy)</code>) — a system-wide figure, not a per-task one; there's
+no such thing as "TX's own idle time" separate from this. Without
+<code>sys_busy</code>, that housekeeping time was silently counted as idle, since the
+main loop never actually sleeps/yields.</p>
+<p>Two tiers: a live ~1s window (freshest single sample) and a 10s-averaged
+reported figure (a genuine average over the full period, not a
+point-sample) — the reported tier is what reaches the wire and both CLI
+surfaces. Visible in <code>beebo status resources</code>' "Time" bar and <code>beebo
+monitor status</code>'s "Service Rates" table (busy per task and <code>lp_idle</code>, each
+its own row).</p>
+<h3 id="loop-headroom-loopssec-and-max-loop-latency">Loop headroom: loops/sec and max loop latency<a class="headerlink" href="#loop-headroom-loopssec-and-max-loop-latency" title="Permanent link">&para;</a></h3>
+<p>Cause-agnostic, unlike the breakdown above — it doesn't matter <em>why</em> the
+loop was busy, only that a lower iteration rate or a long single stall
+both mean less capacity for anything else that runs once per main-loop
+pass (radio housekeeping, companion polling, tuning ticks included).
+<code>loops_per_sec</code> and <code>max_loop_latency_ms</code> (worst single-iteration stall in
+the last 10s) are in the same "Time"/Service Rates surfaces. A stall past
+500ms (<code>MAX_LOOP_LATENCY_THRESHOLD_MS</code>) also fires a <code>MON_EVENT</code> record
+(<code>max_loop_latency</code>, <code>beebo monitor decode -k event</code>) with the exact
+triggering duration and a running lifetime count — a general watchdog for
+"something blocked hard," independent of knowing the cause in advance.</p>
+<h3 id="routing-latency-busy-vs-wait-mon_routerouterecord">Routing latency: busy vs. wait (<code>MON_ROUTE</code>/<code>RouteRecord</code>)<a class="headerlink" href="#routing-latency-busy-vs-wait-mon_routerouterecord" title="Permanent link">&para;</a></h3>
+<p>A different axis from loop occupancy entirely: <strong>where does a <em>packet</em>
+spend time</strong>, not the loop. Split as a clean 2×2 — <code>busy</code> (time actually
+running the RX/TX code path; same signal as <code>rx_busy</code>/<code>tx_busy</code> above)
+versus <code>wait</code> (elapsed time a packet sits blocked <em>before</em> <code>busy</code> happens,
+caused by something external — a resource duty-cycle, not a slice of
+occupied loop time). A node can show high <code>lp_idle</code> and high TX-wait at
+the same time without contradiction — loop occupancy and external
+backpressure are orthogonal, which is exactly why <code>wait</code> is never
+subtracted from <code>busy</code> or <code>lp_idle</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Measures</th>
+<th>Ties to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tx_wait_airtime</code></td>
+<td>TX-ready packets blocked on the duty-cycle/airtime budget</td>
+<td><code>airtime_factor</code> — the real delay cost of the current budget setting</td>
+</tr>
+<tr>
+<td><code>tx_wait_cad</code></td>
+<td>TX-ready packets blocked because the radio is receiving a frame, the channel reads busy (RSSI check or hardware CAD), or in the retry backoff after either</td>
+<td>Reception in progress (not tunable), <code>interference_threshold</code>, <code>radio.cad</code> (and, indirectly, <code>agc_reset_interval</code>) — how often channel sensing is actually the bottleneck</td>
+</tr>
+<tr>
+<td><code>rx_wait_relay</code></td>
+<td>A delayed flood-relay's actual send time overrunning <code>calcRxDelay()</code>'s own scheduled time</td>
+<td><code>rx_delay_base</code> — whether the jitter this parameter introduces is being pushed further out by real backpressure once the scheduled moment arrives</td>
+</tr>
+</tbody>
+</table>
+<p>Two ways to read these: live (<code>beebo status resources</code>/<code>beebo monitor
+status</code>'s Service Rates — the same 10s window as the busy/idle figures
+above, no ring download) or persisted history (<code>beebo monitor
+decode -k route</code>, a snapshot appended every minute regardless of whether
+anything changed — a periodic reading of 0% is itself meaningful, not
+filtered out). The two are separate consumers on separate windows (10s
+live vs. 1-minute persisted) — don't expect them to match exactly at any
+given instant.</p>
+<h3 id="counter-rates">Counter rates<a class="headerlink" href="#counter-rates" title="Permanent link">&para;</a></h3>
+<p><code>beebo monitor status</code>'s Service Status table has a <code>Rate</code> column (events per minute) beside
+<code>Count</code>: a moving 60 s sum of each counter, refreshed every second, so every
+row shares the same window. Rows that are a current state (<code>tx_direct_untracked</code>,
+<code>tx_flood_pending</code>) show <code>-</code>. Not symmetrically "successful": the <code>rx_*</code> rows
+count every structurally-valid received packet before dedup filtering
+(duplicates included, see the <code>*_dup</code> rows), while <code>tx_packets</code>/<code>tx_flood</code>/
+<code>tx_direct</code> count only sends that actually completed on air (forwards
+included, not echo-confirmed; excludes timeouts/failures) — worth knowing
+before reconciling either figure against some other packet count. For trended
+history over a downloaded capture, <code>beebo analyze rate --window &lt;minutes&gt;</code> buckets
+<code>MON_RX</code>/<code>MON_TX</code> timestamps the same way <code>beebo analyze tuning indicators</code> buckets
+its indicators.</p>
+<h3 id="using-these-signals-for-tuning">Using these signals for tuning<a class="headerlink" href="#using-these-signals-for-tuning" title="Permanent link">&para;</a></h3>
+<p>These metrics are diagnostic, not decisional — nothing above feeds
+<code>AdaptiveController</code>'s reward or bandit selection. Reading them alongside a
+tuning session tells you <em>why</em> a parameter's effect looks the way it does:
+e.g. if raising <code>airtime_factor</code> doesn't move the score much,
+check whether <code>tx_wait_airtime</code> was already low — the budget wasn't
+the actual bottleneck, so tightening it further has nothing to bite on.
+If <code>rx_wait_relay</code> stays near zero while <code>rx_delay_base</code> changes, the
+scheduled jitter isn't being pushed further out by real congestion, which
+argues for spending the tuning budget elsewhere.</p>
+<h2 id="event-catalog">Event Catalog<a class="headerlink" href="#event-catalog" title="Permanent link">&para;</a></h2>
+<p><code>event</code> records are MonRing's general-purpose log for occurrences with no fixed shape of their own — one record per notable, discrete thing that happened, each with a real timestamp. Setting changes and command runs have their own <code>setting</code>/<code>command</code> record kinds (see <a href="#record-kinds">Record kinds</a> above), since every instance shares one fixed column layout, unlike the one-off events below. <strong>Every remaining event type names its own cause</strong> — there's no generic "something happened" event with a reason code buried in the payload; if two occurrences need telling apart for root-causing, they're different event types. The three fault events (<code>tx_pool_full</code>, <code>tx_cad_timeout</code>, <code>rx_start_timeout</code>) fire on <strong>every occurrence</strong>, not just the first, so the event trail shows when each started and whether it recurred.</p>
+<div class="nowrap-first-col">
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Trigger</th>
+<th>Payload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tx_cad_timeout</code></td>
+<td>Channel-activity detection got stuck reporting the channel busy past its configured max duration</td>
+<td><code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>rx_dedup_table_full</code></td>
+<td>The main RX dedup table (160 entries) had no free slot for a new hash and overwrote one that still held a real, previously-inserted hash — not an empty/never-used slot. Every eviction of a live hash is a chance a genuine duplicate goes undetected (its hash is gone by the time the duplicate arrives, so it's wrongly treated as new — re-forwarded, double-counted, and invisible to the ordinary duplicate counters, which only count dups that WERE caught). Expect this to fire on most inserts once the table has filled once after boot — that volume is itself the signal, not a sign something is broken</td>
+<td><code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>link_rx_queue_full</code></td>
+<td>The node's BLE inbound frame queue was full (WiFi has no equivalent queue — it reads directly off the TCP stream)</td>
+<td><code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>link_tx_queue_full</code></td>
+<td>The node's transport link (BLE or WiFi, whichever is active) had a full outbound frame queue, or USB's own DebugLog retry queue (DLOG/MLOG/raw-ack telemetry, not the companion session's own USB traffic) dropped a frame — app connectivity/telemetry, NOT mesh routing capacity. Applies regardless of role (companion, repeater)</td>
+<td><code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>rx_parse_error</code></td>
+<td>A frame WAS captured (briefly allocated) but failed to parse (bad version/path-mode/corrupt/oversize) — different cause from <code>rx_pool_full</code> (radio/allocation capacity vs. a malformed frame), so its own event type</td>
+<td><code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>rx_pool_full</code></td>
+<td><code>Dispatcher::checkRecv()</code> had no free packet buffer to receive an incoming frame into — the radio had data, but every slot in the fixed packet pool was already in use. No <code>rx</code> record exists for this occurrence (no <code>Packet</code> was ever allocated)</td>
+<td><code>cumulative</code> (lifetime count, after this occurrence)</td>
+</tr>
+<tr>
+<td><code>rx_queue_full</code></td>
+<td>The scheduling queue for a delayed (score-jittered) flood packet was full — dropped before it was even processed, before any disposition was assigned</td>
+<td><code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>rx_start_timeout</code></td>
+<td>The radio was stuck out of RX mode for more than 8 seconds</td>
+<td><code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>tx_ack_overflow</code></td>
+<td>The DM/ACK expected-table wrapped onto a slot that hadn't reached a verdict yet — a real starvation event (too many concurrent in-flight sends for the table's fixed depth), not a silent no-op. A resource fault, not a third verdict alongside success/timeout, hence its own event type</td>
+<td><code>pkt_hash</code>, <code>age_ms</code> (how long the evicted slot had been pending, unresolved)</td>
+</tr>
+<tr>
+<td><code>tx_ack_success</code></td>
+<td>A DM/ACK was matched — delivery confirmed</td>
+<td><code>pkt_hash</code>, <code>age_ms</code> (round-trip time)</td>
+</tr>
+<tr>
+<td><code>tx_ack_timeout</code></td>
+<td>No DM/ACK arrived within the deadline. <strong>Never</strong> overflow — see <code>tx_ack_overflow</code> above</td>
+<td><code>pkt_hash</code>, <code>age_ms</code> (round-trip time)</td>
+</tr>
+<tr>
+<td><code>tx_echo_overflow</code></td>
+<td>Same starvation case, flood-echo side: the self-tx tracking ring wrapped onto an unresolved slot</td>
+<td><code>pkt_hash</code>, <code>age_ms</code></td>
+</tr>
+<tr>
+<td><code>tx_echo_success</code></td>
+<td>A neighbor's rebroadcast confirmed this node's own flood transmission was heard</td>
+<td><code>pkt_hash</code>, <code>age_ms</code></td>
+</tr>
+<tr>
+<td><code>tx_echo_timeout</code></td>
+<td>The echo window elapsed with no rebroadcast heard. <strong>Never</strong> overflow — see <code>tx_echo_overflow</code> above</td>
+<td><code>pkt_hash</code>, <code>age_ms</code></td>
+</tr>
+<tr>
+<td><code>tx_max_hop_no_fwd</code></td>
+<td>Repeater role only: a flood packet's path already had as many hops as <code>repeater.routing.flood.max</code>/<code>.max_unscoped</code>/<code>.max_advert</code> allow, so it wasn't relayed further. A configured limit, not a fault — excluded from SoH. The lifetime total is <code>beebo monitor status</code>'s Service Status <code>tx_max_hop_no_fwd</code> counter, not duplicated into this payload</td>
+<td><code>pkt_hash</code></td>
+</tr>
+<tr>
+<td><code>tx_loop_no_fwd</code></td>
+<td>Repeater role only: <code>repeater.routing.loop.detect</code> found this node already appears in the packet's path too many times, so it wasn't relayed further (loop suppression). A configured limit, not a fault — excluded from SoH. Lifetime total lives in <code>beebo monitor status</code> instead, see <code>tx_max_hop_no_fwd</code> above</td>
+<td><code>pkt_hash</code></td>
+</tr>
+<tr>
+<td><code>tx_pool_full</code></td>
+<td><code>Dispatcher::obtainNewPacket()</code> had no free packet buffer available when building an outgoing or forwarded packet</td>
+<td><code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>tx_queue_full</code></td>
+<td>This node's own outbound send_queue was full when trying to queue a <strong>self-originated</strong> transmission or ACK reply (not a relay of a received packet — a relay's equivalent case is the <code>queue_full</code> disposition bit on that packet's own <code>rx</code> record, not a separate event, since that trace is already richer)</td>
+<td><code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>tx_region_no_fwd</code></td>
+<td>Repeater role only: a region-tagged flood packet's transport code matched no flood-allowed region this repeater has defined (see <code>beebo region</code>) — either genuinely unrecognized, or it matched a flood-denied region. A configured policy drop, not a fault — excluded from SoH. Lifetime total lives in <code>beebo monitor status</code> instead, see <code>tx_max_hop_no_fwd</code> above</td>
+<td><code>pkt_hash</code></td>
+</tr>
+<tr>
+<td><code>tx_suppressed</code></td>
+<td>A queued packet was discarded unsent because transmit is off (<code>node.transmit</code>)</td>
+<td><code>pkt_hash</code></td>
+</tr>
+<tr>
+<td><code>tx_echo_other</code></td>
+<td>A repeat of a send that had already timed out unconfirmed arrived inside the seen window but was not its echo: it did not carry our sent path plus one hash, so a repeater that never heard us relayed it by another route. Not credited; once per send</td>
+<td><code>pkt_hash</code>, <code>age_ms</code>, <code>attempt</code>, the echo window in ms</td>
+</tr>
+<tr>
+<td><code>trial_pkt_rate</code></td>
+<td>The trial sequence started waiting for traffic (the RX rate fell below <code>tuning.trial.min_pkt_rate</code>) or resumed. Logged on each change, checked once a minute while waiting</td>
+<td>waiting (1) or resumed (0), the RX rate then, the minimum, in packets a minute</td>
+</tr>
+<tr>
+<td><code>max_loop_latency</code></td>
+<td>The gap between two consecutive <code>loop()</code> calls exceeded the stall threshold. Cause-agnostic: it says something stalled, not which call</td>
+<td><code>latency_ms</code> (the triggering gap), <code>cumulative</code></td>
+</tr>
+<tr>
+<td><code>route_stats</code></td>
+<td>Measured every 60 s whether or not tuning or a trial runs, and logged only when a value changed (and for the first interval after boot): an interval that is not logged repeated the last values, and <code>analyze tuning indicators</code> fills it in. Frames the radio never demodulated, the share of the interval TX was blocked by CAD-busy or backoff, and the mean packet pool occupancy. <code>beebo analyze tuning indicators</code> charts them as RX Errors, CAD Busy and Pool Busy</td>
+<td><code>rx_errors</code> (count), <code>cad_busy_pct</code>, <code>pool_busy_pct</code>, <code>interval_s</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A <code>setting</code> or <code>command</code> record's <code>source</code> is the dispatch path: <code>binary</code> (a companion-protocol opcode), <code>text_cli</code> (the CommonCLI text command) or <code>tuning</code> (the on-device tuner itself, for example a trial winner being persisted).</p>
+<p><code>monitor decode -k event</code> (and <code>-k setting</code>/<code>-k command</code>) renders one Rich table on the console, with columns for the union of fields across every row in the result — sparse when the set mixes different event types, since each one only fills the columns it actually uses. <code>monitor decode --save NAME.json</code> is often easier to read for a mixed set, since each record is its own compact object instead of one wide table. Mixing kinds (<code>-k event -k setting -k command</code>) interleaves them by position instead of padding to one shared column set:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>gatto<span class="w"> </span>monitor<span class="w"> </span>pull
+<span class="gp">$ </span>gatto<span class="w"> </span>monitor<span class="w"> </span>decode<span class="w"> </span>--save<span class="w"> </span>events.json
+<span class="go">[</span>
+<span class="go">  {&quot;pos&quot;: 117, &quot;time&quot;: &quot;2026-07-27 14:01:58&quot;, &quot;kind&quot;: &quot;setting&quot;, &quot;setting&quot;: &quot;adaptive_enabled&quot;,</span>
+<span class="go">   &quot;old_value&quot;: 0, &quot;new_value&quot;: 1, &quot;source&quot;: &quot;text_cli&quot;},</span>
+<span class="go">  {&quot;pos&quot;: 118, &quot;time&quot;: &quot;2026-07-27 14:02:11&quot;, &quot;kind&quot;: &quot;event&quot;, &quot;event&quot;: &quot;tx_pool_full&quot;,</span>
+<span class="go">   &quot;cumulative&quot;: 1},</span>
+<span class="go">  {&quot;pos&quot;: 119, &quot;time&quot;: &quot;2026-07-27 14:02:11&quot;, &quot;kind&quot;: &quot;event&quot;, &quot;event&quot;: &quot;rx_pool_full&quot;,</span>
+<span class="go">   &quot;cumulative&quot;: 1},</span>
+<span class="go">  {&quot;pos&quot;: 120, &quot;time&quot;: &quot;2026-07-27 14:03:02&quot;, &quot;kind&quot;: &quot;event&quot;, &quot;event&quot;: &quot;tx_echo_success&quot;,</span>
+<span class="go">   &quot;pkt_hash&quot;: &quot;2dac9975&quot;, &quot;age_ms&quot;: 3144},</span>
+<span class="go">  {&quot;pos&quot;: 121, &quot;time&quot;: &quot;2026-07-27 14:05:40&quot;, &quot;kind&quot;: &quot;event&quot;, &quot;event&quot;: &quot;tx_ack_overflow&quot;,</span>
+<span class="go">   &quot;pkt_hash&quot;: &quot;99887766&quot;, &quot;age_ms&quot;: 8120},</span>
+<span class="go">  {&quot;pos&quot;: 122, &quot;time&quot;: &quot;2026-07-27 14:11:05&quot;, &quot;kind&quot;: &quot;event&quot;, &quot;event&quot;: &quot;rx_dedup_table_full&quot;,</span>
+<span class="go">   &quot;cumulative&quot;: 4},</span>
+<span class="go">  {&quot;pos&quot;: 123, &quot;time&quot;: &quot;2026-07-27 14:12:30&quot;, &quot;kind&quot;: &quot;command&quot;, &quot;command&quot;: &quot;reboot&quot;,</span>
+<span class="go">   &quot;source&quot;: &quot;text_cli&quot;}</span>
+<span class="go">]</span>
+</code></pre></div>
+<p><code>_save_records()</code>/<code>_json_row()</code> derive columns from the union of row keys across every record in the set, so a new event type never needs a schema change on the CLI side to show up in <code>monitor decode</code>, printed or <code>--save</code>d.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.top", "navigation.instant", "toc.integrate", "navigation.tabs", "toc.follow", "search.highlight", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

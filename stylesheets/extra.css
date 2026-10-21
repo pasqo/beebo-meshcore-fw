@@ -1,0 +1,43 @@
+.md-typeset__scrollwrap {
+  text-align: center;
+}
+
+.md-typeset p:has(> a[id^="tbl-"]) {
+  text-align: center;
+}
+
+.md-typeset__table table:not([class]) {
+  text-align: left;
+}
+
+/* Long single-word identifiers (event/kind names, ...) in a table's first
+   column otherwise wrap mid-word (mkdocs-material's default table CSS sets
+   overflow-wrap/word-break: break-word site-wide, needed for prose cells but
+   not for these) -- attach with {: .nowrap-first-col } right after a table. */
+.nowrap-first-col td:first-child,
+.nowrap-first-col th:first-child {
+  white-space: nowrap;
+}
+
+/* Numbered sections in the left nav (1, 1.1, 1.1.2, ...), purely a display
+   concern: the tree itself is auto-derived from real page/heading order via
+   toc.integrate, so numbering it by content instead of CSS counters would
+   mean hand-editing every heading (and every cross-reference anchor that
+   points at it) to keep numbers in sync. */
+.md-nav--primary .md-nav__list {
+  counter-reset: md-nav-section;
+}
+.md-nav--primary .md-nav__item > a.md-nav__link {
+  counter-increment: md-nav-section;
+}
+.md-nav--primary .md-nav__item > a.md-nav__link .md-ellipsis::before {
+  content: counters(md-nav-section, ".") ".\00a0\00a0";
+  opacity: 0.65;
+}
+
+/* Screenshots are centered. */
+img.center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}

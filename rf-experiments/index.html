@@ -1,0 +1,2294 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for the Beebo Heltec V4.3 MeshCore Node Build">
+      
+      
+      
+        <link rel="canonical" href="https://pasqo.github.io/beebo-meshcore-fw/rf-experiments/">
+      
+      
+        <link rel="prev" href="../hardware/">
+      
+      
+        <link rel="next" href="../support/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>RF Experiments - Beebo Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#rf-experiments" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Beebo Docs" class="md-header__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Beebo Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              RF Experiments
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../roles/" class="md-tabs__link">
+          
+  
+  
+  Using Beebo
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tuning/" class="md-tabs__link">
+          
+  
+  
+  Tuning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Command Line
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../internals/" class="md-tabs__link">
+          
+  
+  
+  Under the Hood
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../support/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Support
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Beebo Docs" class="md-nav__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Beebo Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using Beebo
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using Beebo
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phone-feed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Phone Feed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../connections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tuning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setting Trials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a Repeater Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trial-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trial Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Adaptive Tuner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Line
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Command Line
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install and Connect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Update and Service a Node
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../battery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Battery State and Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health Check
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Under the Hood
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Under the Hood
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Board Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF Experiments
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF Experiments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#equipment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Equipment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tx-radiated-power" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TX Radiated Power
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#system-noise-floor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Noise Floor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="System Noise Floor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rssi-at-the-antenna-connector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RSSI at the Antenna Connector
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environmental-noise-with-antenna" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environmental Noise (with antenna)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#in-band-noise-with-bandpass-filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In-Band Noise (with bandpass filter)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spectrum-survey-tinysa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spectrum Survey (tinySA)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="rf-experiments">RF Experiments<a class="headerlink" href="#rf-experiments" title="Permanent link">&para;</a></h1>
+<p>The preceding analysis relies on datasheet parameters and free-space models. The measurements below verify these predictions on real hardware in the actual deployment environment. Specifically, we want to:</p>
+<ol>
+<li><strong>Confirm the TX chain</strong> — measure conducted power across TX settings to find the actual P1dB compression point and verify what <code>radio.txpower</code> reaches <span class="arithmatex">\(P_{sat}\)</span>.</li>
+<li><strong>Characterize the RX noise floor</strong> — measure the system noise floor with a 50-ohm terminator (system noise only), with an antenna (system + environmental), and with a bandpass filter (in-band only). Comparing the three reveals how much OOB energy the local environment contributes and whether the LNA raises or lowers the effective noise floor in practice.</li>
+<li><strong>Decide the LNA configuration</strong> — if the antenna noise floor with LNA on is significantly higher than with LNA off, OOB interference dominates and the LNA should remain bypassed. If the two are comparable, the environment is quiet enough to benefit from the LNA's sensitivity improvement of about 6 dB over bypass.</li>
+</ol>
+<h2 id="equipment">Equipment<a class="headerlink" href="#equipment" title="Permanent link">&para;</a></h2>
+<p>The bench measurements use the equipment listed in the table below, a 50-ohm SMA terminator (any standard terminator — RX-only measurement, no significant power dissipation) and SMA cables and adapters as needed.</p>
+<table>
+<thead>
+<tr>
+<th>Asset</th>
+<th>Property</th>
+<th>Value</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NanoVNA-F v2</td>
+<td>Max Output Power</td>
+<td>-5 dBm</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>Max Input Power</td>
+<td>0 dBm</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>Bandwidth</td>
+<td>50kHz-3GHz</td>
+<td></td>
+</tr>
+<tr>
+<td>TinySA Ultra+ ZS-406</td>
+<td>Max Input Power</td>
+<td>6 dBm</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>Bandwidth</td>
+<td>100kHz-5.4GHz</td>
+<td></td>
+</tr>
+<tr>
+<td>Wide Band Attenuator</td>
+<td>Attenuation</td>
+<td>50 dB +/-2.5 dB</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>Max Power CW dB</td>
+<td>50 W CW</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>Impedance</td>
+<td>50 ohm</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>Bandwidth</td>
+<td>DC - 3 GHz</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>VWSR</td>
+<td>1.2</td>
+<td></td>
+</tr>
+<tr>
+<td>ISM Band Filter</td>
+<td>Attenuation</td>
+<td>22 dB  / 1.6 dB</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>Max Power CW</td>
+<td>1 W</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>Bandwidth</td>
+<td>902MHz-928MHz</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Safety rule</strong> — never connect PA output directly to any instrument port.
+PA output may reach 30 dBm (1 W) damaging equipment. After the 50 dB attenuator:
+30 - 50 = -20 dBm at the instrument input. The attenuator is mandatory in every
+measurement path downstream of the PA.</p>
+</blockquote>
+<h2 id="tx-radiated-power">TX Radiated Power<a class="headerlink" href="#tx-radiated-power" title="Permanent link">&para;</a></h2>
+<p>In this experiment we measure the actual power radiated at the antenna port across SX1262 TX power settings, with two main objectives:</p>
+<ol>
+<li>Find the optimal radio.txpower value that achieves the board maximum power at the inception of the PA saturation.</li>
+<li>Quantify the transmission chain board and connection loss <span class="arithmatex">\(L_{tx}\)</span></li>
+</ol>
+<p>In this experiment we first connect the antenna SMA port to the input port of the spectrum analyzer through an attenuator, to reduce the power so as not to damage the instrument.
+Then we use the CLI to set different values of <code>radio.txpower</code> and measure the power at the SMA port across the TX chain, including gains and losses.</p>
+<p>For this, beebo provides an automated procedure with the <code>measure txpower</code> command:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>measure<span class="w"> </span>txpower<span class="w"> </span>-h
+
+<span class="go"> Usage: beebo measure txpower [OPTIONS]</span>
+
+<span class="go"> Sweep TX power and read peaks on a spectrum analyzer (advert or CW).</span>
+
+<span class="go">╭─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="go">│ --carrier   -c                   [advert|cw]  Carrier type: advert bursts (max-hold) or a steady CW tone.            │</span>
+<span class="go">│ --optimize      --no-optimize                 CW only: paOptTable (optimize) vs fixed PA / monotone low end.         │</span>
+<span class="go">│                                               [default: optimize]                                                      │</span>
+<span class="go">│ --help      -h                                Show this message and exit.                                            │</span>
+<span class="go">╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+</code></pre></div>
+<p>The command sweeps SX1262 TX power from -9 to 22 dBm, sends an advert at each step, and prompts for the TinySA reading. It computes gain and compression at each point, identifies the P1dB compression point, and outputs results as a markdown table and CSV file.
+The 1dB compression point P1dB here is the output power level where the PA actual gain drops by 1 dB compared to its ideal, linear gain.</p>
+<p>Measuring the power of an advert is possible but tricky, and requires setting the analyzer to carefully persist the generated short burst signals for reading. To simplify the reading, option <code>--carrier cw</code> can be used to have the radio generate a steady continuous wave tone that is straightforward to read from the analyzer.</p>
+<p>The <code>--optimize</code> option controls an underlying PA optimization process that makes the PA's behavior non-monotonic, where one would expect the output to rise steadily.
+We can optionally disable the optimization to have a more monotonic behavior using <code>--no-optimize</code>.</p>
+<p>The command reminds the user of the experiment requirements and sequence of steps.</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>measure<span class="w"> </span>txpower
+<span class="go">TX Power Measurement Procedure:</span>
+<span class="go">  1. Power off board and tinySA Ultra+</span>
+<span class="go">  2. Connect antenna output to tinySA RF input through 50 dB attenuator</span>
+<span class="go">  3. Turn on and configure tinySA Ultra+ (see README)</span>
+<span class="go">  4. Turn on board</span>
+<span class="go">  5. Run this test (beebo measure txpower)</span>
+<span class="go">  6. At each power level, read the peak on tinySA and enter the value</span>
+
+<span class="go">  Press Enter to start the test...</span>
+</code></pre></div>
+<p>Once the procedure is complete a CSV file with the measurements is produced (expand the table to see the details).</p>
+<details>
+
+<summary>Table TX Power Measurements:</summary>
+
+| txpower (dBm) | measured (dBm) | gain (dB) | compression (dB) |
+| ------------: | -------------: | --------: | ---------------: |
+|            -9 |            3.3 |      12.3 |             -0.3 |
+|            -8 |            3.8 |      11.8 |              0.2 |
+|            -7 |            4.8 |      11.8 |              0.2 |
+|            -6 |            6.3 |      12.3 |             -0.3 |
+|            -5 |            7.3 |      12.3 |             -0.5 |
+|            -4 |            8.3 |      12.3 |             -0.3 |
+|            -3 |            9.3 |      12.3 |             -0.3 |
+|            -2 |            9.8 |      11.8 |              0.2 |
+|            -1 |           10.8 |      11.8 |             -0.2 |
+|             0 |           11.8 |      11.8 |              0.2 |
+|             1 |           12.3 |      11.3 |              0.7 |
+|             2 |           13.3 |      11.3 |              0.7 |
+|             3 |           14.3 |      11.3 |              0.7 |
+|             4 |           16.8 |      12.8 |             -0.8 |
+|             5 |           17.8 |      12.8 |             -0.8 |
+|             6 |           18.3 |      12.3 |             -0.3 |
+|             7 |           18.3 |      11.3 |              0.7 |
+|             8 |           19.3 |      11.3 |              0.7 |
+|             9 |           19.8 |      11.8 |              0.2 |
+|            10 |           22.3 |      12.3 |             -0.3 |
+|            11 |           22.8 |      11.8 |              0.2 |
+|            12 |           23.3 |      11.3 |              0.7 |
+|            13 |           24.3 |      11.3 |              0.7 |
+|            14 |           25.3 |      11.3 |              0.7 |
+|            15 |           25.8 |      10.3 |              1.7 |
+|            16 |           26.3 |      10.3 |              1.7 |
+|            17 |           27.3 |      10.3 |              1.7 |
+|            18 |           27.3 |       9.3 |              2.7 |
+|            19 |           27.3 |       8.3 |              3.7 |
+|            20 |           27.3 |       7.3 |              4.7 |
+|            21 |           27.3 |       6.3 |              5.7 |
+|            22 |           27.3 |       5.3 |              6.7 |
+
+</details>
+
+<p>In the table, <code>txpower_dBm</code> is the SX1262 <code>radio.txpower</code> setting, <code>measured_dBm</code> is the measured TX output at the SMA, gain is the difference between the two, and compression is the difference between the computed gain and the expected ideal gain.</p>
+<p>The data is further analyzed by a plotting script that generates the chart below.
+Here ideal gain is the gain of the TX chain previously computed without losses.
+The actual linear gain after losses is computed regressing the first half of the gain column to exclude the saturation region, and nicely superimpose itself on the curve.</p>
+<p>We can now estimate the transmission chain loss with the difference between ideal and real linear gains:</p>
+<div class="arithmatex">\[L_{tx} = ideal - linear = 16 - 12.02 ≈ 4 \ \text{dB}\]</div>
+<p><img alt="Power Curve Chart" src="../images/txpower_curve.png" /></p>
+<p>The P1dB compression point is roughly at txpower = 16 dBm with the SMA TX power plateauing at 27.3 dBm from txpower 17 dBm, which corresponds to our optimal settings.
+The resolution of the measurement is ±0.5 dB and the estimated accuracy ±1 dB.
+Beebo therefore ships <code>radio.txpower</code> 18.</p>
+<h2 id="system-noise-floor">System Noise Floor<a class="headerlink" href="#system-noise-floor" title="Permanent link">&para;</a></h2>
+<p>We would like to evaluate the system noise floor across different gain and antenna configurations, verify our analytically computed estimations and determine whether the use of a bandpass filter would help.</p>
+<p>For noise floor measurements we rely on the <code>noise_floor</code> function computed by the MeshCore FW, reported with resolution of ±1dB and estimated accuracy of ±2dB.
+However, this is not a direct measurement of <span class="arithmatex">\(N_{floor}\)</span>, rather it is an estimate derived from 64 averaged SX1262 RSSI readings, sampled every 2 seconds, where spikes and regular packets are filtered out and result clamped to a minimum of -120 dBm.
+The RSSI readings from the SX1262 are made through the GetRssiInst command which returns the instantaneous RSSI value seen after filter and gain before demodulation.
+Internally, the SX1262 refers the RSSI values back to its input, factoring out gain stages and AGC. Therefore <code>noise_floor</code> is an estimate of the noise floor seen at the input of the SX1262, not after demodulation.</p>
+<p>To measure system noise floor we isolate the receiver chain from environmental RF by using a 50-ohm terminator stub instead of an antenna. This measures thermal + receiver noise only. Measurements are performed through the <code>measure noise internal</code> command.
+The command reminds us of the procedure requirements and steps:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>measure<span class="w"> </span>noise<span class="w"> </span>internal
+<span class="go">Internal Noise Floor Measurement Procedure:</span>
+<span class="go">  1. With the antenna still connected, set TX power to -9 to protect the termination stub: beebo settings companion.radio.txpower -9</span>
+<span class="go">  2. Power off board</span>
+<span class="go">  3. Replace antenna with 50 ohm termination stub</span>
+<span class="go">  4. Power on board</span>
+<span class="go">  5. Run the test: beebo measure noise internal</span>
+<span class="go">  6. Power off board</span>
+<span class="go">  7. Replace stub with antenna</span>
+<span class="go">  8. Set companion.radio.txpower to original value</span>
+
+<span class="go">  The test itself runs at -9 dBm on the preset you choose and restores</span>
+<span class="go">  every setting after; step 1 covers the adverts sent before it starts.</span>
+<span class="go">  combined and in_band use this run as the reference for the LNA gain.</span>
+
+<span class="go">  LoRa preset [USA/Canada]:</span>
+
+<span class="go">  Press Enter to start the test...</span>
+</code></pre></div>
+<p>The test asks for a LoRa preset (Enter keeps the one the node is on), so the RX chain is measured at the bandwidth and spreading factor it normally runs at. For the run it holds settings in RAM, applies the preset, txpower -9 and FEM RSSI offsets 0/0 (raw SX1262-input readings), then restores everything from flash. <code>--antenna-ref</code> keeps the node's offsets instead (see <a href="#rssi-at-the-antenna-connector">RSSI at the Antenna Connector</a>).</p>
+<p>The test cycles 3 times through all permutations of radio.rxgain and fem.rxgain, waiting 5 s for the floor to settle and taking 10 <code>noise_floor</code> samples on each visit. Each config reports the median of its 30 samples after dropping those more than 3 MADs (at least 1 dB) from it, with the min and max for the spread. The medians are also saved as JSON next to the report, for <code>combined</code> and <code>in_band</code> to use. The tables below were taken with an earlier version that reported min/max of 5 samples:</p>
+<p><a id="tbl-14"></a><strong>Table 14: Measured Noise Floor by Configuration</strong></p>
+<table>
+<thead>
+<tr>
+<th>fem.rxgain</th>
+<th>rxgain</th>
+<th style="text-align: right;">min (dBm)</th>
+<th style="text-align: right;">max (dBm)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>off</td>
+<td>on</td>
+<td style="text-align: right;">-113</td>
+<td style="text-align: right;">-113</td>
+</tr>
+<tr>
+<td>off</td>
+<td>off</td>
+<td style="text-align: right;">-113</td>
+<td style="text-align: right;">-113</td>
+</tr>
+<tr>
+<td>on</td>
+<td>on</td>
+<td style="text-align: right;">-94</td>
+<td style="text-align: right;">-94</td>
+</tr>
+<tr>
+<td>on</td>
+<td>off</td>
+<td style="text-align: right;">-94</td>
+<td style="text-align: right;">-94</td>
+</tr>
+</tbody>
+</table>
+<p>Because we are using a stub as antenna we expect to see little or no variation in the readings. If readings show min and max value far apart, position the board away from interferers like laptops, WiFi routers or other transmitting devices.</p>
+<p>From the table we should be able to verify that changes in <code>rxgain</code> do not produce different values, since the gain in the SX1262 is factored out.</p>
+<p>Since we have no visibility in the SX1262 RX chain we can just consider the noise floor value where <code>rxgain = on</code>, its boosted default mode.</p>
+<p>Comparing the <span class="arithmatex">\(N_{stub}\)</span> values in the table with the <span class="arithmatex">\(N_{floor}\)</span> values we have calculated in <a href="../hardware/#tbl-8">Table 8</a>.</p>
+<p>But before we can do that, to compare apples to apples, we first need to translate <span class="arithmatex">\(N_{floor}\)</span> to the SX1262 input plane <span class="arithmatex">\(N_{sx}\)</span>, since <span class="arithmatex">\(N_{floor}\)</span> is input-referred to the antenna port and not the SX1262 input.</p>
+<p>The noise at SX1262 input is:</p>
+<div class="arithmatex">\[N_{sx} = N_{thermal} + {NF}_{fem} + G_{fem}\]</div>
+<p>When the LNA is used (<code>fem.rxgain = on</code>):</p>
+<ul>
+<li><span class="arithmatex">\(G_{fem} = G_{LNA} = 15\)</span> dB</li>
+<li><span class="arithmatex">\({NF}_{fem} = {NF}_{LNA} = 1.9\)</span> dB</li>
+<li><span class="arithmatex">\(N_{LNA} = N_{thermal} + {NF}_{LNA} + G_{LNA}\)</span></li>
+</ul>
+<p>when the LNA is bypassed (<code>fem.rxgain = off</code>):</p>
+<ul>
+<li><span class="arithmatex">\(G_{fem} = - L_{bypass} = -2\)</span> dB</li>
+<li><span class="arithmatex">\({NF}_{fem} = L_{bypass} = 2\)</span> dB.</li>
+<li><span class="arithmatex">\(N_{bypass} = N_{thermal} + L_{bypass} - L_{bypass} = N_{thermal}\)</span></li>
+</ul>
+<p>Note how for the bypass gain and noise cancel each other out since a passive matched attenuator only contributes spectral noise (at <span class="arithmatex">\(T_0\)</span>).</p>
+<p>Looking closely, though, there is an opportunity for us to compute the LNA gain <span class="arithmatex">\(G_{LNA}\)</span> straight from the noise floor measurement. In fact, the difference between <span class="arithmatex">\(N_{LNA}\)</span> and <span class="arithmatex">\(N_{bypass}\)</span> is:</p>
+<div class="arithmatex">\[N_{LNA} - N_{bypass} = ΔN = N_{thermal} + {NF}_{LNA} + G_{LNA} - N_{thermal}$$
+$$ΔN = {NF}_{LNA} + G_{LNA}\]</div>
+<p>Solving for <span class="arithmatex">\(G_{LNA}\)</span>:</p>
+<div class="arithmatex">\[G_{LNA} = ΔN - {NF}_{LNA}\]</div>
+<p>From the measurement table <span class="arithmatex">\(ΔN = -94 + 113 = 19\)</span> dB, therefore:</p>
+<div class="arithmatex">\[G_{LNA} = 19 - 1.9 ≈ 17\ \text{dB}\]</div>
+<p>That is 2 dB more than the approximate published 15 dB number.</p>
+<p>We can now compute <span class="arithmatex">\(N_{sx}\)</span> for the two cases:</p>
+<ul>
+<li><span class="arithmatex">\(N_{bypass} = N_{thermal} = -126\)</span> dBm</li>
+<li><span class="arithmatex">\(N_{LNA} = N_{thermal} + {NF}_{LNA} + G_{LNA} = -126 + 1.9 + 17 ≈ -107\)</span> dBm</li>
+</ul>
+<p>And compare with measured <span class="arithmatex">\(N_{stub}\)</span> values:</p>
+<table>
+<thead>
+<tr>
+<th>fem.rxgain</th>
+<th style="text-align: right;"><span class="arithmatex">\(N_{sx}\)</span></th>
+<th style="text-align: right;"><span class="arithmatex">\(N_{stub}\)</span></th>
+<th style="text-align: right;"><span class="arithmatex">\(N_δ\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>off</td>
+<td style="text-align: right;">-126 dBm</td>
+<td style="text-align: right;">-113 dBm</td>
+<td style="text-align: right;">+13 dB</td>
+</tr>
+<tr>
+<td>on</td>
+<td style="text-align: right;">-107 dBm</td>
+<td style="text-align: right;">-94 dBm</td>
+<td style="text-align: right;">+13 dB</td>
+</tr>
+</tbody>
+</table>
+<p>Note how the offset between predicted and measured is +13 dB in both configurations. It is a fixed offset inside the SX1262 that does not change in gain, not a modeling error that varies with gain. If the reference planes were wrong, the two offsets would differ.</p>
+<p>The delta offset could be attributed to SX1262 sampling the instantaneous RSSI before the channel filter therefore raising thermal noise by several dBs. To test this theory we sweep noise floor with different values of BW:</p>
+<table>
+<thead>
+<tr>
+<th>bw (kHz)</th>
+<th>min (dBm)</th>
+<th>max (dBm)</th>
+<th>Δ meas (dB)</th>
+<th>Δ thermal (dB)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>62.5</td>
+<td>-94</td>
+<td>-94</td>
+<td>+0</td>
+<td>+0.0</td>
+</tr>
+<tr>
+<td>125.0</td>
+<td>-91</td>
+<td>-91</td>
+<td>+3</td>
+<td>+3.0</td>
+</tr>
+<tr>
+<td>250.0</td>
+<td>-89</td>
+<td>-88</td>
+<td>+5</td>
+<td>+6.0</td>
+</tr>
+</tbody>
+</table>
+<p>The measured noise floor nicely tracks the thermal noise, therefore the SX1262 samples RSSI after the band filter.</p>
+<p>One consideration is that although GetRssiInst refers the RSSI back to the input plane removing gain, it does not remove the noise power injected up to the sampling point across filter, LNA, AGC, etc. Therefore a component of 13dB offset could be attributed to the SX1262 <span class="arithmatex">\({NF}_{radio}\)</span> noise figure adding 6.5 dB. In that case the offset shrinks to 6.5 dB.</p>
+<table>
+<thead>
+<tr>
+<th>fem.rxgain</th>
+<th style="text-align: right;"><span class="arithmatex">\(N_{sx}\)</span></th>
+<th style="text-align: right;"><span class="arithmatex">\(N_{stub}\)</span></th>
+<th style="text-align: right;"><span class="arithmatex">\(N_δ\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>off</td>
+<td style="text-align: right;">-119.5 dBm</td>
+<td style="text-align: right;">-113 dBm</td>
+<td style="text-align: right;">+6.5 dB</td>
+</tr>
+<tr>
+<td>on</td>
+<td style="text-align: right;">-100.5 dBm</td>
+<td style="text-align: right;">-94 dBm</td>
+<td style="text-align: right;">+6.5 dB</td>
+</tr>
+</tbody>
+</table>
+<p>The remaining 6.5 dB difference could be attributed to electromagnetic interference (EMI) on the board by SPI, MCU, WiFi, or Digital Filtering &amp; Equivalent Noise Bandwidth (ENBW) from the channel digital filter or who knows what else.</p>
+<h3 id="rssi-at-the-antenna-connector">RSSI at the Antenna Connector<a class="headerlink" href="#rssi-at-the-antenna-connector" title="Permanent link">&para;</a></h3>
+<p>The SX1262 reports RSSI at its own input, after the FEM, so every reading includes the FEM path gain: about +17 dB through the LNA and about −2 dB through the bypass. The same signal therefore reads about 19 dB apart depending on <code>fem.rxgain</code>. The firmware adds a per-path offset to every RSSI read, so packet RSSI and the noise floor refer to the antenna connector instead:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th style="text-align: right;">Default</th>
+<th>Applies when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>board.fem.rssi_offset.lna</code></td>
+<td style="text-align: right;">−17 dB</td>
+<td>LNA on (<code>fem.rxgain on</code>), and always on the GC1109 (V4.2), which has no bypass</td>
+</tr>
+<tr>
+<td><code>board.fem.rssi_offset.bypass</code></td>
+<td style="text-align: right;">+2 dB</td>
+<td>LNA bypassed (<code>fem.rxgain off</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>The offsets are board-level settings, persisted and shared by both roles, from −30 to 30 dB; 0/0 gives raw SX1262 values. Switching the LNA, or changing the offset of the path in use, restarts the noise floor. The offsets are compiled in with <code>BEEBO_RSSI_ANT_REF</code>, which every multi-role build sets.</p>
+<p>On bench, <code>measure noise internal</code> (raw, USA/Canada) reads −113 dBm in bypass and −94 dBm with the LNA (<a href="#tbl-14">Table 14</a>), a 19 dB step, the same as the 19 dB the nominal offsets correct. We keep −17/+2. The stub step is a ratio of noise powers, which also depends on each path's noise figure, so it confirms the offsets only to about a dB; a CW measurement at a known level would pin each path separately.</p>
+<p>With the offsets applied, the two paths read the same floor: −113 + 2 = −111 dBm in bypass, −94 − 17 = −111 dBm with the LNA. <code>measure noise internal --antenna-ref</code> measures this directly.</p>
+<h2 id="environmental-noise-with-antenna">Environmental Noise (with antenna)<a class="headerlink" href="#environmental-noise-with-antenna" title="Permanent link">&para;</a></h2>
+<p>Same procedure as above but with the antenna connected (<code>measure noise combined</code>).
+Compare results with the terminated measurements to see how much of the noise floor comes from the RF environment vs the receiver chain. A large difference suggests a bandpass filter before the LNA would help.</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>measure<span class="w"> </span>noise<span class="w"> </span>combined
+<span class="go">Combined Noise Floor Measurement Procedure:</span>
+<span class="go">  1. Connect the real antenna (not 50 ohm stub)</span>
+<span class="go">  2. Power on board</span>
+<span class="go">  3. Run this test</span>
+<span class="go">  4. Repeat test if needed</span>
+
+<span class="go">  Noise floor is sampled during idle gaps between packets</span>
+<span class="go">  (firmware filters out active reception automatically).</span>
+<span class="go">  Compare with noise internal to see environmental noise contribution.</span>
+
+<span class="go">  LoRa preset [USA/Canada]:</span>
+
+<span class="go">  Press Enter to start the test...</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>fem.rxgain</th>
+<th style="text-align: right;"><span class="arithmatex">\(N_{env}\)</span></th>
+<th style="text-align: right;"><span class="arithmatex">\(N_{stub}\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>off</td>
+<td style="text-align: right;">-110 dBm</td>
+<td style="text-align: right;">-113 dBm</td>
+</tr>
+<tr>
+<td>on</td>
+<td style="text-align: right;">-90 dBm</td>
+<td style="text-align: right;">-94 dBm</td>
+</tr>
+</tbody>
+</table>
+<p>The environment, in our case an urban area not in proximity of cellular towers, adds around 3-4 dB of noise with respect to the 50Ω stub antenna, seemingly for both LNA on/off cases.</p>
+<p><code>combined</code> and <code>in_band</code> also print the LNA path gain over bypass, from the latest <code>internal</code> run on the same node and preset. Per path, the stub reading is subtracted from the antenna reading in mW, which cancels the noise added after the SMA (SX1262 noise figure, board EMI). The gain is the LNA path's result minus the bypass path's, in dB, shown for each rxgain. A path less than 3 dB above the stub gives no gain: the subtraction would be dominated by drift between the two runs.</p>
+<h2 id="in-band-noise-with-bandpass-filter">In-Band Noise (with bandpass filter)<a class="headerlink" href="#in-band-noise-with-bandpass-filter" title="Permanent link">&para;</a></h2>
+<p>Same as environmental noise but with a bandpass filter inline (<code>measure noise in_band</code>).
+The CLI prompts for the filter's insertion loss and shows both raw measured values and corrected values (measured minus insertion loss) so you can directly compare with the unfiltered antenna measurements.</p>
+<p>The specs of the bandpass filter we use are the following:</p>
+<ul>
+<li>Model: SAW Bandpass Filter for 915MHz</li>
+<li>Bandwidth: 902-928MHz</li>
+<li>Maximum withstand power: 1W (30dBm)</li>
+<li>Insertion loss: <strong>1.6dB</strong></li>
+<li>Return loss: -22dB</li>
+<li>SWR: 1.1</li>
+<li>Verified with NanoVNA-F v2, loss and BW edges 1.7dB - 2dB</li>
+</ul>
+<p>As usual, beebo reminds us of requirements and procedure steps:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>measure<span class="w"> </span>noise<span class="w"> </span>in_band
+<span class="go">In-Band Noise Floor Measurement Procedure:</span>
+<span class="go">  1. Power off board</span>
+<span class="go">  2. Connect bandpass filter between antenna and board RF port</span>
+<span class="go">  3. Power on board</span>
+<span class="go">  4. Run this test</span>
+<span class="go">  5. Repeat test if needed</span>
+<span class="go">  6. Power off board</span>
+<span class="go">  7. Remove bandpass filter, reconnect antenna directly</span>
+
+<span class="go">  Noise excess over noise internal is due to in-band signals only.</span>
+<span class="go">  Compare with noise combined to compute out-of-band noise:</span>
+<span class="go">    out_of_band = noise_combined - noise_in_band</span>
+
+<span class="go">  Enter bandpass filter insertion loss (dB, e.g. 1.5): 1.6</span>
+
+<span class="go">  LoRa preset [USA/Canada]:</span>
+
+<span class="go">  Press Enter to start the test...</span>
+</code></pre></div>
+<p>The table reports the previous <span class="arithmatex">\(N_{env}\)</span> combined internal/in-band, the new <span class="arithmatex">\(N_{band}\)</span> noise corrected from bandpass insertion loss, and the internal only noise <span class="arithmatex">\(N_{stub}\)</span>.</p>
+<table>
+<thead>
+<tr>
+<th>fem.rxgain</th>
+<th style="text-align: right;"><span class="arithmatex">\(N_{env}\)</span></th>
+<th style="text-align: right;"><span class="arithmatex">\(N_{band}\)</span></th>
+<th style="text-align: right;"><span class="arithmatex">\(N_{stub}\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>off</td>
+<td style="text-align: right;">-110 dBm</td>
+<td style="text-align: right;">-110 dBm</td>
+<td style="text-align: right;">-113 dBm</td>
+</tr>
+<tr>
+<td>on</td>
+<td style="text-align: right;">-90 dBm</td>
+<td style="text-align: right;">-90 dBm</td>
+<td style="text-align: right;">-94 dBm</td>
+</tr>
+</tbody>
+</table>
+<p><span class="arithmatex">\(N_{env}\)</span> and <span class="arithmatex">\(N_{band}\)</span> are equal, so the band-pass filter has no influence.
+Since GetRssiInst readings are after the SX1262 digital bandpass filter, a difference here would reveal noise injected through ENBW.</p>
+<p>We can conclude that all of the injected noise is in-band noise.</p>
+<h2 id="spectrum-survey-tinysa">Spectrum Survey (tinySA)<a class="headerlink" href="#spectrum-survey-tinysa" title="Permanent link">&para;</a></h2>
+<p><em>To do. In practice the LNA <a href="../trials/">setting trial</a> tells whether the LNA can be used at a site, so this survey is optional.</em></p>
+<p>To determine whether out-of-band interference is significant enough to saturate the LNA we could:</p>
+<ol>
+<li>Connect the antenna to the tinySA input.</li>
+<li>Wide scan (800-1000 MHz) to identify interference sources.</li>
+<li>Narrow scan around the LoRa frequency (e.g. 906-916 MHz) to see in-band noise.</li>
+<li>Compare with and without the ESP32 WiFi radio active.</li>
+</ol>
+<p>If significant out-of-band energy is present, a SAW bandpass filter placed before the KCT8103L would reject it before LNA amplification.</p>
+<h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
+<p>One board, one site, one run of each measurement. The transmit power readings have a
+resolution of ±0.5 dB and an estimated accuracy of ±1 dB. The noise floor comes from the
+firmware's <code>noise_floor</code> estimate, which has a resolution of ±1 dB and an accuracy of
+about ±2 dB. Treat differences smaller than that as noise.</p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Measurement</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Where does the transmit chain compress?</td>
+<td>TX power sweep, <code>radio.txpower</code> −9 to 22, at the SMA through a 50 dB attenuator</td>
+<td>The chain gain is about 12 dB (about 4 dB of loss against the ideal 16 dB) and the output compresses around <code>radio.txpower</code> 16. It plateaus at <strong>27.3 dBm from 17 up</strong>.</td>
+</tr>
+<tr>
+<td>What does the stock setting give?</td>
+<td>Same sweep</td>
+<td><code>radio.txpower</code> 10 gives <strong>22.3 dBm</strong>, about 5 dB below the plateau. Above 17 the extra drive adds nothing: the gain falls from 10.3 dB at 17 to 5.3 dB at 22.</td>
+</tr>
+<tr>
+<td>What is the receiver's own noise floor?</td>
+<td><code>measure noise internal</code>, 50 Ω terminator, 62.5 kHz</td>
+<td><strong>−113 dBm</strong> with the LNA off and <strong>−94 dBm</strong> with it on, the same with <code>radio.rxgain</code> on or off.</td>
+</tr>
+<tr>
+<td>How much gain does the LNA path add?</td>
+<td>Difference of the two floors</td>
+<td>The floors differ by 19 dB. With the LNA's 1.9 dB noise figure that is a gain of about <strong>17 dB</strong>, 2 dB above the published 15 dB.</td>
+</tr>
+<tr>
+<td>Does the floor follow the model?</td>
+<td>Same measurement against the predicted floor at the SX1262 input</td>
+<td>Measured is a <strong>fixed +13 dB above</strong> the prediction on both paths. Attributing 6.5 dB of it to the SX1262 noise figure leaves 6.5 dB unexplained (board interference or the digital filter's noise bandwidth are candidates).</td>
+</tr>
+<tr>
+<td>Where in the chain is RSSI sampled?</td>
+<td>Floor at 62.5, 125 and 250 kHz</td>
+<td>It rises by 0, 3 and 5 dB, against 0, 3 and 6 dB for thermal noise, so the SX1262 samples RSSI <strong>after</strong> the channel filter.</td>
+</tr>
+<tr>
+<td>What does the environment add?</td>
+<td><code>measure noise combined</code>, antenna connected, urban site away from cell towers</td>
+<td>The floor is −110 dBm with the LNA off and −90 dBm with it on: <strong>3 to 4 dB above the terminator</strong> in both cases.</td>
+</tr>
+<tr>
+<td>Is the added noise in band?</td>
+<td><code>measure noise in_band</code> with a 902 to 928 MHz SAW filter (1.6 dB loss)</td>
+<td>The floor does not change (−110 and −90 dBm after correcting for the loss), so <strong>all of the added noise is in band</strong>. A bandpass filter before the LNA would not help at this site.</td>
+</tr>
+<tr>
+<td>Do the RSSI offsets work?</td>
+<td>The same floors with the offsets of −17 dB (LNA) and +2 dB (bypass) applied</td>
+<td>The raw floors are 19 dB apart, which the nominal offsets correct exactly: both paths read <strong>−111 dBm</strong> at the antenna connector.</td>
+</tr>
+</tbody>
+</table>
+<p>What follows from it:</p>
+<ul>
+<li><strong>Transmit power.</strong> <code>radio.txpower</code> 18 is at the top of the plateau, which is why beebo
+  ships it. Local radiated-power limits still apply: see
+  <a href="../hardware/#eirp-and-regulatory-limits">EIRP and regulatory limits</a>.</li>
+<li><strong>The LNA stays off by default</strong>, as in stock. It buys about 6 dB of sensitivity over the stock bypass setting
+  (4.3 dB better than the bare SX1262) and costs tolerance to out-of-band interference. At this site the antenna adds the same
+  3 to 4 dB with the LNA on and off, so out-of-band energy does not dominate here, but one
+  site does not decide it for yours. <code>beebo rxlog --compare</code> measures it on your own mesh
+  traffic with the chassis closed.</li>
+<li><strong>Noise figures.</strong> The measured floors sit 6.5 to 13 dB above the datasheet-based
+  prediction. The relative results (the LNA step and the bandwidth scaling) track the
+  model, so they are the ones to rely on.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.top", "navigation.instant", "toc.integrate", "navigation.tabs", "toc.follow", "search.highlight", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

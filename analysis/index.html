@@ -1,0 +1,1754 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for the Beebo Heltec V4.3 MeshCore Node Build">
+      
+      
+      
+        <link rel="canonical" href="https://pasqo.github.io/beebo-meshcore-fw/analysis/">
+      
+      
+        <link rel="prev" href="../health/">
+      
+      
+        <link rel="next" href="../cli-reference/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Analysis - Beebo Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#analysis" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Beebo Docs" class="md-header__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Beebo Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Analysis
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../roles/" class="md-tabs__link">
+          
+  
+  
+  Using Beebo
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tuning/" class="md-tabs__link">
+          
+  
+  
+  Tuning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Command Line
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../internals/" class="md-tabs__link">
+          
+  
+  
+  Under the Hood
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../support/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Support
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Beebo Docs" class="md-nav__button md-logo" aria-label="Beebo Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Beebo Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pasqo/beebo-meshcore-fw/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pasqo/beebo-meshcore-fw
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using Beebo
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using Beebo
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../phone-feed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Phone Feed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../connections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tuning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tuning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Tuning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setting Trials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a Repeater Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../trial-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trial Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The Adaptive Tuner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Line
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Command Line
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install and Connect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Update and Service a Node
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../battery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Battery State and Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health Check
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#in-field-lna-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In-Field LNA Comparison
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retrospective-analysis-beebo-analyze" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retrospective Analysis (beebo analyze)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Retrospective Analysis (beebo analyze)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-the-mesh-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: the mesh map
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Under the Hood
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Under the Hood
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Board Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rf-experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF Experiments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="analysis">Analysis<a class="headerlink" href="#analysis" title="Permanent link">&para;</a></h1>
+<p>Analysis works on the data the node records. <code>beebo rxlog --compare</code> compares the LNA on and off live over the companion link. <code>beebo analyze</code> reads a pulled <a href="../monitoring/">monitor</a> dataset offline and never connects to a device. For the health verdict of the live node see <a href="../health/">Health Check</a>. Every command and option is listed in the <a href="../cli-reference/#beebo-analyze">CLI Reference</a>.</p>
+<h2 id="in-field-lna-comparison">In-Field LNA Comparison<a class="headerlink" href="#in-field-lna-comparison" title="Permanent link">&para;</a></h2>
+<p>The RX signal chain analysis in <a href="../hardware/">Board Analysis</a> and the bench measurements in <a href="../rf-experiments/">RF Experiments</a> estimate the KCT8103L LNA's tradeoff (<code>&lt;role&gt;.fem.rxgain</code>) from datasheet parameters and lab equipment — a spectrum analyzer, a 50-ohm stub, a bandpass filter. That answers the question for one bench, once. It doesn't answer it for a specific deployment site, where the real question is whether the local RF environment is quiet enough for the LNA's ~6 dB of sensitivity over bypass to be worth its ~17 dB of reduced out-of-band tolerance — and that can only really be judged with the antenna connected, in place, listening to real traffic.</p>
+<p><code>beebo rxlog --compare</code> does exactly that, entirely over the companion link, with the chassis closed and no bench equipment at all:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>gatto<span class="w"> </span>rxlog<span class="w"> </span>--compare
+</code></pre></div>
+<p>It listens to the node's live RX feed and automatically toggles the live role's <code>fem.rxgain</code> on/off every <code>--interval</code> packets (default 30) while packets keep arriving from ordinary mesh traffic — no synthetic test source is generated or required. Toggling by packet count rather than by a timer keeps the on/off sample sizes balanced regardless of how much traffic the node is actually seeing at that moment. Every captured packet is tagged with whichever LNA state was active when it arrived, and the run keeps cycling until at least 4 toggle cycles have completed <em>and</em> both groups' mean SNR has converged to <code>--precision</code> (95% CI half-width, default ±0.5 dB) — so a busy node with a lot of traffic finishes fast, and a quiet one just keeps sampling until the numbers are trustworthy. <code>--duration</code> forces a fixed window instead, and Ctrl-C stops it early at any point. Either way, the node's original LNA state is always restored automatically on exit.</p>
+<p>At the end it reports, both on the console and (unless <code>--no-csv</code>) to a CSV + markdown sidecar under <code>~/.beebo/nodes/&lt;node&gt;/data/</code>:</p>
+<ul>
+<li>a per-metric on/off comparison table (SNR/RSSI/noise floor — mean, σ, min, max, median for each LNA state),</li>
+<li>a <strong>Welch's t-test</strong> on SNR/RSSI between the two groups, with an explicit <code>p &lt; 0.05</code> significance verdict, so a difference can be told apart from ordinary traffic/propagation drift rather than eyeballed off two numbers,</li>
+<li>a packets-per-minute reception rate for each LNA state, with a plain-language verdict — a lower LNA-on rate is flagged as the front-end saturating and dropping packets, a higher one as the LNA genuinely helping.</li>
+</ul>
+<figure>
+  <img alt="beebo rxlog --compare: the per-neighbor statistics, the LNA on and off comparison table, the reception rate for each state and Welch's t-test" src="../images/rxlog-compare.svg" width="900" />
+<br />
+<figcaption>A 4-minute run on a repeater (68 packets, the LNA toggled every 20 packets): the on and off groups differ in RSSI and noise but not significantly in SNR, and the LNA-on state heard fewer packets a minute. A run this short is only an illustration; the default stops when the SNR means converge. Neighbor names are replaced by numbers</figcaption>
+</figure>
+<p>Because interleaving many short on/off windows over the same live session cancels out drift far better than one long bench sweep with the LNA on followed by one with it off, this in-field comparison is arguably a more representative answer for a given site than the bench numbers in <a href="../rf-experiments/">RF Experiments</a> — it is measuring the real deployment's actual RF environment and actual traffic pattern, not a lab bench's.</p>
+<p>A saved CSV can be re-analyzed later without a device connection:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>rxlog<span class="w"> </span>--analyze<span class="w"> </span>~/.beebo/nodes/gatto/data/rxlog_tx18_lna_compare_20260722-091500.csv
+</code></pre></div>
+<h2 id="retrospective-analysis-beebo-analyze">Retrospective Analysis (<code>beebo analyze</code>)<a class="headerlink" href="#retrospective-analysis-beebo-analyze" title="Permanent link">&para;</a></h2>
+<p><code>beebo analyze</code> reads locally pulled data only, never a device. <code>--dir</code> names the root (default <code>~/.beebo/nodes</code>, the layout <code>monitor decode --save</code> writes to). Run through a node alias (for example <code>gatto analyze list</code>) it only sees that node's own data; the bare <code>beebo</code> sees every node. A data set can be named right after <code>analyze</code>, before the report, so a command reads as English: <code>gatto analyze trials rate</code> (a <code>monitor pull --to trials</code> file, a day file such as <code>monring_2026-09-28</code>, or a saved set's tag), or given as a <code>FILE</code> after the report (a path relative to <code>--dir</code>; a bare name such as <code>trials</code> or <code>trials.bin</code> that is not a file there is looked up by name, so <code>gatto analyze rate trials</code> works too). Subcommands:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Reports</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>analyze list</code></td>
+<td>The pulled monitor sets (per-profile CSV/JSON and the raw <code>monring_&lt;date&gt;.bin</code> days and <code>--to</code> named files) with basic stats</td>
+</tr>
+<tr>
+<td><code>analyze link-quality</code></td>
+<td>Per-neighbor SNR/RSSI summary and a mean ± std chart per metric; <code>--hash</code>/<code>--name</code> for one neighbor: statistics and distribution charts, <code>--trend</code> adds hourly charts. Optional SVG chart with <code>--chart</code></td>
+</tr>
+<tr>
+<td><code>analyze neighbors</code></td>
+<td>Neighbor activity: node and packet counts and a packets-per-neighbor chart; <code>--hourly</code> adds packets by hour of day</td>
+</tr>
+<tr>
+<td><code>analyze noise</code></td>
+<td>Noise-floor statistics, distribution histogram and hourly trend</td>
+</tr>
+<tr>
+<td><code>analyze packets</code></td>
+<td>Search and filter individual rx/tx packets</td>
+</tr>
+<tr>
+<td><code>analyze rate</code></td>
+<td>RX/TX packets per minute: statistics and a time-series chart</td>
+</tr>
+<tr>
+<td><code>analyze latency</code></td>
+<td>Checks the time limits the node judges packets with against the captured traffic. A packet is duplicated when we already heard it; one we route is echoed when a neighbor relays it and we hear that relay within the echo window of our transmission. A Limits table gives the echo window (the firmware logs it with each verdict, 4500 ms + 6 x airtime), <code>seen_window</code> (a settings event in the capture, else the newest saved config of the alias, else the firmware default, or <code>--seen-window SECONDS</code> as a what-if) and <code>--max-latency</code> (default 100 s, a duplicate later than this after the first reception is a reused hash). Packet Statistics shows received (individual, duplicated, excluded as hash reuse) and routed packets: a 0-hop echo (the neighbor's own relay, heard straight from it), an n-hop echo (relayed on by more repeaters first) and a duplicate by another route, all in the echo window; any duplicate heard after the window within <code>seen_window</code> (outside window); and not heard, a neighbor stays silent when it already has the packet. The echoes are told from other routes by the RX record's path flags (monitor format 4, exact; an older capture falls back to the hop count, an upper bound). A duplicated section and an echoes section each give the delay table (n, p50, p90, p99, max in ms), a histogram with the limits as x ticks (the echo histogram stacks the 0-hop echoes under the n-hop ones), and a check table with a check mark or a cross: <code>seen_window</code> covers 99.9% of the duplicates and the dedup table holds a hash for it; the echo window covers 99% of the echoes, the echo ring holds a packet for it and never overflowed, with the recommended value and the fit of base + factor x airtime. A raw monring <code>.bin</code> carries the echo events; any other set gives the duplicated packets only. <code>--detail</code> adds the echo window table, the hop tables, the duplicate report and the slowest pairs; <code>--json</code> prints it as JSON. <code>analyze timing</code> and <code>analyze dup-latency</code> still work, one half each</td>
+</tr>
+<tr>
+<td><code>analyze routing</code></td>
+<td>Why a packet we route is, or is not, echoed by a neighbor, from the RX and TX records and the echo verdicts of a raw monring <code>.bin</code>. A table counts the routed packets by scenario: a 0-hop echo, an n-hop echo, another route (a neighbor sent its own copy), an echo after the window, and silence (a neighbor had already relayed it before our send, or no duplicate was heard at all: neighbors may hold it from repeaters we do not hear). A second table tests whether a duplicate heard before our send keeps the neighbors silent. One typical packet of each scenario is drawn as a sequence of events with the neighbor, the hop count and the time from the first reception. The last-hop neighbors are ranked (heard, first, duplicates, SNR, duplicates delivered ahead of our sends, 0-hop echoes of ours; <code>--top N</code>, 0 for all) with the hops of the first receptions. The RX record names the last hop only, so the topology is the direct neighbors; an older capture without the path flags judges echoes by hop count. <code>--seen-window</code>, <code>--max-latency</code>, <code>--hours</code>, <code>--json</code></td>
+</tr>
+<tr>
+<td><code>analyze paths</code></td>
+<td>The routes to repeaters and the links between them, from the RX path records of a raw monring <code>.bin</code> captured with <code>monitor capture path on</code> (an RX record then holds the last three hops of its path, one byte each, instead of the last hop's identity). For each repeater seen in a path, the chains of hops from us to it, with the packets that took each, their share and the SNR of the last hop; and the repeater links ranked (the second heard the first). With 2- and 3-byte hashes two repeaters can share a byte. <code>--top N</code> (0 for all), <code>--hours</code>, <code>--json</code></td>
+</tr>
+<tr>
+<td><code>analyze mesh</code></td>
+<td>A console map of the nodes we hear and how their packets connect them, from a raw monring <code>.bin</code> and the <code>neighbors.json</code> positions (<code>beebo neighbors pull</code>): ours, and the ones the neighbors advertise. A schematic that fills the console, not to scale: the nodes keep their true west-to-east and north-to-south order (a node west of another is drawn west of it, one north of another north of it) and are spread by rank, not by distance; each carries its number and name. Each last-hop neighbor is joined to us by a link and, on a capture with rx path mode (<code>monitor capture path on</code>), the busiest links between the other repeaters of the paths are added, drawn as <code>○ node</code>. A link is colored by its packets on a log scale, blue for the least to red for the most, with the scale under the map. A table lists the numbers: name, heard / first / duplicates, median SNR, echoes of ours, links, distance and compass direction; nodes with no position stay in the table only. <code>--top N</code> (neighbors, default 8), <code>--links N</code> (repeater links, default 6, 0 for none), <code>--width COLS</code>, <code>--height ROWS</code>, <code>--hours</code>, <code>--json</code></td>
+</tr>
+<tr>
+<td><code>analyze retries</code></td>
+<td>Route retry outcome: forwards retried after an echo timeout, retries heard (echoed), unanswered or pending, the rescue rate and the extra airtime; <code>analyze packets</code> shows each retry in its <code>Try</code> column (retry number and coding rate)</td>
+</tr>
+<tr>
+<td><code>analyze tuning indicators</code></td>
+<td>The <code>tuning trial</code> indicators per window (Score, Delivered and per minute, TX Dispatched, Received, RX Invalid, RX Errors, Nbr Heard, Nbr Marginal, Pool Busy, CAD Busy, Noise dBm; the counts are per minute, as the table caption says; <code>--window MINUTES</code> sets the window, default 5, minimum 1): statistics and one chart each. Names after the command pick the charts (<code>indicators received delivered</code>; an indicator selects the chart it is drawn in, so <code>dispatched</code> shows Routed; case and spaces ignored, a unique part of the name is enough); <code>tuning indicator NAME</code> analyzes one indicator's dips in depth. Score is the trial objective computed for the window, with the objective weights the capture recorded. The event-based rows need a raw <code>.bin</code> set; RX Errors, Pool Busy and CAD Busy come from the <code>route_stats</code> event that firmware logs every minute. <code>--score NAME=WEIGHT,...</code> re-scores the windows with other score weights.</td>
+</tr>
+<tr>
+<td><code>analyze tuning indicator INDICATOR</code></td>
+<td>Looks into one indicator of the table above (name by label or row key, case and spaces ignored). Dips, or bursts where high is bad (RX Invalid, RX Errors, Nbr Marginal, Pool Busy, CAD Busy, Noise dBm): a run of windows more than K robust deviations (MAD) from the median, <code>--sensitivity K</code> (default 3), listed with start, duration, depth. Every window is shown; each dip is tagged <code>load</code> when Received in it is under half its median (over double for burst indicators: more traffic explains it) or <code>degraded</code> when Received was normal, in a chart legend, a Cause column and a summary line with the correlation to Received. Suspects and nearby changes cover the degraded dips only. A median under 5 events per window warns to use a larger <code>--window</code>. Service level (share of time in that state, longest run, mean of the worst 5%, gaps without data), level shifts, repeat period, spacing between dips (when at least 5 and evenly spaced), and time-of-day. Suspects, ranked and not proven: other indicators inside versus outside the dips with their best lagged correlation (an indicator's own components are left out), the load (Received) at which it starts to worsen, and setting changes, trial starts and fault events near the dips (raw <code>.bin</code> set). <code>indicators NAME</code> is accepted as a shorthand</td>
+</tr>
+<tr>
+<td><code>analyze tuning trial</code></td>
+<td>One setting trial (a combined trial lists its participants), or a sequence (<a href="../trial-reference/#analyzing-trials">Trial Reference</a>), with a chart of each pair's gain and the decision interval at every look</td>
+</tr>
+<tr>
+<td><code>analyze tuning phi</code></td>
+<td>How noisy the paired trial differences are, pooled over every finished trial (<a href="../trial-reference/#analyzing-trials">Trial Reference</a>)</td>
+</tr>
+<tr>
+<td><code>analyze tuning effect</code></td>
+<td>The indicators split by setting assignment over the whole capture, with grouped bars per assignment</td>
+</tr>
+</tbody>
+</table>
+<h3 id="example-the-mesh-map">Example: the mesh map<a class="headerlink" href="#example-the-mesh-map" title="Permanent link">&para;</a></h3>
+<p><code>analyze mesh</code> draws the nodes a repeater hears as a console map, from a day of its own capture. The nodes keep their west-to-east and north-to-south order, each link is colored by the packets it carried, and the table under the map gives the counts: packets heard, first copies and duplicates, median SNR, echoes of our sends, and the distance and direction when the node has a position. Node names are replaced by numbers here.</p>
+<figure>
+  <img alt="beebo analyze mesh: a map of eight neighbors joined to the node by links, and a table with each neighbor's packets, SNR and echoes" src="../images/analyze-mesh.svg" width="900" />
+<br />
+<figcaption>beebo analyze mesh on a day of a repeater's capture: eight neighbors, the busiest (Nbr-1) heard 9,372 times</figcaption>
+</figure>
+<p>The reports share one shape. After <code>Analyzing &lt;file&gt;</code> comes a <code>Data &lt;start&gt; to &lt;end&gt;</code> line (with the set's full span when <code>--hours</code> narrows it), then statistics (mean, median, P95, peak and when it happened, plus span, idle share and the longest gap for windowed reports), then charts. Charts plot every window: nothing is reduced to fit the terminal, so a chart always shows the same windows the statistics are computed on, and <code>--window</code> zooms. Idle stretches of an hour or more show as a gap in a time chart, not as zero traffic. <code>--table</code> adds the per-row table that a chart replaces (<code>rate</code>, <code>noise</code>, <code>tuning indicators</code>, <code>link-quality</code> in detail mode, <code>neighbors --hourly</code>), and <code>--json</code> prints raw rows where a report has it. Time axes are labeled on round clock times, with the date only on the first tick and where the day changes; y axes use round steps (multiples of 1, 2, 2.5 or 5 times a power of ten) on equally spaced rows. <code>--style</code> (before the report name, like <code>--dir</code>) picks the chart style: line markers <code>braille</code> (default), <code>fhd</code>, <code>hd</code>, <code>sd</code>, <code>dot</code>, unjoined points <code>sample</code> (+) or <code>star</code> (*), or vertical <code>bar</code>; bars average consecutive windows when there are more windows than terminal columns. Charts need <code>plotext</code>; without it the report falls back to its tables.</p>
+<p><code>beebo monitor</code> is a separate, always-on background capture (see <a href="../internals/#diagnostics-and-protocol-additions">Diagnostics and Protocol Additions</a>) — it isn't itself an A/B tool, but if <code>fem.rxgain</code> happens to be toggled manually while it's running, <code>beebo monitor decode --save</code> splits the downloaded ring into one directory per distinct radio profile it saw (including the <code>lna</code> state), and <code>beebo analyze</code>'s report commands accept <code>--lna on</code>/<code>--lna off</code> filters to retroactively split any of its reports by LNA state:</p>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>beebo<span class="w"> </span>analyze<span class="w"> </span>link-quality<span class="w"> </span>--lna<span class="w"> </span>on
+<span class="gp">$ </span>beebo<span class="w"> </span>analyze<span class="w"> </span>link-quality<span class="w"> </span>--lna<span class="w"> </span>off
+</code></pre></div>
+<p>This is a manual, eyeball comparison — run the same report twice and compare the printed tables — not the automated statistical verdict <code>rxlog --compare</code> gives; it's most useful for mining LNA on/off data out of a long background capture that was already running for other reasons, rather than as the primary tool for the LNA decision itself.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.top", "navigation.instant", "toc.integrate", "navigation.tabs", "toc.follow", "search.highlight", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
