@@ -54,12 +54,6 @@ TEST(ConsoleMonitor, ApplyChangesOnlyTheNamedBit) {
   EXPECT_EQ(0x180u, consoleMonitorApply(0x80, 0x100, true));
 }
 
-TEST(ConsoleMonitor, TimeSharesAreTwoDecimalPercent) {
-  char out[100];
-  consoleMonitorTime(120, 30, 5, 9500, 41210, out, sizeof(out));
-  EXPECT_STREQ("time rx 1.20%  tx 0.30%  lx 0.05%  idle 95.00%  loops 41210/s", out);
-}
-
 TEST(ConsoleMonitor, RingLine) {
   char out[100];
   consoleMonitorRing(4120, 65536, out, sizeof(out));
@@ -76,6 +70,37 @@ TEST(ConsoleMonitor, TrialStatusLines) {
   EXPECT_STREQ("trial on  profile exhaustive", out);
   consoleTrialLine(true, true, false, "lna", 0, 1, 11, 260, "main", out, sizeof(out));
   EXPECT_STREQ("trial running lna a=0 b=1 block 12/260  profile main", out);
+}
+
+TEST(ConsoleMonitor, CountersShowOnlyTheNonZero) {
+  const ConsoleCounter c[] = {{"rx_pool_full", 0}, {"tx_cad_timeout", 3}, {"rx_start_timeout", 0}, {"tx_pool_full", 12}};
+  char out[160];
+  consoleCounters("health", c, 4, out, sizeof(out));
+  EXPECT_STREQ("health tx_cad_timeout=3 tx_pool_full=12", out);
+}
+
+TEST(ConsoleMonitor, CountersAllZero) {
+  const ConsoleCounter c[] = {{"a", 0}, {"b", 0}};
+  char out[160];
+  consoleCounters("health", c, 2, out, sizeof(out));
+  EXPECT_STREQ("health all 0", out);
+}
+
+TEST(ConsoleMonitor, CountersAreCutWithDotsWhenTheyDoNotFit) {
+  const ConsoleCounter c[] = {{"alpha_counter", 1}, {"beta_counter", 2}, {"gamma_counter", 3}};
+  char out[40];
+  consoleCounters("service", c, 3, out, sizeof(out));
+  EXPECT_LT(strlen(out), sizeof(out));
+  EXPECT_STREQ("...", out + strlen(out) - 3);
+  EXPECT_EQ(0u, strncmp(out, "service alpha_counter=1", 23));
+}
+
+TEST(ConsoleMonitor, RatesLine) {
+  ConsoleRates r{120, 30, 5, 40, 9405, 41210, 12, 10, 20, 30};
+  char out[200];
+  consoleRates(r, out, sizeof(out));
+  EXPECT_STREQ("rates rx 1.20%  tx 0.30%  lx 0.05%  sys 0.40%  idle 94.05%  loops 41210/s  max_loop 12 ms  "
+               "tx_wait_airtime 0.10%  tx_wait_cad 0.20%  rx_wait_relay 0.30%", out);
 }
 
 }  // namespace

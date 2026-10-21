@@ -505,6 +505,8 @@ public:
   bool handleConsoleStatus(const char* command, char* reply);
   bool handleConsoleMonitor(const char* command, char* reply);
   bool handleConsoleBattery(const char* command, char* reply);
+  bool handleConsoleCheck(const char* command, char* reply);
+  void consoleMonitorStatus(const char* section, char* reply);
 
   // The 'self' sentinel runs the command locally via
   // handleCommand() and queues the reply as if it came from target, instead of relaying

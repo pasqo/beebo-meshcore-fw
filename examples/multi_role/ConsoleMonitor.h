@@ -53,10 +53,37 @@ inline ConsoleMonitorParse consoleMonitorParse(const char* args, uint32_t* mask,
 
 inline uint32_t consoleMonitorApply(uint32_t cfg, uint32_t bit, bool on) { return on ? (cfg | bit) : (cfg & ~bit); }
 
-// Busy shares are 0-10000 (two decimals of a percent); idle likewise.
-inline void consoleMonitorTime(unsigned rx, unsigned tx, unsigned lx, unsigned idle, unsigned loops, char* out, size_t cap) {
-  snprintf(out, cap, "time rx %u.%02u%%  tx %u.%02u%%  lx %u.%02u%%  idle %u.%02u%%  loops %u/s", rx / 100, rx % 100,
-           tx / 100, tx % 100, lx / 100, lx % 100, idle / 100, idle % 100, loops);
+struct ConsoleCounter { const char* name; uint32_t value; };
+
+// "<title> name=value ..." for the counters that are not zero, "<title> all 0" when none is;
+// cut with "..." when it does not fit.
+inline void consoleCounters(const char* title, const ConsoleCounter* c, size_t n, char* out, size_t cap) {
+  size_t used = snprintf(out, cap, "%s", title);
+  bool any = false;
+  for (size_t i = 0; i < n; i++) {
+    if (!c[i].value) continue;
+    char item[48];
+    int len = snprintf(item, sizeof(item), " %s=%u", c[i].name, (unsigned)c[i].value);
+    if (used + len + 4 > cap) { if (used + 4 <= cap) strcpy(out + used, "..."); return; }
+    memcpy(out + used, item, len + 1);
+    used += len;
+    any = true;
+  }
+  if (!any) snprintf(out + used, cap - used, " all 0");
+}
+
+// The latest 10 s window: busy shares and wait shares are 0-10000 (two decimals of a percent).
+struct ConsoleRates {
+  unsigned rx, tx, lx, sys, idle, loops, max_loop_ms, tx_wait_airtime, tx_wait_cad, rx_wait_relay;
+};
+
+inline void consoleRates(const ConsoleRates& r, char* out, size_t cap) {
+  snprintf(out, cap,
+           "rates rx %u.%02u%%  tx %u.%02u%%  lx %u.%02u%%  sys %u.%02u%%  idle %u.%02u%%  loops %u/s  max_loop %u ms  "
+           "tx_wait_airtime %u.%02u%%  tx_wait_cad %u.%02u%%  rx_wait_relay %u.%02u%%",
+           r.rx / 100, r.rx % 100, r.tx / 100, r.tx % 100, r.lx / 100, r.lx % 100, r.sys / 100, r.sys % 100,
+           r.idle / 100, r.idle % 100, r.loops, r.max_loop_ms, r.tx_wait_airtime / 100, r.tx_wait_airtime % 100,
+           r.tx_wait_cad / 100, r.tx_wait_cad % 100, r.rx_wait_relay / 100, r.rx_wait_relay % 100);
 }
 
 inline void consoleMonitorRing(uint32_t count, uint32_t capacity, char* out, size_t cap) {

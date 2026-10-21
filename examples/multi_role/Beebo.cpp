@@ -17,6 +17,7 @@
 #include "ConsoleStatus.h"
 #include "ConsoleMonitor.h"
 #include "ConsoleBattery.h"
+#include "ConsoleCheck.h"
 #include "CliCommand.h"
 #include "AppSync.h"
 #include "FeedLines.h"
@@ -9183,18 +9184,26 @@ bool Beebo::handleConsoleMonitor(const char* command, char* reply) {
     }
     return true;
   }
-  if (strcmp(arg, "status") == 0) {
+  if (*arg == 0) {   // the capture state and the ring fill
     char cap[160], ring[40];
     consoleMonitorCapture(cfg, cap, sizeof(cap));
     consoleMonitorRing(monring.count(), monring.capacity(), ring, sizeof(ring));
-    int n = snprintf(reply, 160, "%s", cap);
-#ifdef BEEBO_CPU_ACCOUNTING
-    char t[100];
-    consoleMonitorTime(_rx_busy_reported, _tx_busy_reported, _lx_busy_reported, _lp_idle_reported, _loops_per_sec_reported, t, sizeof(t));
-    snprintf(reply + n, CLI_REPLY_CAP - n, "\n%s  %s", ring, t + 0);
-#else
-    snprintf(reply + n, CLI_REPLY_CAP - n, "\n%s", ring);
-#endif
+    snprintf(reply, 160, "%s\n%s", cap, ring);
+    return true;
+  }
+  if (strncmp(arg, "status", 6) == 0 && (arg[6] == 0 || arg[6] == ' ')) {
+    const char* section = arg + 6;
+    while (*section == ' ') section++;
+    if (*section && strcmp(section, "health") != 0 && strcmp(section, "service") != 0 && strcmp(section, "rates") != 0) {
+      strcpy(reply, "ERR: monitor status takes health, service or rates");
+      return true;
+    }
+    consoleMonitorStatus(section, reply);
+    return true;
+  }
+  if (strcmp(arg, "clear") == 0) {
+    clearMonRing();
+    strcpy(reply, "OK");
     return true;
   }
   if (strcmp(arg, "start") == 0 || strcmp(arg, "stop") == 0) {
@@ -9215,7 +9224,7 @@ bool Beebo::handleConsoleMonitor(const char* command, char* reply) {
     }
     return true;
   }
-  strcpy(reply, "ERR: monitor takes status, start, stop or capture");
+  strcpy(reply, "ERR: monitor takes status, start, stop, clear or capture");
   return true;
 }
 
@@ -9245,6 +9254,61 @@ bool Beebo::handleConsoleBattery(const char* command, char* reply) {
     return true;
   }
   strcpy(reply, "ERR: battery takes state or calibrate VOLTS");
+  return true;
+}
+
+// `monitor status [health|service|rates]`: the CLI's Health Status, Service Status and Service Rates
+// tables as name=value lines, from the counters the ring header carries.
+void Beebo::consoleMonitorStatus(const char* section, char* reply) {
+  SimpleMeshTables* tables = (SimpleMeshTables*)getTables();
+  MonRing::SohStats h = sohStats();
+  bool all = *section == 0;
+  size_t n = 0;
+  reply[0] = 0;
+  if (all || strcmp(section, "health") == 0) {
+    const ConsoleCounter c[] = {
+      {"rx_pool_full", h.rx_pool_exhausted_count}, {"rx_queue_full", h.rx_queue_full_count},
+      {"tx_queue_full", h.tx_queue_full_count}, {"link_tx_queue_full", h.link_tx_queue_full_count},
+      {"link_rx_queue_full", h.link_rx_queue_full_count}, {"tx_pool_full", h.tx_pool_full_count},
+      {"tx_cad_timeout", h.tx_cad_timeout_count}, {"rx_start_timeout", h.rx_start_timeout_count},
+      {"tx_ack_overflow", h.tx_ack_overflow_count}, {"tx_echo_overflow", h.tx_echo_overflow_count},
+      {"rx_dedup_table_full", tables->getDedupEvictedCount()},
+    };
+    consoleCounters("health", c, sizeof(c) / sizeof(c[0]), reply + n, CLI_REPLY_CAP - n);
+    n = strlen(reply);
+  }
+  if (all || strcmp(section, "service") == 0) {
+    if (n) reply[n++] = '\n';
+    const ConsoleCounter c[] = {
+      {"rx_packets", radio_driver.getPacketsRecv()}, {"rx_flood", getNumRecvFlood()}, {"rx_flood_dup", tables->getNumFloodDups()},
+      {"rx_direct", getNumRecvDirect()}, {"rx_direct_dup", tables->getNumDirectDups()},
+      {"rx_errors", radio_driver.getPacketsRecvErrors()}, {"rx_parse_error", monring.rxParseErrorCount()},
+      {"tx_packets", radio_driver.getPacketsSent()}, {"tx_flood", getNumSentFlood()}, {"tx_direct", getNumSentDirect()},
+      {"tx_direct_success", getAckSuccessCount()}, {"tx_direct_timeout", getAckTimeoutCount()},
+      {"tx_flood_success", tables->getEchoSuccessCount()}, {"tx_flood_timeout", tables->getEchoTimeoutCount()},
+      {"tx_max_hop_no_fwd", _max_hop_no_fwd_count}, {"tx_region_no_fwd", _region_no_fwd_count}, {"tx_loop_no_fwd", _loop_no_fwd_count},
+    };
+    consoleCounters("service", c, sizeof(c) / sizeof(c[0]), reply + n, CLI_REPLY_CAP - n);
+    n = strlen(reply);
+  }
+  if (all || strcmp(section, "rates") == 0) {
+    if (n) reply[n++] = '\n';
+#ifdef BEEBO_CPU_ACCOUNTING
+    ConsoleRates r{_rx_busy_reported, _tx_busy_reported, _lx_busy_reported, _sys_busy_reported, _lp_idle_reported,
+                   _loops_per_sec_reported, _max_loop_latency_ms_reported, _tx_wait_airtime_reported,
+                   _tx_wait_cad_reported, _rx_wait_relay_reported};
+    consoleRates(r, reply + n, CLI_REPLY_CAP - n);
+#else
+    snprintf(reply + n, CLI_REPLY_CAP - n, "rates not built in");
+#endif
+  }
+}
+
+// `check`: the QoS and SoH verdicts of `beebo check`.
+bool Beebo::handleConsoleCheck(const char* command, char* reply) {
+  if (strcmp(command, "check") != 0) return false;
+  MonRing::QosStats q = qosStats();
+  consoleCheck(MonRing::computeQos(q), MonRing::computeQosExposure(q), MonRing::computeSoh(sohStats()), reply, 320);
   return true;
 }
 
@@ -9370,6 +9434,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
   if (handleConsoleStatus(command, reply)) return;
   if (handleConsoleMonitor(command, reply)) return;
   if (handleConsoleBattery(command, reply)) return;
+  if (handleConsoleCheck(command, reply)) return;
   if (handleAppCliCommand(command, reply)) return;
 
 #if BEEBO_ENABLE_REPEATER_ROLE
