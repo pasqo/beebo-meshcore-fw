@@ -1,0 +1,47 @@
+name: Bug report
+description: Something does not work as the documentation says
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Beebo is a one-person project supported in spare time, so a reply can take a while. Please do not post passwords, private keys, WiFi passwords or the files of `config backup`.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: The steps you took, in order.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: "`ver` on the node console, or `beebo status node`."
+      placeholder: "1.18.0.beebo.1.0 (Build: ...)"
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Role
+      options: [repeater, companion, both / not sure]
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: How you connect
+      multiple: true
+      options: [phone app, beebo CLI over USB, beebo CLI over BLE, beebo CLI over WiFi, node console (beebo-cli channel)]
+  - type: textarea
+    id: output
+    attributes:
+      label: Output of the commands involved
+      description: Copied as text, for example `status`, `check`, `monitor status`. For a crash or a reboot loop, what the node printed over USB.
+      render: text
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      placeholder: Heltec V4.3

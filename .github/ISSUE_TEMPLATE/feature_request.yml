@@ -1,0 +1,26 @@
+name: Feature request
+description: An idea or something you would like beebo to do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Beebo is a one-person project supported in spare time. Requests are read, but they can wait, or be declined to keep beebo small and reliable.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: The goal, and why the current behavior falls short. A real use case helps most.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea (optional)
+      description: How you imagine it working.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where would it live?
+      multiple: true
+      options: [node firmware, beebo command line, node console, documentation, not sure]

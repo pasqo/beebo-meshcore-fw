@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Chat on the MeshCore Discord
+    url: https://meshcore.gg
+    about: Questions and open discussion fit the Discord (look for the custom firmware area). Bugs and feature requests belong here.
+  - name: Beebo documentation
+    url: https://pasqo.github.io/beebo-meshcore-fw/
+    about: Install, quick start, commands and troubleshooting.
