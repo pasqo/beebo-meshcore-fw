@@ -65,9 +65,9 @@ TEST(FeedLines, TxPowerWarnsBelowTheSaturationOnsetOnly) {
   EXPECT_EQ(0, feedFmtTxPowerWarn(b, sizeof(b), 22));
   EXPECT_STREQ(b, "untouched");
   EXPECT_GT(feedFmtTxPowerWarn(b, sizeof(b), 10), 0);
-  EXPECT_STREQ(b, "warn: txpower=10 dBm underdrives the PA, run: radio.txpower 18");
+  EXPECT_STREQ(b, "warn: txpower=10 dBm underdrives the PA, run: settings radio.txpower 18");
   feedFmtTxPowerWarn(b, sizeof(b), -9);
-  EXPECT_STREQ(b, "warn: txpower=-9 dBm underdrives the PA, run: radio.txpower 18");
+  EXPECT_STREQ(b, "warn: txpower=-9 dBm underdrives the PA, run: settings radio.txpower 18");
 }
 
 TEST(FeedLines, OutcomeNamesMatchTheEnumOrder) {

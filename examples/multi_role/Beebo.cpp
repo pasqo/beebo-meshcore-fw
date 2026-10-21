@@ -15,6 +15,8 @@
 #include "AdminSelfCommand.h"
 #include "ConsoleAlias.h"
 #include "ConsoleStatus.h"
+#include "ConsoleMonitor.h"
+#include "ConsoleBattery.h"
 #include "CliCommand.h"
 #include "AppSync.h"
 #include "FeedLines.h"
@@ -9149,6 +9151,103 @@ bool Beebo::handleConsoleStatus(const char* command, char* reply) {
   return true;
 }
 
+// `monitor status|start|stop|capture [<kind> on|off]`: the CLI's own words for the persisted
+// capture config of the live role.
+static_assert(MON_CAP_RX == 0x01 && MON_CAP_TX == 0x02 && MON_CAP_RADIO == 0x04 && MON_CAP_ENV == 0x08 &&
+              MON_CAP_BATT == 0x10 && MON_CAP_TUNING == 0x20 && MON_CAP_EVENT == 0x40 && MON_CAP_ENABLED == 0x80 &&
+              MON_CFG_RX_PATH == 0x100, "ConsoleMonitor.h kind bits");
+
+bool Beebo::handleConsoleMonitor(const char* command, char* reply) {
+  if (strncmp(command, "monitor", 7) != 0 || (command[7] != 0 && command[7] != ' ')) return false;
+  const char* arg = command + 7;
+  while (*arg == ' ') arg++;
+  uint32_t cfg = tlvGetMonringConfig(this, _board.role);
+  if (strncmp(arg, "tuning trial", 12) == 0 && (arg[12] == 0 || arg[12] == ' ')) {
+    if (!isRepeater()) { strcpy(reply, "ERR: needs role 'repeater', node is 'companion'"); return true; }
+    const char* sub = arg + 12;
+    while (*sub == ' ') sub++;
+    char text[CONSOLE_ALIAS_CMD_MAX];
+    if (strncmp(sub, "start", 5) == 0 && (sub[5] == 0 || sub[5] == ' ')) {
+      snprintf(text, sizeof(text), "set tuning.trial.start %s", sub + 5 + (sub[5] == ' ' ? 1 : 0));
+      handleCommand(0, text, reply);
+    } else if (strcmp(sub, "stop") == 0) {
+      strcpy(text, "set tuning.trial.enabled off");
+      handleCommand(0, text, reply);
+    } else if (*sub == 0) {
+      bool run = trialRunning();
+      const char* prof = _trial_profile == TrialSequence::PROFILE_EXHAUSTIVE ? "exhaustive" : "main";
+      consoleTrialLine(_trial_enabled, run, _trial_rate_wait, run && _trial_switch >= 0 ? TrialSequence::name(_trial_switch) : nullptr,
+                       trial.original(), trial.alternative(), trial.blockIndex(), trial.totalBlocks(), prof, reply, 160);
+    } else {
+      strcpy(reply, "ERR: monitor tuning trial takes start [switches] or stop");
+    }
+    return true;
+  }
+  if (strcmp(arg, "status") == 0) {
+    char cap[160], ring[40];
+    consoleMonitorCapture(cfg, cap, sizeof(cap));
+    consoleMonitorRing(monring.count(), monring.capacity(), ring, sizeof(ring));
+    int n = snprintf(reply, 160, "%s", cap);
+#ifdef BEEBO_CPU_ACCOUNTING
+    char t[100];
+    consoleMonitorTime(_rx_busy_reported, _tx_busy_reported, _lx_busy_reported, _lp_idle_reported, _loops_per_sec_reported, t, sizeof(t));
+    snprintf(reply + n, CLI_REPLY_CAP - n, "\n%s  %s", ring, t + 0);
+#else
+    snprintf(reply + n, CLI_REPLY_CAP - n, "\n%s", ring);
+#endif
+    return true;
+  }
+  if (strcmp(arg, "start") == 0 || strcmp(arg, "stop") == 0) {
+    tlvSetMonringConfig(this, _board.role, consoleMonitorApply(cfg, CONSOLE_MONITOR_ENABLED, arg[2] == 'a'));
+    strcpy(reply, "OK");
+    return true;
+  }
+  if (strncmp(arg, "capture", 7) == 0 && (arg[7] == 0 || arg[7] == ' ')) {
+    uint32_t mask = 0;
+    bool on = false;
+    switch (consoleMonitorParse(arg + 7, &mask, &on)) {
+      case CONSOLE_MONITOR_SHOW: consoleMonitorCapture(cfg, reply, 160); break;
+      case CONSOLE_MONITOR_SET:
+        tlvSetMonringConfig(this, _board.role, consoleMonitorApply(cfg, mask, on));
+        strcpy(reply, "OK");
+        break;
+      case CONSOLE_MONITOR_BAD: strcpy(reply, "ERR: monitor capture takes <rx|tx|radio|env|batt|tuning|event|path> on|off"); break;
+    }
+    return true;
+  }
+  strcpy(reply, "ERR: monitor takes status, start, stop or capture");
+  return true;
+}
+
+// `battery state` and `battery calibrate VOLTS` (the voltmeter reading at the Vbat pigtail).
+bool Beebo::handleConsoleBattery(const char* command, char* reply) {
+  if (strncmp(command, "battery", 7) != 0 || (command[7] != 0 && command[7] != ' ')) return false;
+  const char* arg = command + 7;
+  while (*arg == ' ') arg++;
+  if (strcmp(arg, "state") == 0) {
+    uint16_t mv = updateBattTrend(true);
+    consoleBatteryState(_board.batt_present, mv, _batt_state, reply, 160);
+    return true;
+  }
+  if (strncmp(arg, "calibrate", 9) == 0 && (arg[9] == 0 || arg[9] == ' ')) {
+    float volts = 0, cur = board.getAdcMultiplier(), next = 0;
+    if (!consoleParseVolts(arg + 9, &volts)) { strcpy(reply, "ERR: battery calibrate takes the voltmeter reading in volts"); return true; }
+    switch (consoleCalibrate(cur, updateBattTrend(true), volts, &next)) {
+      case CONSOLE_CAL_NO_READING: strcpy(reply, "ERR: the node reads no battery voltage"); return true;
+      case CONSOLE_CAL_VOLTS_RANGE: strcpy(reply, "ERR: expected 2.0 to 5.0 V"); return true;
+      case CONSOLE_CAL_MULT_RANGE: strcpy(reply, "ERR: the multiplier would leave 0 to 10"); return true;
+      case CONSOLE_CAL_OK: break;
+    }
+    uint32_t raw;
+    memcpy(&raw, &next, 4);
+    tlvSetAdcMultiplier(this, _board.role, raw);
+    consoleCalibrateReply(cur, next, reply, 160);
+    return true;
+  }
+  strcpy(reply, "ERR: battery takes state or calibrate VOLTS");
+  return true;
+}
+
 bool Beebo::handleAppCliCommand(const char* command, char* reply) {
   if (strcmp(command, "poweroff") == 0 || strcmp(command, "shutdown") == 0) {
     board.powerOff();   // doesn't return
@@ -9269,6 +9368,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       break;
   }
   if (handleConsoleStatus(command, reply)) return;
+  if (handleConsoleMonitor(command, reply)) return;
+  if (handleConsoleBattery(command, reply)) return;
   if (handleAppCliCommand(command, reply)) return;
 
 #if BEEBO_ENABLE_REPEATER_ROLE

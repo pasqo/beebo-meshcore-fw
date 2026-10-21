@@ -77,5 +77,5 @@ inline int feedFmtTrialWait(char* buf, size_t cap) {
 // underdriven. 0, with `buf` untouched, when the power is fine.
 inline int feedFmtTxPowerWarn(char* buf, size_t cap, int dbm) {
   if (dbm >= 16) return 0;
-  return snprintf(buf, cap, "warn: txpower=%d dBm underdrives the PA, run: radio.txpower 18", dbm);
+  return snprintf(buf, cap, "warn: txpower=%d dBm underdrives the PA, run: settings radio.txpower 18", dbm);
 }

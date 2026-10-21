@@ -503,6 +503,8 @@ public:
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply);
   bool handleAppCliCommand(const char* command, char* reply);
   bool handleConsoleStatus(const char* command, char* reply);
+  bool handleConsoleMonitor(const char* command, char* reply);
+  bool handleConsoleBattery(const char* command, char* reply);
 
   // The 'self' sentinel runs the command locally via
   // handleCommand() and queues the reply as if it came from target, instead of relaying
