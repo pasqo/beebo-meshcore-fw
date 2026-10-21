@@ -9199,17 +9199,31 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
 
 void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
   while (*command == ' ') command++;  // skip leading spaces
-  // beebo: a `beebo settings` tree name (protocol.yaml `console:`) stands for the
-  // existing text key, so every entry point (app CLI screen, feed, USB, self) takes it.
+  // beebo: `settings <path> [value]` is the CLI's own command (protocol.yaml `console:` lists
+  // the paths); it stands for the text key, so every entry point (app CLI screen, feed, USB,
+  // self) takes it.
   char alias_cmd[CONSOLE_ALIAS_CMD_MAX];
   bool alias_repeater_only = false;
-  if (consoleAliasRewrite(command, alias_cmd, sizeof(alias_cmd), &alias_repeater_only)) {
-    if (alias_repeater_only && !isRepeater()) {
-      strcpy(reply, "ERR: trials run in repeater role only");
+  switch (consoleSettings(command, alias_cmd, sizeof(alias_cmd), &alias_repeater_only)) {
+    case CONSOLE_SETTINGS_REWRITTEN:
+      if (alias_repeater_only && !isRepeater()) {
+        strcpy(reply, "ERR: needs role 'repeater', node is 'companion'");
+        return;
+      }
+      handleCommand(sender_timestamp, alias_cmd, reply);
       return;
-    }
-    handleCommand(sender_timestamp, alias_cmd, reply);
-    return;
+    case CONSOLE_SETTINGS_LISTED:
+      // 160 is the smallest reply buffer any entry point passes (a remote admin session)
+      snprintf(reply, 160, "> %.153s%s", alias_cmd, strlen(alias_cmd) > 153 ? "..." : "");
+      return;
+    case CONSOLE_SETTINGS_UNKNOWN:
+      strcpy(reply, "ERR: unknown setting");
+      return;
+    case CONSOLE_SETTINGS_TOO_LONG:
+      strcpy(reply, "ERR: command too long");
+      return;
+    case CONSOLE_NOT_SETTINGS:
+      break;
   }
   if (handleAppCliCommand(command, reply)) return;
 
