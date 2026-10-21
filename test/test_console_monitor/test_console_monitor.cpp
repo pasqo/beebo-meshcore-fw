@@ -103,6 +103,48 @@ TEST(ConsoleMonitor, RatesLine) {
                "tx_wait_airtime 0.10%  tx_wait_cad 0.20%  rx_wait_relay 0.30%", out);
 }
 
+TEST(ConsoleMonitor, CaptureAcceptsTheCliLeafNames) {
+  uint32_t mask = 0; bool on = false;
+  ASSERT_EQ(CONSOLE_MONITOR_SET, consoleMonitorParse("enabled off", &mask, &on));
+  EXPECT_EQ(0x80u, mask);
+  EXPECT_FALSE(on);
+  for (const char* alias : {"setting on", "command on", "route on", "debug on"}) {
+    ASSERT_EQ(CONSOLE_MONITOR_SET, consoleMonitorParse(alias, &mask, &on)) << alias;
+    EXPECT_EQ(0x40u, mask) << alias;   // the same bit as event
+  }
+}
+
+static const char* const SW[] = {"lna", "rxboost", "cr", "agc", "interference", "rxdelay", "txdelay",
+                                 "directtxdelay", "airtime", "cad", "multiacks", "retry"};
+
+TEST(ConsoleMonitor, TrialSwitchesByName) {
+  uint16_t mask = 0;
+  char bad[24];
+  ASSERT_EQ(CONSOLE_SWITCHES_OK, consoleTrialSwitches("lna cad", SW, 12, &mask, bad, sizeof(bad)));
+  EXPECT_EQ((1u << 0) | (1u << 9), mask);
+  ASSERT_EQ(CONSOLE_SWITCHES_OK, consoleTrialSwitches("  retry ", SW, 12, &mask, bad, sizeof(bad)));
+  EXPECT_EQ(1u << 11, mask);
+  ASSERT_EQ(CONSOLE_SWITCHES_OK, consoleTrialSwitches("lna,cad", SW, 12, &mask, bad, sizeof(bad)));
+  EXPECT_EQ((1u << 0) | (1u << 9), mask);
+}
+
+TEST(ConsoleMonitor, TrialSwitchesAll) {
+  uint16_t mask = 0;
+  char bad[24];
+  ASSERT_EQ(CONSOLE_SWITCHES_OK, consoleTrialSwitches("all", SW, 12, &mask, bad, sizeof(bad)));
+  EXPECT_EQ((1u << 12) - 1, mask);
+}
+
+TEST(ConsoleMonitor, TrialSwitchesNoneAndUnknown) {
+  uint16_t mask = 7;
+  char bad[24];
+  EXPECT_EQ(CONSOLE_SWITCHES_NONE, consoleTrialSwitches("", SW, 12, &mask, bad, sizeof(bad)));
+  EXPECT_EQ(CONSOLE_SWITCHES_NONE, consoleTrialSwitches("   ", SW, 12, &mask, bad, sizeof(bad)));
+  EXPECT_EQ(CONSOLE_SWITCHES_BAD, consoleTrialSwitches("lna nosuch", SW, 12, &mask, bad, sizeof(bad)));
+  EXPECT_STREQ("nosuch", bad);
+  EXPECT_EQ(CONSOLE_SWITCHES_BAD, consoleTrialSwitches("ln", SW, 12, &mask, bad, sizeof(bad)));   // a prefix is not a name
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {

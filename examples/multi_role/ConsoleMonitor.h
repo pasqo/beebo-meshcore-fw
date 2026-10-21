@@ -12,7 +12,11 @@ struct ConsoleMonitorKind { const char* name; uint32_t bit; };
 static const ConsoleMonitorKind CONSOLE_MONITOR_KINDS[] = {
   {"rx", 0x01}, {"tx", 0x02}, {"radio", 0x04}, {"env", 0x08}, {"batt", 0x10},
   {"tuning", 0x20}, {"event", 0x40}, {"path", 0x100},
+  {"enabled", 0x80},                                              // the CLI's leaf names: the master switch
+  {"setting", 0x40}, {"command", 0x40}, {"route", 0x40}, {"debug", 0x40},   // and the aliases of event
 };
+// The first CONSOLE_MONITOR_SHOWN entries are listed by consoleMonitorCapture().
+static const size_t CONSOLE_MONITOR_SHOWN = 8;
 static const uint32_t CONSOLE_MONITOR_ENABLED = 0x80;
 
 enum ConsoleMonitorParse { CONSOLE_MONITOR_SHOW, CONSOLE_MONITOR_SET, CONSOLE_MONITOR_BAD };
@@ -20,7 +24,8 @@ enum ConsoleMonitorParse { CONSOLE_MONITOR_SHOW, CONSOLE_MONITOR_SET, CONSOLE_MO
 // "capture on  rx on  tx on  ..." for a persisted capture config.
 inline void consoleMonitorCapture(uint32_t cfg, char* out, size_t cap) {
   size_t n = snprintf(out, cap, "capture %s", (cfg & CONSOLE_MONITOR_ENABLED) ? "on" : "off");
-  for (const ConsoleMonitorKind& k : CONSOLE_MONITOR_KINDS) {
+  for (size_t i = 0; i < CONSOLE_MONITOR_SHOWN; i++) {
+    const ConsoleMonitorKind& k = CONSOLE_MONITOR_KINDS[i];
     if (n >= cap) return;
     n += snprintf(out + n, cap - n, "  %s %s", k.name, (cfg & k.bit) ? "on" : "off");
   }
@@ -97,4 +102,37 @@ inline void consoleTrialLine(bool enabled, bool running, bool waiting, const cha
   else if (running) snprintf(out, cap, "trial running %s a=%u b=%u block %u/%u  profile %s", sw ? sw : "?", a, b, idx + 1, total, profile);
   else if (waiting) snprintf(out, cap, "trial waiting for traffic  profile %s", profile);
   else snprintf(out, cap, "trial on  profile %s", profile);
+}
+
+enum ConsoleSwitchesResult { CONSOLE_SWITCHES_OK, CONSOLE_SWITCHES_NONE, CONSOLE_SWITCHES_BAD };
+
+// Switch names (words or commas apart) or "all" -> a bit per switch index. NONE for no names;
+// BAD, with the offending word in `bad`, for a name that is not one of `names`.
+inline ConsoleSwitchesResult consoleTrialSwitches(const char* args, const char* const* names, int n, uint16_t* mask,
+                                                  char* bad, size_t bad_cap) {
+  uint16_t m = 0;
+  bool any = false;
+  const char* p = args;
+  while (*p) {
+    while (*p == ' ' || *p == ',') p++;
+    if (!*p) break;
+    size_t len = 0;
+    while (p[len] && p[len] != ' ' && p[len] != ',') len++;
+    any = true;
+    if (len == 3 && strncmp(p, "all", 3) == 0) {
+      m |= (uint16_t)((1u << n) - 1);
+    } else {
+      int hit = -1;
+      for (int i = 0; i < n; i++) if (strlen(names[i]) == len && strncmp(names[i], p, len) == 0) hit = i;
+      if (hit < 0) {
+        snprintf(bad, bad_cap, "%.*s", (int)len, p);
+        return CONSOLE_SWITCHES_BAD;
+      }
+      m |= (uint16_t)(1u << hit);
+    }
+    p += len;
+  }
+  if (!any) return CONSOLE_SWITCHES_NONE;
+  *mask = m;
+  return CONSOLE_SWITCHES_OK;
 }

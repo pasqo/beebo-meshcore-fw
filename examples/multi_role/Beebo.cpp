@@ -9170,7 +9170,30 @@ bool Beebo::handleConsoleMonitor(const char* command, char* reply) {
     while (*sub == ' ') sub++;
     char text[CONSOLE_ALIAS_CMD_MAX];
     if (strncmp(sub, "start", 5) == 0 && (sub[5] == 0 || sub[5] == ' ')) {
-      snprintf(text, sizeof(text), "set tuning.trial.start %s", sub + 5 + (sub[5] == ' ' ? 1 : 0));
+      // The CLI's `start`: the named switches (or all) get their enable bit, the others lose it,
+      // then the trial turns on; with no names the switches still enabled run.
+      if (_trial_enabled) {
+        strcpy(reply, "ERR: the trial is already on; run monitor tuning trial stop first");
+        return true;
+      }
+      const char* names[TrialSequence::NUM_SWITCHES];
+      for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) names[i] = TrialSequence::name(i);
+      uint16_t mask = 0;
+      char bad[24];
+      switch (consoleTrialSwitches(sub + 5, names, TrialSequence::NUM_SWITCHES, &mask, bad, sizeof(bad))) {
+        case CONSOLE_SWITCHES_BAD: snprintf(reply, 160, "ERR: unknown switch %s", bad); return true;
+        case CONSOLE_SWITCHES_NONE:
+          if (!_trial_switches) { strcpy(reply, "ERR: no switch is pending; name the switches to run, or all"); return true; }
+          mask = _trial_switches;
+          break;
+        case CONSOLE_SWITCHES_OK: break;
+      }
+      char tmp[CLI_REPLY_CAP > 160 ? 160 : CLI_REPLY_CAP];
+      for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) {
+        snprintf(text, sizeof(text), "set tuning.trial.switches.%s.enable %d", names[i], (mask >> i) & 1);
+        handleCommand(0, text, tmp);
+      }
+      strcpy(text, "set tuning.trial.enabled on");
       handleCommand(0, text, reply);
     } else if (strcmp(sub, "stop") == 0) {
       strcpy(text, "set tuning.trial.enabled off");
@@ -10429,6 +10452,10 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       bool bad = false;
       char* tok = strtok(buf, ", ");
       while (tok) {
+        if (strcmp(tok, "-t") == 0 || strcmp(tok, "--type") == 0) {   // the CLI's spelling: -t TYPE
+          tok = strtok(NULL, ", ");
+          continue;
+        }
         if (strcmp(tok, "all") == 0) {
           filter |= (1 << ADV_TYPE_CHAT) | (1 << ADV_TYPE_REPEATER)
                   | (1 << ADV_TYPE_ROOM) | (1 << ADV_TYPE_SENSOR);
