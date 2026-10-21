@@ -16,7 +16,7 @@ Versions are tagged `beebo-v<meshcore version>.<beebo version>` (`beebo-v1.18.0.
 
 ## Support and feature requests
 
-Beebo is a one-person project supported in spare time. Open an [issue](https://github.com/pasqo/beebo-meshcore-fw/issues) for a bug or an idea, or chat on the [MeshCore Discord](https://meshcore.gg). Details are on the [Support page](https://pasqo.github.io/beebo-meshcore-fw/support/).
+Beebo is a one-person project supported in spare time. Open an [issue](https://github.com/pasqo/beebo-meshcore-fw/issues) for a bug or an idea, or chat on the [MeshCore Discord firmware-development channel](https://discord.com/channels/1495203904898728149/1495412284779135107). Details are on the [Support page](https://pasqo.github.io/beebo-meshcore-fw/support/).
 
 ## Upstream and contributing
 
