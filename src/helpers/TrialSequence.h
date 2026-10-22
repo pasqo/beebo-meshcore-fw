@@ -33,9 +33,19 @@ public:
   enum Profile { PROFILE_MAIN = 0, PROFILE_EXHAUSTIVE = 1, NUM_PROFILES = 2 };
 
   // The switches a profile selects (bit i = switch i).
-  static uint16_t profileMask(int profile) {
-    if (profile == PROFILE_MAIN) return (1u << LNA) | (1u << CAD) | (1u << TX_DELAY) | (1u << RETRY);
-    return (1u << NUM_SWITCHES) - 1;
+  static uint16_t profileMask(int profile, bool companion = false) {
+    uint16_t m = profile == PROFILE_MAIN ? (1u << LNA) | (1u << CAD) | (1u << TX_DELAY) | (1u << RETRY)
+                                         : (1u << NUM_SWITCHES) - 1;
+    return m & roleMask(companion);
+  }
+
+  // The switches a role can run. A companion has no forwarding, no acks to tune and
+  // sends too little for an airtime budget to bite: the radio and channel-busy switches
+  // and retry only.
+  static uint16_t roleMask(bool companion) {
+    if (!companion) return (1u << NUM_SWITCHES) - 1;
+    return (1u << LNA) | (1u << RX_BOOST) | (1u << CR) | (1u << AGC) | (1u << INTERFERENCE) |
+           (1u << CAD) | (1u << RETRY);
   }
 
   // Settings-tree / text-key name of each switch.

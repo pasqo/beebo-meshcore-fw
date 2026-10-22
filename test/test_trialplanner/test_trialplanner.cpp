@@ -488,6 +488,44 @@ TEST(Objective, CountingNoiseOfTheDefaultWeightsIsOneOverConfirmed) {
 
 }  // namespace
 
+// A companion running probe floods (kbase/DYNAMIC_OPTIMIZER.md): 6 a minute, each a
+// confirmable echo attempt, no acks. The same counters as a repeater's, so the default
+// score reads them unchanged.
+TEST(CompanionProbes, TrackerIsReadyOnEchoCountsAlone) {
+  ExposureTracker t;
+  uint32_t now = 0, E = 0, C = 0, R = 0;
+  t.poll(now, 0, 0, 0);
+  run(t, now, E, C, R, 300, 0.1, 0.08, 0.2);   // 6 probes a minute, 80% echoed, other nodes heard
+  ASSERT_TRUE(t.ready());
+  TrialRates r = t.rates();
+  EXPECT_NEAR(0.1, r.exposure, 0.005);
+  EXPECT_NEAR(0.08, r.confirmed, 0.005);
+}
+
+TEST(CompanionProbes, NoEchoesNeverBecomesReady) {
+  ExposureTracker t;
+  uint32_t now = 0, E = 0, C = 0, R = 0;
+  t.poll(now, 0, 0, 0);
+  run(t, now, E, C, R, 1800, 0.1, 0.0, 0.0);   // probes go out, no repeater answers
+  EXPECT_FALSE(t.ready());
+}
+
+TEST(CompanionProbes, ScoreIgnoresWhatOtherNodesSend) {
+  ExposureTracker t;
+  uint32_t now = 0, E = 0, C = 0, R = 0;
+  t.poll(now, 0, 0, 0);
+  run(t, now, E, C, R, 300, 0.1, 0.08, 0.0);   // nothing received besides the echoes
+  EXPECT_TRUE(t.ready());                      // received carries no weight by default
+}
+
+TEST(CompanionProbes, SixAMinutePlansATrialInsideTheCap) {
+  TrialPlanner::Input in = input(0.08);        // 0.08 echoes confirmed a second
+  in.rates.exposure = 0.1;
+  TrialPlanner::Plan p = TrialPlanner::plan(in);
+  EXPECT_NE(TrialPlanner::NO_RATE, p.status);
+  EXPECT_LE((uint32_t)p.block_s * p.blocks, TrialPlanner::MAX_TRIAL_S);
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

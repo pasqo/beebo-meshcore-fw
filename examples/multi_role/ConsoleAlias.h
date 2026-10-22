@@ -64,8 +64,10 @@ inline bool consoleListChildren(const char* prefix, size_t n, char* out, size_t 
   return any;
 }
 
-// Handles one command line. `repeater_only` is set for a path the companion role refuses.
-inline ConsoleSettingsResult consoleSettings(const char* command, char* out, size_t cap, bool* repeater_only = nullptr) {
+// Handles one command line. `repeater_only` is set for a path the companion role refuses,
+// `companion_only` for one the repeater role refuses.
+inline ConsoleSettingsResult consoleSettings(const char* command, char* out, size_t cap, bool* repeater_only = nullptr,
+                                             bool* companion_only = nullptr) {
   while (*command == ' ') command++;
   if (strncmp(command, "settings", 8) != 0 || (command[8] != 0 && command[8] != ' ')) return CONSOLE_NOT_SETTINGS;
   const char* p = command + 8;
@@ -87,6 +89,7 @@ inline ConsoleSettingsResult consoleSettings(const char* command, char* out, siz
     if (vlen) snprintf(out, cap, "set %s %.*s", e.key, (int)vlen, value);
     else snprintf(out, cap, "get %s", e.key);
     if (repeater_only) *repeater_only = e.repeater_only;
+    if (companion_only) *companion_only = e.companion_only;
     return CONSOLE_SETTINGS_REWRITTEN;
   }
   if (vlen == 0 && consoleListChildren(path, n, out, cap)) return CONSOLE_SETTINGS_LISTED;

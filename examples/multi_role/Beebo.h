@@ -439,8 +439,9 @@ public:
   void startMonRing();  // beebo: claim MonRing's fixed PSRAM block + resolve the real time anchor (call FIRST in setup(), after clock_init(), before RLOG_ID_BOOT_START)
 #ifdef BEEBO_ROUTE_RETRY
   // beebo: route retry (kbase/ROUTE_RETRY.md). initRouteRetry() claims the
-  // retry body store (PSRAM, once) and installs the hook; setRouteRetry()
-  // pushRouteRetry() applies the retry policy, only while the repeater role is live.
+  // retry body store (PSRAM, once) and installs the hook;
+  // pushRouteRetry() applies the live role's retry policy: the repeater retries its
+  // forwards, the companion the floods it originates.
   void initRouteRetry();
   void pushRouteRetry();   // apply the live role's retry policy (boot, reloadPrefs(), the setters)
   bool sendRouteRetry(const uint8_t* raw, uint8_t len, uint8_t attempt);
@@ -1572,7 +1573,7 @@ private:
     // BeeboBoardPrefs FEM RSSI offsets, role byte ignored like BOARD_NAME.
     PREFS_TLV_FEM_RSSI_OFS_LNA = 59,    // u32 (sign-extended int8 dB, -30..30)
     PREFS_TLV_FEM_RSSI_OFS_BYPASS = 60, // u32 (sign-extended int8 dB, -30..30)
-    PREFS_TLV_ROUTE_RETRY = 61,         // u32 RetryPolicy byte (RetryPolicy.h): coding rates of the retries of a forward whose echo timed out; repeater slot only
+    PREFS_TLV_ROUTE_RETRY = 61,         // u32 RetryPolicy byte (RetryPolicy.h): coding rates of the retries of a flood whose echo timed out; per role
     PREFS_TLV_TRANSMIT = 64,            // u32 bool, 0 = the radio never sends (Dispatcher::checkSend() drops); per role
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
@@ -2040,6 +2041,23 @@ private:
   // tuning.trial.min_pkt_rate: the next trial starts only while the node hears
   // at least this many RX packets a minute, and a running trial ends idle when
   // an A B B A cycle averages less (0 = no minimum, no idle stop).
+  // Companion trial probes (kbase/DYNAMIC_OPTIMIZER.md): while the trial is on in
+  // companion role, the traffic injector sends flood group text to this channel slot, this
+  // many a minute, capped to this many repeater hops. RAM-only. 255 = no channel.
+  uint8_t _trial_probe_channel = 0xFF;
+  uint8_t _trial_probe_rate = 6;
+  uint8_t _trial_probe_hops = 2;
+#if BEEBO_ENABLE_COMPANION_ROLE
+  bool trialProbeBegin();   // true in repeater role; in companion role false without a usable channel
+  void trialProbeEnd();
+  // The probe settings (which: 0 channel, 1 rate, 2 hops): an ERR_CODE_*, 0 = set. Refused in
+  // repeater role and while the trial is on.
+  uint8_t setTrialProbe(uint8_t which, uint8_t value);
+  uint32_t getTrialProbe(uint8_t which) const;
+#else
+  bool trialProbeBegin() { return true; }
+  void trialProbeEnd() {}
+#endif
   uint8_t _trial_min_pkt_rate = TrialFSM::MIN_PKT_RATE;
   bool _trial_rate_wait = false;        // waiting for traffic, EVENT_TRIAL_PKT_RATE logged
   bool _trial_wait_posted = false;      // the waiting line is on the feed; cleared when a trial starts or the trial is disabled
@@ -2128,8 +2146,10 @@ private:
     for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) _trial_lists.v[i].restart();
   }
   bool trialRunning() const { return trial.state() == TrialFSM::RUN; }
-  void setTrialEnabled(bool on, uint8_t source) {
+  // false: a companion with no usable probe channel (trialProbeBegin()); the trial stays off.
+  bool setTrialEnabled(bool on, uint8_t source) {
     if (on != _trial_enabled) {
+      if (on && !trialProbeBegin()) return false;
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_ENABLED, _trial_enabled ? 1 : 0, on ? 1 : 0, source);
       abortTrial(false);
       restartTrials();
@@ -2139,8 +2159,10 @@ private:
         if (feedFmtTxPowerWarn(warn, sizeof(warn), _role_state->prefs.tx_power_dbm) > 0) feedPost(FEED_STATUS, warn);
       }
       if (on) ensureTrialMonitor();
+      else trialProbeEnd();
     }
     _trial_enabled = on;
+    return true;
   }
   // Enabling a trial sets the lean monitor profile of a long unattended run,
   // persisted like the matching `monitor` commands. On: the master enable, the
@@ -2165,13 +2187,15 @@ private:
       abortTrial(false);
       _trial_profile = profile;
       _trial_lists = TrialSequence::Lists(profile);
-      _trial_switches = TrialSequence::profileMask(profile);
+      _trial_switches = TrialSequence::profileMask(profile, isCompanion());
       restartTrials();
     }
     return true;
   }
+  // The switches the live role can run (TrialSequence::roleMask()).
+  uint16_t trialRoleMask() const { return TrialSequence::roleMask(isCompanion()); }
   bool setTrialSwitches(uint16_t mask, uint8_t source) {
-    if (mask >= (1u << TrialSequence::NUM_SWITCHES)) return false;
+    if (mask >= (1u << TrialSequence::NUM_SWITCHES) || (mask & ~trialRoleMask())) return false;
     if (mask != _trial_switches) {
       appendSettingChangedEvent(SETTING_TUNING_TRIAL_SWITCHES, _trial_switches, mask, source);
       abortTrial(false);
@@ -2312,6 +2336,7 @@ private:
   static uint8_t trialParamId(int sw);
   static int scoreIndex(const char* name, int len = -1);
   uint8_t trialSwitchStoredValue(int sw) const;
+  uint8_t& trialPrefByte(int sw) const;   // AGC, interference, CAD: the live role's own field
   // Store value on switch sw through its normal setter (and apply it live).
   void trialPersistValue(int sw, uint8_t value);
   // Prefs-backed switches (3..8): remember the exact pre-trial value, and put it back.

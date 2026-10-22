@@ -326,6 +326,27 @@ TEST(TrialSequence, MainProfileSelectsFourSwitchesWithOneChallengerEach) {
   EXPECT_FALSE(lists.v[TrialSequence::TX_DELAY].advance());     // no second challenger
 }
 
+// A companion's trial runs on its own link to the nearest repeater (kbase/DYNAMIC_OPTIMIZER.md):
+// the radio and channel-busy switches and retry; never the forwarding or ack ones, nor airtime.
+TEST(TrialSequence, CompanionRoleMaskIsTheRadioAndRetrySwitches) {
+  uint16_t want = (1u << TrialSequence::LNA) | (1u << TrialSequence::RX_BOOST) | (1u << TrialSequence::CR) |
+                  (1u << TrialSequence::AGC) | (1u << TrialSequence::INTERFERENCE) | (1u << TrialSequence::CAD) |
+                  (1u << TrialSequence::RETRY);
+  EXPECT_EQ(want, TrialSequence::roleMask(true));
+  EXPECT_EQ((1u << TrialSequence::NUM_SWITCHES) - 1, TrialSequence::roleMask(false));
+}
+
+TEST(TrialSequence, CompanionMainProfileIsLnaCadRetry) {
+  uint16_t want = (1u << TrialSequence::LNA) | (1u << TrialSequence::CAD) | (1u << TrialSequence::RETRY);
+  EXPECT_EQ(want, TrialSequence::profileMask(TrialSequence::PROFILE_MAIN, true));
+  EXPECT_EQ(TrialSequence::roleMask(true), TrialSequence::profileMask(TrialSequence::PROFILE_EXHAUSTIVE, true));
+}
+
+TEST(TrialSequence, RepeaterProfilesAreUnchangedByTheRoleArgument) {
+  EXPECT_EQ(TrialSequence::profileMask(TrialSequence::PROFILE_MAIN), TrialSequence::profileMask(TrialSequence::PROFILE_MAIN, false));
+  EXPECT_EQ(TrialSequence::profileMask(TrialSequence::PROFILE_EXHAUSTIVE), TrialSequence::profileMask(TrialSequence::PROFILE_EXHAUSTIVE, false));
+}
+
 TEST(TrialSequence, MainProfileGivesEverySwitchOneChallengerSelectedOrNot) {
   TrialSequence::Lists lists(TrialSequence::PROFILE_MAIN);
   for (int sw = 0; sw < TrialSequence::NUM_SWITCHES; sw++) {

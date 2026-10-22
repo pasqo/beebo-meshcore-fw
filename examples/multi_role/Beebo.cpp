@@ -1759,6 +1759,7 @@ void Beebo::begin() {
   self_id = _role_state->identity;
 #if BEEBO_ENABLE_REPEATER_ROLE
   cli.setPrefs(&_role_state->prefs);
+  _trial_switches = TrialSequence::profileMask(_trial_profile, isCompanion());   // the live role's main profile
 #endif
 
   // beebo: begin() is split
@@ -2340,7 +2341,10 @@ bool Beebo::sendRouteRetry(const uint8_t* raw, uint8_t len, uint8_t attempt) {
   // beebo: the original forward's own priority (its hop count, see
   // Mesh::routeRecvPacket()): a retry that waits behind fresh traffic can reach
   // a neighbor after its dedup entry expired and be taken for a new packet.
-  if (!_mgr->queueOutbound(pkt, pkt->getPathHashCount(), futureMillis(0))) {
+  // An originated flood (hop count 0) takes the priority Mesh::sendFlood() gave it.
+  uint8_t pri = pkt->getPathHashCount();
+  if (pri == 0) pri = pkt->getPayloadType() == PAYLOAD_TYPE_PATH ? 2 : pkt->getPayloadType() == PAYLOAD_TYPE_ADVERT ? 3 : 1;
+  if (!_mgr->queueOutbound(pkt, pri, futureMillis(0))) {
     logTxQueueFull(false);
     return false;
   }
@@ -2359,19 +2363,21 @@ void Beebo::initRouteRetry() {
   pushRouteRetry();
 }
 
-// Retry applies to the repeater's forwards only; a companion never retries.
+// The repeater retries its forwards, the companion the floods it originates.
 void Beebo::pushRouteRetry() {
-  _route_retry = isRepeater() ? _role_state->prefs.retry : 0;
-  ((SimpleMeshTables*)getTables())->setRetryNo(RetryPolicy::count(_route_retry));
+  _route_retry = _role_state->prefs.retry;
+  SimpleMeshTables* tables = (SimpleMeshTables*)getTables();
+  tables->setRetryNo(RetryPolicy::count(_route_retry));
+  tables->setRetryOwn(!isRepeater());
 }
 
-// beebo: route retry settings, repeater slot only (the companion has none).
+// beebo: route retry settings, one per role slot.
 uint32_t Beebo::tlvGetRouteRetry(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.retry;
 }
 bool Beebo::tlvSetRouteRetry(Beebo* self, uint8_t role, uint32_t raw) {
-  if (role != NODE_ROLE_REPEATER || raw > 255 || !RetryPolicy::valid((uint8_t)raw)) return false;
-  if (self->trialTouches(TrialSequence::RETRY)) self->abortTrial(false);   // a manual change ends the trial first
+  if (raw > 255 || !RetryPolicy::valid((uint8_t)raw)) return false;
+  if (role == self->_board.role && self->trialTouches(TrialSequence::RETRY)) self->abortTrial(false);   // a manual change ends the trial first
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.retry = (uint8_t)raw;
   if (role == self->_board.role) self->savePrefs(); else persistRoleSlot(self, role, slot);
@@ -2537,7 +2543,7 @@ void Beebo::loopTuning() {
     loopTrial();
     return;
   }
-  if (!_adaptive_enabled) return;   // trial-only: no adaptive windows
+  if (!_adaptive_enabled || !isRepeater()) return;   // trial-only: no adaptive windows (the adaptive tuner is repeater-only)
   if (!eval_window.isOpen()) openEvalWindow(adaptive_controller.windowId());
   if (millisHasNowPassed(_next_util_sample_ms)) {
     _next_util_sample_ms = futureMillis(TUNING_UTIL_SAMPLE_MS);
@@ -2594,18 +2600,31 @@ static float trialUnitsPerOne(int sw) {
        : sw == TrialSequence::AIRTIME ? 20.0f : 100.0f;
 }
 
+// The byte a trial switch keeps in the live role's prefs where each role has its own
+// copy: AGC, interference threshold and CAD (the repeater's ComPrefs fields, the
+// companion's comp_* and cad_on).
+uint8_t& Beebo::trialPrefByte(int sw) const {
+  auto& p = _role_state->prefs;
+  bool rep = isRepeater();
+  switch (sw) {
+    case TrialSequence::AGC: return rep ? p.agc_reset_interval : p.comp_agc_reset_interval;
+    case TrialSequence::INTERFERENCE: return rep ? p.interference_threshold : p.comp_interference_threshold;
+    default: return rep ? p.cad_enabled : p.cad_on;
+  }
+}
+
 uint8_t Beebo::trialSwitchStoredValue(int sw) const {
   const auto& p = _role_state->prefs;
   switch (sw) {
     case TrialSequence::LNA: return p.BeeboBasePrefs::radio_fem_rxgain;
     case TrialSequence::RX_BOOST: return p.rx_boosted_gain;
     case TrialSequence::CR: return p.cr;
-    case TrialSequence::AGC: return p.agc_reset_interval;
-    case TrialSequence::INTERFERENCE: return p.interference_threshold;
+    case TrialSequence::AGC: return trialPrefByte(sw);
+    case TrialSequence::INTERFERENCE: return trialPrefByte(sw);
     case TrialSequence::RX_DELAY: return (uint8_t)lroundf(p.rx_delay_base * trialUnitsPerOne(sw));
     case TrialSequence::TX_DELAY: return (uint8_t)lroundf(p.tx_delay_factor * trialUnitsPerOne(sw));
     case TrialSequence::DIRECT_TX_DELAY: return (uint8_t)lroundf(p.direct_tx_delay_factor * trialUnitsPerOne(sw));
-    case TrialSequence::CAD: return p.cad_enabled;
+    case TrialSequence::CAD: return trialPrefByte(sw);
     case TrialSequence::MULTI_ACKS: return p.multi_acks;
     case TrialSequence::RETRY: return p.retry;
     default: return (uint8_t)lroundf(p.airtime_factor * trialUnitsPerOne(sw));
@@ -2631,13 +2650,13 @@ void Beebo::applyTrialSwitchLive(int sw, uint8_t value) {
     case TrialSequence::CR:
       radio_driver.setParams(p.freq, p.bw, p.sf, value);
       break;
-    case TrialSequence::AGC: p.agc_reset_interval = value; break;
-    case TrialSequence::INTERFERENCE: p.interference_threshold = value; break;
+    case TrialSequence::AGC: trialPrefByte(sw) = value; break;
+    case TrialSequence::INTERFERENCE: trialPrefByte(sw) = value; break;
     case TrialSequence::RX_DELAY: p.rx_delay_base = value / trialUnitsPerOne(sw); break;
     case TrialSequence::TX_DELAY: p.tx_delay_factor = value / trialUnitsPerOne(sw); break;
     case TrialSequence::DIRECT_TX_DELAY: p.direct_tx_delay_factor = value / trialUnitsPerOne(sw); break;
     case TrialSequence::CAD:
-      p.cad_enabled = value;
+      trialPrefByte(sw) = value;
       _radio->setCADEnabled(value != 0);
       break;
     case TrialSequence::MULTI_ACKS: p.multi_acks = value; break;
@@ -2664,8 +2683,8 @@ void Beebo::trialSaveOriginal(int sw) {
 void Beebo::trialRevert(int sw) {
   auto& p = _role_state->prefs;
   switch (sw) {
-    case TrialSequence::AGC: p.agc_reset_interval = _trial_orig_u8[sw]; break;
-    case TrialSequence::INTERFERENCE: p.interference_threshold = _trial_orig_u8[sw]; break;
+    case TrialSequence::AGC: trialPrefByte(sw) = _trial_orig_u8[sw]; break;
+    case TrialSequence::INTERFERENCE: trialPrefByte(sw) = _trial_orig_u8[sw]; break;
     case TrialSequence::RX_DELAY: p.rx_delay_base = _trial_orig_f[sw]; break;
     case TrialSequence::TX_DELAY: p.tx_delay_factor = _trial_orig_f[sw]; break;
     case TrialSequence::DIRECT_TX_DELAY: p.direct_tx_delay_factor = _trial_orig_f[sw]; break;
@@ -2990,15 +3009,15 @@ void Beebo::trialPersistValue(int sw, uint8_t value) {
     case TrialSequence::LNA: tlvSetRadioFemRxgain(this, _board.role, value); break;
     case TrialSequence::RX_BOOST: tlvSetRadioRxgain(this, _board.role, value); break;
     case TrialSequence::CR: tlvSetRadioCr(this, _board.role, value); break;
-    case TrialSequence::AGC: tlvSetAgcResetInterval(this, NODE_ROLE_REPEATER, (uint32_t)value * 4); break;
-    case TrialSequence::INTERFERENCE: tlvSetInterferenceThreshold(this, NODE_ROLE_REPEATER, value); break;
+    case TrialSequence::AGC: tlvSetAgcResetInterval(this, _board.role, (uint32_t)value * 4); break;
+    case TrialSequence::INTERFERENCE: tlvSetInterferenceThreshold(this, _board.role, value); break;
     case TrialSequence::RX_DELAY: tlvSetRxDelayBase(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
     case TrialSequence::TX_DELAY: tlvSetTxDelayFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
     case TrialSequence::DIRECT_TX_DELAY: tlvSetDirectTxDelayFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
-    case TrialSequence::CAD: tlvSetCad(this, NODE_ROLE_REPEATER, value); break;
+    case TrialSequence::CAD: tlvSetCad(this, _board.role, value); break;
     case TrialSequence::MULTI_ACKS: tlvSetMultiAcks(this, NODE_ROLE_REPEATER, value); break;
 #ifdef BEEBO_ROUTE_RETRY
-    case TrialSequence::RETRY: tlvSetRouteRetry(this, NODE_ROLE_REPEATER, value); break;
+    case TrialSequence::RETRY: tlvSetRouteRetry(this, _board.role, value); break;
 #endif
     default: tlvSetAirtimeFactor(this, NODE_ROLE_REPEATER, floatBits(value / trialUnitsPerOne(sw))); break;
   }
@@ -6593,8 +6612,8 @@ void Beebo::handleCmdFrame(size_t len) {
     out_frame[1] = _trial_enabled ? 1 : 0;
     _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_TUNING_TRIAL_ENABLED && sub_len >= 2) {
-    setTrialEnabled(sub[1] != 0, EVENT_SOURCE_BINARY);
-    writeOKFrame();
+    if (setTrialEnabled(sub[1] != 0, EVENT_SOURCE_BINARY)) writeOKFrame();
+    else writeErrFrame(ERR_CODE_NOT_FOUND);   // companion role: no probe channel set
   } else if (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_CONFIDENCE || sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_MIN_GAIN) {
     uint32_t v = (sub[0] == BEEBO_CMD_GET_TUNING_TRIAL_CONFIDENCE) ? _trial_confidence_pct : _trial_min_gain_pct;
     out_frame[0] = RESP_CODE_OK;
@@ -6656,6 +6675,26 @@ void Beebo::handleCmdFrame(size_t len) {
       } else {
         writeErrFrame(ERR_CODE_NOT_FOUND);  // bad channel_idx
       }
+    }
+#else
+    writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+#endif
+  } else if (sub[0] >= BEEBO_CMD_GET_TUNING_TRIAL_PROBE_CHANNEL && sub[0] <= BEEBO_CMD_SET_TUNING_TRIAL_PROBE_HOPS) {
+#if BEEBO_ENABLE_COMPANION_ROLE
+    uint8_t which = (uint8_t)((sub[0] - BEEBO_CMD_GET_TUNING_TRIAL_PROBE_CHANNEL) / 2);
+    bool is_get = ((sub[0] - BEEBO_CMD_GET_TUNING_TRIAL_PROBE_CHANNEL) & 1) == 0;
+    if (isRepeater()) {
+      writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
+    } else if (is_get) {
+      uint32_t v = getTrialProbe(which);
+      out_frame[0] = RESP_CODE_OK;
+      memcpy(&out_frame[1], &v, 4);
+      _serial->writeFrame(out_frame, 5);
+    } else if (sub_len < 2) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else {
+      uint8_t err = setTrialProbe(which, sub[1]);
+      if (err) writeErrFrame(err); else writeOKFrame();
     }
 #else
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
@@ -8166,9 +8205,9 @@ void Beebo::loop() {
   // ("set tuning.adaptive.enabled on"). Per-param live actuation (_adaptive_applied_mask,
   // default 0) is a separate, narrower opt-in on top of that -- every param
   // stays observe-only until its own bit is set.
-  if (isRepeater() && monring.allocated()) trackExposure();
+  if (monring.allocated()) trackExposure();
   loopFeed();
-  if (isRepeater() && (_adaptive_enabled || _trial_enabled) && monring.allocated()) loopTuning();
+  if ((_trial_enabled || (isRepeater() && _adaptive_enabled)) && monring.allocated()) loopTuning();   // the adaptive tuner is repeater-only, the trial runs in either role
 #endif
 
   // is there are pending dirty contacts/ACL write needed?
@@ -9150,7 +9189,6 @@ bool Beebo::handleConsoleMonitor(const char* command, char* reply) {
   while (*arg == ' ') arg++;
   uint32_t cfg = tlvGetMonringConfig(this, _board.role);
   if (strncmp(arg, "tuning trial", 12) == 0 && (arg[12] == 0 || arg[12] == ' ')) {
-    if (!isRepeater()) { strcpy(reply, "ERR: needs role 'repeater', node is 'companion'"); return true; }
     const char* sub = arg + 12;
     while (*sub == ' ') sub++;
     char text[CONSOLE_ALIAS_CMD_MAX];
@@ -9172,6 +9210,15 @@ bool Beebo::handleConsoleMonitor(const char* command, char* reply) {
           mask = _trial_switches;
           break;
         case CONSOLE_SWITCHES_OK: break;
+      }
+      if (mask == (1u << TrialSequence::NUM_SWITCHES) - 1) mask = trialRoleMask();   // all: the role's switches
+      else if (mask & ~trialRoleMask()) {
+        for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) {
+          if ((mask & ~trialRoleMask()) & (1u << i)) {
+            snprintf(reply, 160, "ERR: switch %s needs role 'repeater', node is 'companion'", names[i]);
+            return true;
+          }
+        }
       }
       char tmp[CLI_REPLY_CAP > 160 ? 160 : CLI_REPLY_CAP];
       for (int i = 0; i < TrialSequence::NUM_SWITCHES; i++) {
@@ -9422,6 +9469,21 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
     strcpy(reply, "OK");
     return true;
   }
+#ifdef BEEBO_ROUTE_RETRY
+  if (strcmp(command, "get retry") == 0) {
+    char policy[8];
+    RetryPolicy::format((uint8_t)tlvGetRouteRetry(this, _board.role), policy);
+    sprintf(reply, "> %s", policy);
+    return true;
+  }
+  if (memcmp(command, "set retry ", 10) == 0) {
+    uint8_t policy;
+    const char* end;
+    if (RetryPolicy::parse(&command[10], '\0', &policy, &end) && tlvSetRouteRetry(this, _board.role, policy)) strcpy(reply, "OK");
+    else strcpy(reply, "Error, retry is 0 or 1 to 3 rates from 5 to 8 separated by |");
+    return true;
+  }
+#endif
   if (strcmp(command, "get cad") == 0) {
     sprintf(reply, "> %s", tlvGetCad(this, _board.role) ? "on" : "off");
     return true;
@@ -9449,11 +9511,15 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
   // the paths); it stands for the text key, so every entry point (app CLI screen, feed, USB,
   // self) takes it.
   char alias_cmd[CONSOLE_ALIAS_CMD_MAX];
-  bool alias_repeater_only = false;
-  switch (consoleSettings(command, alias_cmd, sizeof(alias_cmd), &alias_repeater_only)) {
+  bool alias_repeater_only = false, alias_companion_only = false;
+  switch (consoleSettings(command, alias_cmd, sizeof(alias_cmd), &alias_repeater_only, &alias_companion_only)) {
     case CONSOLE_SETTINGS_REWRITTEN:
       if (alias_repeater_only && !isRepeater()) {
         strcpy(reply, "ERR: needs role 'repeater', node is 'companion'");
+        return;
+      }
+      if (alias_companion_only && isRepeater()) {
+        strcpy(reply, "ERR: needs role 'companion', node is 'repeater'");
         return;
       }
       handleCommand(sender_timestamp, alias_cmd, reply);
@@ -9801,7 +9867,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
 #endif
     } else if (memcmp(key, "agc.reset.interval", 18) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-      sprintf(reply, "> %d", tlvGetAgcResetInterval(this, NODE_ROLE_REPEATER));
+      sprintf(reply, "> %d", tlvGetAgcResetInterval(this, _board.role));
 #else
       strcpy(reply, "ERR: not supported");
 #endif
@@ -9821,7 +9887,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
 #endif
     } else if (memcmp(key, "int.thresh", 10) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
-      sprintf(reply, "> %d", tlvGetInterferenceThreshold(this, NODE_ROLE_REPEATER));
+      sprintf(reply, "> %d", tlvGetInterferenceThreshold(this, _board.role));
 #else
       strcpy(reply, "ERR: not supported");
 #endif
@@ -9896,6 +9962,15 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %u", (unsigned)_trial_min_gain_pct);
     } else if (strcmp(key, "tuning.trial.min_pkt_rate") == 0 || strcmp(key, "tuning.trial.min_rx_rate") == 0) {   // min_rx_rate: the old name
       sprintf(reply, "> %u", (unsigned)_trial_min_pkt_rate);
+    } else if (strncmp(key, "tuning.trial.probe.", 19) == 0) {
+      int which = strcmp(&key[19], "channel") == 0 ? 0 : strcmp(&key[19], "rate") == 0 ? 1 : strcmp(&key[19], "hops") == 0 ? 2 : -1;
+      if (which < 0) sprintf(reply, "??: %s", key);
+#if BEEBO_ENABLE_COMPANION_ROLE
+      else if (isRepeater()) strcpy(reply, "ERR: needs role 'companion', node is 'repeater'");
+      else sprintf(reply, "> %u", (unsigned)getTrialProbe((uint8_t)which));
+#else
+      else strcpy(reply, "ERR: not supported");
+#endif
     } else if (strcmp(key, "tuning.trial.start") == 0) {
       sprintf(reply, "> %s", _trial_start_stored ? "stored" : "list");
     } else if (strcmp(key, "tuning.trial.profile") == 0) {
@@ -10226,9 +10301,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "agc.reset.interval ", 19) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
       uint32_t v = (uint32_t)atoi(&key[19]);
-      tlvSetAgcResetInterval(this, NODE_ROLE_REPEATER, v);
+      tlvSetAgcResetInterval(this, _board.role, v);
       flushDirtyPrefs();
-      sprintf(reply, "> %d", tlvGetAgcResetInterval(this, NODE_ROLE_REPEATER));
+      sprintf(reply, "> %d", tlvGetAgcResetInterval(this, _board.role));
 #else
       strcpy(reply, "ERR: not supported");
 #endif
@@ -10259,7 +10334,7 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
     } else if (memcmp(key, "int.thresh ", 11) == 0) {
 #if BEEBO_ENABLE_REPEATER_ROLE
       uint32_t v = (uint32_t)constrain(atoi(&key[11]), 0, 9);
-      tlvSetInterferenceThreshold(this, NODE_ROLE_REPEATER, v);
+      tlvSetInterferenceThreshold(this, _board.role, v);
       flushDirtyPrefs();
       sprintf(reply, "> %d", v);
 #else
@@ -10366,7 +10441,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       bool ok;
       if (strncmp(k, "enabled ", 8) == 0) {
         const char* on = &k[8];
-        if (memcmp(on, "on", 2) == 0) setTrialEnabled(true, EVENT_SOURCE_TEXT_CLI);
+        if (memcmp(on, "on", 2) == 0) {
+          if (!setTrialEnabled(true, EVENT_SOURCE_TEXT_CLI)) { strcpy(reply, "ERR: the trial needs a probe channel in companion role"); return; }
+        }
         else if (memcmp(on, "off", 3) == 0) setTrialEnabled(false, EVENT_SOURCE_TEXT_CLI);
         else { strcpy(reply, "ERR: expected on/off"); return; }
         sprintf(reply, "> %s", _trial_enabled ? "on" : "off");
@@ -10394,6 +10471,21 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
         else if (strcmp(mode, "list") == 0) setTrialStartStored(false, EVENT_SOURCE_TEXT_CLI);
         else { strcpy(reply, "ERR: expected stored/list"); return; }
         sprintf(reply, "> %s", _trial_start_stored ? "stored" : "list");
+        return;
+      }
+      if (strncmp(k, "probe.", 6) == 0) {   // companion role: the probe channel slot, rate and hop cap
+#if BEEBO_ENABLE_COMPANION_ROLE
+        int which = strncmp(&k[6], "channel ", 8) == 0 ? 0 : strncmp(&k[6], "rate ", 5) == 0 ? 1 : strncmp(&k[6], "hops ", 5) == 0 ? 2 : -1;
+        if (which < 0 || v < 0 || v > 255) { sprintf(reply, "ERR: unknown key: %s", key); return; }
+        uint8_t err = setTrialProbe((uint8_t)which, (uint8_t)v);
+        if (err == ERR_CODE_UNSUPPORTED_CMD) strcpy(reply, "ERR: needs role 'companion', node is 'repeater'");
+        else if (err == ERR_CODE_BAD_STATE) strcpy(reply, "ERR: stop the trial first");
+        else if (err == ERR_CODE_NOT_FOUND) strcpy(reply, "ERR: no channel in that slot");
+        else if (err) strcpy(reply, "ERR: out of range");
+        else sprintf(reply, "> %ld", v);
+#else
+        strcpy(reply, "ERR: not supported");
+#endif
         return;
       }
       if (strncmp(k, "switches.", 9) == 0) {

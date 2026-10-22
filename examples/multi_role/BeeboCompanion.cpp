@@ -57,12 +57,55 @@ void Beebo::trafficTick() {
   ChannelDetails ch;
   if (!getChannel(_traffic.channel(), ch) || !ch.name[0] || ch.channel.hash[0] != _traffic.channelHash()) {
     _traffic.clearChannel();   // the slot no longer holds the channel set
+    if (_traffic.probing()) setTrialEnabled(false, EVENT_SOURCE_TUNING);   // no channel, no probes: the trial cannot score
     return;
   }
   char text[TrafficInjector::TEXT_SIZE + 1];
   TrafficInjector::text(text, _traffic.nextSeq(), TrafficInjector::TEXT_SIZE);
+  _hop_cap = _traffic.hops();
   sendGroupMessage(getRTCClock()->getCurrentTime(), ch.channel, _role_state->prefs.node_name,
                    text, TrafficInjector::TEXT_SIZE);
+  _hop_cap = 0;
+}
+
+// The trial borrows the injector for its run (TrafficInjector::beginProbe()); the user's
+// `traffic sustain` state comes back when the trial ends.
+bool Beebo::trialProbeBegin() {
+  if (!isCompanion()) return true;
+  ChannelDetails ch;
+  if (!getChannel(_trial_probe_channel, ch) || !ch.name[0]) return false;
+  if (!_traffic.beginProbe(_trial_probe_channel, ch.channel.hash[0], _trial_probe_rate, _trial_probe_hops)) return false;
+  _traffic_next_ms = futureMillis(TrafficInjector::gapMs(
+      _traffic.rate(), (uint16_t)getRNG()->nextInt(1, 65536)));
+  return true;
+}
+
+void Beebo::trialProbeEnd() {
+  _traffic.endProbe();
+}
+
+uint32_t Beebo::getTrialProbe(uint8_t which) const {
+  return which == 0 ? _trial_probe_channel : which == 1 ? _trial_probe_rate : _trial_probe_hops;
+}
+
+uint8_t Beebo::setTrialProbe(uint8_t which, uint8_t value) {
+  if (isRepeater()) return ERR_CODE_UNSUPPORTED_CMD;
+  if (_trial_enabled) return ERR_CODE_BAD_STATE;
+  if (which == 0) {
+    if (value != TrafficInjector::NO_CHANNEL) {
+      if (value >= MAX_GROUP_CHANNELS) return ERR_CODE_ILLEGAL_ARG;
+      ChannelDetails ch;
+      if (!getChannel(value, ch) || !ch.name[0]) return ERR_CODE_NOT_FOUND;
+    }
+    _trial_probe_channel = value;
+  } else if (which == 1) {
+    if (value < 1 || value > 30) return ERR_CODE_ILLEGAL_ARG;   // TrafficInjector::MIN_GAP_MS caps sends at 30 a minute
+    _trial_probe_rate = value;
+  } else {
+    if (value < 1 || value > 21) return ERR_CODE_ILLEGAL_ARG;   // applyHopCap() range
+    _trial_probe_hops = value;
+  }
+  return 0;
 }
 
 // GET/SET_TRAFFIC_CHANNEL, GET/SET_TRAFFIC_RATE, GET_TRAFFIC_SENT.
@@ -80,6 +123,7 @@ bool Beebo::handleTrafficCmd(const uint8_t* sub, int sub_len) {
       return true;
     case BEEBO_CMD_SET_TRAFFIC_CHANNEL: {
       if (sub_len < 2) { writeErrFrame(ERR_CODE_ILLEGAL_ARG); return true; }
+      if (_traffic.probing()) { writeErrFrame(ERR_CODE_BAD_STATE); return true; }   // the trial has the injector
       if (sub[1] == TrafficInjector::NO_CHANNEL) {
         _traffic.clearChannel();
       } else {
@@ -94,6 +138,7 @@ bool Beebo::handleTrafficCmd(const uint8_t* sub, int sub_len) {
     }
     case BEEBO_CMD_SET_TRAFFIC_RATE:
       if (sub_len < 2) { writeErrFrame(ERR_CODE_ILLEGAL_ARG); return true; }
+      if (_traffic.probing()) { writeErrFrame(ERR_CODE_BAD_STATE); return true; }
       _traffic.setRate(sub[1]);
       _traffic_next_ms = millis();
       writeOKFrame();

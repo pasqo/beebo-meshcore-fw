@@ -281,6 +281,11 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
                   file.read((uint8_t *)&_prefs.comp_agc_reset_interval, sizeof(_prefs.comp_agc_reset_interval));
                   file.read((uint8_t *)&_prefs.comp_tx_delay_factor, sizeof(_prefs.comp_tx_delay_factor));
                   file.read((uint8_t *)&_prefs.comp_direct_tx_delay_factor, sizeof(_prefs.comp_direct_tx_delay_factor));
+                  // retry -- tail-guarded the same way, defaulting to 0 (off)
+                  // for a file saved before this field existed.
+                  if (file.available() >= (int)sizeof(_prefs.retry)) {
+                    file.read((uint8_t *)&_prefs.retry, sizeof(_prefs.retry));
+                  }
                 }
               }
             }
@@ -347,6 +352,7 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.comp_agc_reset_interval, sizeof(_prefs.comp_agc_reset_interval));
     file.write((uint8_t *)&_prefs.comp_tx_delay_factor, sizeof(_prefs.comp_tx_delay_factor));
     file.write((uint8_t *)&_prefs.comp_direct_tx_delay_factor, sizeof(_prefs.comp_direct_tx_delay_factor));
+    file.write((uint8_t *)&_prefs.retry, sizeof(_prefs.retry));
 
     file.close();
   }

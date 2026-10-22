@@ -28,7 +28,31 @@ public:
 
   // rx_per_min: the node's moving 60 s RX rate; window_full: 60 s of history.
   bool shouldSend(uint32_t rx_per_min, bool window_full) const {
+    if (_probe) return active();   // a trial probe goes out at its own rate, whatever the node receives
     return active() && window_full && rx_per_min < _rate;
+  }
+
+  // Trial probe (kbase/DYNAMIC_OPTIMIZER.md): the trial borrows the injector for
+  // its run, at a fixed rate and hop cap (0 = none). endProbe() puts back the channel, rate,
+  // hop cap and send count the user had set, so a `traffic sustain` survives a trial.
+  // A second beginProbe() while probing keeps the first saved state.
+  bool probing() const { return _probe; }
+  uint8_t hops() const { return _hops; }
+  bool beginProbe(uint8_t idx, uint8_t hash, uint8_t rate, uint8_t hops) {
+    if (idx == NO_CHANNEL || rate == 0) return false;
+    if (!_probe) {
+      _saved_channel = _channel; _saved_hash = _hash; _saved_rate = _rate;
+      _saved_hops = _hops; _saved_sent = _sent;
+    }
+    _probe = true;
+    _channel = idx; _hash = hash; _rate = rate; _hops = hops; _sent = 0;
+    return true;
+  }
+  void endProbe() {
+    if (!_probe) return;
+    _probe = false;
+    _channel = _saved_channel; _hash = _saved_hash; _rate = _saved_rate;
+    _hops = _saved_hops; _sent = _saved_sent;
   }
 
   uint32_t nextSeq() { return ++_sent; }
@@ -54,5 +78,9 @@ private:
   uint8_t _channel = NO_CHANNEL;
   uint8_t _hash = 0;
   uint8_t _rate = 0;
+  uint8_t _hops = 0;
   uint32_t _sent = 0;
+  bool _probe = false;
+  uint8_t _saved_channel = NO_CHANNEL, _saved_hash = 0, _saved_rate = 0, _saved_hops = 0;
+  uint32_t _saved_sent = 0;
 };

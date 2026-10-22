@@ -64,11 +64,31 @@ TEST(ConsoleSettings, ResultThatDoesNotFitIsRefused) {
 
 TEST(ConsoleSettings, RepeaterOnlyIsReported) {
   char out[64];
-  bool ro = false;
-  ASSERT_EQ(CONSOLE_SETTINGS_REWRITTEN, consoleSettings("settings routing.tuning.trial.profile", out, sizeof(out), &ro));
+  bool ro = false, co = true;
+  ASSERT_EQ(CONSOLE_SETTINGS_REWRITTEN, consoleSettings("settings routing.tuning.adaptive.enabled", out, sizeof(out), &ro, &co));
   EXPECT_TRUE(ro);
-  ASSERT_EQ(CONSOLE_SETTINGS_REWRITTEN, consoleSettings("settings board.node.role", out, sizeof(out), &ro));
+  EXPECT_FALSE(co);
+  ASSERT_EQ(CONSOLE_SETTINGS_REWRITTEN, consoleSettings("settings board.node.role", out, sizeof(out), &ro, &co));
   EXPECT_FALSE(ro);
+  EXPECT_FALSE(co);
+}
+
+// The trial runs in either role: its schedule paths and the radio switches are shared, the
+// forwarding switches stay repeater-only, the probe settings are companion-only.
+TEST(ConsoleSettings, TrialPathsFollowTheRoleThatCanRunThem) {
+  char out[64];
+  bool ro = true, co = true;
+  ASSERT_EQ(CONSOLE_SETTINGS_REWRITTEN, consoleSettings("settings routing.tuning.trial.profile", out, sizeof(out), &ro, &co));
+  EXPECT_FALSE(ro);
+  EXPECT_FALSE(co);
+  ASSERT_EQ(CONSOLE_SETTINGS_REWRITTEN, consoleSettings("settings routing.tuning.trial.switches.cad.enable", out, sizeof(out), &ro, &co));
+  EXPECT_FALSE(ro);
+  ASSERT_EQ(CONSOLE_SETTINGS_REWRITTEN, consoleSettings("settings routing.tuning.trial.switches.txdelay.enable", out, sizeof(out), &ro, &co));
+  EXPECT_TRUE(ro);
+  ASSERT_EQ(CONSOLE_SETTINGS_REWRITTEN, consoleSettings("settings routing.tuning.trial.probe.channel", out, sizeof(out), &ro, &co));
+  EXPECT_FALSE(ro);
+  EXPECT_TRUE(co);
+  EXPECT_STREQ("get tuning.trial.probe.channel", out);
 }
 
 TEST(ConsoleSettings, NoPathListsTheTopLevel) {

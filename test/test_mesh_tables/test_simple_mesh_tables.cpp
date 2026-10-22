@@ -236,6 +236,47 @@ TEST_F(RetryFixture, RetryNoOne_TimeoutFiresRetryWithSameBytes) {
     EXPECT_EQ(1u, t.getEchoAttemptCount());   // a retry is the same confirmable packet
 }
 
+// A companion retries the floods it originates: no _retryable mark, so only
+// setRetryOwn() lets the slot keep a copy.
+TEST_F(RetryFixture, OwnFloodNotRetried_WithoutRetryOwn) {
+    t.setRetryNo(1);
+    Packet p = makeFloodPacket(0x1A);
+    t.markSeen(&p);
+    t.markSelfTx(&p, AIRTIME_MS);
+    sentOnAir(p);
+    pastWindow();
+    EXPECT_EQ(0, probe.calls);
+    EXPECT_EQ(1u, t.getEchoTimeoutCount());
+}
+
+TEST_F(RetryFixture, OwnFloodRetried_WithRetryOwn) {
+    t.setRetryNo(1);
+    t.setRetryOwn(true);
+    Packet p = makeFloodPacket(0x1B);
+    t.markSeen(&p);
+    t.markSelfTx(&p, AIRTIME_MS);
+    sentOnAir(p);
+    uint8_t expect[MAX_TRANS_UNIT];
+    uint8_t expect_len = p.writeTo(expect);
+    pastWindow();
+    ASSERT_EQ(1, probe.calls);
+    EXPECT_EQ(1, probe.last.attempt);
+    ASSERT_EQ(expect_len, probe.last.len);
+    EXPECT_EQ(0, memcmp(expect, probe.last.raw, expect_len));
+    EXPECT_EQ(0u, t.getEchoTimeoutCount());
+}
+
+TEST_F(RetryFixture, OwnDirectNotRetried_WithRetryOwn) {
+    t.setRetryNo(1);
+    t.setRetryOwn(true);
+    Packet p = makeFloodPacket(0x1C);
+    p.header = (p.header & ~PH_ROUTE_MASK) | ROUTE_TYPE_DIRECT;
+    t.markSelfTx(&p, AIRTIME_MS);
+    sentOnAir(p);
+    pastWindow();
+    EXPECT_EQ(0, probe.calls);
+}
+
 TEST_F(RetryFixture, RetryEchoed_CountsSuccessNotTimeout) {
     t.setRetryNo(1);
     Packet p = makeFloodPacket(0x12);

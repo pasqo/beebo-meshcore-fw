@@ -64,6 +64,96 @@ TEST(TrafficInjector, TextIsCounterPaddedToSize) {
   EXPECT_STREQ("000007..........................", buf);
 }
 
+// Trial probe mode (kbase/DYNAMIC_OPTIMIZER.md): the trial borrows the injector at a
+// fixed rate and hop cap, and gives it back as the user left it.
+TEST(TrafficInjectorProbe, SendsAtItsRateWhateverTheNodeReceives) {
+  TrafficInjector t;
+  ASSERT_TRUE(t.beginProbe(3, 0x5A, 6, 2));
+  EXPECT_TRUE(t.probing());
+  EXPECT_TRUE(t.active());
+  EXPECT_TRUE(t.shouldSend(500, true));     // a busy channel does not hold a probe back
+  EXPECT_TRUE(t.shouldSend(0, false));      // nor does a window still filling
+  EXPECT_EQ(6, t.rate());
+  EXPECT_EQ(2, t.hops());
+  EXPECT_EQ(3, t.channel());
+  EXPECT_EQ(0x5A, t.channelHash());
+}
+
+TEST(TrafficInjectorProbe, NeedsAChannelAndARate) {
+  TrafficInjector t;
+  EXPECT_FALSE(t.beginProbe(TrafficInjector::NO_CHANNEL, 0, 6, 2));
+  EXPECT_FALSE(t.beginProbe(1, 7, 0, 2));
+  EXPECT_FALSE(t.probing());
+  EXPECT_FALSE(t.active());
+}
+
+TEST(TrafficInjectorProbe, EndRestoresWhatTheUserHadSet) {
+  TrafficInjector t;
+  t.setChannel(1, 7);
+  t.setRate(10);
+  t.nextSeq();
+  t.nextSeq();
+  ASSERT_TRUE(t.beginProbe(4, 9, 6, 2));
+  t.nextSeq();
+  EXPECT_EQ(1u, t.sent());                  // the probe's own count
+  t.endProbe();
+  EXPECT_FALSE(t.probing());
+  EXPECT_EQ(1, t.channel());
+  EXPECT_EQ(7, t.channelHash());
+  EXPECT_EQ(10, t.rate());
+  EXPECT_EQ(0, t.hops());
+  EXPECT_EQ(2u, t.sent());
+  EXPECT_FALSE(t.shouldSend(10, true));     // back to the RX-rate rule
+}
+
+TEST(TrafficInjectorProbe, EndWithNothingSetLeavesItOff) {
+  TrafficInjector t;
+  ASSERT_TRUE(t.beginProbe(1, 7, 6, 2));
+  t.endProbe();
+  EXPECT_FALSE(t.active());
+  EXPECT_EQ(TrafficInjector::NO_CHANNEL, t.channel());
+}
+
+TEST(TrafficInjectorProbe, EndWithoutBeginChangesNothing) {
+  TrafficInjector t;
+  t.setChannel(1, 7);
+  t.setRate(10);
+  t.endProbe();
+  EXPECT_EQ(1, t.channel());
+  EXPECT_EQ(10, t.rate());
+}
+
+TEST(TrafficInjectorProbe, ASecondBeginKeepsTheFirstSavedState) {
+  TrafficInjector t;
+  t.setChannel(1, 7);
+  t.setRate(10);
+  ASSERT_TRUE(t.beginProbe(4, 9, 6, 2));
+  ASSERT_TRUE(t.beginProbe(5, 8, 6, 3));    // a restart of the trial
+  t.endProbe();
+  EXPECT_EQ(1, t.channel());
+  EXPECT_EQ(10, t.rate());
+}
+
+TEST(TrafficInjectorProbe, ClearingTheChannelStopsSendsButEndStillRestores) {
+  TrafficInjector t;
+  t.setChannel(1, 7);
+  t.setRate(10);
+  ASSERT_TRUE(t.beginProbe(4, 9, 6, 2));
+  t.clearChannel();                         // the slot lost its channel
+  EXPECT_FALSE(t.active());
+  EXPECT_TRUE(t.probing());                 // still the trial's until it ends
+  t.endProbe();
+  EXPECT_EQ(1, t.channel());
+}
+
+TEST(TrafficInjectorProbe, OrdinaryInjectorHasNoHopCap) {
+  TrafficInjector t;
+  t.setChannel(1, 7);
+  t.setRate(10);
+  EXPECT_EQ(0, t.hops());
+  EXPECT_FALSE(t.probing());
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {

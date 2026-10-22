@@ -139,6 +139,7 @@ class SimpleMeshTables : public mesh::MeshTables {
   uint8_t* _retry_store = nullptr;
   uint8_t _retry_len[MAX_ECHO_HASHES];
   uint8_t _retry_no = 0;
+  bool _retry_own = false;   // retry the floods this node originates too (companion role)
   uint8_t _waiting_tx = 0;   // slots with ECHO_F_WAIT_TX set, so noteTx() hashes only when one waits
   EchoRetryHook _retry_hook = nullptr;
   void* _retry_ctx = nullptr;
@@ -385,7 +386,7 @@ public:
     if (_echo_flags[idx] & ECHO_F_WAIT_TX) _waiting_tx--;   // its queued retry no longer has a slot to time
     // fresh generation; a forward keeps a copy and its retries_left starts at retry_no
     uint8_t left = 0;
-    if (packet->_retryable && _retry_no > 0 && _retry_store != nullptr) {
+    if ((packet->_retryable || _retry_own) && _retry_no > 0 && _retry_store != nullptr) {
       _retry_len[idx] = packet->writeTo(&_retry_store[idx * MAX_TRANS_UNIT]);
       left = _retry_no;
     }
@@ -455,6 +456,7 @@ public:
   // MAX_ECHO_HASHES * MAX_TRANS_UNIT bytes, one raw packet per echo slot.
   void setRetryNo(uint8_t n) { _retry_no = n > ECHO_RETRY_NO_MAX ? ECHO_RETRY_NO_MAX : n; }
   uint8_t getRetryNo() const { return _retry_no; }
+  void setRetryOwn(bool on) { _retry_own = on; }
   void setRetryStore(uint8_t* store) { _retry_store = store; }
   void setRetryHook(EchoRetryHook hook, void* ctx) { _retry_hook = hook; _retry_ctx = ctx; }
 
