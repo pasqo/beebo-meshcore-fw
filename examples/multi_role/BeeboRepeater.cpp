@@ -359,17 +359,16 @@ bool Beebo::tlvSetFloodMaxUnscoped(Beebo* self, uint8_t role, uint32_t raw) {
   return true;
 }
 
-// beebo: repeater keeps its own independent copy of rx_delay_base/
-// airtime_factor (seeded from companion's shared value only for a
-// genuinely brand-new /com_prefs, see loadRoleState()'s repeater branch
-// in Beebo.cpp). Deliberately separate opcodes from CMD_GET/SET_TUNING_PARAMS
-// (the stock upstream companion pair, which stays byte-for-byte unchanged
-// and keeps reading/writing the shared companion
-// _role_state->prefs.rx_delay_base/airtime_factor) -- these are only
-// reachable via `beebo settings repeater.routing.*`/BEEBO_CMD_*, never the
-// standard MeshCore app protocol. Targets the given role's own slot
-// explicitly (see persistRoleSlot()'s comment, Beebo.cpp), NOT
-// self->_role_state->prefs (whichever role is currently live).
+// beebo: each role keeps its own rx_delay_base/airtime_factor in
+// role_state_store[] (seeded from the first role loaded, see
+// loadRoleState()'s repeater branch in Beebo.cpp). These opcodes are
+// separate from CMD_GET/SET_TUNING_PARAMS (the stock upstream pair, wire
+// format unchanged, acting on the live role's _role_state->prefs): they
+// target the given role's slot explicitly (see persistRoleSlot()'s
+// comment, Beebo.cpp), NOT self->_role_state->prefs (whichever role is
+// currently live), and are reachable via `beebo settings
+// repeater.routing.*`/BEEBO_CMD_*, never the standard MeshCore app
+// protocol.
 uint32_t Beebo::tlvGetRxDelayBase(Beebo* self, uint8_t role) {
 #if BEEBO_ENABLE_REPEATER_ROLE
   return _floatBits(self->role_state_store[role].prefs.rx_delay_base);

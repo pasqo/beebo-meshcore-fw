@@ -343,9 +343,9 @@ void Beebo::feedEnsure() {
 }
 
 // beebo: airtime_factor is one of the 14 SharedPrefs fields (see
-// NodePrefs.h) -- one physical storage slot in _role_state->prefs regardless of
-// role, so no role branch is needed (companion and repeater share this field
-// cleanup).
+// NodePrefs.h): same field name in both roles, but each role keeps its own
+// copy in role_state_store[], so _role_state->prefs is already the live
+// role's value and no role branch is needed.
 float Beebo::getAirtimeBudgetFactor() const {
   return _role_state->prefs.airtime_factor;
 }
@@ -386,7 +386,9 @@ int Beebo::getAGCResetInterval() const {
 }
 
 // beebo: rx_delay_base is one of the 14 SharedPrefs fields (see
-// NodePrefs.h) -- no role branch needed since both roles share the field.
+// NodePrefs.h): same field name in both roles, but each role keeps its own
+// copy in role_state_store[], so _role_state->prefs is already the live
+// role's value and no role branch is needed.
 int Beebo::calcRxDelay(float score, uint32_t air_time) const {
   float rx_delay_base = _role_state->prefs.rx_delay_base;
   if (rx_delay_base <= 0.0f) return 0;
@@ -1597,8 +1599,8 @@ void Beebo::loadRoleState(uint8_t role) {
         }
       }
       // beebo: rx_delay_base/airtime_factor need no explicit seed here --
-      // they're SharedPrefs fields (NodePrefs.h), one physical storage slot
-      // in this role's own prefs, seeded by loadBeeboRepeaterPrefs()/
+      // they're SharedPrefs fields (NodePrefs.h), stored in this role's own
+      // prefs slot, seeded by loadBeeboRepeaterPrefs()/
       // loadBeeboCompanionPrefs() from whichever role loaded first if this
       // is genuinely the second role ever activated on this device.
       _store->saveBeeboRepeaterPrefs(slot.prefs, _board);
@@ -3325,10 +3327,8 @@ void Beebo::computeLiveRoutePcts(uint16_t &rx_busy, uint16_t &tx_busy,
 // file's CMD_SET_TUNING_PARAMS handler), rather than a third
 // implementation, so a live-applied tuning change can't drift from what a
 // human explicitly setting that same value would produce. TUNING_RX_DELAY_BASE/
-// TUNING_AIRTIME_FACTOR now write the repeater's own independent copy
-// via tlvSetRxDelayBase/
-// tlvSetAirtimeFactor instead of the shared companion _role_state->prefs fields
-// -- the tuning optimizer only ever runs on a repeater (see loop()'s
+// TUNING_AIRTIME_FACTOR write the repeater's slot via tlvSetRxDelayBase/
+// tlvSetAirtimeFactor -- the tuning optimizer only ever runs on a repeater (see loop()'s
 // `isRepeater() && _adaptive_enabled` gate), so this is never reached for a
 // companion.
 void Beebo::applyAdaptiveDecision(uint8_t param_id, int16_t value) {
@@ -10257,9 +10257,9 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       strcpy(reply, "ERR: not supported");
 #endif
     } else if (memcmp(key, "rxdelay ", 8) == 0) {
-      // beebo: repeater keeps its own independent copy -- repeater-only key
-      // (matches the GET side's role branch above); companion continues to
-      // set the shared value via CMD_SET_TUNING_PARAMS only, unaffected.
+      // beebo: repeater-only key (matches the GET side's role branch above);
+      // sets the live (repeater) slot. Companion sets its own slot via
+      // CMD_SET_TUNING_PARAMS.
 #if BEEBO_ENABLE_REPEATER_ROLE
       float v = atof(&key[8]);
       _role_state->prefs.rx_delay_base = v;
