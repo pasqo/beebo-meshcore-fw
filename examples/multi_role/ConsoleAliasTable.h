@@ -24,6 +24,7 @@ static const ConsoleAliasEntry CONSOLE_ALIASES[] = {
   {"board.adc.multiplier", "adc.multiplier", false, false},
   {"board.fem.rssi_offset.lna", "fem.rssi_offset.lna", false, false},
   {"board.fem.rssi_offset.bypass", "fem.rssi_offset.bypass", false, false},
+  {"board.ext.rssi_offset", "ext.rssi_offset", false, false},
   {"board.battery.sample_period", "battery.sample_period", false, false},
   {"board.battery.sample_window", "battery.sample_window", false, false},
   {"board.battery.present", "battery.present", false, false},

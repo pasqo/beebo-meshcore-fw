@@ -98,6 +98,13 @@ public:
 #endif
 
   virtual float getCurrentRSSI() =0;
+  // beebo: one live instantaneous RSSI read (offset applied) for GET_RSSI; false
+  // while the radio is not in RX (transmitting, CW keyed, asleep).
+  bool readInstRssi(float& dbm) {
+    if (_cw_active || !isInRecvMode()) return false;
+    dbm = getCurrentRSSI();
+    return true;
+  }
   virtual uint8_t getSpreadingFactor() const { return LORA_SF; }
   static uint16_t preambleLengthForSF(uint8_t sf) { return sf <= 8 ? 32 : 16; }
   void updatePreamble(uint8_t sf) { _preamble_sf = sf; _radio->setPreambleLength(preambleLengthForSF(sf)); }

@@ -2045,6 +2045,7 @@ void Beebo::clampRadioPrefs() {
   _board.adc_multiplier = constrain(_board.adc_multiplier, 0.0f, 10.0f);
   _board.fem_rssi_ofs_lna = constrain(_board.fem_rssi_ofs_lna, FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
   _board.fem_rssi_ofs_bypass = constrain(_board.fem_rssi_ofs_bypass, FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
+  _board.ext_rssi_ofs = constrain(_board.ext_rssi_ofs, FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
   if (_board.batt_sample_period_secs == 0) {
     _board.batt_sample_period_secs = BATT_SAMPLE_PERIOD_DEFAULT_SECS;  // beebo: default period
   }
@@ -2103,7 +2104,8 @@ bool Beebo::applyRssiOffset() {
 #ifdef BEEBO_RSSI_ANT_REF
   // GC1109 (V4.2) has no bypass control: its LNA is always in the RX path.
   bool lna = !board.canControlLoRaFemLna() || board.isLoRaFemLnaEnabled();
-  int8_t ofs = lna ? _board.fem_rssi_ofs_lna : _board.fem_rssi_ofs_bypass;
+  // Each term is within -30..30, so the sum fits an int8.
+  int8_t ofs = (lna ? _board.fem_rssi_ofs_lna : _board.fem_rssi_ofs_bypass) + _board.ext_rssi_ofs;
   if (radio_driver.getRssiOffset() == ofs) return false;
   radio_driver.setRssiOffset(ofs);
   return true;
@@ -4432,6 +4434,20 @@ bool Beebo::setFemRssiOffset(bool lna, int32_t db, uint8_t source) {
   _board_dirty = true;
   if (applyRssiOffset()) radio_driver.resetNoiseFloor();
   return true;
+}
+bool Beebo::setExtRssiOffset(int32_t db, uint8_t source) {
+  if (db < FEM_RSSI_OFS_MIN || db > FEM_RSSI_OFS_MAX) return false;
+  appendSettingChangedEvent(PREFS_TLV_EXT_RSSI_OFS, (uint32_t)(int32_t)_board.ext_rssi_ofs, (uint32_t)db, source);
+  _board.ext_rssi_ofs = (int8_t)db;
+  _board_dirty = true;
+  if (applyRssiOffset()) radio_driver.resetNoiseFloor();
+  return true;
+}
+uint32_t Beebo::tlvGetExtRssiOfs(Beebo* self, uint8_t role) {
+  return (uint32_t)(int32_t)self->_board.ext_rssi_ofs;
+}
+bool Beebo::tlvSetExtRssiOfs(Beebo* self, uint8_t role, uint32_t raw) {
+  return self->setExtRssiOffset((int32_t)raw, EVENT_SOURCE_BINARY);
 }
 uint32_t Beebo::tlvGetFemRssiOfsLna(Beebo* self, uint8_t role) {
   return (uint32_t)(int32_t)self->_board.fem_rssi_ofs_lna;
@@ -6806,6 +6822,21 @@ void Beebo::handleCmdFrame(size_t len) {
       }
       writeOKFrame();
     }
+  } else if (sub[0] == BEEBO_CMD_GET_RSSI) {
+    // beebo: one live instantaneous RSSI read, antenna plane (offsets added).
+    // Value: [tenths:int16 LE][offset:int8][valid:1]; valid 0 = not receiving.
+    float dbm = 0;
+    bool valid = !_bench_quiet && radio_driver.readInstRssi(dbm);
+    int16_t tenths = valid ? (int16_t)lroundf(dbm * 10.0f) : 0;
+    int8_t ofs = 0;
+#ifdef BEEBO_RSSI_ANT_REF
+    if (valid) ofs = radio_driver.getRssiOffset();
+#endif
+    out_frame[0] = RESP_CODE_OK;
+    memcpy(&out_frame[1], &tenths, 2);
+    out_frame[3] = (uint8_t)ofs;
+    out_frame[4] = valid ? 1 : 0;
+    _serial->writeFrame(out_frame, 5);
   } else if (sub[0] == BEEBO_CMD_SET_TX_OPTIMIZE && sub_len >= 2) {
     // beebo: select RadioLib PA optimization. [1]=1 -> efficiency table (default,
     // non-monotonic low end); [1]=0 -> fixed PA config (monotonic). Re-applies
@@ -9810,6 +9841,12 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %d", (int)_board.fem_rssi_ofs_lna);
     } else if (memcmp(key, "fem.rssi_offset.bypass", 22) == 0) {
       sprintf(reply, "> %d", (int)_board.fem_rssi_ofs_bypass);
+    } else if (memcmp(key, "ext.rssi_offset", 15) == 0) {
+      sprintf(reply, "> %d", (int)_board.ext_rssi_ofs);
+    } else if (memcmp(key, "rssi.inst", 9) == 0) {
+      float dbm = 0;
+      if (!_bench_quiet && radio_driver.readInstRssi(dbm)) sprintf(reply, "> %.1f", dbm);
+      else strcpy(reply, "> n/a");
     } else if (memcmp(key, "battery.sample_period", 21) == 0) {
       sprintf(reply, "> %u", _board.batt_sample_period_secs);
     } else if (memcmp(key, "battery.sample_window", 21) == 0) {
@@ -10152,6 +10189,15 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       char* end;
       long db = strtol(arg, &end, 10);
       if (end == arg || *end != 0 || !setFemRssiOffset(lna, (int32_t)db, EVENT_SOURCE_TEXT_CLI)) {
+        sprintf(reply, "Error: must be %d to %d dB", FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
+      } else {
+        strcpy(reply, "OK");
+      }
+    } else if (memcmp(key, "ext.rssi_offset ", 16) == 0) {
+      const char* arg = &key[16];
+      char* end;
+      long db = strtol(arg, &end, 10);
+      if (end == arg || *end != 0 || !setExtRssiOffset((int32_t)db, EVENT_SOURCE_TEXT_CLI)) {
         sprintf(reply, "Error: must be %d to %d dB", FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
       } else {
         strcpy(reply, "OK");

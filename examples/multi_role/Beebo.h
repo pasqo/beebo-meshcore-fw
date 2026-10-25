@@ -1102,7 +1102,7 @@ private:
   void clampRadioPrefs();  // beebo: sanitize radio-affecting prefs (shared by begin/reloadPrefs)
   void applyRadioPrefs();  // beebo: push radio-affecting prefs into radio driver + board FEM
   bool setFemLna(bool on); // beebo: FEM LNA on/off + matching RSSI offset + noise-floor reset
-  bool applyRssiOffset();  // beebo: push the active FEM path's RSSI offset; true if it changed
+  bool applyRssiOffset();  // beebo: push the active FEM path's RSSI offset plus the external one; true if it changed
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);
   void writeDisabledFrame();
@@ -1574,6 +1574,7 @@ private:
     PREFS_TLV_FEM_RSSI_OFS_LNA = 59,    // u32 (sign-extended int8 dB, -30..30)
     PREFS_TLV_FEM_RSSI_OFS_BYPASS = 60, // u32 (sign-extended int8 dB, -30..30)
     PREFS_TLV_ROUTE_RETRY = 61,         // u32 RetryPolicy byte (RetryPolicy.h): coding rates of the retries of a flood whose echo timed out; per role
+    PREFS_TLV_EXT_RSSI_OFS = 62,        // u32 (sign-extended int8 dB, -30..30), board-scoped like 59-60
     PREFS_TLV_TRANSMIT = 64,            // u32 bool, 0 = the radio never sends (Dispatcher::checkSend() drops); per role
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
@@ -1700,7 +1701,10 @@ private:
   static bool tlvSetFemRssiOfsLna(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetFemRssiOfsBypass(Beebo* self, uint8_t role);
   static bool tlvSetFemRssiOfsBypass(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetExtRssiOfs(Beebo* self, uint8_t role);
+  static bool tlvSetExtRssiOfs(Beebo* self, uint8_t role, uint32_t raw);
   bool setFemRssiOffset(bool lna, int32_t db, uint8_t source);
+  bool setExtRssiOffset(int32_t db, uint8_t source);
   static uint32_t tlvGetAdcResolution(Beebo* self, uint8_t role);
   static bool tlvSetAdcResolution(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetBattPresent(Beebo* self, uint8_t role);

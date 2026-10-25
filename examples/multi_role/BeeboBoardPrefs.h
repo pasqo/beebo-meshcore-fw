@@ -68,6 +68,10 @@ struct BeeboBoardPrefs {
   // App feed channels (plans/ROLE_APP_FEED.md): which channel-table slot each feed is (0xFF =
   // not created yet), so a renamed feed is still recognized. One pair per board, every role.
   uint8_t feed_idx[2] = {0xFF, 0xFF};
+
+  // dB added on top of the FEM path's RSSI offset for hardware between the antenna and the
+  // SMA (filter, booster): minus its net RX gain. 0 = nothing external. Stored after feed_idx.
+  int8_t ext_rssi_ofs = 0;          // board.ext.rssi_offset
 };
 
 #define FEM_RSSI_OFS_MIN  -30

@@ -406,6 +406,10 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
     if ((size_t)file.available() >= sizeof(_prefs.feed_idx)) {
       file.read((uint8_t *)_prefs.feed_idx, sizeof(_prefs.feed_idx));    // 61
     }
+    // 63: external RX chain RSSI offset -- an older file ends before it and keeps the default.
+    if ((size_t)file.available() >= sizeof(_prefs.ext_rssi_ofs)) {
+      file.read((uint8_t *)&_prefs.ext_rssi_ofs, sizeof(_prefs.ext_rssi_ofs));   // 63
+    }
   }
   file.close();
   return has_battery_fields;
@@ -426,6 +430,7 @@ void DataStore::saveBeeboBoardPrefs(const BeeboBoardPrefs& _prefs) {
     file.write((uint8_t *)&_prefs.fem_rssi_ofs_lna, sizeof(_prefs.fem_rssi_ofs_lna));       // 59
     file.write((uint8_t *)&_prefs.fem_rssi_ofs_bypass, sizeof(_prefs.fem_rssi_ofs_bypass)); // 60
     file.write((uint8_t *)_prefs.feed_idx, sizeof(_prefs.feed_idx));                        // 61
+    file.write((uint8_t *)&_prefs.ext_rssi_ofs, sizeof(_prefs.ext_rssi_ofs));               // 63
     file.close();
   }
   _abi.board_prefs_version = BOARD_PREFS_VERSION;

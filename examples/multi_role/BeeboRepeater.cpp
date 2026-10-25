@@ -582,6 +582,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_ADC_RESOLUTION,   TLV_U32,   tlvGetAdcResolution,  tlvSetAdcResolution,  nullptr, nullptr },
   { PREFS_TLV_FEM_RSSI_OFS_LNA,    TLV_U32, tlvGetFemRssiOfsLna,    tlvSetFemRssiOfsLna,    nullptr, nullptr },
   { PREFS_TLV_FEM_RSSI_OFS_BYPASS, TLV_U32, tlvGetFemRssiOfsBypass, tlvSetFemRssiOfsBypass, nullptr, nullptr },
+  { PREFS_TLV_EXT_RSSI_OFS,        TLV_U32, tlvGetExtRssiOfs,        tlvSetExtRssiOfs,        nullptr, nullptr },
   { PREFS_TLV_BATT_PRESENT,        TLV_U32, tlvGetBattPresent,       tlvSetBattPresent,       nullptr, nullptr },
   { PREFS_TLV_BATT_SAMPLE_PERIOD,  TLV_U32, tlvGetBattSamplePeriod,  tlvSetBattSamplePeriod,  nullptr, nullptr },
   { PREFS_TLV_BATT_SAMPLE_WINDOW,  TLV_U32, tlvGetBattSampleWindow,  tlvSetBattSampleWindow,  nullptr, nullptr },
