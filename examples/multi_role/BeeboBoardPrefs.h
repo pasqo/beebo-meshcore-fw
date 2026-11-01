@@ -62,8 +62,8 @@ struct BeeboBoardPrefs {
   // One FEM per board. dB added to every SX1262 RSSI read (packet RSSI,
   // instantaneous RSSI, noise floor) for the active FEM RX path, referring
   // it to the antenna connector. 0 = no correction for that path.
-  int8_t fem_rssi_ofs_lna = -17;    // board.fem.rssi_offset.lna - LNA in path (fem.rxgain on)
-  int8_t fem_rssi_ofs_bypass = 2;   // board.fem.rssi_offset.bypass - LNA bypassed (fem.rxgain off)
+  int8_t fem_rssi_ofs_lna = -26;    // board.fem.rssi_offset.lna - LNA in path (fem.rxgain on)
+  int8_t fem_rssi_ofs_bypass = -2;  // board.fem.rssi_offset.bypass - LNA bypassed (fem.rxgain off)
 
   // App feed channels (plans/ROLE_APP_FEED.md): which channel-table slot each feed is (0xFF =
   // not created yet), so a renamed feed is still recognized. One pair per board, every role.
