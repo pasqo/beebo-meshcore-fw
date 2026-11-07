@@ -61,6 +61,9 @@ public:
   // beebo: honor the optimize flag so a bench sweep can compare RadioLib's
   // efficiency table (true) against a monotonic fixed-PA mapping (false).
   void setTxPower(int8_t dbm) override {
+#ifdef BEEBO_TX_CEILING
+    dbm = capTx(dbm);
+#endif
     ((CustomSX1262 *)_radio)->setOutputPower(dbm, _pa_optimize);
   }
 

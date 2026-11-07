@@ -13,6 +13,7 @@
 #include <helpers/BattTrend.h>
 #include "BeeboProtocol.h"
 #include "AdminSelfCommand.h"
+#include "BeeboTxCurve.h"
 #include "ConsoleAlias.h"
 #include "ConsoleStatus.h"
 #include "ConsoleMonitor.h"
@@ -1859,7 +1860,7 @@ void Beebo::begin() {
   snprintf(line, sizeof(line), "boot %s %s %s", FIRMWARE_VERSION, isRepeater() ? "repeater" : "companion",
            reset_reason_str(esp_reset_reason()));
   feedPost(FEED_STATUS, line);
-  if (feedFmtTxPowerWarn(line, sizeof(line), _role_state->prefs.tx_power_dbm) > 0) feedPost(FEED_STATUS, line);
+  if (maxTxPower() >= 18 && feedFmtTxPowerWarn(line, sizeof(line), _role_state->prefs.tx_power_dbm) > 0) feedPost(FEED_STATUS, line);
 }
 
 // beebo: transports are brought up per the persisted enable flags (NodePrefs):
@@ -2036,7 +2037,7 @@ void Beebo::clampRadioPrefs() {
   _role_state->prefs.bw = constrain(_role_state->prefs.bw, 7.8f, 500.0f);
   _role_state->prefs.sf = constrain(_role_state->prefs.sf, 5, 12);
   _role_state->prefs.cr = constrain(_role_state->prefs.cr, 5, 8);
-  _role_state->prefs.tx_power_dbm = constrain(_role_state->prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
+  _role_state->prefs.tx_power_dbm = constrain(_role_state->prefs.tx_power_dbm, -9, maxTxPower());
   _role_state->prefs.comp_tx_delay_factor = constrain(_role_state->prefs.comp_tx_delay_factor, 0.0f, 2.0f);
   _role_state->prefs.comp_direct_tx_delay_factor = constrain(_role_state->prefs.comp_direct_tx_delay_factor, 0.0f, 2.0f);
   _role_state->prefs.comp_interference_threshold = constrain(_role_state->prefs.comp_interference_threshold, 0, 9);
@@ -2045,7 +2046,7 @@ void Beebo::clampRadioPrefs() {
   _board.adc_multiplier = constrain(_board.adc_multiplier, 0.0f, 10.0f);
   _board.fem_rssi_ofs_lna = constrain(_board.fem_rssi_ofs_lna, FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
   _board.fem_rssi_ofs_bypass = constrain(_board.fem_rssi_ofs_bypass, FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
-  _board.ext_rssi_ofs = constrain(_board.ext_rssi_ofs, FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
+  _board.ext_rx_gain = constrain(_board.ext_rx_gain, FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
   if (_board.batt_sample_period_secs == 0) {
     _board.batt_sample_period_secs = BATT_SAMPLE_PERIOD_DEFAULT_SECS;  // beebo: default period
   }
@@ -2080,6 +2081,9 @@ void Beebo::pushActiveDedupWindow() {
 // beebo: push the radio-affecting prefs into the radio driver and board FEM —
 // the one place a new radio pref must be added to take effect on (re)load.
 void Beebo::applyRadioPrefs() {
+#ifdef BEEBO_TX_CEILING
+  radio_driver.setTxCeiling((int8_t)maxTxPower());
+#endif
   radio_driver.setParams(_role_state->prefs.freq, _role_state->prefs.bw, _role_state->prefs.sf, _role_state->prefs.cr);
   radio_driver.setTxPower(_role_state->prefs.tx_power_dbm);
   radio_driver.setRxBoostedGainMode(_role_state->prefs.rx_boosted_gain);
@@ -2105,7 +2109,7 @@ bool Beebo::applyRssiOffset() {
   // GC1109 (V4.2) has no bypass control: its LNA is always in the RX path.
   bool lna = !board.canControlLoRaFemLna() || board.isLoRaFemLnaEnabled();
   // Each term is within -30..30, so the sum fits an int8.
-  int8_t ofs = (lna ? _board.fem_rssi_ofs_lna : _board.fem_rssi_ofs_bypass) + _board.ext_rssi_ofs;
+  int8_t ofs = (lna ? _board.fem_rssi_ofs_lna : _board.fem_rssi_ofs_bypass) - _board.ext_rx_gain;
   if (radio_driver.getRssiOffset() == ofs) return false;
   radio_driver.setRssiOffset(ofs);
   return true;
@@ -3226,6 +3230,7 @@ RadioRecord Beebo::buildRadioRecord() {
   radio.bw = (uint16_t)(_role_state->prefs.bw * 10.0f + 0.5f);
   radio.cr = _role_state->prefs.cr;
   radio.tx_power = (int8_t)_role_state->prefs.tx_power_dbm;
+  radio.tx_ant_x10 = beeboTxAntX10(radio.tx_power, _board.ext_tx_gain);
   if (_role_state->prefs.rx_boosted_gain)  radio.flags |= RADIO_FLAG_RXBOOST;
   if (_role_state->prefs.BeeboBasePrefs::radio_fem_rxgain) radio.flags |= RADIO_FLAG_FEMRXGAIN;
   if (_role_state->prefs.BeeboBasePrefs::radio_fem_txgain) radio.flags |= RADIO_FLAG_FEMTXGAIN;
@@ -4386,7 +4391,7 @@ uint32_t Beebo::tlvGetRadioTxpower(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetRadioTxpower(Beebo* self, uint8_t role, uint32_t raw) {
   int8_t v = (int8_t)(int32_t)raw;
-  if (v < -9 || v > MAX_LORA_TX_POWER) return false;
+  if (v < -9 || v > self->maxTxPower()) return false;
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.tx_power_dbm = v;
   persistRoleSlot(self, role, slot);
@@ -4435,19 +4440,66 @@ bool Beebo::setFemRssiOffset(bool lna, int32_t db, uint8_t source) {
   if (applyRssiOffset()) radio_driver.resetNoiseFloor();
   return true;
 }
-bool Beebo::setExtRssiOffset(int32_t db, uint8_t source) {
+bool Beebo::setExtRxGain(int32_t db, uint8_t source) {
   if (db < FEM_RSSI_OFS_MIN || db > FEM_RSSI_OFS_MAX) return false;
-  appendSettingChangedEvent(PREFS_TLV_EXT_RSSI_OFS, (uint32_t)(int32_t)_board.ext_rssi_ofs, (uint32_t)db, source);
-  _board.ext_rssi_ofs = (int8_t)db;
+  appendSettingChangedEvent(PREFS_TLV_EXT_RX_GAIN, (uint32_t)(int32_t)_board.ext_rx_gain, (uint32_t)db, source);
+  _board.ext_rx_gain = (int8_t)db;
   _board_dirty = true;
   if (applyRssiOffset()) radio_driver.resetNoiseFloor();
   return true;
 }
-uint32_t Beebo::tlvGetExtRssiOfs(Beebo* self, uint8_t role) {
-  return (uint32_t)(int32_t)self->_board.ext_rssi_ofs;
+// beebo: the TX side of board.ext.*. The antenna power is estimated from the V4 TX curve
+// plus board.ext.txgain (BeeboTxCurve.h); board.ext.txlimit caps radio.txpower with it.
+int Beebo::maxTxPower() const {
+  return beeboTxMaxPower(MAX_LORA_TX_POWER, _board.ext_tx_gain, extTxLimit());
 }
-bool Beebo::tlvSetExtRssiOfs(Beebo* self, uint8_t role, uint32_t raw) {
-  return self->setExtRssiOffset((int32_t)raw, EVENT_SOURCE_BINARY);
+void Beebo::reclampTxPower() {
+  const int max_tx = maxTxPower();
+#ifdef BEEBO_TX_CEILING
+  radio_driver.setTxCeiling((int8_t)max_tx);
+#endif
+  for (uint8_t role = 0; role < NODE_ROLE_COUNT; role++) {
+    BeeboRoleState& slot = role_state_store[role];
+    if (slot.prefs.tx_power_dbm > max_tx) {
+      slot.prefs.tx_power_dbm = (int8_t)max_tx;
+      persistRoleSlot(this, role, slot);
+    }
+  }
+  radio_driver.setTxPower(_role_state->prefs.tx_power_dbm);
+}
+bool Beebo::setExtTxGain(int32_t db, uint8_t source) {
+  if (db < FEM_RSSI_OFS_MIN || db > FEM_RSSI_OFS_MAX) return false;
+  appendSettingChangedEvent(PREFS_TLV_EXT_TX_GAIN, (uint32_t)(int32_t)_board.ext_tx_gain, (uint32_t)db, source);
+  _board.ext_tx_gain = (int8_t)db;
+  _board_dirty = true;
+  reclampTxPower();
+  return true;
+}
+bool Beebo::setExtTxLimit(int32_t dbm, uint8_t source) {
+  if (dbm < EXT_TX_LIMIT_MIN || dbm > EXT_TX_LIMIT_MAX) return false;
+  appendSettingChangedEvent(PREFS_TLV_EXT_TX_LIMIT, (uint32_t)extTxLimit(), (uint32_t)dbm, source);
+  _board.ext_tx_limit = (int8_t)dbm;
+  _board_dirty = true;
+  reclampTxPower();
+  return true;
+}
+uint32_t Beebo::tlvGetExtTxGain(Beebo* self, uint8_t role) {
+  return (uint32_t)(int32_t)self->_board.ext_tx_gain;
+}
+bool Beebo::tlvSetExtTxGain(Beebo* self, uint8_t role, uint32_t raw) {
+  return self->setExtTxGain((int32_t)raw, EVENT_SOURCE_BINARY);
+}
+uint32_t Beebo::tlvGetExtTxLimit(Beebo* self, uint8_t role) {
+  return (uint32_t)self->extTxLimit();
+}
+bool Beebo::tlvSetExtTxLimit(Beebo* self, uint8_t role, uint32_t raw) {
+  return self->setExtTxLimit((int32_t)raw, EVENT_SOURCE_BINARY);
+}
+uint32_t Beebo::tlvGetExtRxGain(Beebo* self, uint8_t role) {
+  return (uint32_t)(int32_t)self->_board.ext_rx_gain;
+}
+bool Beebo::tlvSetExtRxGain(Beebo* self, uint8_t role, uint32_t raw) {
+  return self->setExtRxGain((int32_t)raw, EVENT_SOURCE_BINARY);
 }
 uint32_t Beebo::tlvGetFemRssiOfsLna(Beebo* self, uint8_t role) {
   return (uint32_t)(int32_t)self->_board.fem_rssi_ofs_lna;
@@ -4621,7 +4673,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // node and needs to be told the truth here, not hardcoded ADV_TYPE_CHAT.
     out_frame[i++] = isRepeater() ? ADV_TYPE_REPEATER : ADV_TYPE_CHAT;
     out_frame[i++] = _role_state->prefs.tx_power_dbm;
-    out_frame[i++] = MAX_LORA_TX_POWER;
+    out_frame[i++] = (uint8_t)maxTxPower();
     memcpy(&out_frame[i], self_id.pub_key, PUB_KEY_SIZE);
     i += PUB_KEY_SIZE;
 
@@ -5180,7 +5232,7 @@ void Beebo::handleCmdFrame(size_t len) {
     }
   } else if (cmd_frame[0] == CMD_SET_RADIO_TX_POWER) {
     int8_t power = (int8_t)cmd_frame[1];
-    if (power < -9 || power > MAX_LORA_TX_POWER) {
+    if (power < -9 || power > maxTxPower()) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       _role_state->prefs.tx_power_dbm = power;
@@ -9537,6 +9589,15 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
 }
 
 void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
+  // beebo: the shared radio text commands store whatever "set tx" is given; refuse a power the build or
+  // board.ext.txlimit does not allow, the same check the binary paths make.
+  if (memcmp(command, "set tx ", 7) == 0) {
+    int tx = atoi(&command[7]);
+    if (tx < -9 || tx > maxTxPower()) {
+      sprintf(reply, "Error: tx must be -9 to %d", maxTxPower());
+      return;
+    }
+  }
   while (*command == ' ') command++;  // skip leading spaces
   // beebo: `settings <path> [value]` is the CLI's own command (protocol.yaml `console:` lists
   // the paths); it stands for the text key, so every entry point (app CLI screen, feed, USB,
@@ -9841,8 +9902,12 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %d", (int)_board.fem_rssi_ofs_lna);
     } else if (memcmp(key, "fem.rssi_offset.bypass", 22) == 0) {
       sprintf(reply, "> %d", (int)_board.fem_rssi_ofs_bypass);
-    } else if (memcmp(key, "ext.rssi_offset", 15) == 0) {
-      sprintf(reply, "> %d", (int)_board.ext_rssi_ofs);
+    } else if (memcmp(key, "ext.rxgain", 10) == 0) {
+      sprintf(reply, "> %d", (int)_board.ext_rx_gain);
+    } else if (memcmp(key, "ext.txgain", 10) == 0) {
+      sprintf(reply, "> %d", (int)_board.ext_tx_gain);
+    } else if (memcmp(key, "ext.txlimit", 11) == 0) {
+      sprintf(reply, "> %d", extTxLimit());
     } else if (memcmp(key, "rssi.inst", 9) == 0) {
       float dbm = 0;
       if (!_bench_quiet && radio_driver.readInstRssi(dbm)) sprintf(reply, "> %.1f", dbm);
@@ -10193,11 +10258,29 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       } else {
         strcpy(reply, "OK");
       }
-    } else if (memcmp(key, "ext.rssi_offset ", 16) == 0) {
-      const char* arg = &key[16];
+    } else if (memcmp(key, "ext.txgain ", 11) == 0) {
+      const char* arg = &key[11];
       char* end;
       long db = strtol(arg, &end, 10);
-      if (end == arg || *end != 0 || !setExtRssiOffset((int32_t)db, EVENT_SOURCE_TEXT_CLI)) {
+      if (end == arg || *end != 0 || !setExtTxGain((int32_t)db, EVENT_SOURCE_TEXT_CLI)) {
+        sprintf(reply, "Error: must be %d to %d dB", FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
+      } else {
+        strcpy(reply, "OK");
+      }
+    } else if (memcmp(key, "ext.txlimit ", 12) == 0) {
+      const char* arg = &key[12];
+      char* end;
+      long dbm = strtol(arg, &end, 10);
+      if (end == arg || *end != 0 || !setExtTxLimit((int32_t)dbm, EVENT_SOURCE_TEXT_CLI)) {
+        sprintf(reply, "Error: must be %d to %d dBm", EXT_TX_LIMIT_MIN, EXT_TX_LIMIT_MAX);
+      } else {
+        strcpy(reply, "OK");
+      }
+    } else if (memcmp(key, "ext.rxgain ", 11) == 0) {
+      const char* arg = &key[11];
+      char* end;
+      long db = strtol(arg, &end, 10);
+      if (end == arg || *end != 0 || !setExtRxGain((int32_t)db, EVENT_SOURCE_TEXT_CLI)) {
         sprintf(reply, "Error: must be %d to %d dB", FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
       } else {
         strcpy(reply, "OK");

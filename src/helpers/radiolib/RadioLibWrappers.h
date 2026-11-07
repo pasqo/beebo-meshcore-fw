@@ -82,6 +82,16 @@ public:
   virtual void setParams(float freq, float bw, uint8_t sf, uint8_t cr) = 0;
   uint32_t getRngSeed();
   virtual void setTxPower(int8_t dbm);
+#ifdef BEEBO_TX_CEILING
+  // beebo: the highest power setTxPower() will ever program, whoever calls it
+  // (board.ext.txlimit, Beebo::maxTxPower()). 127 = no ceiling.
+  void setTxCeiling(int8_t dbm) { _tx_ceiling = dbm; }
+  int8_t getTxCeiling() const { return _tx_ceiling; }
+protected:
+  int8_t _tx_ceiling = 127;
+  int8_t capTx(int8_t dbm) const { return dbm > _tx_ceiling ? _tx_ceiling : dbm; }
+public:
+#endif
 
   // beebo: select RadioLib's per-level PA optimization (paOptTable). true =
   // efficiency-optimized but non-monotonic at the low end; false = fixed PA

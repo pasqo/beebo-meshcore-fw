@@ -69,10 +69,20 @@ struct BeeboBoardPrefs {
   // not created yet), so a renamed feed is still recognized. One pair per board, every role.
   uint8_t feed_idx[2] = {0xFF, 0xFF};
 
-  // dB added on top of the FEM path's RSSI offset for hardware between the antenna and the
-  // SMA (filter, booster): minus its net RX gain. 0 = nothing external. Stored after feed_idx.
-  int8_t ext_rssi_ofs = 0;          // board.ext.rssi_offset
+  // Net RX gain in dB of the hardware between the antenna and the SMA (filter loss, booster
+  // gain); the RSSI offset it adds is minus this. 0 = nothing external. Stored after feed_idx.
+  int8_t ext_rx_gain = 0;           // board.ext.rxgain
+
+  // TX side of the same hardware: net dB it adds to the power at the SMA, measured at the
+  // operating point (filter loss, amplifier gain), and the most dBm allowed at the antenna,
+  // which always gates radio.txpower (0 stored = EXT_TX_LIMIT_DEFAULT). Stored after
+  // ext_rx_gain. See BeeboTxCurve.h.
+  int8_t ext_tx_gain = 0;           // board.ext.txgain
+  int8_t ext_tx_limit = 0;          // board.ext.txlimit
 };
 
 #define FEM_RSSI_OFS_MIN  -30
 #define FEM_RSSI_OFS_MAX   30
+#define EXT_TX_LIMIT_MAX   40
+#define EXT_TX_LIMIT_MIN    1
+#define EXT_TX_LIMIT_DEFAULT 30   // the FCC conducted limit, dBm

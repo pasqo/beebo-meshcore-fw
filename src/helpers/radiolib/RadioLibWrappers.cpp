@@ -53,6 +53,9 @@ void RadioLibWrapper::setTxPower(int8_t dbm) {
 #if defined(USE_LR2021)
   idle();
 #endif
+#ifdef BEEBO_TX_CEILING
+  dbm = capTx(dbm);
+#endif
   _radio->setOutputPower(dbm);
 }
 
