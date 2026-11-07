@@ -1577,6 +1577,7 @@ private:
     PREFS_TLV_EXT_RX_GAIN = 62,        // u32 (sign-extended int8 dB, -30..30), board-scoped like 59-60
     PREFS_TLV_EXT_TX_GAIN = 63,         // u32 (sign-extended int8 dB, -30..30), board-scoped: net gain between the SMA and the antenna
     PREFS_TLV_TRANSMIT = 64,            // u32 bool, 0 = the radio never sends (Dispatcher::checkSend() drops); per role
+    PREFS_TLV_EXT_TX_POWER = 66,        // u32 (int16 tenths of dBm): estimated power at the antenna for the live role's radio.txpower; a write sets radio.txpower to the highest value not above it
     PREFS_TLV_EXT_TX_LIMIT = 65,        // u32 (int8 dBm, 1..40, default 30), board-scoped: most power at the antenna, always gates radio.txpower
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
@@ -1707,10 +1708,14 @@ private:
   static bool tlvSetExtRxGain(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetExtTxGain(Beebo* self, uint8_t role);
   static bool tlvSetExtTxGain(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetExtTxPower(Beebo* self, uint8_t role);
+  static bool tlvSetExtTxPower(Beebo* self, uint8_t role, uint32_t raw);
+  bool setExtTxPower(int32_t target_x10, uint8_t source);
   static uint32_t tlvGetExtTxLimit(Beebo* self, uint8_t role);
   static bool tlvSetExtTxLimit(Beebo* self, uint8_t role, uint32_t raw);
   bool setExtTxGain(int32_t db, uint8_t source);
   bool setExtTxLimit(int32_t dbm, uint8_t source);
+  int txPowerAntX10() const;  // estimated dBm x10 at the antenna for the live role's radio.txpower
   int maxTxPower() const;     // highest radio.txpower the build and board.ext.txlimit allow
   int extTxLimit() const { return _board.ext_tx_limit ? _board.ext_tx_limit : EXT_TX_LIMIT_DEFAULT; }   // dBm at the antenna; always applied
   void reclampTxPower();      // bring both roles' stored radio.txpower within maxTxPower()

@@ -27,6 +27,7 @@ static const ConsoleAliasEntry CONSOLE_ALIASES[] = {
   {"board.ext.rxgain", "ext.rxgain", false, false},
   {"board.ext.txgain", "ext.txgain", false, false},
   {"board.ext.txlimit", "ext.txlimit", false, false},
+  {"board.ext.txpower", "ext.txpower", false, false},
   {"board.battery.sample_period", "battery.sample_period", false, false},
   {"board.battery.sample_window", "battery.sample_window", false, false},
   {"board.battery.present", "battery.present", false, false},

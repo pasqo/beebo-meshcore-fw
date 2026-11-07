@@ -585,6 +585,7 @@ const Beebo::PrefsTlvField Beebo::PREFS_TLV_FIELDS[] = {
   { PREFS_TLV_EXT_RX_GAIN,        TLV_U32, tlvGetExtRxGain,        tlvSetExtRxGain,        nullptr, nullptr },
   { PREFS_TLV_EXT_TX_GAIN,         TLV_U32, tlvGetExtTxGain,         tlvSetExtTxGain,         nullptr, nullptr },
   { PREFS_TLV_EXT_TX_LIMIT,        TLV_U32, tlvGetExtTxLimit,        tlvSetExtTxLimit,        nullptr, nullptr },
+  { PREFS_TLV_EXT_TX_POWER,        TLV_U32, tlvGetExtTxPower,        tlvSetExtTxPower,        nullptr, nullptr },
   { PREFS_TLV_BATT_PRESENT,        TLV_U32, tlvGetBattPresent,       tlvSetBattPresent,       nullptr, nullptr },
   { PREFS_TLV_BATT_SAMPLE_PERIOD,  TLV_U32, tlvGetBattSamplePeriod,  tlvSetBattSamplePeriod,  nullptr, nullptr },
   { PREFS_TLV_BATT_SAMPLE_WINDOW,  TLV_U32, tlvGetBattSampleWindow,  tlvSetBattSampleWindow,  nullptr, nullptr },

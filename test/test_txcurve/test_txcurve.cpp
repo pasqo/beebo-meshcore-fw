@@ -49,6 +49,40 @@ TEST(TxCurve, ALimitBelowTheLowestPowerStillAllowsTheMinimum) {
   EXPECT_EQ(-9, beeboTxMaxPower(22, 20, 10));
 }
 
+TEST(TxCurve, TargetPicksTheHighestPowerNotAbove) {
+  int tp = 99;
+  ASSERT_TRUE(beeboTxPowerForAntX10(200, 0, 22, &tp));   // 20.0 dBm: 9 gives 19.8, 10 gives 22.3
+  EXPECT_EQ(9, tp);
+  ASSERT_TRUE(beeboTxPowerForAntX10(223, 0, 22, &tp));   // exactly txpower 10
+  EXPECT_EQ(10, tp);
+}
+
+TEST(TxCurve, TargetAddsTheExternalGain) {
+  int tp = 99;
+  ASSERT_TRUE(beeboTxPowerForAntX10(300, 8, 22, &tp));   // 30.0 dBm behind +8 dB: SMA <= 22.0
+  EXPECT_EQ(9, tp);
+}
+
+TEST(TxCurve, FlatStretchTakesTheLowestPowerWithTheSameEstimate) {
+  int tp = 99;
+  ASSERT_TRUE(beeboTxPowerForAntX10(300, 0, 22, &tp));   // above the plateau: 17..22 all read 27.3
+  EXPECT_EQ(17, tp);
+  ASSERT_TRUE(beeboTxPowerForAntX10(190, 0, 22, &tp));   // 6 and 7 both read 18.3
+  EXPECT_EQ(6, tp);
+}
+
+TEST(TxCurve, TargetNeverExceedsTheHardwareMaximum) {
+  int tp = 99;
+  ASSERT_TRUE(beeboTxPowerForAntX10(300, 0, 12, &tp));
+  EXPECT_EQ(12, tp);
+}
+
+TEST(TxCurve, TargetBelowTheMinimumIsRefused) {
+  int tp = 99;
+  EXPECT_FALSE(beeboTxPowerForAntX10(30, 0, 22, &tp));   // 3.0 dBm; the minimum gives 3.3
+  EXPECT_EQ(99, tp);
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {

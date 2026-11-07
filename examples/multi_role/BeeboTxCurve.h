@@ -35,6 +35,22 @@ inline int16_t beeboTxAntX10(int tx_power, int ext_txgain_db) {
   return (int16_t)(beeboTxSmaX10(tx_power) + ext_txgain_db * 10);
 }
 
+// The radio.txpower for a requested antenna power, tenths of dBm: the highest one whose
+// estimate does not exceed the target (never above hw_max), and, on a flat stretch of the
+// curve, the lowest that gives the same estimate. false when even the minimum is above it.
+inline bool beeboTxPowerForAntX10(int target_x10, int ext_txgain_db, int hw_max, int* tx_power) {
+  int best = BEEBO_TX_MIN_POWER - 1;
+  for (int tp = BEEBO_TX_MIN_POWER; tp <= hw_max; tp++)
+    if (beeboTxAntX10(tp, ext_txgain_db) <= target_x10) best = tp;
+  if (best < BEEBO_TX_MIN_POWER) return false;
+  int est = beeboTxAntX10(best, ext_txgain_db);
+  int lowest = best;
+  for (int tp = BEEBO_TX_MIN_POWER; tp < best; tp++)
+    if (beeboTxAntX10(tp, ext_txgain_db) == est) { lowest = tp; break; }
+  *tx_power = lowest;
+  return true;
+}
+
 // The highest radio.txpower <= hw_max whose antenna power stays within limit_dbm. The
 // limit always applies. Never below the minimum radio.txpower.
 inline int beeboTxMaxPower(int hw_max, int ext_txgain_db, int limit_dbm) {

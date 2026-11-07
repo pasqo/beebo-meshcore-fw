@@ -4450,6 +4450,9 @@ bool Beebo::setExtRxGain(int32_t db, uint8_t source) {
 }
 // beebo: the TX side of board.ext.*. The antenna power is estimated from the V4 TX curve
 // plus board.ext.txgain (BeeboTxCurve.h); board.ext.txlimit caps radio.txpower with it.
+int Beebo::txPowerAntX10() const {
+  return beeboTxAntX10(_role_state->prefs.tx_power_dbm, _board.ext_tx_gain);
+}
 int Beebo::maxTxPower() const {
   return beeboTxMaxPower(MAX_LORA_TX_POWER, _board.ext_tx_gain, extTxLimit());
 }
@@ -4488,6 +4491,25 @@ uint32_t Beebo::tlvGetExtTxGain(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetExtTxGain(Beebo* self, uint8_t role, uint32_t raw) {
   return self->setExtTxGain((int32_t)raw, EVENT_SOURCE_BINARY);
+}
+uint32_t Beebo::tlvGetExtTxPower(Beebo* self, uint8_t role) {
+  return (uint32_t)(int32_t)self->txPowerAntX10();
+}
+// beebo: the antenna-plane view of radio.txpower. A write picks the radio.txpower whose estimate is the
+// highest not above the target (BeeboTxCurve.h) and stores that on the live role, so radio.txpower stays
+// the stored value. A target above board.ext.txlimit, or below the minimum, is refused.
+bool Beebo::setExtTxPower(int32_t target_x10, uint8_t source) {
+  if (target_x10 > extTxLimit() * 10) return false;
+  int tp;
+  if (!beeboTxPowerForAntX10((int)target_x10, _board.ext_tx_gain, maxTxPower(), &tp)) return false;
+  appendSettingChangedEvent(PREFS_TLV_RADIO_TXPOWER, (uint32_t)(int32_t)_role_state->prefs.tx_power_dbm, (uint32_t)(int32_t)tp, source);
+  _role_state->prefs.tx_power_dbm = (int8_t)tp;
+  persistRoleSlot(this, _board.role, *_role_state);
+  radio_driver.setTxPower(_role_state->prefs.tx_power_dbm);
+  return true;
+}
+bool Beebo::tlvSetExtTxPower(Beebo* self, uint8_t role, uint32_t raw) {
+  return self->setExtTxPower((int32_t)raw, EVENT_SOURCE_BINARY);
 }
 uint32_t Beebo::tlvGetExtTxLimit(Beebo* self, uint8_t role) {
   return (uint32_t)self->extTxLimit();
@@ -9906,6 +9928,8 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       sprintf(reply, "> %d", (int)_board.ext_rx_gain);
     } else if (memcmp(key, "ext.txgain", 10) == 0) {
       sprintf(reply, "> %d", (int)_board.ext_tx_gain);
+    } else if (memcmp(key, "ext.txpower", 11) == 0) {
+      sprintf(reply, "> %.1f", txPowerAntX10() / 10.0f);
     } else if (memcmp(key, "ext.txlimit", 11) == 0) {
       sprintf(reply, "> %d", extTxLimit());
     } else if (memcmp(key, "rssi.inst", 9) == 0) {
@@ -10265,6 +10289,16 @@ void Beebo::handleCommand(uint32_t sender_timestamp, char* command, char* reply)
       if (end == arg || *end != 0 || !setExtTxGain((int32_t)db, EVENT_SOURCE_TEXT_CLI)) {
         sprintf(reply, "Error: must be %d to %d dB", FEM_RSSI_OFS_MIN, FEM_RSSI_OFS_MAX);
       } else {
+        strcpy(reply, "OK");
+      }
+    } else if (memcmp(key, "ext.txpower ", 12) == 0) {
+      const char* arg = &key[12];
+      char* end;
+      float dbm = strtof(arg, &end);
+      if (end == arg || *end != 0 || !setExtTxPower((int32_t)lroundf(dbm * 10.0f), EVENT_SOURCE_TEXT_CLI)) {
+        sprintf(reply, "Error: must be %.1f to %d dBm", beeboTxAntX10(BEEBO_TX_MIN_POWER, _board.ext_tx_gain) / 10.0f, extTxLimit());
+      } else {
+        savePrefs();
         strcpy(reply, "OK");
       }
     } else if (memcmp(key, "ext.txlimit ", 12) == 0) {
