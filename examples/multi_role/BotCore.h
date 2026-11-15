@@ -14,7 +14,7 @@ constexpr uint8_t STYLE_TEST = 1;       // test, ping: every sender, hops and pa
 constexpr uint8_t STYLE_NEIGHBOR = 2;   // nbr: direct senders only, link figures
 constexpr uint8_t STYLE_MASK = 3;
 
-constexpr uint8_t NAME_MAX = 31;
+constexpr uint8_t NAME_LEN_MAX = 31;
 constexpr uint8_t SENDER_MAX = 32;
 constexpr int MAX_TEXT = 160;           // BaseChatMesh MAX_TEXT_LEN
 constexpr uint8_t MAX_HOP_CAP = 21;     // applyHopCap() protocol maximum
@@ -52,14 +52,14 @@ struct Config {
   uint8_t reply_gap = 10;       // s, minimum between any two replies
   uint16_t sender_gap = 60;     // s, minimum between replies to one sender (0 = none)
   uint8_t reply_jitter = 4;     // s, maximum random delay before a reply
-  char name[NAME_MAX + 1] = {0};   // sender name on replies, empty = node name
+  char name[NAME_LEN_MAX + 1] = {0};   // sender name on replies, empty = node name
 
   void clamp() {
     styles &= STYLE_MASK;
     if (reply_gap < MIN_REPLY_GAP) reply_gap = MIN_REPLY_GAP;
     if (sender_gap > MAX_SENDER_GAP) sender_gap = MAX_SENDER_GAP;
     if (reply_jitter > MAX_JITTER) reply_jitter = MAX_JITTER;
-    name[NAME_MAX] = 0;
+    name[NAME_LEN_MAX] = 0;
   }
 };
 
@@ -68,7 +68,7 @@ inline bool validStyles(uint8_t v) { return (v & ~STYLE_MASK) == 0; }
 // No ": " (it would break every receiver's sender/body split) and no control characters.
 inline bool validName(const char* n) {
   size_t len = strlen(n);
-  if (len > NAME_MAX) return false;
+  if (len > NAME_LEN_MAX) return false;
   for (size_t i = 0; i < len; i++) {
     if ((uint8_t)n[i] < 0x20 || n[i] == 0x7f) return false;
     if (n[i] == ':' && n[i + 1] == ' ') return false;

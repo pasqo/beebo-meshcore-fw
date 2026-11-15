@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "Beebo.h"
 #include "DataStore.h"
+#include "BotCore.h"
 
 DataStore::DataStore(FILESYSTEM& fs, mesh::RTCClock& clock)
     : _fs(&fs), _fsExtra(nullptr), _clock(&clock), identity_store(fs, "/identity") {
@@ -178,6 +179,7 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
   bool has_node_prefs = false;
   File file = openRead(_fs, "/beebo_companion");
   if (file) {
+    _prefs.setBotDefaults();
     file.read((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_rxgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_rxgain));               // 0
     file.read((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));                              // 1
     file.read((uint8_t *)_prefs.wifi_pwd, sizeof(_prefs.wifi_pwd));                                // 65
@@ -285,6 +287,23 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
                   // for a file saved before this field existed.
                   if (file.available() >= (int)sizeof(_prefs.retry)) {
                     file.read((uint8_t *)&_prefs.retry, sizeof(_prefs.retry));
+                    // bot block (BeeboCompanionPrefs), all-or-nothing: a file saved before
+                    // it existed keeps the defaults set above, never zeros (0 = no limit).
+                    if (file.available() >= (int)(sizeof(_prefs.bot) + sizeof(_prefs.bot_reply_gap) +
+                        sizeof(_prefs.bot_sender_gap) + sizeof(_prefs.bot_reply_jitter) + sizeof(_prefs.bot_name))) {
+                      file.read((uint8_t *)&_prefs.bot, sizeof(_prefs.bot));
+                      file.read((uint8_t *)&_prefs.bot_reply_gap, sizeof(_prefs.bot_reply_gap));
+                      file.read((uint8_t *)&_prefs.bot_sender_gap, sizeof(_prefs.bot_sender_gap));
+                      file.read((uint8_t *)&_prefs.bot_reply_jitter, sizeof(_prefs.bot_reply_jitter));
+                      file.read((uint8_t *)_prefs.bot_name, sizeof(_prefs.bot_name));
+                      _prefs.bot_name[sizeof(_prefs.bot_name) - 1] = 0;
+                      bot::Config bc;
+                      bc.styles = _prefs.bot; bc.reply_gap = _prefs.bot_reply_gap;
+                      bc.sender_gap = _prefs.bot_sender_gap; bc.reply_jitter = _prefs.bot_reply_jitter;
+                      bc.clamp();   // a stored value outside its range reads as the nearest legal one
+                      _prefs.bot = bc.styles; _prefs.bot_reply_gap = bc.reply_gap;
+                      _prefs.bot_sender_gap = bc.sender_gap; _prefs.bot_reply_jitter = bc.reply_jitter;
+                    }
                   }
                 }
               }
@@ -353,6 +372,11 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.comp_tx_delay_factor, sizeof(_prefs.comp_tx_delay_factor));
     file.write((uint8_t *)&_prefs.comp_direct_tx_delay_factor, sizeof(_prefs.comp_direct_tx_delay_factor));
     file.write((uint8_t *)&_prefs.retry, sizeof(_prefs.retry));
+    file.write((uint8_t *)&_prefs.bot, sizeof(_prefs.bot));
+    file.write((uint8_t *)&_prefs.bot_reply_gap, sizeof(_prefs.bot_reply_gap));
+    file.write((uint8_t *)&_prefs.bot_sender_gap, sizeof(_prefs.bot_sender_gap));
+    file.write((uint8_t *)&_prefs.bot_reply_jitter, sizeof(_prefs.bot_reply_jitter));
+    file.write((uint8_t *)_prefs.bot_name, sizeof(_prefs.bot_name));
 
     file.close();
   }

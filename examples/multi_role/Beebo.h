@@ -87,6 +87,7 @@ static_assert(USB_TX_BUFFER_SIZE >= 2 * (MAX_SEND_FRAME_SIZE + 3), "USB TX buffe
 #include "BeeboBoardPrefs.h"
 #include "FeedChannel.h"
 #include "FeedLines.h"
+#include "BotCore.h"
 #define FEED_MON_FIRST_MS  (60UL * 1000UL)           // the first monitor line, a minute after boot
 #define FEED_MON_PERIOD_MS (60UL * 60UL * 1000UL)   // then one an hour
 #include "BeeboRoleState.h"
@@ -1578,6 +1579,13 @@ private:
     PREFS_TLV_EXT_TX_GAIN = 63,         // u32 (sign-extended int8 dB, -30..30), board-scoped: net gain between the SMA and the antenna
     PREFS_TLV_TRANSMIT = 64,            // u32 bool, 0 = the radio never sends (Dispatcher::checkSend() drops); per role
     PREFS_TLV_EXT_TX_POWER = 66,        // u32 (int16 tenths of dBm): estimated power at the antenna for the live role's radio.txpower; a write sets radio.txpower to the highest value not above it
+    // #test channel bot (BotCore.h, plans/BOT.md), companion slot only; a
+    // repeater-role request is refused.
+    PREFS_TLV_BOT = 67,                 // u32 style bitmask: 1 test, 2 neighbor, 0 off
+    PREFS_TLV_BOT_REPLY_GAP = 68,       // u32 s, 2..255
+    PREFS_TLV_BOT_SENDER_GAP = 69,      // u32 s, 0..3600
+    PREFS_TLV_BOT_REPLY_JITTER = 70,    // u32 s, 0..30
+    PREFS_TLV_BOT_NAME = 71,            // string, up to 31 characters, no ": ", empty = the node name
     PREFS_TLV_EXT_TX_LIMIT = 65,        // u32 (int8 dBm, 1..40, default 30), board-scoped: most power at the antenna, always gates radio.txpower
   };
   enum PrefsTlvType : uint8_t { TLV_U32 = 0, TLV_FLOAT = 1, TLV_STRING = 2 };
@@ -1731,6 +1739,16 @@ private:
   static bool tlvSetBattSampleWindow(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetManualAddContacts(Beebo* self, uint8_t role);
   static bool tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetBot(Beebo* self, uint8_t role);
+  static bool tlvSetBot(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetBotReplyGap(Beebo* self, uint8_t role);
+  static bool tlvSetBotReplyGap(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetBotSenderGap(Beebo* self, uint8_t role);
+  static bool tlvSetBotSenderGap(Beebo* self, uint8_t role, uint32_t raw);
+  static uint32_t tlvGetBotReplyJitter(Beebo* self, uint8_t role);
+  static bool tlvSetBotReplyJitter(Beebo* self, uint8_t role, uint32_t raw);
+  static int tlvGetBotName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len);
+  static bool tlvSetBotName(Beebo* self, uint8_t role, const uint8_t* in, size_t len);
   static uint32_t tlvGetAutoaddConfig(Beebo* self, uint8_t role);
   static bool tlvSetAutoaddConfig(Beebo* self, uint8_t role, uint32_t raw);
   static uint32_t tlvGetCompanionRepeat(Beebo* self, uint8_t role);
@@ -1916,6 +1934,10 @@ private:
   bool _iter_started;
   bool _pending_disconnect;
   bool send_unscoped;   // force un-scoped flood (instead of using send_scope)
+  // #test channel bot: logic in BotCore.h, glue in BeeboCompanion.cpp (botOnChannelMessage()/botTick()).
+  bot::State _bot;
+  void botOnChannelMessage(const mesh::GroupChannel &channel, mesh::Packet *pkt, const char *text);
+  void botTick();
   uint8_t _hop_cap = 0; // BEEBO_CMD_SEND_CHANNEL_MSG_HOPS: max repeater hops for the channel message being sent, else 0 (no cap)
   uint8_t app_target_ver;
   uint8_t *sign_data;

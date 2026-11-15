@@ -30,6 +30,7 @@ void Beebo::loopCompanion(bool skip_radio) {
     BaseChatMesh::loop();
     checkAckTableTimeouts();
     trafficTick();
+    botTick();
   }
 #ifdef BEEBO_CPU_ACCOUNTING
   uint32_t link_start_us = micros();
@@ -38,6 +39,42 @@ void Beebo::loopCompanion(bool skip_radio) {
 #else
   checkSerialInterface();
 #endif
+}
+
+// #test channel bot (BotCore.h, plans/BOT.md). The decision and the reply text live in
+// bot::State; this only feeds it the received packet and sends what it releases.
+void Beebo::botOnChannelMessage(const mesh::GroupChannel &channel, mesh::Packet *pkt, const char *text) {
+  const BeeboPrefs& p = _role_state->prefs;
+  if (!p.bot || !pkt->isRouteFlood() || !bot::isTestSecret(channel.secret)) return;
+  bot::Config c;
+  c.styles = p.bot; c.reply_gap = p.bot_reply_gap; c.sender_gap = p.bot_sender_gap;
+  c.reply_jitter = p.bot_reply_jitter;
+  memcpy(c.name, p.bot_name, sizeof(c.name));
+  c.clamp();
+  _bot.setConfig(c);
+  bot::Link link;
+  link.path = bot::decodePath(pkt->path, pkt->path_len);
+  link.snr_x4 = (int8_t)(pkt->getSNR() * 4);
+  link.rssi = (int16_t)pkt->getRSSI();
+  link.noise_dbm = (int16_t)_radio->getNoiseFloor();
+  _bot.onMessage(millis(), text, p.node_name, link, (uint16_t)getRNG()->nextInt(0, 65536));
+}
+
+void Beebo::botTick() {
+  if (!_bot.pending()) return;
+  if (isRepeater() || !txAllowed()) { _bot.cancel(); return; }   // role switched or transmit off: nothing was sent
+  ChannelDetails ch;
+  bool found = false;
+  for (int i = 0; i < MAX_GROUP_CHANNELS && !found; i++) found = getChannel(i, ch) && ch.name[0] && bot::isTestSecret(ch.channel.secret);
+  if (!found) { _bot.cancel(); return; }   // the #test channel was removed while the reply waited
+  uint8_t cap = _bot.pendingHopCap();
+  const char* text = _bot.due(millis());
+  if (!text) return;
+  _hop_cap = cap;
+  const bot::Config& c = _bot.config();
+  sendGroupMessage(getRTCClock()->getCurrentTime(), ch.channel, c.name[0] ? c.name : _role_state->prefs.node_name,
+                   text, strlen(text));
+  _hop_cap = 0;
 }
 
 // Traffic injector: one Poisson arrival per gap; the arrival sends only while
@@ -404,6 +441,7 @@ void Beebo::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet
                                   const char *text) {
   // beebo: a repeater does not hand chat to the app, and a feed channel is local only
   if (isRepeater() || feedIdOf((uint8_t)findChannelIdx(channel)) >= 0) return;
+  botOnChannelMessage(channel, pkt, text);   // a side effect; the app still gets the message below
   int i = 0;
 #ifdef MSG_INCLUDE_RSSI
   const bool use_v3 = true;   // beebo: always record SNR/RSSI (see queueMessage)

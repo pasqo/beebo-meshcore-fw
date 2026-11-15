@@ -1304,6 +1304,7 @@ Beebo::Beebo(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMesh
 
   // defaults
   memset(&_role_state->prefs, 0, sizeof(_role_state->prefs));
+  _role_state->prefs.setBotDefaults();   // the memset above zeroed them; 0 would mean no limit
   _role_state->prefs.airtime_factor = 1.0;
   strcpy(_role_state->prefs.node_name, "NONAME");
   _role_state->prefs.freq = LORA_FREQ;
@@ -4590,6 +4591,57 @@ uint32_t Beebo::tlvGetManualAddContacts(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetManualAddContacts(Beebo* self, uint8_t role, uint32_t raw) {
   return persistScalarField(self, role, self->role_state_store[role].prefs.manual_add_contacts, raw ? 1 : 0);
+}
+// beebo: #test channel bot settings (BotCore.h). They live in the companion slot only;
+// a repeater-role request is refused, a read answers 0. A change takes effect on the next
+// message (botOnChannelMessage() reads the prefs each time).
+uint32_t Beebo::tlvGetBot(Beebo* self, uint8_t role) {
+  return role == NODE_ROLE_COMPANION ? self->role_state_store[role].prefs.bot : 0;
+}
+bool Beebo::tlvSetBot(Beebo* self, uint8_t role, uint32_t raw) {
+  if (role != NODE_ROLE_COMPANION || raw > 255 || !bot::validStyles((uint8_t)raw)) return false;
+  if (!raw) self->_bot.cancel();
+  return persistScalarField(self, role, self->role_state_store[role].prefs.bot, raw);
+}
+uint32_t Beebo::tlvGetBotReplyGap(Beebo* self, uint8_t role) {
+  return role == NODE_ROLE_COMPANION ? self->role_state_store[role].prefs.bot_reply_gap : 0;
+}
+bool Beebo::tlvSetBotReplyGap(Beebo* self, uint8_t role, uint32_t raw) {
+  if (role != NODE_ROLE_COMPANION || raw < bot::MIN_REPLY_GAP || raw > 255) return false;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.bot_reply_gap, raw);
+}
+uint32_t Beebo::tlvGetBotSenderGap(Beebo* self, uint8_t role) {
+  return role == NODE_ROLE_COMPANION ? self->role_state_store[role].prefs.bot_sender_gap : 0;
+}
+bool Beebo::tlvSetBotSenderGap(Beebo* self, uint8_t role, uint32_t raw) {
+  if (role != NODE_ROLE_COMPANION || raw > bot::MAX_SENDER_GAP) return false;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.bot_sender_gap, raw);
+}
+uint32_t Beebo::tlvGetBotReplyJitter(Beebo* self, uint8_t role) {
+  return role == NODE_ROLE_COMPANION ? self->role_state_store[role].prefs.bot_reply_jitter : 0;
+}
+bool Beebo::tlvSetBotReplyJitter(Beebo* self, uint8_t role, uint32_t raw) {
+  if (role != NODE_ROLE_COMPANION || raw > bot::MAX_JITTER) return false;
+  return persistScalarField(self, role, self->role_state_store[role].prefs.bot_reply_jitter, raw);
+}
+int Beebo::tlvGetBotName(Beebo* self, uint8_t role, uint8_t* out, size_t max_len) {
+  if (role != NODE_ROLE_COMPANION) return 0;
+  size_t n = strlen(self->role_state_store[role].prefs.bot_name);
+  if (n > max_len) n = max_len;
+  memcpy(out, self->role_state_store[role].prefs.bot_name, n);
+  return (int)n;
+}
+bool Beebo::tlvSetBotName(Beebo* self, uint8_t role, const uint8_t* in, size_t len) {
+  if (role != NODE_ROLE_COMPANION || len > bot::NAME_LEN_MAX) return false;
+  char name[bot::NAME_LEN_MAX + 1];
+  memcpy(name, in, len);
+  name[len] = 0;
+  if (!bot::validName(name)) return false;
+  BeeboRoleState& slot = self->role_state_store[role];
+  memset(slot.prefs.bot_name, 0, sizeof(slot.prefs.bot_name));
+  memcpy(slot.prefs.bot_name, name, len);
+  persistRoleSlot(self, role, slot);
+  return true;
 }
 uint32_t Beebo::tlvGetAutoaddConfig(Beebo* self, uint8_t role) {
   return self->role_state_store[role].prefs.autoadd_config;
