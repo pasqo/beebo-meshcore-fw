@@ -2650,7 +2650,7 @@ private:
   // 60-slot per-second ring with a running sum -- no new increment call
   // sites, no per-packet cost. Until the ring has 60 s of history the sum
   // is scaled up to a full minute. rateCounter() defines the fixed order.
-  static constexpr uint8_t RATE_COUNTERS = 17;
+  static constexpr uint8_t RATE_COUNTERS = 19;
   static constexpr uint8_t RATE_SLOTS = 60;
   uint32_t rateCounter(uint8_t i);
   uint32_t _rate_prev[RATE_COUNTERS] = {0};

@@ -7930,6 +7930,8 @@ uint32_t Beebo::rateCounter(uint8_t i) {
     case 14: return _region_no_fwd_count;
     case 15: return _loop_no_fwd_count;
     case 16: return monring.rxParseErrorCount();
+    case 17: return _bot.replies();    // #test channel bot, see BotCore.h
+    case 18: return _bot.dropped();
   }
   return 0;
 }
