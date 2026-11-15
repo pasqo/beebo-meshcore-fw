@@ -1938,6 +1938,7 @@ private:
   bot::State _bot;
   void botOnChannelMessage(const mesh::GroupChannel &channel, mesh::Packet *pkt, const char *text);
   void botTick();
+  void queueChannelMsgForApp(uint8_t channel_idx, uint8_t path_len, int8_t snr_x4, int16_t rssi, uint32_t timestamp, const char *text);
   uint8_t _hop_cap = 0; // BEEBO_CMD_SEND_CHANNEL_MSG_HOPS: max repeater hops for the channel message being sent, else 0 (no cap)
   uint8_t app_target_ver;
   uint8_t *sign_data;

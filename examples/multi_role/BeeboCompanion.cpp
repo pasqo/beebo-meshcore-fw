@@ -65,16 +65,25 @@ void Beebo::botTick() {
   if (isRepeater() || !txAllowed()) { _bot.cancel(); return; }   // role switched or transmit off: nothing was sent
   ChannelDetails ch;
   bool found = false;
-  for (int i = 0; i < MAX_GROUP_CHANNELS && !found; i++) found = getChannel(i, ch) && ch.name[0] && bot::isTestSecret(ch.channel.secret);
+  uint8_t idx = 0;
+  for (int i = 0; i < MAX_GROUP_CHANNELS && !found; i++) {
+    found = getChannel(i, ch) && ch.name[0] && bot::isTestSecret(ch.channel.secret);
+    if (found) idx = (uint8_t)i;
+  }
   if (!found) { _bot.cancel(); return; }   // the #test channel was removed while the reply waited
   uint8_t cap = _bot.pendingHopCap();
   const char* text = _bot.due(millis());
   if (!text) return;
   _hop_cap = cap;
   const bot::Config& c = _bot.config();
-  sendGroupMessage(getRTCClock()->getCurrentTime(), ch.channel, c.name[0] ? c.name : _role_state->prefs.node_name,
-                   text, strlen(text));
+  const char* name = c.name[0] ? c.name : _role_state->prefs.node_name;
+  uint32_t now = getRTCClock()->getCurrentTime();
+  sendGroupMessage(now, ch.channel, name, text, strlen(text));
   _hop_cap = 0;
+  // A phone connecting to this node sees the whole conversation: queue the reply like a received message.
+  char line[bot::MAX_TEXT + 1];
+  snprintf(line, sizeof(line), "%s: %s", name, text);
+  queueChannelMsgForApp(idx, 0xFF, 0, 0, now, line);
 }
 
 // Traffic injector: one Poisson arrival per gap; the arrival sends only while
@@ -442,19 +451,27 @@ void Beebo::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet
   // beebo: a repeater does not hand chat to the app, and a feed channel is local only
   if (isRepeater() || feedIdOf((uint8_t)findChannelIdx(channel)) >= 0) return;
   botOnChannelMessage(channel, pkt, text);   // a side effect; the app still gets the message below
+#ifdef MSG_INCLUDE_RSSI
+  const int16_t rssi = (int16_t)pkt->getRSSI();
+#else
+  const int16_t rssi = 0;
+#endif
+  queueChannelMsgForApp(findChannelIdx(channel), pkt->isRouteFlood() ? pkt->path_len : 0xFF,
+                        (int8_t)(pkt->getSNR() * 4), rssi, timestamp, text);
+}
+
+// The channel message frame the app drains, shared by a received message and the bot's own reply.
+void Beebo::queueChannelMsgForApp(uint8_t channel_idx, uint8_t path_len, int8_t snr_x4, int16_t rssi,
+                                  uint32_t timestamp, const char *text) {
   int i = 0;
 #ifdef MSG_INCLUDE_RSSI
   const bool use_v3 = true;   // beebo: always record SNR/RSSI (see queueMessage)
-  const int16_t rssi = (int16_t)pkt->getRSSI();
 #else
   const bool use_v3 = (app_target_ver >= 3);
-  const int16_t rssi = 0;
 #endif
-  uint8_t channel_idx = findChannelIdx(channel);
-  uint8_t path_len = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
   if (use_v3) {
     i = (int)channelMsgV3Frame(out_frame, MAX_FRAME_SIZE, channel_idx, path_len,
-                               (int8_t)(pkt->getSNR() * 4), rssi, timestamp, text);   // TODO: UTF-8 ??
+                               snr_x4, rssi, timestamp, text);   // TODO: UTF-8 ??
   } else {
     out_frame[i++] = RESP_CODE_CHANNEL_MSG_RECV;
     out_frame[i++] = channel_idx;
