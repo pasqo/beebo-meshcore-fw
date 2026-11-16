@@ -17,6 +17,15 @@ inline size_t cliReplyLen(const char* reply, size_t cap, size_t max_out) {
 // Skips leading spaces. On a prefixed command (longer than 4 characters with '|' at index 2)
 // copies the 3 prefix characters into `prefix` (room for 4) and returns the text after them;
 // otherwise `prefix` is empty and the command is returned as is.
+// "on"/"off" (trailing spaces allowed) into *on; false for anything else.
+inline bool cliOnOff(const char* arg, bool* on) {
+  size_t n = strlen(arg);
+  while (n > 0 && arg[n - 1] == ' ') n--;
+  if (n == 2 && memcmp(arg, "on", 2) == 0) { *on = true; return true; }
+  if (n == 3 && memcmp(arg, "off", 3) == 0) { *on = false; return true; }
+  return false;
+}
+
 inline char* splitCliPrefix(char* command, char* prefix) {
   while (*command == ' ') command++;
   if (strlen(command) > 4 && command[2] == '|') {

@@ -632,6 +632,25 @@ TEST(BotGate, CancelDropsThePendingReplyWithoutCountingIt) {
   EXPECT_EQ(V_REPLY, f.msg(T0 + 1, "b: test", makeLink(p)));   // gap not started: nothing was sent
 }
 
+TEST(BotGate, CanceledReplyDoesNotStartTheSenderGap) {
+  Fix f;
+  RawPath p;
+  f.msg(T0, "a: test", makeLink(p));
+  f.s.cancel();
+  EXPECT_EQ(V_REPLY, f.msg(T0 + 1, "a: test", makeLink(p)));   // nothing was sent to a
+}
+
+TEST(BotGate, FailedSendCountsAsDroppedNotAsAReply) {
+  Fix f;
+  RawPath p;
+  f.msg(T0, "a: test", makeLink(p));
+  ASSERT_NE(nullptr, f.s.due(T0));
+  f.s.sendFailed();
+  EXPECT_EQ(0u, f.s.replies());
+  EXPECT_EQ(1u, f.s.dropped());
+  EXPECT_EQ(1u, f.s.droppedBy(V_DROP_SEND));
+}
+
 // ---- reply hop cap ----
 
 TEST(BotHopCap, IsIncomingHopsPlusOneCappedAt21) {

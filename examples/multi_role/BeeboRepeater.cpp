@@ -957,7 +957,7 @@ uint8_t Beebo::handleAnonOwnerReq(const mesh::Identity& sender, uint32_t sender_
     memcpy(reply_data, &sender_timestamp, 4);
     uint32_t now = getRTCClock()->getCurrentTime();
     memcpy(&reply_data[4], &now, 4);
-    sprintf((char *) &reply_data[8], "%s\n%s", _role_state->prefs.node_name, _role_state->prefs.owner_info);
+    snprintf((char *) &reply_data[8], sizeof(reply_data) - 8, "%s\n%s", _role_state->prefs.node_name, _role_state->prefs.owner_info);
 
     return 8 + strlen((char *) &reply_data[8]);   // reply length
   }
@@ -1113,7 +1113,7 @@ int Beebo::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t 
       return reply_offset;
     }
   } else if (payload[0] == REQ_TYPE_GET_OWNER_INFO) {
-    sprintf((char *) &reply_data[4], "%s\n%s\n%s", FIRMWARE_VERSION, _role_state->prefs.node_name, _role_state->prefs.owner_info);
+    snprintf((char *) &reply_data[4], sizeof(reply_data) - 4, "%s\n%s\n%s", FIRMWARE_VERSION, _role_state->prefs.node_name, _role_state->prefs.owner_info);
     return 4 + strlen((char *) &reply_data[4]);
   }
   return 0; // unknown command

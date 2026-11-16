@@ -78,8 +78,9 @@ void Beebo::botTick() {
   const bot::Config& c = _bot.config();
   const char* name = c.name[0] ? c.name : _role_state->prefs.node_name;
   uint32_t now = getRTCClock()->getCurrentTime();
-  sendGroupMessage(now, ch.channel, name, text, strlen(text));
+  bool sent = sendGroupMessage(now, ch.channel, name, text, strlen(text));
   _hop_cap = 0;
+  if (!sent) { _bot.sendFailed(); return; }
   // A phone connecting to this node sees the whole conversation: queue the reply like a received message.
   char line[bot::MAX_TEXT + 1];
   snprintf(line, sizeof(line), "%s: %s", name, text);
@@ -575,12 +576,12 @@ void Beebo::onContactResponse(const ContactInfo &contact, const uint8_t *data, u
     pending_login = 0;
 
     int i = 0;
-    if (memcmp(&data[4], "OK", 2) == 0) { // legacy Repeater login OK response
+    if (len >= 6 && memcmp(&data[4], "OK", 2) == 0) { // legacy Repeater login OK response
       out_frame[i++] = PUSH_CODE_LOGIN_SUCCESS;
       out_frame[i++] = 0; // legacy: is_admin = false
       memcpy(&out_frame[i], contact.id.pub_key, 6);
       i += 6;                                     // pub_key_prefix
-    } else if (data[4] == RESP_SERVER_LOGIN_OK) { // new login response
+    } else if (len >= 13 && data[4] == RESP_SERVER_LOGIN_OK) { // new login response
       uint16_t keep_alive_secs = ((uint16_t)data[5]) * 16;
       if (keep_alive_secs > 0) {
         startConnection(contact, keep_alive_secs);

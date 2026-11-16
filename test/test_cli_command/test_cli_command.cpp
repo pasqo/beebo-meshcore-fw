@@ -60,6 +60,21 @@ TEST(CliCommand, ReplyLenNeverReadsPastTheBuffer) {
   EXPECT_EQ(cliReplyLen(unterminated, sizeof(unterminated), 100), 4u);
 }
 
+TEST(CliCommand, OnOffAcceptsOnlyThoseTwoWords) {
+  bool on = false;
+  EXPECT_TRUE(cliOnOff("on", &on));
+  EXPECT_TRUE(on);
+  EXPECT_TRUE(cliOnOff("off  ", &on));
+  EXPECT_FALSE(on);
+  on = true;
+  EXPECT_FALSE(cliOnOff("", &on));
+  EXPECT_FALSE(cliOnOff("onn", &on));
+  EXPECT_FALSE(cliOnOff("of", &on));
+  EXPECT_FALSE(cliOnOff("1", &on));
+  EXPECT_FALSE(cliOnOff("On", &on));
+  EXPECT_TRUE(on);   // untouched on a miss
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {

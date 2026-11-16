@@ -44,6 +44,7 @@ enum Verdict : uint8_t {
   V_DROP_PENDING,
   V_DROP_GAP,
   V_DROP_SENDER,
+  V_DROP_SEND,        // released, but the packet could not be sent
   V_COUNT
 };
 
@@ -192,11 +193,11 @@ public:
     Entry* e = findSender(sender, kind);
     if (e && _cfg.sender_gap && (uint32_t)(now_ms - e->t) < (uint32_t)_cfg.sender_gap * 1000u) return drop(V_DROP_SENDER);
 
-    if (!e) e = newSender();
-    strcpy(e->sender, sender);
-    e->kind = kind;
-    e->t = now_ms;
-    e->used = true;
+    // The sender's entry is written when the reply is released (due()), so a
+    // canceled reply does not start that sender's gap.
+    strcpy(_pend_sender, sender);
+    _pend_kind = kind;
+    _pend_t = now_ms;
 
     format(kind, sender, _cfg.name[0] ? _cfg.name : node_name, link, rnd);
     _deadline = now_ms + (uint32_t)(((uint64_t)rnd * (uint32_t)_cfg.reply_jitter * 1000u) >> 16);
@@ -213,7 +214,19 @@ public:
     _has_last = true;
     _last_ms = now_ms;
     _replies++;
+    Entry* e = findSender(_pend_sender, (Kind)_pend_kind);
+    if (!e) e = newSender();
+    strcpy(e->sender, _pend_sender);
+    e->kind = _pend_kind;
+    e->t = _pend_t;
+    e->used = true;
     return _text;
+  }
+
+  // The reply due() just released could not be sent: it counts as dropped, not as a reply.
+  void sendFailed() {
+    if (_replies) _replies--;
+    drop(V_DROP_SEND);
   }
 
   void cancel() { _pending = false; }   // role switch, transmit off, channel gone
@@ -332,6 +345,9 @@ private:
   Config _cfg;
   Entry _table[SENDER_SLOTS];
   char _text[MAX_TEXT + 1] = {0};
+  char _pend_sender[SENDER_MAX + 1] = {0};   // the pending reply's sender entry
+  uint8_t _pend_kind = KIND_NONE;
+  uint32_t _pend_t = 0;
   bool _pending = false;
   bool _has_last = false;
   uint8_t _hop_cap = 0;

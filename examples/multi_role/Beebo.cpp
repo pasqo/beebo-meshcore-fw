@@ -4924,6 +4924,8 @@ void Beebo::handleCmdFrame(size_t len) {
     }
 #endif
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG && len < 7) {   // shorter than its fixed header
+    writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (cmd_frame[0] == CMD_SEND_CHANNEL_TXT_MSG) { // send GroupChannel text msg
     int i = 1;
     uint8_t txt_type = cmd_frame[i++]; // should be TXT_TYPE_PLAIN
@@ -6471,6 +6473,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // convention), parent empty/omitted meaning the wildcard root. Unlike
     // the text-CLI, which needs a separate 'region save' afterward, this
     // auto-persists on success (same choice as SET_REGION_HOME above).
+    sub[sub_len] = 0;   // the name, or the parent after it, ends with the frame
     const char* name = (const char*)&sub[1];
     size_t name_len = strnlen(name, (size_t)sub_len - 1);
     const char* parent_name = (name_len + 1 < (size_t)sub_len - 1) ? (name + name_len + 1) : "";
@@ -9639,9 +9642,12 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
     return true;
   }
   if (memcmp(command, "set pin ", 8) == 0) {
-    _role_state->prefs.ble_pin = (uint32_t)atol(&command[8]);
-    savePrefs();
-    sprintf(reply, "> pin is now %06lu", (unsigned long)_role_state->prefs.ble_pin);
+    if (tlvSetBlePin(this, _board.role, (uint32_t)atol(&command[8]))) {
+      flushDirtyPrefs();
+      sprintf(reply, "> pin is now %06lu", (unsigned long)_role_state->prefs.ble_pin);
+    } else {
+      strcpy(reply, "Error, pin is 6 digits, or 0 for the default");
+    }
     return true;
   }
   if (strcmp(command, "get wifi.enabled") == 0) {
@@ -9665,8 +9671,9 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
     return true;
   }
   if (memcmp(command, "set transmit ", 13) == 0) {
-    tlvSetTransmit(this, _board.role, memcmp(&command[13], "on", 2) == 0 ? 1 : 0);
-    strcpy(reply, "OK");
+    bool on;
+    if (cliOnOff(&command[13], &on)) { tlvSetTransmit(this, _board.role, on ? 1 : 0); strcpy(reply, "OK"); }
+    else strcpy(reply, "Error, must be on or off");
     return true;
   }
 #ifdef BEEBO_ROUTE_RETRY
@@ -9689,8 +9696,9 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
     return true;
   }
   if (memcmp(command, "set cad ", 8) == 0) {
-    tlvSetCad(this, _board.role, memcmp(&command[8], "on", 2) == 0 ? 1 : 0);
-    strcpy(reply, "OK");
+    bool on;
+    if (cliOnOff(&command[8], &on)) { tlvSetCad(this, _board.role, on ? 1 : 0); strcpy(reply, "OK"); }
+    else strcpy(reply, "Error, must be on or off");
     return true;
   }
   if (strcmp(command, "get radio.rxgain") == 0) {
@@ -9698,8 +9706,9 @@ bool Beebo::handleAppCliCommand(const char* command, char* reply) {
     return true;
   }
   if (memcmp(command, "set radio.rxgain ", 17) == 0) {
-    tlvSetRadioRxgain(this, _board.role, memcmp(&command[17], "on", 2) == 0 ? 1 : 0);
-    strcpy(reply, "OK");
+    bool on;
+    if (cliOnOff(&command[17], &on)) { tlvSetRadioRxgain(this, _board.role, on ? 1 : 0); strcpy(reply, "OK"); }
+    else strcpy(reply, "Error, must be on or off");
     return true;
   }
   return false;
