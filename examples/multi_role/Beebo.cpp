@@ -4697,9 +4697,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // a plain app connecting next never inherits large frames / streaming.
     _app_max_tx = MAX_FRAME_SIZE;
     _app_stream = false;
-    if (_monread.active) monring.resumeAfterRead();  // abandoned mid-stream: don't leave capture paused
-    _monread.active = false;
-    _statread.active = false;
+    endBulkStreams();
     _neighread.active = false;
     _pathread.active = false;
 
@@ -5509,6 +5507,10 @@ void Beebo::handleCmdFrame(size_t len) {
     }
 #endif
 #if BEEBO_ENABLE_COMPANION_ROLE
+  } else if (cmd_frame[0] == CMD_SEND_ANON_REQ && len > 1 + PUB_KEY_SIZE + MAX_PACKET_PAYLOAD - 4) {
+    // sendAnonReq() copies the data after a 4-byte tag into a MAX_PACKET_PAYLOAD buffer
+    // and takes its length as a uint8_t; a USB/WiFi frame can be longer than both.
+    writeErrFrame(ERR_CODE_ILLEGAL_ARG);
   } else if (cmd_frame[0] == CMD_SEND_ANON_REQ && len > 1 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
@@ -6654,13 +6656,18 @@ void Beebo::handleCmdFrame(size_t len) {
     // hardcoded 300-byte parser ceiling), and silently drops anything larger
     // with no error visible to the caller. Same pattern GET_MONRING already
     // uses at _app_max_tx below.
+    uint8_t tlv_role = resolveRoleByte(sub[1]);
+    if (tlv_role >= NODE_ROLE_COUNT) {   // not a role_state_store[] slot
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
     uint8_t start_index = (sub_len >= 3) ? sub[2] : 0;
     out_frame[0] = RESP_CODE_BEEBO;
     out_frame[1] = BEEBO_RESP_PREFS_TLV;
     size_t next_index = 0;
     size_t page_cap = _app_max_tx;
     if (page_cap > MAX_SEND_FRAME_SIZE) page_cap = MAX_SEND_FRAME_SIZE;  // out_frame is only sized for this much
-    int n = encodePrefsTlv(resolveRoleByte(sub[1]), start_index, &out_frame[3], page_cap - 3, &next_index);
+    int n = encodePrefsTlv(tlv_role, start_index, &out_frame[3], page_cap - 3, &next_index);
     out_frame[2] = (next_index >= PREFS_TLV_FIELD_COUNT) ? 0xFF : (uint8_t)next_index;
     _serial->writeFrame(out_frame, 3 + n);
   } else if (sub[0] == BEEBO_CMD_SET_PREFS_TLV && sub_len >= 3) {
@@ -6672,6 +6679,10 @@ void Beebo::handleCmdFrame(size_t len) {
     // beebo: sub[1] is the leading role byte, same as GET_PREFS_TLV above;
     // triplets start at sub[2].
     uint8_t role = resolveRoleByte(sub[1]);
+    if (role >= NODE_ROLE_COUNT) {   // not a role_state_store[] slot
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
     beginPrefsBatch();
     size_t pos = 2;
     bool all_ok = true;
@@ -7506,6 +7517,13 @@ void Beebo::saveContacts() {
 #endif
 }
 
+// Ends an in-flight GET_MONRING/GET_STATS stream, resuming the capture a monring read paused.
+void Beebo::endBulkStreams() {
+  if (_monread.active) monring.resumeAfterRead();
+  _monread.active = false;
+  _statread.active = false;
+}
+
 void Beebo::checkSerialInterface() {
   // beebo: drain one queued best-effort DLOG/MLOG USB retry frame per
   // tick, independent of the companion-session pacing below (see
@@ -7513,12 +7531,17 @@ void Beebo::checkSerialInterface() {
   debug_log.retryUsbQueue();
   RecvFrameType frame_type = RecvFrameType::BINARY;
   size_t len = _serial->checkRecvFrame(cmd_frame, _serial->getMaxRecvFrameSize(), &frame_type);
-  // beebo: while a monring stream is active (capture paused for it), a
-  // well-behaved client sends nothing else until the terminator page — drop
-  // any frame that arrives anyway rather than letting it abort the stream
-  // and leave capture paused. The stream's own disconnect/reset paths are
-  // the only things allowed to end it early (see CMD_DEVICE_QUERY handling).
-  if (_monread.active || _statread.active) len = 0;
+  // beebo: while a monring or stats stream is active, a well-behaved client sends
+  // nothing else until the terminator page, so any other frame is dropped. The
+  // stream ends early, and capture resumes, when its session is gone or when a
+  // frame that opens a session (CMD_DEVICE_QUERY, CMD_APP_START) arrives; that
+  // frame is then handled normally.
+  if (_monread.active || _statread.active) {
+    bool opens_session = len > 0 && frame_type == RecvFrameType::BINARY
+        && (cmd_frame[0] == CMD_DEVICE_QUERY || cmd_frame[0] == CMD_APP_START);
+    if (!_serial->isConnected() || opens_session) endBulkStreams();
+    else len = 0;
+  }
   if (len > 0 && frame_type == RecvFrameType::DEBUG) {
     // beebo: session-less raw control sub-frame -- see
     // DualModeSerialInterface.cpp's MODE_RAW_DATA and MultiSerialInterface's
@@ -9217,15 +9240,20 @@ void Beebo::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, c
           }
         }
 
-        uint8_t temp[166];
+        // handleCommand() writes up to CLI_REPLY_CAP bytes, so it gets cli_reply; the
+        // wire reply is the first REPLY_TEXT_MAX bytes of that.
+        const int REPLY_TEXT_MAX = 160;   // BaseChatMesh's MAX_TEXT_LEN, absent from a repeater-only build
+        uint8_t temp[5 + REPLY_TEXT_MAX + 1];
         char *command = (char *)&data[5];
         char *reply = (char *)&temp[5];
-        if (is_retry) {
-          *reply = 0;
-        } else {
-          handleCommand(sender_timestamp, command, reply);
+        int text_len = 0;
+        if (!is_retry && cli_reply) {
+          cli_reply[0] = 0;
+          handleCommand(sender_timestamp, command, cli_reply);
+          text_len = (int)cliReplyLen(cli_reply, CLI_REPLY_CAP, REPLY_TEXT_MAX);
+          memcpy(reply, cli_reply, text_len);
         }
-        int text_len = strlen(reply);
+        reply[text_len] = 0;
         if (text_len > 0) {
           uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
           if (timestamp == sender_timestamp) {
