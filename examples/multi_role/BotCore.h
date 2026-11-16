@@ -112,8 +112,9 @@ inline Kind classify(const char* body, uint8_t styles) {
   if (len == 0) return KIND_NONE;
   if (styles == 0) return KIND_NONE;
   if (eqNoCase(body, len, "h") || eqNoCase(body, len, "help")) return KIND_HELP;
-  if ((styles & STYLE_TEST) && (eqNoCase(body, len, "test") || eqNoCase(body, len, "ping"))) return KIND_TEST;
-  if ((styles & STYLE_NEIGHBOR) && eqNoCase(body, len, "nbr")) return KIND_NEIGHBOR;
+  if ((styles & STYLE_TEST) && (eqNoCase(body, len, "test") || eqNoCase(body, len, "t") ||
+                                eqNoCase(body, len, "ping") || eqNoCase(body, len, "p"))) return KIND_TEST;
+  if ((styles & STYLE_NEIGHBOR) && (eqNoCase(body, len, "nbr") || eqNoCase(body, len, "n"))) return KIND_NEIGHBOR;
   return KIND_NONE;
 }
 

@@ -89,9 +89,26 @@ TEST(BotParse, ClassifiesTriggersCaseAndWhitespaceInsensitive) {
   EXPECT_EQ(KIND_HELP, classify("Help", STYLE_TEST));
 }
 
+TEST(BotParse, FirstLetterIsATrigger) {
+  EXPECT_EQ(KIND_TEST, classify("t", STYLE_MASK));
+  EXPECT_EQ(KIND_TEST, classify(" T ", STYLE_MASK));
+  EXPECT_EQ(KIND_TEST, classify("p", STYLE_MASK));
+  EXPECT_EQ(KIND_TEST, classify("P", STYLE_TEST));
+  EXPECT_EQ(KIND_NEIGHBOR, classify("n", STYLE_MASK));
+  EXPECT_EQ(KIND_NEIGHBOR, classify("N", STYLE_NEIGHBOR));
+  EXPECT_EQ(KIND_HELP, classify("H", STYLE_TEST));
+}
+
+TEST(BotParse, FirstLetterNeedsItsStyle) {
+  EXPECT_EQ(KIND_NONE, classify("t", STYLE_NEIGHBOR));
+  EXPECT_EQ(KIND_NONE, classify("p", STYLE_NEIGHBOR));
+  EXPECT_EQ(KIND_NONE, classify("n", STYLE_TEST));
+  EXPECT_EQ(KIND_NONE, classify("t", 0));
+}
+
 TEST(BotParse, NearMissesAreNotTriggers) {
   const char* misses[] = {"hello", "testing", "tes", "test!", "nbrs", "hh", "help me", "", " ", "@[x] test",
-                          "test test"};
+                          "test test", "x", "tt", "t t", "pn"};
   for (const char* m : misses) EXPECT_EQ(KIND_NONE, classify(m, STYLE_MASK)) << m;
 }
 
