@@ -182,6 +182,7 @@ bool Beebo::tlvSetRepeatMode(Beebo* self, uint8_t role, uint32_t raw) {
 
 static uint32_t _floatBits(float v) { uint32_t b; memcpy(&b, &v, 4); return b; }
 static float _bitsFloat(uint32_t b) { float v; memcpy(&v, &b, 4); return v; }
+static bool _inRange(float v, float lo, float hi) { return v >= lo && v <= hi; }   // false for NaN
 
 uint32_t Beebo::tlvGetAgcResetInterval(Beebo* self, uint8_t role) {
   if (role == NODE_ROLE_COMPANION) return ((uint32_t)self->role_state_store[role].prefs.comp_agc_reset_interval) * 4;
@@ -213,6 +214,7 @@ uint32_t Beebo::tlvGetAdvertInterval(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw > 120) return false;   // 2-minute units: 240 minutes
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: stores raw sub[1] directly, NOT raw/2 -- see the individual
   // SET_ADVERT_INTERVAL handler's comment (a prior double-division bug).
@@ -239,6 +241,7 @@ uint32_t Beebo::tlvGetTxDelayFactor(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
   if (self->trialTouches(TrialSequence::TX_DELAY)) self->abortTrial(false);   // a manual change ends the trial first
+  if (!_inRange(_bitsFloat(raw), 0.0f, 2.0f)) return false;
   if (role == NODE_ROLE_COMPANION)
     return persistScalarField(self, role, self->role_state_store[role].prefs.comp_tx_delay_factor, _bitsFloat(raw));
 #if BEEBO_ENABLE_REPEATER_ROLE
@@ -257,6 +260,7 @@ uint32_t Beebo::tlvGetDirectTxDelayFactor(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetDirectTxDelayFactor(Beebo* self, uint8_t role, uint32_t raw) {
   if (self->trialTouches(TrialSequence::DIRECT_TX_DELAY)) self->abortTrial(false);   // a manual change ends the trial first
+  if (!_inRange(_bitsFloat(raw), 0.0f, 2.0f)) return false;
   if (role == NODE_ROLE_COMPANION)
     return persistScalarField(self, role, self->role_state_store[role].prefs.comp_direct_tx_delay_factor, _bitsFloat(raw));
 #if BEEBO_ENABLE_REPEATER_ROLE
@@ -302,6 +306,7 @@ uint32_t Beebo::tlvGetFloodAdvertInterval(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetFloodAdvertInterval(Beebo* self, uint8_t role, uint32_t raw) {
+  if (raw > 168) return false;   // hours
 #if BEEBO_ENABLE_REPEATER_ROLE
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.flood_advert_interval = (uint8_t)raw;
@@ -377,6 +382,7 @@ uint32_t Beebo::tlvGetRxDelayBase(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetRxDelayBase(Beebo* self, uint8_t role, uint32_t raw) {
+  if (!_inRange(_bitsFloat(raw), 0.0f, 20.0f)) return false;
   if (self->trialTouches(TrialSequence::RX_DELAY)) self->abortTrial(false);   // a manual change ends the trial first
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.rx_delay_base, _bitsFloat(raw));
@@ -392,6 +398,7 @@ uint32_t Beebo::tlvGetAirtimeFactor(Beebo* self, uint8_t role) {
 #endif
 }
 bool Beebo::tlvSetAirtimeFactor(Beebo* self, uint8_t role, uint32_t raw) {
+  if (!_inRange(_bitsFloat(raw), 0.0f, 9.0f)) return false;
   if (self->trialTouches(TrialSequence::AIRTIME)) self->abortTrial(false);   // a manual change ends the trial first
 #if BEEBO_ENABLE_REPEATER_ROLE
   return persistScalarField(self, role, self->role_state_store[role].prefs.airtime_factor, _bitsFloat(raw));

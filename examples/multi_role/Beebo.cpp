@@ -845,11 +845,14 @@ void Beebo::putNeighbor(const uint8_t* pubkey, uint8_t pubkey_len, uint32_t adve
     slot->lat = lat;
     slot->lon = lon;
     StrHelper::strzcpy(slot->name, name, sizeof(slot->name));
-  } else if (is_new) {
-    slot->advert_timestamp = 0;
-    slot->type = 0xFF;
-    slot->lat = slot->lon = 0;
-    slot->name[0] = 0;
+  } else {
+    if (is_new) {
+      slot->advert_timestamp = 0;
+      slot->type = 0xFF;
+      slot->lat = slot->lon = 0;
+      slot->name[0] = 0;
+    }
+    if (type != 0xFF) slot->type = type;   // a discover response names its type, nothing else
   }
 }
 
@@ -1095,14 +1098,15 @@ void Beebo::onControlDataRecv(mesh::Packet *packet) {
   }
 
   // beebo: a NODE_DISCOVER_RESP heard directly is as good a neighbor sighting
-  // as an advert, just with (at most) a partial pubkey and no name/location.
+  // as an advert, just with (at most) a partial pubkey, its node type (low 4
+  // bits of the control byte) and no name/location.
   // Wire layout after the control-type byte: [SNR_in:1][tag:4][pubkey:1..32].
   if (packet->getPathHashCount() == 0 && packet->payload_len >= 6
       && (packet->payload[0] & 0xF0) == 0x90 /* ControlType::NODE_DISCOVER_RESP */) {
     uint8_t pubkey_len = packet->payload_len - 6;
     if (pubkey_len > 0 && pubkey_len <= PUB_KEY_SIZE) {
-      putNeighbor(&packet->payload[6], pubkey_len, 0, (int8_t)(_radio->getLastSNR() * 4),
-                   0xFF, NULL, 0, 0);
+      putNeighbor(&packet->payload[6], pubkey_len, 0, packet->_snr,
+                   packet->payload[0] & 0x0F, NULL, 0, 0);
     }
   }
 
@@ -1114,9 +1118,8 @@ void Beebo::onControlDataRecv(mesh::Packet *packet) {
   // original only ever answered as a repeater, since that's the only role
   // it has). REQ-sending (sendNodeDiscoverReq/"discover.neighbors"/
   // BEEBO_CMD_NODE_DISCOVER) is not role-gated either: any node can
-  // legitimately ask "who's near me". RESP-matching here is naturally
-  // gated by pending_discover_tag, which only sendNodeDiscoverReq() ever
-  // sets.
+  // legitimately ask "who's near me". A response is recorded above, as a
+  // neighbor sighting, whoever asked.
   // Simplified from the original: skips the optional "since" field
   // (discovery_mod_timestamp incremental-query gate) -- multi_role has no
   // such NodePrefs field, and this is already a minor/QoL feature per the
@@ -1155,17 +1158,6 @@ void Beebo::onControlDataRecv(mesh::Packet *packet) {
       auto resp = createControlData(data, prefix_only ? 6 + 8 : 6 + PUB_KEY_SIZE);
       if (resp) {
         sendZeroHop(resp, getRetransmitDelay(resp)*4);  // apply random delay (widened x4), as multiple nodes can respond to this
-      }
-    }
-  } else if (ctl_type == CTL_TYPE_NODE_DISCOVER_RESP && packet->payload_len >= 6
-             && pending_discover_tag != 0 && !millisHasNowPassed(pending_discover_until)) {
-    uint8_t node_type = packet->payload[0] & 0x0F;
-    int pubkey_len = packet->payload_len - 6;
-    if (pubkey_len > 0 && pubkey_len <= PUB_KEY_SIZE) {
-      uint32_t tag;
-      memcpy(&tag, &packet->payload[2], 4);
-      if (tag == pending_discover_tag) {
-        putNeighbor(&packet->payload[6], (uint8_t)pubkey_len, 0, packet->_snr, node_type, NULL, 0, 0);
       }
     }
   }
@@ -4330,7 +4322,7 @@ uint32_t Beebo::tlvGetRadioFreq(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetRadioFreq(Beebo* self, uint8_t role, uint32_t raw) {
   float v; memcpy(&v, &raw, 4);
-  if (v < 150.0f || v > 2500.0f) return false;
+  if (!(v >= 150.0f && v <= 2500.0f)) return false;   // also rejects NaN
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.freq = v;
   persistRoleSlot(self, role, slot);
@@ -4347,7 +4339,7 @@ uint32_t Beebo::tlvGetRadioBw(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetRadioBw(Beebo* self, uint8_t role, uint32_t raw) {
   float v; memcpy(&v, &raw, 4);
-  if (v < 7.0f || v > 500.0f) return false;
+  if (!(v >= 7.0f && v <= 500.0f)) return false;   // also rejects NaN
   BeeboRoleState& slot = self->role_state_store[role];
   slot.prefs.bw = v;
   persistRoleSlot(self, role, slot);
@@ -4421,7 +4413,7 @@ uint32_t Beebo::tlvGetAdcMultiplier(Beebo* self, uint8_t role) {
 }
 bool Beebo::tlvSetAdcMultiplier(Beebo* self, uint8_t role, uint32_t raw) {
   float v; memcpy(&v, &raw, 4);
-  v = constrain(v, 0.0f, 10.0f);
+  if (!(v >= 0.0f && v <= 10.0f)) return false;   // also rejects NaN
   self->_board.adc_multiplier = v;
   self->_board_dirty = true;
   board.setAdcMultiplier(v);
@@ -6361,14 +6353,7 @@ void Beebo::handleCmdFrame(size_t len) {
     // exactly today's whole-seconds behavior.
     uint16_t ms = 0;
     if (sub_len >= 7) memcpy(&ms, &sub[5], 2);
-    if (dirty_contacts_expiry) {
-#if BEEBO_ENABLE_REPEATER_ROLE
-      if (isRepeater()) acl.save(_store->getPrimaryFS());
-      else saveContacts();
-#else
-      saveContacts();
-#endif
-    }
+    flushDirtyContacts();
     board.rebootWithTime(secs, ms);
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: the whole GET/SET_REGION_* cluster below talks to region_map
@@ -6572,6 +6557,9 @@ void Beebo::handleCmdFrame(size_t len) {
     // walks back to it.
     uint16_t created_ids[MAX_REGION_ENTRIES];
     int created_count = 0;
+    uint16_t touched_ids[MAX_REGION_ENTRIES];   // existing regions, with the flags they had
+    uint8_t touched_flags[MAX_REGION_ENTRIES];
+    int touched_count = 0;
 
     RegionEntry* cursor = &region_map.getWildcard();
     int err_code = 0;
@@ -6602,10 +6590,13 @@ void Beebo::handleCmdFrame(size_t len) {
         err_code = put_err == PUT_REGION_ILLEGAL_NAME ? ERR_CODE_ILLEGAL_ARG : ERR_CODE_TABLE_FULL;
         break;
       }
-      r->flags = 0;   // flood-allowed by default, same as SET_REGION_PUT
-      if (region_map.getCount() > count_before && created_count < MAX_REGION_ENTRIES) {
-        created_ids[created_count++] = r->id;
+      if (region_map.getCount() > count_before) {
+        if (created_count < MAX_REGION_ENTRIES) created_ids[created_count++] = r->id;
+      } else if (touched_count < MAX_REGION_ENTRIES) {
+        touched_ids[touched_count] = r->id;
+        touched_flags[touched_count++] = r->flags;
       }
+      r->flags = 0;   // flood-allowed by default, same as SET_REGION_PUT
 
       if (jump) {
         RegionEntry* j = region_map.findByNamePrefix(jump);
@@ -6619,6 +6610,10 @@ void Beebo::handleCmdFrame(size_t len) {
       for (int i = created_count - 1; i >= 0; i--) {
         RegionEntry* r = region_map.findById(created_ids[i]);
         if (r != NULL) region_map.removeRegion(*r);
+      }
+      for (int i = touched_count - 1; i >= 0; i--) {   // newest first: a region named twice ends on its first-seen flags
+        RegionEntry* r = region_map.findById(touched_ids[i]);
+        if (r != NULL) r->flags = touched_flags[i];
       }
       writeErrFrame(err_code);
     } else {
@@ -7372,6 +7367,7 @@ void Beebo::handleCmdFrame(size_t len) {
           // here. Either way this call always reboots next, so the result
           // itself needs no further handling.
           requestNodeRoleSwitch(role, EVENT_SOURCE_BINARY);
+          flushDirtyContacts();
           board.reboot();  // doesn't return; no reply, matches REBOOT_WITH_TIME
         }
       }
@@ -7463,8 +7459,16 @@ void Beebo::handleCmdFrame(size_t len) {
     size_t pw_len = min((size_t)sub_len - 1, sizeof(candidate) - 1);
     memcpy(candidate, &sub[1], pw_len);
     candidate[pw_len] = 0;
-    if (_board.board_password[0] == 0
+    // UNLOCK_MAX_FAILS wrong candidates within UNLOCK_WINDOW_MS refuse every candidate,
+    // the right one included, until the window ends. A correct unlock is never counted.
+    if (_ms->getMillis() - _unlock_window_start >= UNLOCK_WINDOW_MS) {
+      _unlock_window_start = _ms->getMillis();
+      _unlock_fails = 0;
+    }
+    bool locked = _unlock_fails >= UNLOCK_MAX_FAILS;
+    if (locked || _board.board_password[0] == 0
         || strcmp(candidate, _board.board_password) != 0) {
+      if (!locked) _unlock_fails++;
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     } else {
       // beebo: three NUL-delimited fields -- guest_password, wifi_password,
@@ -7510,6 +7514,17 @@ static bool save_filter(const ContactInfo& c) {
   return c.type != ADV_TYPE_NONE;   // don't save the transient/anon entries
 }
 #endif
+
+// Writes a pending contact (companion) or ACL (repeater) change now, ahead of a reboot.
+void Beebo::flushDirtyContacts() {
+  if (!dirty_contacts_expiry) return;
+#if BEEBO_ENABLE_REPEATER_ROLE
+  if (isRepeater()) acl.save(_store->getPrimaryFS());
+  else
+#endif
+  saveContacts();
+  dirty_contacts_expiry = 0;
+}
 
 void Beebo::saveContacts() {
 #if BEEBO_ENABLE_COMPANION_ROLE
@@ -8377,6 +8392,7 @@ void Beebo::loop() {
   // queue-full drops are immediate hooks now
   // (logFaultEvent()/logTxQueueFull()/logRxQueueFull()), not polled here.
   appendLinkQueueDropEvents();
+  loopFeed();
 
 #if BEEBO_ENABLE_REPEATER_ROLE
   // beebo: Phase A dynamic-tuning optimizer tick (see AdaptiveController.h /
@@ -8388,7 +8404,6 @@ void Beebo::loop() {
   // default 0) is a separate, narrower opt-in on top of that -- every param
   // stays observe-only until its own bit is set.
   if (monring.allocated()) trackExposure();
-  loopFeed();
   if ((_trial_enabled || (isRepeater() && _adaptive_enabled)) && monring.allocated()) loopTuning();   // the adaptive tuner is repeater-only, the trial runs in either role
 #endif
 
@@ -9046,8 +9061,6 @@ void Beebo::sendNodeDiscoverReq(uint8_t filter, bool prefix_only) {
   data[0] = CTL_TYPE_NODE_DISCOVER_REQ | (prefix_only ? 1 : 0);
   data[1] = filter;
   getRNG()->random(&data[2], 4); // tag
-  memcpy(&pending_discover_tag, &data[2], 4);
-  pending_discover_until = futureMillis(60000);
   uint32_t since = 0;
   memcpy(&data[6], &since, 4);
 

@@ -303,6 +303,10 @@ bool DataStore::loadBeeboCompanionPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _bo
                       bc.clamp();   // a stored value outside its range reads as the nearest legal one
                       _prefs.bot = bc.styles; _prefs.bot_reply_gap = bc.reply_gap;
                       _prefs.bot_sender_gap = bc.sender_gap; _prefs.bot_reply_jitter = bc.reply_jitter;
+                      // profile_enabled -- tail-guarded, defaulting to 0 (off)
+                      if (file.available() >= (int)sizeof(_prefs.profile_enabled)) {
+                        file.read((uint8_t *)&_prefs.profile_enabled, sizeof(_prefs.profile_enabled));
+                      }
                     }
                   }
                 }
@@ -377,6 +381,7 @@ void DataStore::saveBeeboCompanionPrefs(const BeeboPrefs& _prefs, const BeeboBoa
     file.write((uint8_t *)&_prefs.bot_sender_gap, sizeof(_prefs.bot_sender_gap));
     file.write((uint8_t *)&_prefs.bot_reply_jitter, sizeof(_prefs.bot_reply_jitter));
     file.write((uint8_t *)_prefs.bot_name, sizeof(_prefs.bot_name));
+    file.write((uint8_t *)&_prefs.profile_enabled, sizeof(_prefs.profile_enabled));
 
     file.close();
   }
@@ -401,12 +406,12 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
   // next: 49 -- adc_multiplier/adc_resolution_bits/batt_present/
   // batt_sample_period_secs/batt_sample_window_secs folded in from here.
   // Only present in a post-fold-in file -- an older /beebo_board ends
-  // right here. A file below BOARD_PREFS_VERSION additionally carries two
+  // right here. A file below version 2 additionally carries two
   // now-dropped fields right after batt_sample_window_secs (BeeboAbi.h).
   size_t battery_fields_len = sizeof(_prefs.adc_multiplier) + sizeof(_prefs.adc_resolution_bits)
     + sizeof(_prefs.batt_present) + sizeof(_prefs.batt_sample_period_secs)
     + sizeof(_prefs.batt_sample_window_secs);
-  if (_abi.board_prefs_version < BOARD_PREFS_VERSION) battery_fields_len += 2 * sizeof(uint16_t);
+  if (_abi.board_prefs_version < 2) battery_fields_len += 2 * sizeof(uint16_t);
   bool has_battery_fields = (size_t)file.available() >= battery_fields_len;
   if (has_battery_fields) {
     file.read((uint8_t *)&_prefs.adc_multiplier, sizeof(_prefs.adc_multiplier));           // 49
@@ -414,7 +419,7 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
     file.read((uint8_t *)&_prefs.batt_present, sizeof(_prefs.batt_present));               // 54
     file.read((uint8_t *)&_prefs.batt_sample_period_secs, sizeof(_prefs.batt_sample_period_secs)); // 55
     file.read((uint8_t *)&_prefs.batt_sample_window_secs, sizeof(_prefs.batt_sample_window_secs)); // 57
-    if (_abi.board_prefs_version < BOARD_PREFS_VERSION) {
+    if (_abi.board_prefs_version < 2) {
       uint16_t discard;
       file.read((uint8_t *)&discard, sizeof(discard));
       file.read((uint8_t *)&discard, sizeof(discard));
@@ -425,10 +430,16 @@ bool DataStore::loadBeeboBoardPrefs(BeeboBoardPrefs& _prefs) {
       file.read((uint8_t *)&_prefs.fem_rssi_ofs_lna, sizeof(_prefs.fem_rssi_ofs_lna));       // 59
       file.read((uint8_t *)&_prefs.fem_rssi_ofs_bypass, sizeof(_prefs.fem_rssi_ofs_bypass)); // 60
     }
-    // 61: feed slots -- an older file ends before them and keeps the defaults. (A file written by an
-    // earlier build may carry 64 more bytes here, which are ignored.)
+    // 61: feed slots -- an older file ends before them and keeps the defaults.
     if ((size_t)file.available() >= sizeof(_prefs.feed_idx)) {
       file.read((uint8_t *)_prefs.feed_idx, sizeof(_prefs.feed_idx));    // 61
+    }
+    // A version 2 file is either today's layout (3 more bytes at most) or ends in two 32-byte
+    // feed names, which are skipped so they are not read as the fields below.
+    const size_t feed_names_len = 64;
+    if (_abi.board_prefs_version < 3 && (size_t)file.available() >= feed_names_len) {
+      uint8_t skip[feed_names_len];
+      file.read(skip, sizeof(skip));
     }
     // 63: external RX chain RSSI offset -- an older file ends before it and keeps the default.
     if ((size_t)file.available() >= sizeof(_prefs.ext_rx_gain)) {
@@ -576,22 +587,6 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
         // there for loadPrefsInt()'s byte-offset compat) -- BeeboPrefs
         // multiply-inherits both, so an unqualified access is ambiguous.
         file.read((uint8_t *)&_prefs.BeeboBasePrefs::radio_fem_rxgain, sizeof(_prefs.BeeboBasePrefs::radio_fem_rxgain));
-        if (_abi.repeater_prefs_version < REPEATER_PREFS_VERSION) {
-          // Legacy layout only -- adc_multiplier/adc_resolution_bits/
-          // batt_present/batt_sample_period_secs/batt_sample_window_secs
-          // are read here as a one-time migration seed for a
-          // pre-/beebo_board device. /beebo_board is
-          // the sole authoritative store for these once
-          // repeater_prefs_version reaches REPEATER_PREFS_VERSION.
-          file.read((uint8_t *)&_board.adc_multiplier, sizeof(_board.adc_multiplier));
-          file.read((uint8_t *)&_board.adc_resolution_bits, sizeof(_board.adc_resolution_bits));
-          file.read((uint8_t *)&_board.batt_present, sizeof(_board.batt_present));
-          file.read((uint8_t *)&_board.batt_sample_period_secs, sizeof(_board.batt_sample_period_secs));
-          file.read((uint8_t *)&_board.batt_sample_window_secs, sizeof(_board.batt_sample_window_secs));
-          uint16_t discard;  // was batt_charged_mv, idle_margin_ms -- BeeboAbi.h
-          file.read((uint8_t *)&discard, sizeof(discard));
-          file.read((uint8_t *)&discard, sizeof(discard));
-        }
         file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));
         file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));
         file.read((uint8_t *)_prefs.wifi_ssid, sizeof(_prefs.wifi_ssid));
@@ -636,6 +631,10 @@ bool DataStore::loadBeeboRepeaterPrefs(BeeboPrefs& _prefs, BeeboBoardPrefs& _boa
                     // tx_disable -- tail-guarded the same way, defaulting to 0 (transmit on)
                     if (file.available() >= (int)sizeof(_prefs.tx_disable)) {
                       file.read((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
+                      // profile_enabled -- tail-guarded the same way, defaulting to 0 (off)
+                      if (file.available() >= (int)sizeof(_prefs.profile_enabled)) {
+                        file.read((uint8_t *)&_prefs.profile_enabled, sizeof(_prefs.profile_enabled));
+                      }
                     }
                   }
                 }
@@ -726,6 +725,7 @@ void DataStore::saveBeeboRepeaterPrefs(const BeeboPrefs& _prefs, const BeeboBoar
     const uint8_t retired = 0;   // the byte echo_at_tx held, kept so tx_disable stays where it was
     file.write(&retired, sizeof(retired));
     file.write((uint8_t *)&_prefs.tx_disable, sizeof(_prefs.tx_disable));
+    file.write((uint8_t *)&_prefs.profile_enabled, sizeof(_prefs.profile_enabled));
 
     file.close();
   }

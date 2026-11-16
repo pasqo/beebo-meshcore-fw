@@ -1905,9 +1905,12 @@ private:
   // currently is (repeater or chat/companion), and sending a request works
   // from either role (handleCommand's "discover.neighbors" text command, or
   // BEEBO_CMD_NODE_DISCOVER over the companion binary link).
+  // BEEBO_CMD_UNLOCK_ROLE_SECRETS: wrong candidates in the current window
+  static constexpr uint8_t UNLOCK_MAX_FAILS = 5;
+  static constexpr uint32_t UNLOCK_WINDOW_MS = 60000;
+  uint8_t _unlock_fails = 0;
+  uint32_t _unlock_window_start = 0;
   RateLimiter discover_limiter{4, 120};  // max 4 every 2 minutes, same as simple_repeater
-  uint32_t pending_discover_tag = 0;
-  unsigned long pending_discover_until = 0;
   void sendNodeDiscoverReq(uint8_t filter, bool prefix_only = false);
 
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
@@ -2678,6 +2681,7 @@ private:
   struct { bool active; uint32_t after_seq; uint32_t next; bool first_page; bool reset; } _monread;  // in-flight monitor-ring stream
   struct { bool active; uint8_t kind; uint16_t offset; } _statread;  // in-flight GET_STATS (TRANSPORT/PROFILE) ring stream
   void endBulkStreams();
+  void flushDirtyContacts();
   struct { bool active; int index; } _neighread;  // in-flight GET_NEIGHBORS stream
   struct { bool active; int index; } _pathread;   // in-flight GET_ADVERT_PATHS stream
 
