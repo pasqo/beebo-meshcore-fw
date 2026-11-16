@@ -246,7 +246,7 @@ TEST(BotReply, GreetingIsACatNoiseChosenByTheRandomValue) {
   RawPath p;
   Fix f;
   ASSERT_EQ(V_REPLY, f.msg(T0, "alice: test", makeLink(p), "Beebo", 1));
-  EXPECT_STREQ("@[alice] purr: direct. Use h for policy", f.s.pendingText());
+  EXPECT_STREQ("@[alice] purr: 0 hops. Use h for policy", f.s.pendingText());
 }
 
 TEST(BotReply, EveryNoiseFitsALongPathReplyInTheLimit) {
@@ -265,7 +265,7 @@ TEST(BotReply, TestDirect) {
   Fix f;
   RawPath p;
   ASSERT_EQ(V_REPLY, f.msg(T0, "alice: test", makeLink(p)));
-  EXPECT_STREQ("@[alice] meow: direct. Use h for policy", f.s.pendingText());
+  EXPECT_STREQ("@[alice] meow: 0 hops. Use h for policy", f.s.pendingText());
 }
 
 TEST(BotReply, TestMultiHopShowsHopsAndPath) {
@@ -452,7 +452,7 @@ TEST(BotGate, DueReturnsTheTextOnceAndCountsTheReply) {
   EXPECT_EQ(0u, f.s.replies());
   const char* t = f.s.due(T0 + 5000);
   ASSERT_NE(nullptr, t);
-  EXPECT_STREQ("@[a] meow: direct. Use h for policy", t);
+  EXPECT_STREQ("@[a] meow: 0 hops. Use h for policy", t);
   EXPECT_EQ(1u, f.s.replies());
   EXPECT_EQ(nullptr, f.s.due(T0 + 6000));
   EXPECT_FALSE(f.s.pending());

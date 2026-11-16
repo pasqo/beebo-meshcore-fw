@@ -311,7 +311,7 @@ private:
                        (l.snr_x4 < 0 && tenths > 0) ? "-" : "", tenths / 10, tenths % 10,
                        (int)l.rssi, (int)l.rssi - (int)l.noise_dbm);
         } else {
-          n = snprintf(detail, sizeof(detail), "direct");
+          n = snprintf(detail, sizeof(detail), "0 hops");
         }
       } else {
         char path[MAX_TEXT + 1];
