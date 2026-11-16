@@ -229,11 +229,43 @@ struct Fix {
   }
 };
 
+TEST(BotConfig, DefaultNameIsAValidChannelName) {
+  EXPECT_STREQ("#beebo-bot", DEFAULT_NAME);
+  EXPECT_TRUE(validName(DEFAULT_NAME));
+}
+
+TEST(BotReply, GreetingIsACatNoiseChosenByTheRandomValue) {
+  EXPECT_STREQ("meow", noise(0));
+  EXPECT_STREQ("purr", noise(1));
+  EXPECT_STREQ(noise(0), noise(NOISE_COUNT));
+  EXPECT_STREQ(noise(2), noise(2 + 3 * NOISE_COUNT));
+  for (int i = 0; i < NOISE_COUNT; i++) {
+    ASSERT_GT(strlen(noise(i)), 2u);
+    for (const char* c = noise(i); *c; c++) EXPECT_TRUE(*c >= 'a' && *c <= 'z') << noise(i);
+  }
+  RawPath p;
+  Fix f;
+  ASSERT_EQ(V_REPLY, f.msg(T0, "alice: test", makeLink(p), "Beebo", 1));
+  EXPECT_STREQ("@[alice] purr: direct. Use h for policy", f.s.pendingText());
+}
+
+TEST(BotReply, EveryNoiseFitsALongPathReplyInTheLimit) {
+  const char* name31 = "0123456789012345678901234567890";
+  RawPath p;
+  for (int i = 0; i < 21; i++) p.add({(uint8_t)(i + 1), (uint8_t)(i + 2), (uint8_t)(i + 3)}, 3);
+  for (int n = 0; n < NOISE_COUNT; n++) {
+    Fix f;
+    ASSERT_EQ(V_REPLY, f.msg(T0, "alice: test", makeLink(p), name31, (uint16_t)n));
+    EXPECT_LE((int)strlen(f.s.pendingText()), maxBodyLen(name31)) << noise(n);
+    EXPECT_NE(nullptr, strstr(f.s.pendingText(), "Use h for policy")) << noise(n);
+  }
+}
+
 TEST(BotReply, TestDirect) {
   Fix f;
   RawPath p;
   ASSERT_EQ(V_REPLY, f.msg(T0, "alice: test", makeLink(p)));
-  EXPECT_STREQ("@[alice] got it: direct. Use h for policy", f.s.pendingText());
+  EXPECT_STREQ("@[alice] meow: direct. Use h for policy", f.s.pendingText());
 }
 
 TEST(BotReply, TestMultiHopShowsHopsAndPath) {
@@ -241,7 +273,7 @@ TEST(BotReply, TestMultiHopShowsHopsAndPath) {
   RawPath p;
   p.add({0x3f}, 1).add({0xa2}, 1);
   ASSERT_EQ(V_REPLY, f.msg(T0, "alice: ping", makeLink(p)));
-  EXPECT_STREQ("@[alice] got it: 2 hops via 3f>a2. Use h for policy", f.s.pendingText());
+  EXPECT_STREQ("@[alice] meow: 2 hops via 3f>a2. Use h for policy", f.s.pendingText());
 }
 
 TEST(BotReply, SingleHopIsSingular) {
@@ -249,7 +281,7 @@ TEST(BotReply, SingleHopIsSingular) {
   RawPath p;
   p.add({0x07}, 1);
   ASSERT_EQ(V_REPLY, f.msg(T0, "alice: test", makeLink(p)));
-  EXPECT_STREQ("@[alice] got it: 1 hop via 07. Use h for policy", f.s.pendingText());
+  EXPECT_STREQ("@[alice] meow: 1 hop via 07. Use h for policy", f.s.pendingText());
 }
 
 TEST(BotReply, TestDoesNotReportLinkFiguresOfARepeater) {
@@ -265,14 +297,14 @@ TEST(BotReply, NeighborDirectReportsLinkAndMargin) {
   Fix f;
   RawPath p;
   ASSERT_EQ(V_REPLY, f.msg(T0, "alice: nbr", makeLink(p, 22, -90, -112)));
-  EXPECT_STREQ("@[alice] got it: direct, SNR 5.5, RSSI -90, margin 22 dB. Use h for policy", f.s.pendingText());
+  EXPECT_STREQ("@[alice] meow: direct, SNR 5.5, RSSI -90, margin 22 dB. Use h for policy", f.s.pendingText());
 }
 
 TEST(BotReply, SnrFormatsTenthsAndSign) {
   Fix f;
   RawPath p;
   f.msg(T0, "a: nbr", makeLink(p, -50, -120, -112));
-  EXPECT_STREQ("@[a] got it: direct, SNR -12.5, RSSI -120, margin -8 dB. Use h for policy", f.s.pendingText());
+  EXPECT_STREQ("@[a] meow: direct, SNR -12.5, RSSI -120, margin -8 dB. Use h for policy", f.s.pendingText());
   f.s.cancel();
   f.msg(T0 + 100000, "b: nbr", makeLink(p, -2, -90, -112));
   EXPECT_NE(nullptr, strstr(f.s.pendingText(), "SNR -0.5,"));
@@ -285,19 +317,23 @@ TEST(BotReply, HelpListsEnabledTriggersAndLiveLimits) {
   Fix f;
   RawPath p;
   ASSERT_EQ(V_REPLY, f.msg(T0, "alice: h", makeLink(p)));
-  EXPECT_STREQ("@[alice] test/ping/nbr: 1 reply/10s, 1/sender/60s, up to 4s delay, no guarantee", f.s.pendingText());
+  EXPECT_STREQ("@[alice] t/test/p/ping: hops and path. n/nbr: SNR/RSSI/margin, direct only. "
+               "Limits: 1 reply/10s, 1/sender/60s, up to 4s delay. Best effort, no guarantee.",
+               f.s.pendingText());
 }
 
 TEST(BotReply, HelpOnlyListsOwnStyle) {
   Fix a(STYLE_TEST);
   RawPath p;
   a.msg(T0, "x: help", makeLink(p));
-  EXPECT_NE(nullptr, strstr(a.s.pendingText(), "test/ping:"));
-  EXPECT_EQ(nullptr, strstr(a.s.pendingText(), "nbr"));
+  EXPECT_STREQ("@[x] t/test/p/ping: hops and path. "
+               "Limits: 1 reply/10s, 1/sender/60s, up to 4s delay. Best effort, no guarantee.",
+               a.s.pendingText());
   Fix b(STYLE_NEIGHBOR);
   b.msg(T0, "x: help", makeLink(p));
-  EXPECT_NE(nullptr, strstr(b.s.pendingText(), "nbr:"));
-  EXPECT_EQ(nullptr, strstr(b.s.pendingText(), "test"));
+  EXPECT_STREQ("@[x] n/nbr: SNR/RSSI/margin, direct only. "
+               "Limits: 1 reply/10s, 1/sender/60s, up to 4s delay. Best effort, no guarantee.",
+               b.s.pendingText());
 }
 
 TEST(BotReply, HelpReflectsChangedSettings) {
@@ -308,15 +344,43 @@ TEST(BotReply, HelpReflectsChangedSettings) {
   f.s.setConfig(f.c);
   RawPath p;
   f.msg(T0, "x: h", makeLink(p));
-  EXPECT_STREQ("@[x] test/ping/nbr: 1 reply/30s, no per-sender limit, no guarantee", f.s.pendingText());
+  EXPECT_STREQ("@[x] t/test/p/ping: hops and path. n/nbr: SNR/RSSI/margin, direct only. "
+               "Limits: 1 reply/30s, no per-sender limit. Best effort, no guarantee.",
+               f.s.pendingText());
 }
+
+TEST(BotReply, HelpDropsDetailThenDisclaimerThenFallsBackToShortForm) {
+  const char* name31 = "0123456789012345678901234567890";   // limit 127
+  RawPath p;
+  {   // 22-char name, limit 136: only the SNR/RSSI/margin detail goes
+    Fix f;
+    f.msg(T0, "alice: h", makeLink(p), "0123456789012345678901", 0);
+    EXPECT_STREQ("@[alice] t/test/p/ping: hops and path. n/nbr: direct only. "
+                 "Limits: 1 reply/10s, 1/sender/60s, up to 4s delay. Best effort, no guarantee.",
+                 f.s.pendingText());
+  }
+  {   // 25-char name, limit 133: detail and disclaimer go
+    Fix f;
+    f.msg(T0, "alice: h", makeLink(p), "0123456789012345678901234", 0);
+    EXPECT_STREQ("@[alice] t/test/p/ping: hops and path. n/nbr: direct only. "
+                 "Limits: 1 reply/10s, 1/sender/60s, up to 4s delay.",
+                 f.s.pendingText());
+  }
+  {   // a long sender too: the short form, cut to the limit
+    Fix f;
+    f.msg(T0, "abcdefghijklmnopqrstuvwxyzabcd: h", makeLink(p), name31, 0);
+    EXPECT_EQ(0, strncmp(f.s.pendingText(), "@[abcdefghijklmnopqrstuvwxyzabcd] test/ping/nbr: 1 reply/10s", 60));
+    EXPECT_LE((int)strlen(f.s.pendingText()), maxBodyLen(name31));
+  }
+}
+
 
 TEST(BotReply, LongPathShortensToFirstAndLast) {
   Fix f;
   RawPath p;
   for (uint8_t i = 1; i <= 21; i++) p.add({i, (uint8_t)(i + 1), (uint8_t)(i + 2)}, 3);
   ASSERT_EQ(V_REPLY, f.msg(T0, "alice: test", makeLink(p)));
-  EXPECT_STREQ("@[alice] got it: 21 hops via 010203>..>151617. Use h for policy", f.s.pendingText());
+  EXPECT_STREQ("@[alice] meow: 21 hops via 010203>..>151617. Use h for policy", f.s.pendingText());
 }
 
 TEST(BotReply, ShortPathPrintsEveryHop) {
@@ -324,7 +388,7 @@ TEST(BotReply, ShortPathPrintsEveryHop) {
   RawPath p;
   p.add({1, 2, 3}, 3).add({4, 5, 6}, 3).add({7, 8, 9}, 3);
   f.msg(T0, "alice: test", makeLink(p));
-  EXPECT_STREQ("@[alice] got it: 3 hops via 010203>040506>070809. Use h for policy", f.s.pendingText());
+  EXPECT_STREQ("@[alice] meow: 3 hops via 010203>040506>070809. Use h for policy", f.s.pendingText());
 }
 
 TEST(BotReply, WorstCaseFitsSendGroupMessageBudget) {
@@ -388,7 +452,7 @@ TEST(BotGate, DueReturnsTheTextOnceAndCountsTheReply) {
   EXPECT_EQ(0u, f.s.replies());
   const char* t = f.s.due(T0 + 5000);
   ASSERT_NE(nullptr, t);
-  EXPECT_STREQ("@[a] got it: direct. Use h for policy", t);
+  EXPECT_STREQ("@[a] meow: direct. Use h for policy", t);
   EXPECT_EQ(1u, f.s.replies());
   EXPECT_EQ(nullptr, f.s.due(T0 + 6000));
   EXPECT_FALSE(f.s.pending());
@@ -506,7 +570,7 @@ TEST(BotGate, OwnNameIsNeverAnswered) {
 TEST(BotGate, BotReplyBodiesAreIgnoredWithoutCounting) {
   Fix f;
   RawPath p;
-  EXPECT_EQ(V_IGNORE, f.msg(T0, "bot: @[alice] got it: direct. Use h for policy", makeLink(p)));
+  EXPECT_EQ(V_IGNORE, f.msg(T0, "bot: @[alice] meow: direct. Use h for policy", makeLink(p)));
   EXPECT_EQ(V_IGNORE, f.msg(T0, "bot: @[alice] test", makeLink(p)));
   EXPECT_EQ(0u, f.s.dropped());
 }

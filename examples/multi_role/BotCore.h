@@ -76,6 +76,14 @@ inline bool validName(const char* n) {
   return true;
 }
 
+// The reply greeting, picked by the random value.
+constexpr const char* DEFAULT_NAME = "#beebo-bot";   // reply name until one is set
+constexpr int NOISE_COUNT = 6;
+inline const char* noise(uint16_t rnd) {
+  static const char* const NOISES[NOISE_COUNT] = {"meow", "purr", "mrrp", "mew", "prrr", "nya"};
+  return NOISES[rnd % NOISE_COUNT];
+}
+
 // BaseChatMesh::sendGroupMessage() truncates at MAX_TEXT minus "<name>: ".
 inline int maxBodyLen(const char* name) { return MAX_TEXT - (int)strlen(name) - 2; }
 
@@ -190,7 +198,7 @@ public:
     e->t = now_ms;
     e->used = true;
 
-    format(kind, sender, _cfg.name[0] ? _cfg.name : node_name, link);
+    format(kind, sender, _cfg.name[0] ? _cfg.name : node_name, link, rnd);
     _deadline = now_ms + (uint32_t)(((uint64_t)rnd * (uint32_t)_cfg.reply_jitter * 1000u) >> 16);
     uint8_t cap = (uint8_t)(link.path.hops >= MAX_HOP_CAP ? MAX_HOP_CAP : link.path.hops + 1);
     _hop_cap = cap;
@@ -261,21 +269,38 @@ private:
     return n;
   }
 
-  void format(Kind kind, const char* sender, const char* name, const Link& l) {
+  void format(Kind kind, const char* sender, const char* name, const Link& l, uint16_t rnd) {
     int limit = maxBodyLen(name);
     if (limit > MAX_TEXT) limit = MAX_TEXT;
     char detail[MAX_TEXT + 1];
     int n = 0;
     if (kind == KIND_HELP) {
-      char trig[16];
-      trig[0] = 0;
-      if (_cfg.styles & STYLE_TEST) strcat(trig, "test/ping");
-      if (_cfg.styles & STYLE_NEIGHBOR) strcat(trig, trig[0] ? "/nbr" : "nbr");
-      n = snprintf(detail, sizeof(detail), "%s: 1 reply/%us", trig, (unsigned)_cfg.reply_gap);
-      if (_cfg.sender_gap) n += snprintf(detail + n, sizeof(detail) - n, ", 1/sender/%us", (unsigned)_cfg.sender_gap);
-      else n += snprintf(detail + n, sizeof(detail) - n, ", no per-sender limit");
-      if (_cfg.reply_jitter) n += snprintf(detail + n, sizeof(detail) - n, ", up to %us delay", (unsigned)_cfg.reply_jitter);
-      snprintf(detail + n, sizeof(detail) - n, ", no guarantee");
+      char limits[80];
+      int m = snprintf(limits, sizeof(limits), "Limits: 1 reply/%us", (unsigned)_cfg.reply_gap);
+      if (_cfg.sender_gap) m += snprintf(limits + m, sizeof(limits) - m, ", 1/sender/%us", (unsigned)_cfg.sender_gap);
+      else m += snprintf(limits + m, sizeof(limits) - m, ", no per-sender limit");
+      if (_cfg.reply_jitter) m += snprintf(limits + m, sizeof(limits) - m, ", up to %us delay", (unsigned)_cfg.reply_jitter);
+      // Full text first; the nbr detail, then the disclaimer, go when it does not fit.
+      for (int level = 0; level < 3; level++) {
+        n = 0;
+        detail[0] = 0;
+        if (_cfg.styles & STYLE_TEST) n += snprintf(detail + n, sizeof(detail) - n, "t/test/p/ping: hops and path. ");
+        if (_cfg.styles & STYLE_NEIGHBOR)
+          n += snprintf(detail + n, sizeof(detail) - n, level == 0 ? "n/nbr: SNR/RSSI/margin, direct only. " : "n/nbr: direct only. ");
+        n += snprintf(detail + n, sizeof(detail) - n, "%s.%s", limits, level < 2 ? " Best effort, no guarantee." : "");
+        if (4 + (int)strlen(sender) + (int)strlen(detail) <= limit) break;
+      }
+      if (4 + (int)strlen(sender) + (int)strlen(detail) > limit) {
+        char trig[16];
+        trig[0] = 0;
+        if (_cfg.styles & STYLE_TEST) strcat(trig, "test/ping");
+        if (_cfg.styles & STYLE_NEIGHBOR) strcat(trig, trig[0] ? "/nbr" : "nbr");
+        n = snprintf(detail, sizeof(detail), "%s: 1 reply/%us", trig, (unsigned)_cfg.reply_gap);
+        if (_cfg.sender_gap) n += snprintf(detail + n, sizeof(detail) - n, ", 1/sender/%us", (unsigned)_cfg.sender_gap);
+        else n += snprintf(detail + n, sizeof(detail) - n, ", no per-sender limit");
+        if (_cfg.reply_jitter) n += snprintf(detail + n, sizeof(detail) - n, ", up to %us delay", (unsigned)_cfg.reply_jitter);
+        snprintf(detail + n, sizeof(detail) - n, ", no guarantee");
+      }
       snprintf(_text, sizeof(_text), "@[%s] %s", sender, detail);
     } else {
       if (l.path.hops == 0) {
@@ -291,14 +316,15 @@ private:
       } else {
         char path[MAX_TEXT + 1];
         const char* tail = ". Use h for policy";
+        const char* hi = noise(rnd);
         for (int pass = 0; pass < 2; pass++) {
           hexPath(path, sizeof(path), l.path, pass == 1);
           snprintf(detail, sizeof(detail), "%u hop%s via %s", (unsigned)l.path.hops, l.path.hops == 1 ? "" : "s", path);
-          int total = (int)(strlen(sender) + 4 + 8 + strlen(detail) + strlen(tail));
+          int total = (int)(strlen(sender) + 4 + strlen(hi) + 2 + strlen(detail) + strlen(tail));
           if (total <= limit) break;
         }
       }
-      snprintf(_text, sizeof(_text), "@[%s] got it: %s. Use h for policy", sender, detail);
+      snprintf(_text, sizeof(_text), "@[%s] %s: %s. Use h for policy", sender, noise(rnd), detail);
     }
     if ((int)strlen(_text) > limit) _text[limit] = 0;
   }

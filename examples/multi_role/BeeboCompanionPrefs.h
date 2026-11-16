@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include "BotCore.h"
 #include "NodePrefs.h"
 #include "BeeboBoardPrefs.h"
 
@@ -18,7 +19,7 @@ struct BeeboCompanionPrefs : public NodePrefs {
   uint8_t bot_reply_gap = 10;    // s between any two replies, 2..255
   uint16_t bot_sender_gap = 60;  // s between replies to one sender, 0 = no limit
   uint8_t bot_reply_jitter = 4;  // s, maximum random delay before a reply
-  char bot_name[32] = {0};       // sender name on replies, empty = node name
+  char bot_name[32] = {0};       // sender name on replies, empty = node name; default #beebo-bot
 
   // Beebo's constructor memsets the live slot to zero before applying
   // defaults, and the loader needs them before reading an old file's tail.
@@ -28,5 +29,6 @@ struct BeeboCompanionPrefs : public NodePrefs {
     bot_sender_gap = 60;
     bot_reply_jitter = 4;
     memset(bot_name, 0, sizeof(bot_name));
+    strcpy(bot_name, bot::DEFAULT_NAME);
   }
 };
